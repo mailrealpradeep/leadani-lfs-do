@@ -2,78 +2,131 @@ import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 
 export async function seedData() {
-  console.log("🌱 Seeding database...");
+  console.log("🌱 Seeding multi-tenant database...");
 
-  // Create admin user
-  const adminPasswordHash = await bcrypt.hash("Passw0rd!", 10);
-  const admin = await storage.createUser({
-    name: "Admin User",
-    email: "admin@example.com",
-    password_hash: adminPasswordHash,
-    role: "admin",
+  // ===== CREATE DEMO COMPANY =====
+  const demoCompany = await storage.createCompany({
+    name: "Acme Corporation",
+    slug: "acme-corp",
+    settings: {
+      timezone: "Asia/Kolkata",
+      date_format: "DD/MM/YYYY",
+    },
+    status: "active",
   });
-  console.log("✓ Created admin user: admin@example.com / Passw0rd!");
+  console.log("✓ Created company: Acme Corporation (acme-corp)");
 
-  // Create regular users
-  const user1PasswordHash = await bcrypt.hash("password123", 10);
+  // ===== CREATE SUPER ADMIN (No company affiliation) =====
+  const superAdminPasswordHash = await bcrypt.hash("SuperAdmin123!", 10);
+  const superAdmin = await storage.createUser({
+    name: "Super Admin",
+    email: "superadmin@dabluz.com",
+    password_hash: superAdminPasswordHash,
+    role: "super_admin",
+    company_id: null,
+  } as any);
+  console.log("✓ Created super admin: superadmin@dabluz.com / SuperAdmin123!");
+
+  // ===== CREATE COMPANY ADMIN for Acme =====
+  const companyAdminPasswordHash = await bcrypt.hash("Admin123!", 10);
+  const companyAdmin = await storage.createUser({
+    name: "Alex Johnson",
+    email: "admin@acme-corp.com",
+    password_hash: companyAdminPasswordHash,
+    role: "company_admin",
+    company_id: demoCompany.id,
+  } as any);
+  console.log("✓ Created company admin: admin@acme-corp.com / Admin123!");
+
+  // ===== CREATE REGULAR USERS for Acme =====
+  const user1PasswordHash = await bcrypt.hash("User123!", 10);
   const user1 = await storage.createUser({
     name: "John Doe",
-    email: "user1@example.com",
+    email: "john@acme-corp.com",
     password_hash: user1PasswordHash,
     role: "user",
-  });
-  console.log("✓ Created user: user1@example.com / password123");
+    company_id: demoCompany.id,
+    invited_by: companyAdmin.id,
+  } as any);
+  console.log("✓ Created user: john@acme-corp.com / User123!");
 
-  const user2PasswordHash = await bcrypt.hash("password123", 10);
+  const user2PasswordHash = await bcrypt.hash("User123!", 10);
   const user2 = await storage.createUser({
     name: "Jane Smith",
-    email: "user2@example.com",
+    email: "jane@acme-corp.com",
     password_hash: user2PasswordHash,
     role: "user",
-  });
-  console.log("✓ Created user: user2@example.com / password123");
+    company_id: demoCompany.id,
+    invited_by: companyAdmin.id,
+  } as any);
+  console.log("✓ Created user: jane@acme-corp.com / User123!");
 
-  // Create sheets
+  // ===== CREATE COMPANY-WIDE SHEETS =====
   const salesNorth = await storage.createSheet({
-    name: "Sales North",
-    owner_id: user1.id,
+    name: "Sales - North Region",
+    owner_id: companyAdmin.id,
+    company_id: demoCompany.id,
+    is_personal: false,
+    visibility: "company", // All company users can see this
     settings: {},
   });
-  console.log("✓ Created sheet: Sales North");
+  console.log("✓ Created company sheet: Sales - North Region");
 
   const salesSouth = await storage.createSheet({
-    name: "Sales South",
-    owner_id: user2.id,
+    name: "Sales - South Region",
+    owner_id: companyAdmin.id,
+    company_id: demoCompany.id,
+    is_personal: false,
+    visibility: "company", // All company users can see this
     settings: {},
   });
-  console.log("✓ Created sheet: Sales South");
+  console.log("✓ Created company sheet: Sales - South Region");
 
-  // Add sheet permissions
+  // ===== CREATE PERSONAL SHEET =====
+  const johnPersonal = await storage.createSheet({
+    name: "John's Personal Leads",
+    owner_id: user1.id,
+    company_id: demoCompany.id,
+    is_personal: true,
+    visibility: "personal", // Only John can see this
+    settings: {},
+  });
+  console.log("✓ Created personal sheet: John's Personal Leads");
+
+  // ===== ADD SHEET PERMISSIONS (for company sheets with restricted access) =====
+  // Company-wide sheets are automatically accessible, but we can add explicit permissions too
   await storage.createSheetUser({
     sheet_id: salesNorth.id,
-    user_id: user1.id,
+    user_id: companyAdmin.id,
     role: "owner",
   });
 
   await storage.createSheetUser({
     sheet_id: salesNorth.id,
-    user_id: user2.id,
+    user_id: user1.id,
     role: "editor",
   });
 
   await storage.createSheetUser({
-    sheet_id: salesSouth.id,
+    sheet_id: salesNorth.id,
     user_id: user2.id,
+    role: "viewer",
+  });
+
+  await storage.createSheetUser({
+    sheet_id: salesSouth.id,
+    user_id: companyAdmin.id,
     role: "owner",
   });
 
   await storage.createSheetUser({
     sheet_id: salesSouth.id,
-    user_id: user1.id,
-    role: "viewer",
+    user_id: user2.id,
+    role: "editor",
   });
 
-  // Create dropdown options for Sales North
+  // ===== CREATE COMPANY-WIDE DROPDOWN OPTIONS =====
+  // These are shared across all sheets in the company
   const dropdownColumns = [
     { key: "lang", values: ["English", "Hindi", "Odia", "Telugu", "Tamil"] },
     { key: "occupation", values: ["Student", "Working Professional", "Business Owner", "Unemployed"] },
@@ -82,21 +135,20 @@ export async function seedData() {
     { key: "visit_status", values: ["Not Visited", "Scheduled", "Visited", "Cancelled"] },
   ];
 
-  for (const sheet of [salesNorth, salesSouth]) {
-    for (const col of dropdownColumns) {
-      for (let i = 0; i < col.values.length; i++) {
-        await storage.createDropdownOption({
-          sheet_id: sheet.id,
-          column_key: col.key,
-          value: col.values[i],
-          order_index: i,
-        });
-      }
+  for (const col of dropdownColumns) {
+    for (let i = 0; i < col.values.length; i++) {
+      await storage.createDropdownOption({
+        company_id: demoCompany.id,
+        sheet_id: null, // null = company-wide
+        column_key: col.key,
+        value: col.values[i],
+        order_index: i,
+      });
     }
   }
-  console.log("✓ Created dropdown options");
+  console.log("✓ Created company-wide dropdown options");
 
-  // Create sample leads for Sales North
+  // ===== CREATE SAMPLE LEADS FOR SALES NORTH =====
   const sampleLeadsNorth = [
     {
       name: "Ramesh Kumar",
@@ -109,6 +161,7 @@ export async function seedData() {
       lead_status: "New",
       visit_status: "Not Visited",
       executive: "John Doe",
+      lead_category: "cold" as const,
     },
     {
       name: "Priya Sharma",
@@ -121,6 +174,7 @@ export async function seedData() {
       lead_status: "Contacted",
       visit_status: "Scheduled",
       executive: "John Doe",
+      lead_category: "warm" as const,
     },
     {
       name: "Amit Patel",
@@ -133,6 +187,7 @@ export async function seedData() {
       lead_status: "Qualified",
       visit_status: "Visited",
       executive: "Jane Smith",
+      lead_category: "hot" as const,
     },
     {
       name: "Sneha Reddy",
@@ -145,6 +200,7 @@ export async function seedData() {
       lead_status: "Converted",
       visit_status: "Visited",
       executive: "John Doe",
+      lead_category: "hot" as const,
     },
     {
       name: "Vikram Singh",
@@ -157,6 +213,7 @@ export async function seedData() {
       lead_status: "New",
       visit_status: "Not Visited",
       executive: "Jane Smith",
+      lead_category: "cold" as const,
     },
   ];
 
@@ -167,14 +224,14 @@ export async function seedData() {
       owner_user_id: user1.id,
       lead_date: new Date().toISOString().split("T")[0],
       lead_time: "10:30",
-      address: "123 Main St",
+      address: "123 Main St, Delhi",
       custom_fields: {},
       meta: {},
     });
   }
-  console.log(`✓ Created ${sampleLeadsNorth.length} leads for Sales North`);
+  console.log(`✓ Created ${sampleLeadsNorth.length} leads for Sales - North Region`);
 
-  // Create sample leads for Sales South
+  // ===== CREATE SAMPLE LEADS FOR SALES SOUTH =====
   const sampleLeadsSouth = [
     {
       name: "Lakshmi Iyer",
@@ -187,6 +244,7 @@ export async function seedData() {
       lead_status: "Contacted",
       visit_status: "Not Visited",
       executive: "Jane Smith",
+      lead_category: "warm" as const,
     },
     {
       name: "Karthik Menon",
@@ -199,6 +257,7 @@ export async function seedData() {
       lead_status: "New",
       visit_status: "Not Visited",
       executive: "John Doe",
+      lead_category: "cold" as const,
     },
     {
       name: "Deepa Nair",
@@ -211,6 +270,7 @@ export async function seedData() {
       lead_status: "Qualified",
       visit_status: "Scheduled",
       executive: "Jane Smith",
+      lead_category: "hot" as const,
     },
     {
       name: "Arjun Rao",
@@ -223,6 +283,7 @@ export async function seedData() {
       lead_status: "Lost",
       visit_status: "Cancelled",
       executive: "John Doe",
+      lead_category: "cold" as const,
     },
     {
       name: "Meera Krishnan",
@@ -235,6 +296,7 @@ export async function seedData() {
       lead_status: "Converted",
       visit_status: "Visited",
       executive: "Jane Smith",
+      lead_category: "hot" as const,
     },
   ];
 
@@ -245,12 +307,17 @@ export async function seedData() {
       owner_user_id: user2.id,
       lead_date: new Date().toISOString().split("T")[0],
       lead_time: "14:00",
-      address: "456 Park Ave",
+      address: "456 Park Ave, Bangalore",
       custom_fields: {},
       meta: {},
     });
   }
-  console.log(`✓ Created ${sampleLeadsSouth.length} leads for Sales South`);
+  console.log(`✓ Created ${sampleLeadsSouth.length} leads for Sales - South Region`);
 
-  console.log("✅ Seed data created successfully!");
+  console.log("✅ Multi-tenant seed data created successfully!");
+  console.log("\n📋 Login Credentials:");
+  console.log("  Super Admin: superadmin@dabluz.com / SuperAdmin123!");
+  console.log("  Company Admin (Acme): admin@acme-corp.com / Admin123!");
+  console.log("  User 1 (Acme): john@acme-corp.com / User123!");
+  console.log("  User 2 (Acme): jane@acme-corp.com / User123!");
 }

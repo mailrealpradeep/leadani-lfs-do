@@ -75,12 +75,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   app.post("/api/auth/register", async (req, res) => {
     try {
-      const { name, email, password, role } = req.body;
+      const { name, email, password, role, company_id } = req.body;
 
       // Check if user exists
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
         return res.status(400).json({ error: "Email already registered" });
+      }
+
+      // Validate role and company_id combination
+      const userRole = role || "user";
+      if (userRole === "super_admin" && company_id) {
+        return res.status(400).json({ error: "Super admins cannot belong to a company" });
+      }
+      if ((userRole === "company_admin" || userRole === "user") && !company_id) {
+        return res.status(400).json({ error: "Company admins and users must belong to a company" });
       }
 
       // Hash password
@@ -91,23 +100,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name,
         email,
         password_hash: passwordHash,
-        role: role || "user",
-      });
+        role: userRole,
+        company_id: company_id || null,
+      } as any);
 
-      // Generate token
-      const token = generateToken(user.id, user.role);
+      // Generate token with company context
+      const token = generateToken(user.id, user.role, user.company_id);
+
+      // Get company info if user belongs to one
+      let company = null;
+      if (user.company_id) {
+        company = await storage.getCompany(user.company_id);
+      }
 
       // Audit log
       await storage.createAuditLog({
         user_id: user.id,
+        company_id: user.company_id,
         action: "register",
         model: "user",
         model_id: user.id,
-        payload: { email },
+        payload: { email, role: userRole },
       });
 
       const { password_hash: _, ...userWithoutPassword } = user;
-      res.status(201).json({ user: userWithoutPassword, token });
+      res.status(201).json({ user: userWithoutPassword, company, token });
     } catch (error: any) {
       console.error("Register error:", error);
       res.status(500).json({ error: error.message });
@@ -130,12 +147,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
-      // Generate token
-      const token = generateToken(user.id, user.role);
+      // Update last login timestamp
+      await storage.updateUser(user.id, { 
+        last_login: new Date().toISOString() 
+      });
+
+      // Generate token with company context
+      const token = generateToken(user.id, user.role, user.company_id);
+
+      // Get company info if user belongs to one
+      let company = null;
+      if (user.company_id) {
+        company = await storage.getCompany(user.company_id);
+      }
 
       // Audit log
       await storage.createAuditLog({
         user_id: user.id,
+        company_id: user.company_id,
         action: "login",
         model: "user",
         model_id: user.id,
@@ -143,7 +172,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const { password_hash: _, ...userWithoutPassword } = user;
-      res.json({ user: userWithoutPassword, token });
+      res.json({ user: userWithoutPassword, company, token });
     } catch (error: any) {
       console.error("Login error:", error);
       res.status(500).json({ error: error.message });
@@ -157,8 +186,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
+      // Get company info if user belongs to one
+      let company = null;
+      if (user.company_id) {
+        company = await storage.getCompany(user.company_id);
+      }
+
       const { password_hash: _, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
+      res.json({ user: userWithoutPassword, company });
     } catch (error: any) {
       console.error("Get me error:", error);
       res.status(500).json({ error: error.message });
