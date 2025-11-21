@@ -2125,19 +2125,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         !fieldMap[header] || fieldMap[header] === "_skip" || fieldMap[header] === ""
       );
 
-      // Check sheet access
+      // SECURITY: Check sheet access and company ownership
       const sheet = await storage.getSheet(sheetId);
       if (!sheet) {
         return res.status(404).json({ error: "Sheet not found" });
       }
 
-      // Check permissions (unless super admin)
+      // Verify user has access to this sheet
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, sheetId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "You do not have access to this sheet" });
+      }
+
+      // SECURITY: Import requires explicit edit permissions (not just implicit company access)
+      // Define permission matrix:
+      // - Super admins: Always allowed
+      // - Company admins: Always allowed for their company's sheets
+      // - Sheet owners: Always allowed for their own sheets
+      // - Regular users: Must have explicit sheetUser with editor or admin role
+      
       const user = await storage.getUser(req.userId!);
-      if (user?.role !== "super_admin") {
+      
+      // Super admins can import to any sheet
+      if (user?.role === "super_admin") {
+        // Allowed - proceed
+      }
+      // Company admins can import to any sheet in their company
+      else if (user?.role === "company_admin" && sheet.company_id === req.companyId) {
+        // Allowed - proceed
+      }
+      // Sheet owners can import to their own sheets
+      else if (sheet.owner_id === req.userId!) {
+        // Allowed - proceed
+      }
+      // All other users must have explicit sheetUser permission with editor or admin role
+      else {
         const sheetUser = await storage.getSheetUser(sheetId, req.userId!);
-        if (!sheetUser || sheetUser.role === "viewer") {
-          return res.status(403).json({ error: "Insufficient permissions" });
+        if (!sheetUser) {
+          return res.status(403).json({ 
+            error: "Import requires explicit editor or admin permission on this sheet. Contact the sheet owner to request access." 
+          });
         }
+        if (sheetUser.role === "viewer") {
+          return res.status(403).json({ 
+            error: "Viewers cannot import leads. Contact the sheet owner to upgrade your permission to editor or admin." 
+          });
+        }
+        // Has sheetUser with editor or admin role - allowed
       }
 
       // Limit payload size
@@ -2150,12 +2184,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(413).json({ error: "File too large (max 10,000 rows)" });
       }
 
-      // Get sheet's custom columns (company-wide + sheet-specific)
+      // SECURITY: Rebuild column map from storage to prevent tampering with fieldMap
+      // This ensures the user can only write to columns actually available in this sheet
       const sheetColumns = await storage.getCustomColumns(sheetId);
       const columnMap = new Map(sheetColumns.map(c => [c.column_key, c]));
+      
+      // Validate fieldMap entries - only process columns that exist in this sheet
+      // Filter out empty, skip, and invalid mappings
+      const validatedFieldMap: Record<string, string> = {};
+      Object.entries(fieldMap).forEach(([header, columnKey]) => {
+        const key = String(columnKey || "").trim();
+        if (key && key !== "_skip" && columnMap.has(key)) {
+          validatedFieldMap[header] = key;
+        }
+      });
+
+      // VALIDATION: Check that all required columns are mapped
+      const mappedColumnKeys = new Set(Object.values(validatedFieldMap));
+      const requiredColumns = sheetColumns.filter(col => col.config.required);
+      const unmappedRequired = requiredColumns.filter(col => !mappedColumnKeys.has(col.column_key));
+      
+      if (unmappedRequired.length > 0) {
+        return res.status(400).json({ 
+          error: `Required columns must be mapped: ${unmappedRequired.map(c => c.name).join(", ")}. Please map these columns in the import dialog.`,
+          unmappedRequired: unmappedRequired.map(c => ({ column_key: c.column_key, name: c.name }))
+        });
+      }
 
       const imported: any[] = [];
       const errors: any[] = [];
+      const warnings: any[] = [];
       const io = app.get("io") as SocketIOServer;
 
       for (let i = 0; i < rows.length; i++) {
@@ -2167,44 +2225,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
             custom_fields: {},
             meta: {},
           };
+          const rowWarnings: string[] = [];
+          const coercionIssues: string[] = []; // Track which fields had coercion issues
 
           // Process mapped fields (all are custom columns now)
-          Object.entries(fieldMap).forEach(([excelHeader, columnKey]) => {
+          Object.entries(validatedFieldMap).forEach(([excelHeader, columnKey]) => {
             const key = columnKey as string;
-            if (key && key !== "_skip" && row[excelHeader] !== undefined && row[excelHeader] !== null) {
+            if (row[excelHeader] !== undefined && row[excelHeader] !== null) {
               let value = row[excelHeader];
-              const column = columnMap.get(key);
+              const column = columnMap.get(key)!; // Safe to use ! since validatedFieldMap only has valid keys
               
-              if (column) {
-                // Handle type conversions based on column type
-                if (column.type === "number") {
-                  const parsed = parseFloat(String(value));
-                  value = isNaN(parsed) ? null : parsed;
-                } else if (column.type === "date") {
-                  if (typeof value === "number") {
-                    try {
-                      const date = XLSX.SSF.parse_date_code(value);
-                      value = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
-                    } catch {
-                      value = String(value);
+              const originalValue = value;
+              
+              // Handle type conversions based on column type
+              if (column.type === "number") {
+                const parsed = parseFloat(String(value));
+                if (isNaN(parsed)) {
+                  value = null;
+                  if (String(originalValue).trim() !== "") {
+                    const msg = `Field "${column.name}": invalid number "${originalValue}" converted to empty`;
+                    rowWarnings.push(msg);
+                    if (column.config.required) {
+                      coercionIssues.push(column.name); // Track for better error message
                     }
-                  } else if (typeof value === "string") {
-                    const dateOnly = value.trim().split(' ')[0];
-                    value = dateOnly || value;
                   }
-                } else if (column.type === "boolean") {
-                  value = ["yes", "true", "1", "y"].includes(String(value).toLowerCase());
-                } else if (column.type === "dropdown") {
-                  // Validate dropdown value
-                  const options = column.config.dropdown_options || [];
-                  const stringValue = String(value).trim();
-                  value = options.includes(stringValue) ? stringValue : null;
                 } else {
-                  value = String(value).trim() || null;
+                  value = parsed;
                 }
-                
-                leadData.custom_fields[key] = value;
+              } else if (column.type === "date") {
+                let validDate = false;
+                if (typeof value === "number") {
+                  try {
+                    const date = XLSX.SSF.parse_date_code(value);
+                    value = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+                    validDate = true;
+                  } catch {
+                    value = null;
+                    const msg = `Field "${column.name}": invalid date code "${originalValue}" converted to empty`;
+                    rowWarnings.push(msg);
+                    if (column.config.required) {
+                      coercionIssues.push(column.name);
+                    }
+                  }
+                } else if (typeof value === "string") {
+                  const dateOnly = value.trim().split(' ')[0];
+                  if (dateOnly && /^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
+                    value = dateOnly;
+                    validDate = true;
+                  } else {
+                    value = null;
+                    if (String(originalValue).trim() !== "") {
+                      const msg = `Field "${column.name}": invalid date "${originalValue}" converted to empty`;
+                      rowWarnings.push(msg);
+                      if (column.config.required) {
+                        coercionIssues.push(column.name);
+                      }
+                    }
+                  }
+                } else {
+                  value = null;
+                  const msg = `Field "${column.name}": invalid date type converted to empty`;
+                  rowWarnings.push(msg);
+                  if (column.config.required) {
+                    coercionIssues.push(column.name);
+                  }
+                }
+              } else if (column.type === "boolean") {
+                value = ["yes", "true", "1", "y"].includes(String(value).toLowerCase());
+              } else if (column.type === "dropdown") {
+                // Validate dropdown value
+                const options = column.config.dropdown_options || [];
+                const stringValue = String(value).trim();
+                if (options.includes(stringValue)) {
+                  value = stringValue;
+                } else {
+                  value = null;
+                  if (stringValue !== "") {
+                    if (column.config.required) {
+                      throw new Error(`Field "${column.name}": invalid option "${stringValue}". Must be one of: ${options.join(", ")}`);
+                    } else {
+                      rowWarnings.push(`Field "${column.name}": invalid option "${stringValue}" converted to empty (valid: ${options.join(", ")})`);
+                    }
+                  }
+                }
+              } else {
+                value = String(value).trim() || null;
               }
+              
+              leadData.custom_fields[key] = value;
             }
           });
 
@@ -2217,7 +2325,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
             
           if (missingRequired.length > 0) {
-            throw new Error(`Missing required fields: ${missingRequired.map(c => c.name).join(", ")}`);
+            const fieldNames = missingRequired.map(c => c.name);
+            // Build more specific error message if coercion caused the missing value
+            const coercedFields = fieldNames.filter(name => coercionIssues.includes(name));
+            if (coercedFields.length > 0) {
+              throw new Error(`Required fields have invalid values (see warnings): ${coercedFields.join(", ")}${coercedFields.length < fieldNames.length ? '; Also missing: ' + fieldNames.filter(n => !coercedFields.includes(n)).join(", ") : ''}`);
+            } else {
+              throw new Error(`Missing required fields: ${fieldNames.join(", ")}`);
+            }
           }
 
           // Ensure at least one custom field is provided
@@ -2235,6 +2350,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const lead = await storage.createLead(leadData);
           imported.push(lead);
 
+          // Track warnings ONLY for successfully imported rows (not for failed rows)
+          if (rowWarnings.length > 0) {
+            warnings.push({ row: i + 1, warnings: rowWarnings });
+          }
+
           await storage.createAuditLog({
             user_id: req.userId!,
             company_id: sheet.company_id,
@@ -2246,14 +2366,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           io.to(`sheet:${sheetId}`).emit("lead_created", lead);
         } catch (error: any) {
-          errors.push({ row: i + 1, error: error.message });
+          // For failed rows, include warnings in the error object (not in global warnings array)
+          errors.push({ 
+            row: i + 1, 
+            error: error.message, 
+            warnings: rowWarnings.length > 0 ? rowWarnings : undefined
+          });
         }
       }
 
       res.json({
         imported: imported.length,
         errors: errors.length,
-        errorDetails: errors.slice(0, 10),
+        warnings: warnings.length,
+        errorDetails: errors.slice(0, 50), // Increased from 10 to 50
+        warningDetails: warnings.slice(0, 50),
         skippedHeaders, // Headers explicitly mapped to "_skip"
       });
     } catch (error: any) {

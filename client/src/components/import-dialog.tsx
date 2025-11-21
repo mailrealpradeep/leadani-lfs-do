@@ -81,20 +81,32 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
       });
     },
     onSuccess: (result) => {
-      setImportResult(result);
+      // Ensure result has expected structure with defaults
+      setImportResult({
+        imported: result.imported || 0,
+        errors: result.errors || 0,
+        warnings: result.warnings || 0,
+        errorDetails: Array.isArray(result.errorDetails) ? result.errorDetails : [],
+        warningDetails: Array.isArray(result.warningDetails) ? result.warningDetails : [],
+        skippedHeaders: Array.isArray(result.skippedHeaders) ? result.skippedHeaders : [],
+      });
       setStep("complete");
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
       toast({
         title: "Import complete",
-        description: `Successfully imported ${result.imported} leads`,
+        description: `Successfully imported ${result.imported || 0} leads`,
       });
     },
     onError: (error: any) => {
+      // For validation errors (e.g., unmapped required columns), show detailed message
       toast({
         title: "Import failed",
-        description: error.message,
+        description: error.message || "An error occurred during import",
         variant: "destructive",
       });
+      // Clear stale import result and reset to mapping step so user can fix the issue
+      setImportResult(null);
+      setStep("mapping");
     },
   });
 
@@ -321,11 +333,47 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
                   )}
                 </div>
                 
-                {importResult.errors > 0 && (
+                {importResult.warnings && importResult.warnings > 0 && (
+                  <Alert className="max-w-md" data-testid="alert-import-warnings">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {importResult.warnings} rows imported with warnings (data coerced/converted)
+                      {importResult.warningDetails && Array.isArray(importResult.warningDetails) && importResult.warningDetails.length > 0 && (
+                        <div className="mt-2 max-h-32 overflow-y-auto text-xs space-y-1">
+                          {importResult.warningDetails.slice(0, 5).map((w: any, idx: number) => (
+                            <div key={idx}>
+                              <strong>Row {w.row}:</strong> {w.warnings.join("; ")}
+                            </div>
+                          ))}
+                          {importResult.warningDetails.length > 5 && (
+                            <div className="italic">+ {importResult.warningDetails.length - 5} more warnings...</div>
+                          )}
+                        </div>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
+                {importResult.errors && importResult.errors > 0 && (
                   <Alert variant="destructive" className="max-w-md" data-testid="alert-import-errors">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>
-                      {importResult.errors} rows failed to import. Check the console for details.
+                      {importResult.errors} rows failed to import
+                      {importResult.errorDetails && Array.isArray(importResult.errorDetails) && importResult.errorDetails.length > 0 && (
+                        <div className="mt-2 max-h-32 overflow-y-auto text-xs space-y-1">
+                          {importResult.errorDetails.slice(0, 5).map((e: any, idx: number) => (
+                            <div key={idx}>
+                              <strong>Row {e.row}:</strong> {e.error}
+                              {e.warnings && e.warnings.length > 0 && (
+                                <div className="text-xs opacity-75 mt-0.5">Also: {e.warnings.join("; ")}</div>
+                              )}
+                            </div>
+                          ))}
+                          {importResult.errorDetails.length > 5 && (
+                            <div className="italic">+ {importResult.errorDetails.length - 5} more errors...</div>
+                          )}
+                        </div>
+                      )}
                     </AlertDescription>
                   </Alert>
                 )}
