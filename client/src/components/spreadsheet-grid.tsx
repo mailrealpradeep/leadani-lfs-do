@@ -592,8 +592,8 @@ export function SpreadsheetGrid({
         </div>
       ) : (
         /* Desktop Table View */
-        <div ref={containerRef} className="border rounded-lg overflow-auto max-h-[calc(100vh-280px)] overflow-x-auto">
-        <Table className="w-full border-collapse">
+        <div ref={containerRef} className="border rounded-lg overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)]">
+        <Table className="border-collapse" style={{ minWidth: "100%" }}>
           <TableHeader className="sticky top-0 bg-background z-10 border-b-2">
             <TableRow>
               <TableHead className="w-[50px]">
