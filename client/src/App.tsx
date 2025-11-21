@@ -12,6 +12,10 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
+import Landing from "@/pages/landing";
+import Signup from "@/pages/signup";
+import Onboarding from "@/pages/onboarding";
+import InviteAccept from "@/pages/invite-accept";
 import Dashboard from "@/pages/dashboard";
 import Reports from "@/pages/reports";
 import Admin from "@/pages/admin";
@@ -41,11 +45,26 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
 }
 
 function Router() {
+  const { isAuthenticated } = useAuth();
+  
   return (
     <Switch>
+      {/* Public routes */}
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/signup" component={Signup} />
+      <Route path="/invite/:code" component={InviteAccept} />
+      
+      {/* Landing page - public, but redirect if authenticated */}
       <Route path="/">
+        {() => isAuthenticated ? <ProtectedRoute component={Dashboard} /> : <Landing />}
+      </Route>
+      
+      {/* Protected routes */}
+      <Route path="/onboarding">
+        {() => <ProtectedRoute component={Onboarding} />}
+      </Route>
+      <Route path="/dashboard">
         {() => <ProtectedRoute component={Dashboard} />}
       </Route>
       <Route path="/reports">

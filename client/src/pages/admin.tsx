@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { z } from "zod";
 import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -431,10 +432,253 @@ function CompanyAdminView() {
           </CardContent>
         </Card>
 
+        <InviteManager />
         <CompanyColumnManager />
         </div>
       </div>
     </div>
+  );
+}
+
+function InviteManager() {
+  const { toast } = useToast();
+  const [createOpen, setCreateOpen] = useState(false);
+
+  interface Invite {
+    id: string;
+    code: string;
+    email: string;
+    role: string;
+    status: string;
+    expires_at: string;
+    inviter_name: string | null;
+    accepted_by_name: string | null;
+    created_at: string;
+  }
+
+  const { data: invites = [], isLoading } = useQuery<Invite[]>({
+    queryKey: ["/api/admin/company/invites"],
+  });
+
+  const inviteFormSchema = z.object({
+    email: z.string().email("Invalid email address"),
+    role: z.enum(["user", "company_admin"], {
+      required_error: "Please select a role",
+    }),
+  });
+
+  type InviteFormData = z.infer<typeof inviteFormSchema>;
+
+  const form = useForm<InviteFormData>({
+    resolver: zodResolver(inviteFormSchema),
+    defaultValues: {
+      email: "",
+      role: "user",
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: InviteFormData) => {
+      return await apiRequest<Invite>("POST", "/api/admin/company/invites", data);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/invites"] });
+      setCreateOpen(false);
+      form.reset();
+      
+      // Copy invite code to clipboard
+      const inviteUrl = `${window.location.origin}/invite/${data.code}`;
+      navigator.clipboard.writeText(inviteUrl);
+      
+      toast({
+        title: "Invite created",
+        description: `Invite link copied to clipboard: ${inviteUrl}`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create invite",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (inviteId: string) => {
+      return await apiRequest("DELETE", `/api/admin/company/invites/${inviteId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/invites"] });
+      toast({
+        title: "Invite deleted",
+        description: "The invite has been revoked.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete invite",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const copyInviteLink = (code: string) => {
+    const inviteUrl = `${window.location.origin}/invite/${code}`;
+    navigator.clipboard.writeText(inviteUrl);
+    toast({
+      title: "Copied",
+      description: "Invite link copied to clipboard",
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Team Invitations</CardTitle>
+            <CardDescription>
+              Invite team members to join your company
+            </CardDescription>
+          </div>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-create-invite">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Invite
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create Invitation</DialogTitle>
+                <DialogDescription>
+                  Send an invite to a team member. They'll receive a unique code to join.
+                </DialogDescription>
+              </DialogHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email Address</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="email"
+                            placeholder="teammate@company.com"
+                            {...field}
+                            data-testid="input-invite-email"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="role"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Role</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value} data-testid="select-invite-role">
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="user">Regular User</SelectItem>
+                            <SelectItem value="company_admin">Company Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-invite">
+                      {createMutation.isPending ? "Creating..." : "Create Invite"}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {invites.map((invite) => (
+              <div
+                key={invite.id}
+                className="flex items-center gap-3 p-3 rounded-lg border"
+                data-testid={`invite-${invite.id}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-sm truncate">{invite.email}</span>
+                    <Badge
+                      variant={invite.status === "accepted" ? "default" : invite.status === "expired" ? "destructive" : "secondary"}
+                    >
+                      {invite.status}
+                    </Badge>
+                  </div>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div>
+                      Role: {invite.role === "company_admin" ? "Company Admin" : "Regular User"}
+                    </div>
+                    {invite.status === "pending" && (
+                      <div className="flex items-center gap-2">
+                        <span>Code: {invite.code}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 px-2"
+                          onClick={() => copyInviteLink(invite.code)}
+                          data-testid={`button-copy-${invite.id}`}
+                        >
+                          Copy Link
+                        </Button>
+                      </div>
+                    )}
+                    {invite.accepted_by_name && (
+                      <div>Accepted by: {invite.accepted_by_name}</div>
+                    )}
+                  </div>
+                </div>
+                {invite.status === "pending" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => deleteMutation.mutate(invite.id)}
+                    data-testid={`button-delete-invite-${invite.id}`}
+                  >
+                    Revoke
+                  </Button>
+                )}
+              </div>
+            ))}
+            {invites.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No invitations yet. Create one to invite team members.
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

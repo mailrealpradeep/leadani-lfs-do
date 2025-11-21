@@ -16,6 +16,7 @@ interface AuthContextType {
   login: (credentials: LoginRequest) => Promise<void>;
   register: (data: InsertUser) => Promise<void>;
   logout: () => void;
+  authenticate: (authResponse: AuthResponse) => void;
   isAuthenticated: boolean;
   isSuperAdmin: boolean;
   isCompanyAdmin: boolean;
@@ -70,6 +71,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const authenticate = (authResponse: AuthResponse) => {
+    setToken(authResponse.token);
+    localStorage.setItem("auth_token", authResponse.token);
+    queryClient.setQueryData(["/api/auth/me"], {
+      user: authResponse.user,
+      company: authResponse.company || null,
+    });
+  };
+
   const logout = () => {
     setToken(null);
     localStorage.removeItem("auth_token");
@@ -102,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await registerMutation.mutateAsync(userData);
         },
         logout,
+        authenticate,
         isAuthenticated: !!user,
         isSuperAdmin: user?.role === "super_admin",
         isCompanyAdmin: user?.role === "company_admin",
