@@ -642,11 +642,10 @@ export function SpreadsheetGrid({
                 filteredAndSortedLeads.map((lead) => (
                   <div
                     key={lead.id}
-                    className="hover-elevate cursor-pointer grid border-b"
+                    className="hover-elevate grid border-b"
                     style={{ 
                       gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
                     }}
-                    onClick={() => onOpenLeadDetail(lead.id)}
                     data-testid={`row-lead-${lead.id}`}
                   >
                     {/* Checkbox Cell */}
@@ -677,20 +676,13 @@ export function SpreadsheetGrid({
                       return (
                         <div
                           key={col.key}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
+                          onDoubleClick={() => {
                             if (!isCategory) {
                               handleCellClick(lead.id, col.key, value);
                             }
                           }}
                           className="border-r px-3 py-2 whitespace-nowrap flex items-center"
                           data-testid={`cell-${lead.id}-${col.key}`}
-                          onClick={(e) => {
-                            // Always stop propagation for editable cells to prevent row click on double-click
-                            if (!isCategory) {
-                              e.stopPropagation();
-                            }
-                          }}
                         >
                         {isCategory ? (
                           <DropdownMenu>

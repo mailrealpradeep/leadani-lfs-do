@@ -37,7 +37,7 @@ Preferred communication style: Simple, everyday language.
 
 **Mobile Responsive Implementation**: Full mobile-first responsive design with adaptive layouts:
 - **Breakpoints**: Uses Tailwind CSS media queries with 768px as primary mobile/desktop threshold
-- **Conditional Rendering**: Spreadsheet view switches between mobile card layout (<768px) and desktop table layout (≥768px). Only one view exists in DOM at any breakpoint for optimal performance.
+- **Conditional Rendering**: Spreadsheet view switches between mobile card layout (<768px) and desktop CSS Grid layout (≥768px). Only one view exists in DOM at any breakpoint for optimal performance.
 - **SSR-Safe Hook**: `useIsMobile` hook from `@/hooks/use-mobile.tsx` with window guards for server-side rendering compatibility
 - **State Management**: View-specific state (editing, selection, scroll) resets only when crossing breakpoint threshold, preventing data loss during window resizes
 - **Touch Targets**: All interactive elements meet minimum 44x44px touch target guidelines for mobile accessibility
@@ -45,6 +45,13 @@ Preferred communication style: Simple, everyday language.
 - **Responsive Toolbar**: Filters, search, and action buttons stack appropriately on smaller screens
 - **Column Visibility**: Hidden column preferences persist across mobile/desktop view switches via localStorage
 - **Sidebar**: Shadcn Sidebar component provides collapsible off-canvas drawer on mobile
+
+**Desktop Grid Implementation**: 
+- **CSS Grid Layout**: Desktop view uses CSS Grid instead of HTML Table component to enable `position: sticky` on headers (Chrome/Safari don't support sticky on table cells with `border-collapse`)
+- **Sticky Header**: Header row uses `position: sticky, top: 0, z-index: 20` and remains fixed during vertical scrolling
+- **Horizontal Scrolling**: Single scroll container with both `overflow-x-auto` and `overflow-y-auto` enables horizontal scrollbar visibility at bottom when content exceeds viewport width
+- **Grid Alignment**: All rows (header and body) share identical `gridTemplateColumns` calculated from column widths for perfect alignment
+- **Lead Detail Access**: Lead detail drawer intentionally accessible only via Actions menu → "View Details" to prevent accidental opening while working with cells (common spreadsheet UX pattern)
 
 ### Backend Architecture
 
