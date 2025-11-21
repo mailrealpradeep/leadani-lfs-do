@@ -85,7 +85,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full">
-      <div ref={containerRef} className="flex-1 overflow-auto p-4">
+      <div ref={containerRef} className="flex-1 p-4 overflow-hidden">
         {selectedSheetId ? (
           <SpreadsheetGrid
             sheetId={selectedSheetId}
