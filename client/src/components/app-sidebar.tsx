@@ -156,15 +156,17 @@ export function AppSidebar() {
                         <FileUp className="h-4 w-4 mr-2" />
                         Import
                       </Button>
-                      <Button
-                        variant="outline"
-                        onClick={actions.onManageColumns}
-                        className="w-full justify-start"
-                        data-testid="button-manage-columns"
-                      >
-                        <SettingsIcon className="h-4 w-4 mr-2" />
-                        Manage Columns
-                      </Button>
+                      {isCompanyAdmin && (
+                        <Button
+                          variant="outline"
+                          onClick={() => window.location.href = "/admin"}
+                          className="w-full justify-start"
+                          data-testid="button-manage-columns"
+                        >
+                          <SettingsIcon className="h-4 w-4 mr-2" />
+                          Column Schema
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>

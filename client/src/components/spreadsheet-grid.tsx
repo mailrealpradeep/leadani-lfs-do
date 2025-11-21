@@ -57,7 +57,6 @@ interface SpreadsheetGridProps {
   sheetId: string;
   onOpenLeadDetail: (leadId: string) => void;
   onOpenDropdownManager: (columnKey: string) => void;
-  onOpenColumnManager: () => void;
   onScroll?: (scrollTop: number, scrollingDown: boolean) => void;
 }
 
@@ -65,7 +64,6 @@ export function SpreadsheetGrid({
   sheetId,
   onOpenLeadDetail,
   onOpenDropdownManager,
-  onOpenColumnManager,
   onScroll,
 }: SpreadsheetGridProps) {
   const { toast } = useToast();

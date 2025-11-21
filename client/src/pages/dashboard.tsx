@@ -4,7 +4,6 @@ import { useDashboard } from "@/components/dashboard-context";
 import { SpreadsheetGrid } from "@/components/spreadsheet-grid";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { DropdownManagerModal } from "@/components/dropdown-manager-modal";
-import { ColumnManagerModal } from "@/components/column-manager-modal";
 import { AddLeadDialog } from "@/components/add-lead-dialog";
 import { ImportDialog } from "@/components/import-dialog";
 import { ColumnsDialog } from "@/components/columns-dialog";
@@ -20,7 +19,6 @@ export default function Dashboard() {
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
   const [dropdownColumn, setDropdownColumn] = useState<string | null>(null);
   const [isDropdownManagerOpen, setIsDropdownManagerOpen] = useState(false);
-  const [isColumnManagerOpen, setIsColumnManagerOpen] = useState(false);
 
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -31,7 +29,6 @@ export default function Dashboard() {
     setActions({
       onAddLead: () => setIsAddLeadOpen(true),
       onImport: () => setIsImportOpen(true),
-      onManageColumns: () => setIsColumnManagerOpen(true),
       onToggleColumns: () => setIsColumnVisibilityOpen(true),
       onExport: () => {
         if (selectedSheetId) {
@@ -91,7 +88,6 @@ export default function Dashboard() {
             sheetId={selectedSheetId}
             onOpenLeadDetail={handleOpenLeadDetail}
             onOpenDropdownManager={handleOpenDropdownManager}
-            onOpenColumnManager={() => setIsColumnManagerOpen(true)}
             onScroll={handleGridScroll}
           />
         ) : (
@@ -119,11 +115,6 @@ export default function Dashboard() {
             columnKey={dropdownColumn}
             open={isDropdownManagerOpen}
             onOpenChange={setIsDropdownManagerOpen}
-          />
-          <ColumnManagerModal
-            sheetId={selectedSheetId}
-            open={isColumnManagerOpen}
-            onOpenChange={setIsColumnManagerOpen}
           />
           <ColumnsDialog
             sheetId={selectedSheetId}
