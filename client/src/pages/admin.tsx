@@ -17,6 +17,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { User, Company, GlobalReportSummary, InsertCompany, InsertUser } from "@shared/schema";
 import { insertCompanySchema, insertUserSchema } from "@shared/schema";
+import { CompanyColumnManager } from "@/components/company-column-manager";
 
 function SuperAdminView() {
   const [createOpen, setCreateOpen] = useState(false);
@@ -389,45 +390,49 @@ function CompanyAdminView() {
       </div>
 
       <div className="flex-1 overflow-auto px-6 py-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Company Users</CardTitle>
-            <CardDescription>
-              {users.length} {users.length === 1 ? "user" : "users"} in your company
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {users.map((user) => (
-                <div
-                  key={user.id}
-                  className="flex items-center gap-3 p-3 rounded-lg border hover-elevate"
-                  data-testid={`user-${user.id}`}
-                >
-                  <Avatar className="h-10 w-10">
-                    <AvatarFallback>
-                      {user.name.substring(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">{user.name}</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {user.email}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Company Users</CardTitle>
+              <CardDescription>
+                {users.length} {users.length === 1 ? "user" : "users"} in your company
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {users.map((user) => (
+                  <div
+                    key={user.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border hover-elevate"
+                    data-testid={`user-${user.id}`}
+                  >
+                    <Avatar className="h-10 w-10">
+                      <AvatarFallback>
+                        {user.name.substring(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">{user.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {user.email}
+                      </div>
                     </div>
+                    <Badge variant={user.role === "company_admin" ? "default" : "secondary"}>
+                      {user.role === "company_admin" ? "Admin" : "User"}
+                    </Badge>
                   </div>
-                  <Badge variant={user.role === "company_admin" ? "default" : "secondary"}>
-                    {user.role === "company_admin" ? "Admin" : "User"}
-                  </Badge>
-                </div>
-              ))}
-              {users.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">
+                ))}
+                {users.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
                   No users found
                 </p>
               )}
             </div>
           </CardContent>
         </Card>
+
+        <CompanyColumnManager />
+        </div>
       </div>
     </div>
   );
