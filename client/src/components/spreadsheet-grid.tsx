@@ -14,6 +14,8 @@ import {
   EyeOff,
   Flame,
   X,
+  Edit2,
+  History,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -47,6 +49,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { format } from "date-fns";
 import type { Lead, DropdownOption } from "@shared/schema";
+import { LeadUpdateDialog } from "./lead-update-dialog";
+import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 
 interface SpreadsheetGridProps {
   sheetId: string;
@@ -78,6 +82,9 @@ export function SpreadsheetGrid({
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [categoryFilter, setCategoryFilter] = useState<"all" | "hot" | "warm" | "cold">("all");
   const [isScrolled, setIsScrolled] = useState(false);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
+  const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
 
   const { data: leads = [], isLoading } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
@@ -750,33 +757,61 @@ export function SpreadsheetGrid({
                     );
                   })}
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          data-testid={`button-actions-${lead.id}`}
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => onOpenLeadDetail(lead.id)}
-                          data-testid={`button-view-details-${lead.id}`}
-                        >
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => deleteLeadsMutation.mutate([lead.id])}
-                          className="text-destructive"
-                          data-testid={`button-delete-${lead.id}`}
-                        >
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          setSelectedLeadForUpdate(lead.id);
+                          setUpdateDialogOpen(true);
+                        }}
+                        data-testid={`button-update-lead-${lead.id}`}
+                        title="Record update"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          setSelectedLeadForUpdate(lead.id);
+                          setUpdateHistoryDialogOpen(true);
+                        }}
+                        data-testid={`button-update-history-${lead.id}`}
+                        title="View update history"
+                      >
+                        <History className="h-4 w-4" />
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            data-testid={`button-actions-${lead.id}`}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => onOpenLeadDetail(lead.id)}
+                            data-testid={`button-view-details-${lead.id}`}
+                          >
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => deleteLeadsMutation.mutate([lead.id])}
+                            className="text-destructive"
+                            data-testid={`button-delete-${lead.id}`}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

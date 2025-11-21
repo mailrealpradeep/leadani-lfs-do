@@ -444,6 +444,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // LEAD UPDATES
+  // ============================================================================
+  app.get("/api/leads/:id/updates", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const updates = await storage.getLeadUpdates(req.params.id);
+      res.json(updates);
+    } catch (error: any) {
+      console.error("Get lead updates error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/leads/:id/updates", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      // Admin bypasses permission check
+      if (req.userRole !== "admin") {
+        const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
+        if (!sheetUser || sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      }
+
+      const { insertLeadUpdateSchema } = await import("@shared/schema");
+      const parsed = insertLeadUpdateSchema.parse({
+        lead_id: req.params.id,
+        ...req.body,
+      });
+
+      const update = await storage.createLeadUpdate(parsed);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        action: "create",
+        model: "lead_update",
+        model_id: update.id,
+        payload: req.body,
+      });
+
+      // Realtime update
+      const io = app.get("io") as SocketIOServer;
+      io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", lead);
+
+      res.status(201).json(update);
+    } catch (error: any) {
+      console.error("Create lead update error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/lead-updates/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const update = await storage.updateLeadUpdate(req.params.id, req.body);
+      if (!update) {
+        return res.status(404).json({ error: "Update not found" });
+      }
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        action: "update",
+        model: "lead_update",
+        model_id: req.params.id,
+        payload: req.body,
+      });
+
+      res.json(update);
+    } catch (error: any) {
+      console.error("Update lead update error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/lead-updates/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteLeadUpdate(req.params.id);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        action: "delete",
+        model: "lead_update",
+        model_id: req.params.id,
+        payload: {},
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete lead update error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // DROPDOWN OPTIONS
   // ============================================================================
   app.get("/api/sheets/:id/dropdowns", authMiddleware, async (req: AuthRequest, res) => {
