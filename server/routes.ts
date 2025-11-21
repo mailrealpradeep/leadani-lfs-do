@@ -816,7 +816,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const buffer = Buffer.from(fileData, "base64");
       const workbook = XLSX.read(buffer, { type: "buffer" });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null });
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null, raw: false });
 
       if (rows.length === 0) {
         return res.status(400).json({ error: "File is empty" });
@@ -919,7 +919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const buffer = Buffer.from(fileData, "base64");
       const workbook = XLSX.read(buffer, { type: "buffer" });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null }) as any[];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null, raw: false }) as any[];
 
       if (rows.length > 10000) {
         return res.status(413).json({ error: "File too large (max 10,000 rows)" });
