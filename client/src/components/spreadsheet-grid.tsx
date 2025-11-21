@@ -405,16 +405,18 @@ export function SpreadsheetGrid({
 
       {/* Conditionally render mobile or desktop view based on viewport */}
       {isMobile ? (
-        /* Mobile Card View */
-        <div className="space-y-3">
-          {filteredAndSortedLeads.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <div className="text-4xl mb-3">📋</div>
-              <p>No leads found.</p>
-              {categoryFilter !== "all" && <p className="text-sm mt-1">Try changing the filter.</p>}
-            </div>
-          ) : (
-            filteredAndSortedLeads.map((lead) => (
+        /* Mobile Card View with Scroll Container */
+        <div className="h-full flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
+            <div className="space-y-3">
+              {filteredAndSortedLeads.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <div className="text-4xl mb-3">📋</div>
+                  <p>No leads found.</p>
+                  {categoryFilter !== "all" && <p className="text-sm mt-1">Try changing the filter.</p>}
+                </div>
+              ) : (
+                filteredAndSortedLeads.map((lead) => (
             <div
               key={lead.id}
               className="bg-card border rounded-lg p-4 hover-elevate active-elevate-2"
@@ -521,9 +523,11 @@ export function SpreadsheetGrid({
                   History
                 </Button>
               </div>
+                </div>
+              ))
+              )}
             </div>
-          ))
-          )}
+          </div>
         </div>
       ) : (
         /* Desktop Grid View with Sticky Header */
