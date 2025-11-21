@@ -16,6 +16,8 @@ import type {
   InsertAudit,
   WebhookLog,
   InsertWebhookLog,
+  LeadUpdate,
+  InsertLeadUpdate,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -71,6 +73,12 @@ export interface IStorage {
   // Webhook Logs
   getWebhookLogs(): Promise<WebhookLog[]>;
   createWebhookLog(log: InsertWebhookLog): Promise<WebhookLog>;
+
+  // Lead Updates
+  getLeadUpdates(leadId: string): Promise<LeadUpdate[]>;
+  createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate>;
+  updateLeadUpdate(id: string, updates: Partial<LeadUpdate>): Promise<LeadUpdate | undefined>;
+  deleteLeadUpdate(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -82,6 +90,7 @@ export class MemStorage implements IStorage {
   private customColumns: Map<string, CustomColumn>;
   private auditLogs: Map<string, Audit>;
   private webhookLogs: Map<string, WebhookLog>;
+  private leadUpdates: Map<string, LeadUpdate>;
 
   constructor() {
     this.users = new Map();
@@ -92,6 +101,7 @@ export class MemStorage implements IStorage {
     this.customColumns = new Map();
     this.auditLogs = new Map();
     this.webhookLogs = new Map();
+    this.leadUpdates = new Map();
   }
 
   // Users
@@ -381,6 +391,36 @@ export class MemStorage implements IStorage {
     };
     this.webhookLogs.set(id, log);
     return log;
+  }
+
+  // Lead Updates
+  async getLeadUpdates(leadId: string): Promise<LeadUpdate[]> {
+    return Array.from(this.leadUpdates.values())
+      .filter((update) => update.lead_id === leadId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  async createLeadUpdate(insertUpdate: InsertLeadUpdate): Promise<LeadUpdate> {
+    const id = randomUUID();
+    const update: LeadUpdate = {
+      ...insertUpdate,
+      id,
+      created_at: new Date().toISOString(),
+    };
+    this.leadUpdates.set(id, update);
+    return update;
+  }
+
+  async updateLeadUpdate(id: string, updates: Partial<LeadUpdate>): Promise<LeadUpdate | undefined> {
+    const update = this.leadUpdates.get(id);
+    if (!update) return undefined;
+    const updated = { ...update, ...updates };
+    this.leadUpdates.set(id, updated);
+    return updated;
+  }
+
+  async deleteLeadUpdate(id: string): Promise<boolean> {
+    return this.leadUpdates.delete(id);
   }
 }
 

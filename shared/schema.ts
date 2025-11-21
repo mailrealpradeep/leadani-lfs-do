@@ -227,6 +227,27 @@ export const insertWebhookLogSchema = z.object({
 export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;
 
 // ============================================================================
+// LEAD UPDATES
+// ============================================================================
+export interface LeadUpdate {
+  id: string;
+  lead_id: string;
+  update_via: "whatsapp" | "call";
+  update_on: string; // date
+  remark: string;
+  created_at: string;
+}
+
+export const insertLeadUpdateSchema = z.object({
+  lead_id: z.string(),
+  update_via: z.enum(["whatsapp", "call"]),
+  update_on: z.string(), // date string
+  remark: z.string().min(1, "Remark is required"),
+});
+
+export type InsertLeadUpdate = z.infer<typeof insertLeadUpdateSchema>;
+
+// ============================================================================
 // AUTH
 // ============================================================================
 export const loginSchema = z.object({
