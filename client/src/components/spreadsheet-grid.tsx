@@ -592,8 +592,8 @@ export function SpreadsheetGrid({
         </div>
       ) : (
         /* Desktop Table View */
-        <div ref={containerRef} className="border rounded-lg overflow-auto max-h-[calc(100vh-280px)]">
-        <Table>
+        <div ref={containerRef} className="border rounded-lg overflow-auto max-h-[calc(100vh-280px)] overflow-x-auto">
+        <Table className="w-full border-collapse">
           <TableHeader className="sticky top-0 bg-background z-10 border-b-2">
             <TableRow>
               <TableHead className="w-[50px]">
@@ -612,8 +612,8 @@ export function SpreadsheetGrid({
               {visibleColumns.map((col) => (
                 <TableHead
                   key={col.key}
-                  style={{ minWidth: col.width }}
-                  className="font-medium text-xs uppercase tracking-wide"
+                  style={{ minWidth: col.width, width: col.width }}
+                  className="font-medium text-xs uppercase tracking-wide whitespace-nowrap"
                 >
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-1">
@@ -727,7 +727,8 @@ export function SpreadsheetGrid({
                       <TableCell
                         key={col.key}
                         onDoubleClick={() => !isCategory && handleCellClick(lead.id, col.key, value)}
-                        className="px-3 py-2"
+                        style={{ minWidth: col.width, width: col.width }}
+                        className="px-3 py-2 whitespace-nowrap"
                         data-testid={`cell-${lead.id}-${col.key}`}
                         onClick={(e) => isCategory && e.stopPropagation()}
                       >
