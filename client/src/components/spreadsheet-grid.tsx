@@ -526,148 +526,172 @@ export function SpreadsheetGrid({
           )}
         </div>
       ) : (
-        /* Desktop Table View */
-        <div className="border rounded-lg h-full flex flex-col overflow-hidden">
-        <div ref={containerRef} className="overflow-auto flex-1">
-        <Table style={{ minWidth: `${calculateTableWidth()}px`, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}>
-          <TableHeader className="border-b-2">
-            <TableRow>
-              <TableHead className="w-[50px] sticky top-0 bg-background dark:bg-background z-20 border-b">
-                <Checkbox
-                  checked={selectedRows.size === leads.length && leads.length > 0}
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      setSelectedRows(new Set(leads.map((l) => l.id)));
-                    } else {
-                      setSelectedRows(new Set());
-                    }
-                  }}
-                  data-testid="checkbox-select-all"
-                />
-              </TableHead>
-              {visibleColumns.map((col) => (
-                <TableHead
-                  key={col.key}
-                  style={{ width: col.width }}
-                  className="font-medium text-xs uppercase tracking-wide whitespace-nowrap sticky top-0 bg-background dark:bg-background z-20 border-b"
-                >
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-1">
-                      <span>{col.label}</span>
-                      {col.dropdown && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5"
-                          onClick={() => onOpenDropdownManager(col.key)}
-                          data-testid={`button-manage-dropdown-${col.key}`}
-                        >
-                          <Settings2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                      {col.sortable && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5"
-                          onClick={() => toggleSort(col.key)}
-                          data-testid={`button-sort-${col.key}`}
-                        >
-                          {sortColumn === col.key ? (
-                            sortDirection === "asc" ? (
-                              <ChevronUp className="h-3 w-3" />
-                            ) : (
-                              <ChevronDown className="h-3 w-3" />
-                            )
-                          ) : (
-                            <ChevronDown className="h-3 w-3 opacity-30" />
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                    {!col.isCategory && (
-                      <div className="relative">
-                        <Input
-                          placeholder="Filter..."
-                          value={columnFilters[col.key] || ""}
-                          onChange={(e) =>
-                            setColumnFilters((prev) => ({
-                              ...prev,
-                              [col.key]: e.target.value,
-                            }))
-                          }
-                          className="h-7 text-xs"
-                          data-testid={`input-filter-${col.key}`}
-                        />
-                        {columnFilters[col.key] && (
+        /* Desktop Grid View with Sticky Header */
+        <div className="border rounded-lg h-full flex flex-col">
+          {/* Horizontal and Vertical Scroll Container */}
+          <div className="overflow-x-auto overflow-y-auto flex-1" ref={containerRef}>
+            <div style={{ minWidth: `${calculateTableWidth()}px` }}>
+              {/* Sticky Header */}
+              <div 
+                className="sticky top-0 z-20 bg-background border-b-2 grid"
+                style={{ 
+                  gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
+                }}
+              >
+                {/* Checkbox Column Header */}
+                <div className="border-b border-r px-3 py-3 flex items-center justify-center">
+                  <Checkbox
+                    checked={selectedRows.size === leads.length && leads.length > 0}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedRows(new Set(leads.map((l) => l.id)));
+                      } else {
+                        setSelectedRows(new Set());
+                      }
+                    }}
+                    data-testid="checkbox-select-all"
+                  />
+                </div>
+                
+                {/* Column Headers */}
+                {visibleColumns.map((col) => (
+                  <div
+                    key={col.key}
+                    className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1">
+                        <span>{col.label}</span>
+                        {col.dropdown && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                            onClick={() =>
-                              setColumnFilters((prev) => {
-                                const next = { ...prev };
-                                delete next[col.key];
-                                return next;
-                              })
-                            }
+                            className="h-5 w-5"
+                            onClick={() => onOpenDropdownManager(col.key)}
+                            data-testid={`button-manage-dropdown-${col.key}`}
                           >
-                            <X className="h-3 w-3" />
+                            <Settings2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {col.sortable && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5"
+                            onClick={() => toggleSort(col.key)}
+                            data-testid={`button-sort-${col.key}`}
+                          >
+                            {sortColumn === col.key ? (
+                              sortDirection === "asc" ? (
+                                <ChevronUp className="h-3 w-3" />
+                              ) : (
+                                <ChevronDown className="h-3 w-3" />
+                              )
+                            ) : (
+                              <ChevronDown className="h-3 w-3 opacity-30" />
+                            )}
                           </Button>
                         )}
                       </div>
-                    )}
+                      {!col.isCategory && (
+                        <div className="relative">
+                          <Input
+                            placeholder="Filter..."
+                            value={columnFilters[col.key] || ""}
+                            onChange={(e) =>
+                              setColumnFilters((prev) => ({
+                                ...prev,
+                                [col.key]: e.target.value,
+                              }))
+                            }
+                            className="h-7 text-xs"
+                            data-testid={`input-filter-${col.key}`}
+                          />
+                          {columnFilters[col.key] && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
+                              onClick={() =>
+                                setColumnFilters((prev) => {
+                                  const next = { ...prev };
+                                  delete next[col.key];
+                                  return next;
+                                })
+                              }
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </TableHead>
-              ))}
-              <TableHead className="w-[150px] sticky top-0 bg-background dark:bg-background z-20 border-b"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredAndSortedLeads.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={visibleColumns.length + 2} className="text-center py-12 text-muted-foreground">
-                  No leads found. {categoryFilter !== "all" ? `Try changing the filter.` : `Add your first lead to get started.`}
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredAndSortedLeads.map((lead) => (
-                <TableRow
-                  key={lead.id}
-                  className={`hover-elevate cursor-pointer ${isScrolled ? "" : ""}`}
-                  data-testid={`row-lead-${lead.id}`}
-                >
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selectedRows.has(lead.id)}
-                      onCheckedChange={(checked) => {
-                        const newSelected = new Set(selectedRows);
-                        if (checked) {
-                          newSelected.add(lead.id);
-                        } else {
-                          newSelected.delete(lead.id);
-                        }
-                        setSelectedRows(newSelected);
-                      }}
-                      data-testid={`checkbox-select-${lead.id}`}
-                    />
-                  </TableCell>
-                  {visibleColumns.map((col) => {
-                    const isEditing =
-                      editingCell?.leadId === lead.id && editingCell?.field === col.key;
-                    const value = (lead as any)[col.key];
-                    const isDropdown = dropdownColumns.includes(col.key);
-                    const isCategory = col.key === "lead_category";
+                ))}
+                
+                {/* Actions Column Header */}
+                <div className="border-b px-3 py-2"></div>
+              </div>
 
-                    return (
-                      <TableCell
-                        key={col.key}
-                        onDoubleClick={() => !isCategory && handleCellClick(lead.id, col.key, value)}
-                        style={{ minWidth: col.width, width: col.width }}
-                        className="px-3 py-2 whitespace-nowrap"
-                        data-testid={`cell-${lead.id}-${col.key}`}
-                        onClick={(e) => isCategory && e.stopPropagation()}
-                      >
+              {/* Table Body */}
+              {filteredAndSortedLeads.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  No leads found. {categoryFilter !== "all" ? `Try changing the filter.` : `Add your first lead to get started.`}
+                </div>
+              ) : (
+                filteredAndSortedLeads.map((lead) => (
+                  <div
+                    key={lead.id}
+                    className="hover-elevate cursor-pointer grid border-b"
+                    style={{ 
+                      gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
+                    }}
+                    onClick={() => onOpenLeadDetail(lead.id)}
+                    data-testid={`row-lead-${lead.id}`}
+                  >
+                    {/* Checkbox Cell */}
+                    <div className="border-r px-3 py-2 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedRows.has(lead.id)}
+                        onCheckedChange={(checked) => {
+                          const newSelected = new Set(selectedRows);
+                          if (checked) {
+                            newSelected.add(lead.id);
+                          } else {
+                            newSelected.delete(lead.id);
+                          }
+                          setSelectedRows(newSelected);
+                        }}
+                        data-testid={`checkbox-select-${lead.id}`}
+                      />
+                    </div>
+                    
+                    {/* Data Cells */}
+                    {visibleColumns.map((col) => {
+                      const isEditing =
+                        editingCell?.leadId === lead.id && editingCell?.field === col.key;
+                      const value = (lead as any)[col.key];
+                      const isDropdown = dropdownColumns.includes(col.key);
+                      const isCategory = col.key === "lead_category";
+
+                      return (
+                        <div
+                          key={col.key}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            if (!isCategory) {
+                              handleCellClick(lead.id, col.key, value);
+                            }
+                          }}
+                          className="border-r px-3 py-2 whitespace-nowrap flex items-center"
+                          data-testid={`cell-${lead.id}-${col.key}`}
+                          onClick={(e) => {
+                            // Always stop propagation for editable cells to prevent row click on double-click
+                            if (!isCategory) {
+                              e.stopPropagation();
+                            }
+                          }}
+                        >
                         {isCategory ? (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -738,11 +762,13 @@ export function SpreadsheetGrid({
                         ) : (
                           <span className="text-sm">{value || "-"}</span>
                         )}
-                      </TableCell>
-                    );
-                  })}
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center gap-1">
+                        </div>
+                      );
+                    })}
+                    
+                    {/* Actions Cell */}
+                    <div className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -796,14 +822,13 @@ export function SpreadsheetGrid({
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      </div>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
     </>
