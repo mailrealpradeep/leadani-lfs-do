@@ -1172,7 +1172,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { owner_user_id, ...leadData } = req.body;
       
       // Validate required custom fields
-      const customColumns = await storage.getCustomColumns(sheet.company_id, req.params.id);
+      const customColumns = await storage.getCustomColumns(req.params.id);
       const requiredColumns = customColumns.filter(col => col.config.required);
       const missingFields = requiredColumns.filter(col => {
         const value = leadData.custom_fields?.[col.column_key];
@@ -2063,50 +2063,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const headers = Object.keys(rows[0] as any);
       
-      // Get company-wide custom columns for intelligent mapping
-      const companyColumns = await storage.getCompanyColumns(sheet.company_id);
+      // Get sheet's custom columns (company-wide + sheet-specific)
+      const sheetColumns = await storage.getCustomColumns(sheetId);
       
       const fieldMap: Record<string, string> = {};
       const normalizeHeader = (h: string) => h.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
       
-      // Fixed lead field mappings
-      const mappings: Record<string, string> = {
-        leaddate: "lead_date",
-        date: "lead_date",
-        time: "lead_time",
-        leadtime: "lead_time",
-        executive: "executive",
-        lang: "lang",
-        language: "lang",
-        address: "address",
-        name: "name",
-        mobileno: "mobile_no",
-        mobile: "mobile_no",
-        phone: "mobile_no",
-        whatsapp: "whatsapp",
-        occupation: "occupation",
-        qualification: "qualification",
-        age: "age",
-        examend: "exam_end",
-        exammark: "exam_mark",
-        marks: "exam_mark",
-        leadstatus: "lead_status",
-        leadsstatus: "lead_status",
-        status: "lead_status",
-        visitstatus: "visit_status",
-        visitdate: "visit_date",
-        nfdt: "nfdt",
-        call1: "call_1",
-        feedback1: "feedback_1",
-        feedback: "feedback_1",
-      };
-
-      // Add company column mappings (using column_key for matching)
-      companyColumns.forEach(col => {
+      // Build mappings from sheet's custom columns
+      const mappings: Record<string, string> = {};
+      sheetColumns.forEach(col => {
         const normalized = normalizeHeader(col.name);
         const keyNormalized = normalizeHeader(col.column_key);
-        mappings[normalized] = `custom:${col.column_key}`;
-        mappings[keyNormalized] = `custom:${col.column_key}`;
+        mappings[normalized] = col.column_key;
+        mappings[keyNormalized] = col.column_key;
       });
 
       const seenFields = new Set<string>();
@@ -2127,7 +2096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         preview,
         totalRows: rows.length,
         fileName: fileName || "upload.xlsx",
-        companyColumns, // Send company columns to frontend for dropdown
+        companyColumns: sheetColumns, // Send sheet's columns to frontend for dropdown
       });
     } catch (error: any) {
       console.error("Import preview error:", error);
@@ -2181,9 +2150,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(413).json({ error: "File too large (max 10,000 rows)" });
       }
 
-      // Get company-wide custom columns (no longer auto-creating sheet-specific columns)
-      const companyColumns = await storage.getCompanyColumns(sheet.company_id);
-      const companyColumnMap = new Map(companyColumns.map(c => [c.column_key, c]));
+      // Get sheet's custom columns (company-wide + sheet-specific)
+      const sheetColumns = await storage.getCustomColumns(sheetId);
+      const columnMap = new Map(sheetColumns.map(c => [c.column_key, c]));
 
       const imported: any[] = [];
       const errors: any[] = [];
@@ -2199,77 +2168,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
             meta: {},
           };
 
-          // Process mapped fields (both fixed fields and company custom columns)
-          Object.entries(fieldMap).forEach(([excelHeader, crmField]) => {
-            if (crmField && crmField !== "_skip" && row[excelHeader] !== undefined && row[excelHeader] !== null) {
+          // Process mapped fields (all are custom columns now)
+          Object.entries(fieldMap).forEach(([excelHeader, columnKey]) => {
+            const key = columnKey as string;
+            if (key && key !== "_skip" && row[excelHeader] !== undefined && row[excelHeader] !== null) {
               let value = row[excelHeader];
-              const fieldName = crmField as string;
+              const column = columnMap.get(key);
               
-              // Check if this is a company custom column (prefixed with "custom:")
-              if (fieldName.startsWith("custom:")) {
-                const columnKey = fieldName.substring(7); // Remove "custom:" prefix
-                const column = companyColumnMap.get(columnKey);
-                
-                if (column) {
-                  // Handle type conversions based on column type
-                  if (column.type === "number") {
-                    const parsed = parseFloat(String(value));
-                    value = isNaN(parsed) ? null : parsed;
-                  } else if (column.type === "date") {
-                    if (typeof value === "number") {
-                      try {
-                        const date = XLSX.SSF.parse_date_code(value);
-                        value = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
-                      } catch {
-                        value = String(value);
-                      }
-                    } else if (typeof value === "string") {
-                      const dateOnly = value.trim().split(' ')[0];
-                      value = dateOnly || value;
-                    }
-                  } else if (column.type === "boolean") {
-                    value = ["yes", "true", "1", "y"].includes(String(value).toLowerCase());
-                  } else {
-                    value = String(value).trim() || null;
-                  }
-                  
-                  leadData.custom_fields[columnKey] = value;
-                }
-              } else {
-                // Fixed lead fields
-                if (fieldName === "age") {
-                  const parsed = parseInt(String(value), 10);
-                  leadData.age = isNaN(parsed) ? null : parsed;
-                } else if (fieldName === "lead_date" || fieldName === "visit_date" || fieldName === "exam_end" || fieldName === "nfdt") {
+              if (column) {
+                // Handle type conversions based on column type
+                if (column.type === "number") {
+                  const parsed = parseFloat(String(value));
+                  value = isNaN(parsed) ? null : parsed;
+                } else if (column.type === "date") {
                   if (typeof value === "number") {
                     try {
                       const date = XLSX.SSF.parse_date_code(value);
-                      (leadData as any)[fieldName] = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+                      value = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
                     } catch {
-                      (leadData as any)[fieldName] = String(value);
+                      value = String(value);
                     }
                   } else if (typeof value === "string") {
                     const dateOnly = value.trim().split(' ')[0];
-                    (leadData as any)[fieldName] = dateOnly || value;
-                  } else {
-                    (leadData as any)[fieldName] = value;
+                    value = dateOnly || value;
                   }
+                } else if (column.type === "boolean") {
+                  value = ["yes", "true", "1", "y"].includes(String(value).toLowerCase());
+                } else if (column.type === "dropdown") {
+                  // Validate dropdown value
+                  const options = column.config.dropdown_options || [];
+                  const stringValue = String(value).trim();
+                  value = options.includes(stringValue) ? stringValue : null;
                 } else {
-                  (leadData as any)[fieldName] = String(value).trim() || null;
+                  value = String(value).trim() || null;
                 }
+                
+                leadData.custom_fields[key] = value;
               }
             }
           });
 
-          // Validate: require at least name OR mobile number
-          if (!leadData.name && !leadData.mobile_no) {
-            throw new Error("Row must have either Name or Mobile Number");
+          // Validate required custom fields (only for this sheet's columns)
+          const missingRequired = sheetColumns
+            .filter(col => col.config.required)
+            .filter(col => {
+              const value = leadData.custom_fields[col.column_key];
+              return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+            });
+            
+          if (missingRequired.length > 0) {
+            throw new Error(`Missing required fields: ${missingRequired.map(c => c.name).join(", ")}`);
           }
 
-          // Ensure no undefined values
-          Object.keys(leadData).forEach(key => {
-            if (leadData[key] === undefined) {
-              leadData[key] = null;
+          // Ensure at least one custom field is provided
+          if (Object.keys(leadData.custom_fields).length === 0) {
+            throw new Error("Row must have at least one mapped field with data");
+          }
+
+          // Ensure no undefined values in custom_fields
+          Object.keys(leadData.custom_fields).forEach(key => {
+            if (leadData.custom_fields[key] === undefined) {
+              leadData.custom_fields[key] = null;
             }
           });
 

@@ -37,29 +37,6 @@ interface PreviewData {
   companyColumns?: any[];
 }
 
-const FIXED_CRM_FIELDS = [
-  { value: "_skip", label: "-- Skip Column --" },
-  { value: "lead_date", label: "Lead Date" },
-  { value: "lead_time", label: "Time" },
-  { value: "executive", label: "Executive" },
-  { value: "lang", label: "Language" },
-  { value: "address", label: "Address" },
-  { value: "name", label: "Name" },
-  { value: "mobile_no", label: "Mobile No" },
-  { value: "whatsapp", label: "WhatsApp" },
-  { value: "occupation", label: "Occupation" },
-  { value: "qualification", label: "Qualification" },
-  { value: "age", label: "Age" },
-  { value: "exam_end", label: "Exam End" },
-  { value: "exam_mark", label: "Exam Mark" },
-  { value: "lead_status", label: "Lead Status" },
-  { value: "visit_status", label: "Visit Status" },
-  { value: "visit_date", label: "Visit Date" },
-  { value: "nfdt", label: "NFDT" },
-  { value: "call_1", label: "Call 1" },
-  { value: "feedback_1", label: "Feedback 1" },
-];
-
 export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -252,12 +229,12 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
           )}
 
           {step === "mapping" && previewData && (() => {
-            // Build dynamic field list from fixed fields + company columns
+            // Build dynamic field list from company's custom columns
             const allFields = [
-              ...FIXED_CRM_FIELDS,
+              { value: "_skip", label: "-- Skip Column --" },
               ...(previewData.companyColumns || []).map(col => ({
-                value: `custom:${col.column_key}`,
-                label: `${col.name} (Custom)`,
+                value: col.column_key,
+                label: `${col.name}${col.config.required ? ' *' : ''}`,
               })),
             ];
             
