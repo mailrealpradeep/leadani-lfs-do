@@ -17,49 +17,49 @@ export async function seedData() {
   console.log("✓ Created company: Acme Corporation (acme-corp)");
 
   // ===== CREATE SUPER ADMIN (No company affiliation) =====
-  const superAdminPasswordHash = await bcrypt.hash("SuperAdmin123!", 10);
+  const superAdminPasswordHash = await bcrypt.hash("password123", 10);
   const superAdmin = await storage.createUser({
     name: "Super Admin",
-    email: "superadmin@dabluz.com",
+    email: "admin@acme.com",
     password_hash: superAdminPasswordHash,
     role: "super_admin",
     company_id: null,
   } as any);
-  console.log("✓ Created super admin: superadmin@dabluz.com / SuperAdmin123!");
+  console.log("✓ Created super admin: admin@acme.com / password123");
 
   // ===== CREATE COMPANY ADMIN for Acme =====
-  const companyAdminPasswordHash = await bcrypt.hash("Admin123!", 10);
+  const companyAdminPasswordHash = await bcrypt.hash("password123", 10);
   const companyAdmin = await storage.createUser({
-    name: "Alex Johnson",
-    email: "admin@acme-corp.com",
+    name: "Company Admin",
+    email: "company-admin@acme.com",
     password_hash: companyAdminPasswordHash,
     role: "company_admin",
     company_id: demoCompany.id,
   } as any);
-  console.log("✓ Created company admin: admin@acme-corp.com / Admin123!");
+  console.log("✓ Created company admin: company-admin@acme.com / password123");
 
   // ===== CREATE REGULAR USERS for Acme =====
-  const user1PasswordHash = await bcrypt.hash("User123!", 10);
+  const user1PasswordHash = await bcrypt.hash("password123", 10);
   const user1 = await storage.createUser({
-    name: "John Doe",
-    email: "john@acme-corp.com",
+    name: "Alice Johnson",
+    email: "alice@acme.com",
     password_hash: user1PasswordHash,
     role: "user",
     company_id: demoCompany.id,
     invited_by: companyAdmin.id,
   } as any);
-  console.log("✓ Created user: john@acme-corp.com / User123!");
+  console.log("✓ Created user: alice@acme.com / password123");
 
-  const user2PasswordHash = await bcrypt.hash("User123!", 10);
+  const user2PasswordHash = await bcrypt.hash("password123", 10);
   const user2 = await storage.createUser({
-    name: "Jane Smith",
-    email: "jane@acme-corp.com",
+    name: "Bob Smith",
+    email: "bob@acme.com",
     password_hash: user2PasswordHash,
     role: "user",
     company_id: demoCompany.id,
     invited_by: companyAdmin.id,
   } as any);
-  console.log("✓ Created user: jane@acme-corp.com / User123!");
+  console.log("✓ Created user: bob@acme.com / password123");
 
   // ===== CREATE COMPANY-WIDE SHEETS =====
   const salesNorth = await storage.createSheet({
@@ -316,8 +316,8 @@ export async function seedData() {
 
   console.log("✅ Multi-tenant seed data created successfully!");
   console.log("\n📋 Login Credentials:");
-  console.log("  Super Admin: superadmin@dabluz.com / SuperAdmin123!");
-  console.log("  Company Admin (Acme): admin@acme-corp.com / Admin123!");
-  console.log("  User 1 (Acme): john@acme-corp.com / User123!");
-  console.log("  User 2 (Acme): jane@acme-corp.com / User123!");
+  console.log("  Super Admin: admin@acme.com / password123");
+  console.log("  Company Admin (Acme): company-admin@acme.com / password123");
+  console.log("  User 1 (Acme): alice@acme.com / password123");
+  console.log("  User 2 (Acme): bob@acme.com / password123");
 }
