@@ -52,6 +52,7 @@ interface SpreadsheetGridProps {
   onOpenLeadDetail: (leadId: string) => void;
   onOpenDropdownManager: (columnKey: string) => void;
   onOpenColumnManager: () => void;
+  onScroll?: (scrollTop: number, scrollingDown: boolean) => void;
 }
 
 export function SpreadsheetGrid({
@@ -59,6 +60,7 @@ export function SpreadsheetGrid({
   onOpenLeadDetail,
   onOpenDropdownManager,
   onOpenColumnManager,
+  onScroll,
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -134,13 +136,23 @@ export function SpreadsheetGrid({
     const container = containerRef.current;
     if (!container) return;
 
+    let lastScrollTop = 0;
     const handleScroll = () => {
-      setIsScrolled(container.scrollTop > 50);
+      const scrollTop = container.scrollTop;
+      setIsScrolled(scrollTop > 50);
+      
+      // Notify parent about scroll if callback provided
+      if (onScroll) {
+        const scrollingDown = scrollTop > lastScrollTop;
+        onScroll(scrollTop, scrollingDown);
+      }
+      
+      lastScrollTop = scrollTop;
     };
 
     container.addEventListener("scroll", handleScroll);
     return () => container.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [onScroll]);
 
   // Socket.io realtime updates
   useEffect(() => {

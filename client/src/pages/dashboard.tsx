@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, FileUp, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,6 @@ export default function Dashboard() {
   const [dropdownColumn, setDropdownColumn] = useState<string | null>(null);
   const [isDropdownManagerOpen, setIsDropdownManagerOpen] = useState(false);
   const [isColumnManagerOpen, setIsColumnManagerOpen] = useState(false);
-  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
 
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -36,24 +35,29 @@ export default function Dashboard() {
     }
   }, [selectedSheetId, sheets]);
 
-  // Auto-hide header on scroll
+  // Clean up app header when leaving dashboard
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    let lastScrollTop = 0;
-    const handleScroll = () => {
-      const scrollTop = container.scrollTop;
-      if (scrollTop > 100 && scrollTop > lastScrollTop) {
-        setIsHeaderHidden(true);
-      } else {
-        setIsHeaderHidden(false);
+    return () => {
+      const appHeader = document.querySelector('header[data-app-header]');
+      if (appHeader) {
+        appHeader.classList.remove('header-hidden');
       }
-      lastScrollTop = scrollTop;
     };
+  }, []);
 
-    container.addEventListener("scroll", handleScroll);
-    return () => container.removeEventListener("scroll", handleScroll);
+  // Handle scroll from SpreadsheetGrid
+  const handleGridScroll = useCallback((scrollTop: number, scrollingDown: boolean) => {
+    const appHeader = document.querySelector('header[data-app-header]');
+    
+    if (appHeader) {
+      if (scrollTop > 50 && scrollingDown) {
+        // Scrolling down - hide app header
+        appHeader.classList.add('header-hidden');
+      } else if (!scrollingDown) {
+        // Scrolling up - show app header
+        appHeader.classList.remove('header-hidden');
+      }
+    }
   }, []);
 
   const handleOpenLeadDetail = (leadId: string) => {
@@ -69,12 +73,8 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col h-full">
       <div 
-        className={`bg-background border-b px-6 transition-all duration-300 ${
-          isHeaderHidden ? 'h-0 opacity-0 py-0' : 'h-auto opacity-100 py-4'
-        }`}
-        style={{
-          overflow: 'hidden'
-        }}
+        className="sticky top-0 z-20 bg-background border-b px-6 py-4"
+        data-dashboard-header
       >
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
@@ -121,6 +121,7 @@ export default function Dashboard() {
             onOpenLeadDetail={handleOpenLeadDetail}
             onOpenDropdownManager={handleOpenDropdownManager}
             onOpenColumnManager={() => setIsColumnManagerOpen(true)}
+            onScroll={handleGridScroll}
           />
         ) : (
           <div className="flex items-center justify-center h-full">
