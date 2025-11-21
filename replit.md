@@ -2,7 +2,7 @@
 
 ## Overview
 
-Dabluz CRM is a production-ready multi-user spreadsheet-like CRM application designed for lead management and collaboration. The system provides Excel-like grid interfaces with customizable workspaces (sheets), dynamic column management, webhook integration for automated lead creation, and comprehensive reporting capabilities. Built with a focus on real-time collaboration, the application supports role-based access control, audit logging, and data export functionality.
+Dabluz CRM is a production-ready multi-user spreadsheet-like CRM application designed for lead management and collaboration. The system provides Excel-like grid interfaces with customizable workspaces (sheets), dynamic column management, webhook integration for automated lead creation, comprehensive reporting capabilities, and chronological lead update tracking. Built with a focus on real-time collaboration, the application supports role-based access control, audit logging, data export functionality, and mobile-responsive design across all viewports.
 
 ## User Preferences
 
@@ -69,6 +69,7 @@ Preferred communication style: Simple, everyday language.
 - **Sheets**: Workspace containers with owner and settings
 - **SheetUsers**: Junction table for sheet permissions (Owner/Editor/Viewer)
 - **Leads**: Primary data records with fixed and custom fields
+- **LeadUpdates**: Chronological update tracking for each lead (via WhatsApp/Call, date, remarks)
 - **DropdownOptions**: Configurable dropdown values per sheet and column
 - **CustomColumns**: Dynamic column definitions (text, number, date, dropdown, boolean)
 - **Audit**: Activity logging for all CRUD operations
@@ -81,6 +82,8 @@ Preferred communication style: Simple, everyday language.
 **RESTful Endpoints**:
 - `/api/auth/*`: Login, register, session management
 - `/api/sheets/*`: Sheet CRUD, leads, columns, dropdowns, reports
+- `/api/leads/:id/updates`: Lead update tracking (GET, POST)
+- `/api/lead-updates/:id`: Update management (PATCH, DELETE)
 - `/api/admin/*`: System-wide user and sheet management
 - `/api/audit`: Activity logs
 - `/api/webhooks/leads`: External lead creation endpoint
@@ -119,6 +122,22 @@ Preferred communication style: Simple, everyday language.
 - Server emits events: `lead_created`, `lead_updated`, `lead_deleted`, `dropdown_updated`, `column_added`
 - Clients listen for events and invalidate React Query cache to trigger refetch
 - Optimistic updates on client side for immediate feedback
+
+### Lead Update Tracking
+
+**Chronological Update System**: Each lead can have multiple updates recorded with:
+- **Update Method**: WhatsApp or Phone Call
+- **Update Date**: When the update occurred
+- **Remarks**: Detailed notes about the interaction
+- **Auto-timestamping**: Created timestamp for audit trail
+
+**UI Components**:
+- Desktop view: Edit and History icon buttons in each row's action column
+- Mobile view: Update and History buttons at bottom of each lead card (44px min-height for touch)
+- Update Dialog: Form to record new updates with method selector, date picker, and remark textarea
+- History Dialog: Chronological list of all updates with delete capability
+
+**Real-time Sync**: Updates broadcast via Socket.io to all connected users viewing the same sheet.
 
 ### Data Export
 

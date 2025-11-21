@@ -360,18 +360,35 @@ export function SpreadsheetGrid({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search leads..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 min-h-[44px]"
-              data-testid="input-search-leads"
-            />
+    <>
+      {/* Update Dialogs */}
+      {selectedLeadForUpdate && (
+        <>
+          <LeadUpdateDialog
+            leadId={selectedLeadForUpdate}
+            open={updateDialogOpen}
+            onOpenChange={setUpdateDialogOpen}
+          />
+          <LeadUpdateHistoryDialog
+            leadId={selectedLeadForUpdate}
+            open={updateHistoryDialogOpen}
+            onOpenChange={setUpdateHistoryDialogOpen}
+          />
+        </>
+      )}
+
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search leads..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 min-h-[44px]"
+                data-testid="input-search-leads"
+              />
           </div>
           <Select value={categoryFilter} onValueChange={(v: any) => setCategoryFilter(v)}>
             <SelectTrigger className="w-full sm:w-[200px] min-h-[44px]" data-testid="select-category-filter">
@@ -537,6 +554,37 @@ export function SpreadsheetGrid({
                     <p className="truncate">{lead.lead_date ? format(new Date(lead.lead_date), "MMM d, yyyy") : "—"}</p>
                   </div>
                 )}
+              </div>
+
+              <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 min-h-[44px]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedLeadForUpdate(lead.id);
+                    setUpdateDialogOpen(true);
+                  }}
+                  data-testid={`button-update-lead-${lead.id}`}
+                >
+                  <Edit2 className="h-4 w-4 mr-2" />
+                  Update
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 min-h-[44px]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedLeadForUpdate(lead.id);
+                    setUpdateHistoryDialogOpen(true);
+                  }}
+                  data-testid={`button-update-history-${lead.id}`}
+                >
+                  <History className="h-4 w-4 mr-2" />
+                  History
+                </Button>
               </div>
             </div>
           ))
@@ -820,6 +868,7 @@ export function SpreadsheetGrid({
         </Table>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
