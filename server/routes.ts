@@ -782,6 +782,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // IMPORT
+  // ============================================================================
+  app.post("/api/sheets/:id/import/preview", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { fileData, fileName } = req.body;
+
+      if (!fileData) {
+        return res.status(400).json({ error: "File data required" });
+      }
+
+      const buffer = Buffer.from(fileData, "base64");
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null });
+
+      if (rows.length === 0) {
+        return res.status(400).json({ error: "File is empty" });
+      }
+
+      const headers = Object.keys(rows[0] as any);
+      
+      const fieldMap: Record<string, string> = {};
+      const normalizeHeader = (h: string) => h.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+      
+      const mappings: Record<string, string> = {
+        leaddate: "lead_date",
+        date: "lead_date",
+        time: "lead_time",
+        leadtime: "lead_time",
+        executive: "executive",
+        lang: "lang",
+        language: "lang",
+        address: "address",
+        name: "name",
+        mobileno: "mobile_no",
+        mobile: "mobile_no",
+        phone: "mobile_no",
+        whatsapp: "whatsapp",
+        occupation: "occupation",
+        qualification: "qualification",
+        age: "age",
+        examend: "exam_end",
+        exammark: "exam_mark",
+        marks: "exam_mark",
+        leadstatus: "lead_status",
+        status: "lead_status",
+        visitstatus: "visit_status",
+        visitdate: "visit_date",
+        nfdt: "nfdt",
+        call1: "call_1",
+        feedback1: "feedback_1",
+        feedback: "feedback_1",
+      };
+
+      headers.forEach((header) => {
+        const normalized = normalizeHeader(header);
+        if (mappings[normalized]) {
+          fieldMap[header] = mappings[normalized];
+        }
+      });
+
+      const preview = rows.slice(0, 10);
+
+      res.json({
+        headers,
+        fieldMap,
+        preview,
+        totalRows: rows.length,
+        fileName: fileName || "upload.xlsx",
+      });
+    } catch (error: any) {
+      console.error("Import preview error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/sheets/:id/import/execute", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { fileData, fieldMap } = req.body;
+      const sheetId = req.params.id;
+
+      if (!fileData || !fieldMap) {
+        return res.status(400).json({ error: "File data and field map required" });
+      }
+
+      const buffer = Buffer.from(fileData, "base64");
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null }) as any[];
+
+      const imported: any[] = [];
+      const errors: any[] = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        try {
+          const row = rows[i];
+          const leadData: any = { sheet_id: sheetId, owner_user_id: req.userId };
+
+          Object.entries(fieldMap).forEach(([excelHeader, crmField]) => {
+            if (crmField && row[excelHeader] !== undefined) {
+              let value = row[excelHeader];
+              
+              if (crmField === "age" && value !== null) {
+                value = parseInt(String(value), 10);
+              }
+              
+              leadData[crmField] = value;
+            }
+          });
+
+          const lead = await storage.createLead(leadData);
+          imported.push(lead);
+
+          await storage.createAuditLog({
+            user_id: req.userId,
+            action: "import",
+            model: "lead",
+            model_id: lead.id,
+            payload: { source: "excel_import", row: i + 1 },
+          });
+        } catch (error: any) {
+          errors.push({ row: i + 1, error: error.message });
+        }
+      }
+
+      const io = app.get("io") as SocketIOServer;
+      io.to(`sheet:${sheetId}`).emit("leads_imported", { count: imported.length });
+
+      res.json({
+        imported: imported.length,
+        errors: errors.length,
+        errorDetails: errors.slice(0, 10),
+      });
+    } catch (error: any) {
+      console.error("Import execute error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // EXPORT
   // ============================================================================
   app.get("/api/sheets/:id/export", authMiddleware, async (req: AuthRequest, res) => {

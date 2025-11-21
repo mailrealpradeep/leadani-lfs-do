@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SheetSelector } from "@/components/sheet-selector";
 import { SpreadsheetGrid } from "@/components/spreadsheet-grid";
@@ -8,6 +8,7 @@ import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { DropdownManagerModal } from "@/components/dropdown-manager-modal";
 import { ColumnManagerModal } from "@/components/column-manager-modal";
 import { AddLeadDialog } from "@/components/add-lead-dialog";
+import { ImportDialog } from "@/components/import-dialog";
 import type { Sheet } from "@shared/schema";
 
 export default function Dashboard() {
@@ -15,6 +16,7 @@ export default function Dashboard() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [dropdownColumn, setDropdownColumn] = useState<string | null>(null);
   const [isDropdownManagerOpen, setIsDropdownManagerOpen] = useState(false);
   const [isColumnManagerOpen, setIsColumnManagerOpen] = useState(false);
@@ -52,13 +54,23 @@ export default function Dashboard() {
             />
           </div>
           {selectedSheetId && (
-            <Button
-              onClick={() => setIsAddLeadOpen(true)}
-              data-testid="button-add-lead"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Lead
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsImportOpen(true)}
+                data-testid="button-import-leads"
+              >
+                <FileUp className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+              <Button
+                onClick={() => setIsAddLeadOpen(true)}
+                data-testid="button-add-lead"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Lead
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -106,6 +118,11 @@ export default function Dashboard() {
             sheetId={selectedSheetId}
             open={isAddLeadOpen}
             onOpenChange={setIsAddLeadOpen}
+          />
+          <ImportDialog
+            sheetId={selectedSheetId}
+            open={isImportOpen}
+            onOpenChange={setIsImportOpen}
           />
         </>
       )}
