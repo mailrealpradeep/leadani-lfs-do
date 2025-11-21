@@ -527,9 +527,9 @@ export function SpreadsheetGrid({
         </div>
       ) : (
         /* Desktop Table View */
-        <div className="border rounded-lg h-full flex flex-col">
+        <div className="border rounded-lg h-full flex flex-col overflow-hidden">
         <div ref={containerRef} className="overflow-auto flex-1">
-        <Table className="border-collapse" style={{ minWidth: `${calculateTableWidth()}px`, tableLayout: "fixed" }}>
+        <Table style={{ minWidth: `${calculateTableWidth()}px`, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}>
           <TableHeader className="border-b-2">
             <TableRow>
               <TableHead className="w-[50px] sticky top-0 bg-background dark:bg-background z-20 border-b">
