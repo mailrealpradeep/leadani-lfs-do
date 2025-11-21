@@ -19,7 +19,7 @@ import Webhooks from "@/pages/webhooks";
 import AuditLogs from "@/pages/audit";
 
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => JSX.Element; adminOnly?: boolean }) {
-  const { isAuthenticated, isAdmin, isLoading } = useAuth();
+  const { isAuthenticated, isSuperAdmin, isCompanyAdmin, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -33,7 +33,7 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
     return <Redirect to="/login" />;
   }
 
-  if (adminOnly && !isAdmin) {
+  if (adminOnly && !isSuperAdmin && !isCompanyAdmin) {
     return <Redirect to="/" />;
   }
 

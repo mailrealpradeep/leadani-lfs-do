@@ -27,7 +27,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user, logout, isAdmin } = useAuth();
+  const { user, company, logout, isSuperAdmin, isCompanyAdmin } = useAuth();
   const {
     selectedSheetId,
     setSelectedSheetId,
@@ -65,7 +65,7 @@ export function AppSidebar() {
     },
   ];
 
-  const adminItems = isAdmin
+  const adminItems = (isSuperAdmin || isCompanyAdmin)
     ? [
         {
           title: "Admin Console",
@@ -245,6 +245,11 @@ export function AppSidebar() {
               {user?.name}
             </p>
             <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            {company && (
+              <p className="text-xs text-muted-foreground truncate" data-testid="text-company-name">
+                {company.name}
+              </p>
+            )}
           </div>
         </div>
         <Button

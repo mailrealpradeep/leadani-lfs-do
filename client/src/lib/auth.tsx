@@ -1,17 +1,25 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "./queryClient";
-import type { User, AuthResponse, LoginRequest, InsertUser } from "@shared/schema";
+import type { User, AuthResponse, LoginRequest, InsertUser, Company } from "@shared/schema";
+
+interface AuthMeResponse {
+  user: Omit<User, "password_hash">;
+  company: Company | null;
+}
 
 interface AuthContextType {
   user: Omit<User, "password_hash"> | null;
+  company: Company | null;
   token: string | null;
   isLoading: boolean;
   login: (credentials: LoginRequest) => Promise<void>;
   register: (data: InsertUser) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
-  isAdmin: boolean;
+  isSuperAdmin: boolean;
+  isCompanyAdmin: boolean;
+  isRegularUser: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,37 +27,46 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("auth_token"));
 
-  const { data: user, isLoading } = useQuery<Omit<User, "password_hash">>({
+  const { data, isLoading, isError } = useQuery<AuthMeResponse>({
     queryKey: ["/api/auth/me"],
     enabled: !!token,
     retry: false,
-    onError: () => {
+  });
+
+  useEffect(() => {
+    if (isError && token) {
       setToken(null);
       localStorage.removeItem("auth_token");
-    },
-  });
+    }
+  }, [isError, token]);
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginRequest) => {
       const response = await apiRequest<AuthResponse>("POST", "/api/auth/login", credentials);
       return response;
     },
-    onSuccess: (data) => {
-      setToken(data.token);
-      localStorage.setItem("auth_token", data.token);
-      queryClient.setQueryData(["/api/auth/me"], data.user);
+    onSuccess: (response) => {
+      setToken(response.token);
+      localStorage.setItem("auth_token", response.token);
+      queryClient.setQueryData(["/api/auth/me"], {
+        user: response.user,
+        company: null,
+      });
     },
   });
 
   const registerMutation = useMutation({
-    mutationFn: async (data: InsertUser) => {
-      const response = await apiRequest<AuthResponse>("POST", "/api/auth/register", data);
+    mutationFn: async (userData: InsertUser) => {
+      const response = await apiRequest<AuthResponse>("POST", "/api/auth/register", userData);
       return response;
     },
-    onSuccess: (data) => {
-      setToken(data.token);
-      localStorage.setItem("auth_token", data.token);
-      queryClient.setQueryData(["/api/auth/me"], data.user);
+    onSuccess: (response) => {
+      setToken(response.token);
+      localStorage.setItem("auth_token", response.token);
+      queryClient.setQueryData(["/api/auth/me"], {
+        user: response.user,
+        company: null,
+      });
     },
   });
 
@@ -68,21 +85,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [token]);
 
+  const user = data?.user || null;
+  const company = data?.company || null;
+
   return (
     <AuthContext.Provider
       value={{
-        user: user || null,
+        user,
+        company,
         token,
         isLoading,
         login: async (credentials) => {
           await loginMutation.mutateAsync(credentials);
         },
-        register: async (data) => {
-          await registerMutation.mutateAsync(data);
+        register: async (userData) => {
+          await registerMutation.mutateAsync(userData);
         },
         logout,
         isAuthenticated: !!user,
-        isAdmin: user?.role === "admin",
+        isSuperAdmin: user?.role === "super_admin",
+        isCompanyAdmin: user?.role === "company_admin",
+        isRegularUser: user?.role === "user",
       }}
     >
       {children}
