@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import {
@@ -14,9 +14,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
-import type { Lead } from "@shared/schema";
+import type { Lead, CustomColumn } from "@shared/schema";
 
 interface AddLeadDialogProps {
   sheetId: string;
@@ -27,49 +29,25 @@ interface AddLeadDialogProps {
 export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [formData, setFormData] = useState({
-    name: "",
-    mobile_no: "",
-    whatsapp: "",
-    address: "",
-    executive: "",
-    lang: "",
-    occupation: "",
-    qualification: "",
-    age: "",
-    lead_date: new Date().toISOString().split("T")[0],
-    lead_time: new Date().toTimeString().slice(0, 5),
+  const [formData, setFormData] = useState<Record<string, any>>({});
+
+  const { data: columns = [] } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/sheets", sheetId, "columns"],
+    enabled: open,
   });
 
   const createMutation = useMutation({
     mutationFn: async () => {
       return await apiRequest<Lead>("POST", `/api/sheets/${sheetId}/leads`, {
-        ...formData,
         sheet_id: sheetId,
         owner_user_id: user?.id,
-        age: formData.age ? parseInt(formData.age) : null,
-        lead_status: "New",
-        visit_status: "Not Visited",
-        custom_fields: {},
-        meta: {},
+        custom_fields: formData,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
       onOpenChange(false);
-      setFormData({
-        name: "",
-        mobile_no: "",
-        whatsapp: "",
-        address: "",
-        executive: "",
-        lang: "",
-        occupation: "",
-        qualification: "",
-        age: "",
-        lead_date: new Date().toISOString().split("T")[0],
-        lead_time: new Date().toTimeString().slice(0, 5),
-      });
+      setFormData({});
       toast({
         title: "Lead created",
         description: "Lead has been added successfully",
@@ -87,15 +65,140 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate required fields (handle falsy values like false and 0 correctly)
+    const requiredColumns = columns.filter(col => col.config.required);
+    const missingFields = requiredColumns.filter(col => {
+      const value = formData[col.column_key];
+      // Check for null/undefined (nullish), but allow false, 0, empty string
+      if (value === null || value === undefined) return true;
+      // For text fields, check if they're just whitespace
+      if (col.type === "text" && typeof value === "string" && value.trim() === "") return true;
+      return false;
+    });
+    
+    if (missingFields.length > 0) {
+      toast({
+        title: "Missing required fields",
+        description: `Please fill in: ${missingFields.map(col => col.name).join(", ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+    
     createMutation.mutate();
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (key: string, value: any) => {
     setFormData((prev) => ({
       ...prev,
-      [e.target.name]: e.target.value,
+      [key]: value,
     }));
   };
+
+  const renderField = (col: CustomColumn) => {
+    const value = formData[col.column_key] ?? "";
+    const required = col.config.required || false;
+
+    switch (col.type) {
+      case "text":
+        return (
+          <div key={col.id} className="space-y-2">
+            <Label htmlFor={col.column_key}>
+              {col.name} {required && "*"}
+            </Label>
+            <Input
+              id={col.column_key}
+              value={value}
+              onChange={(e) => handleChange(col.column_key, e.target.value)}
+              required={required}
+              data-testid={`input-${col.column_key}`}
+            />
+          </div>
+        );
+
+      case "number":
+        return (
+          <div key={col.id} className="space-y-2">
+            <Label htmlFor={col.column_key}>
+              {col.name} {required && "*"}
+            </Label>
+            <Input
+              id={col.column_key}
+              type="number"
+              value={value}
+              onChange={(e) => handleChange(col.column_key, e.target.value)}
+              required={required}
+              data-testid={`input-${col.column_key}`}
+            />
+          </div>
+        );
+
+      case "date":
+        return (
+          <div key={col.id} className="space-y-2">
+            <Label htmlFor={col.column_key}>
+              {col.name} {required && "*"}
+            </Label>
+            <Input
+              id={col.column_key}
+              type="date"
+              value={value}
+              onChange={(e) => handleChange(col.column_key, e.target.value)}
+              required={required}
+              data-testid={`input-${col.column_key}`}
+            />
+          </div>
+        );
+
+      case "dropdown":
+        return (
+          <div key={col.id} className="space-y-2">
+            <Label htmlFor={col.column_key}>
+              {col.name} {required && "*"}
+            </Label>
+            <Select
+              value={value}
+              onValueChange={(val) => handleChange(col.column_key, val)}
+              required={required}
+            >
+              <SelectTrigger data-testid={`select-${col.column_key}`}>
+                <SelectValue placeholder={`Select ${col.name}`} />
+              </SelectTrigger>
+              <SelectContent>
+                {col.config.dropdown_options?.map((opt) => (
+                  <SelectItem key={opt} value={opt}>
+                    {opt}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+
+      case "boolean":
+        return (
+          <div key={col.id} className="flex items-center space-x-2">
+            <Checkbox
+              id={col.column_key}
+              checked={value === true}
+              onCheckedChange={(checked) => {
+                // Normalize to boolean: true/false, never "indeterminate"
+                const normalizedValue = checked === true;
+                handleChange(col.column_key, normalizedValue);
+              }}
+              data-testid={`checkbox-${col.column_key}`}
+            />
+            <Label htmlFor={col.column_key}>{col.name}</Label>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  const sortedColumns = [...columns].sort((a, b) => a.order_index - b.order_index);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -103,126 +206,12 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
         <DialogHeader>
           <DialogTitle>Add New Lead</DialogTitle>
           <DialogDescription>
-            Enter lead information. All fields are optional except name.
+            Enter lead information based on your company's custom fields.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
-              <Input
-                id="name"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-                required
-                data-testid="input-lead-name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mobile_no">Mobile Number</Label>
-              <Input
-                id="mobile_no"
-                name="mobile_no"
-                value={formData.mobile_no}
-                onChange={handleChange}
-                data-testid="input-lead-mobile"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="whatsapp">WhatsApp</Label>
-              <Input
-                id="whatsapp"
-                name="whatsapp"
-                value={formData.whatsapp}
-                onChange={handleChange}
-                data-testid="input-lead-whatsapp"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="executive">Executive</Label>
-              <Input
-                id="executive"
-                name="executive"
-                value={formData.executive}
-                onChange={handleChange}
-                data-testid="input-lead-executive"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="lang">Language</Label>
-              <Input
-                id="lang"
-                name="lang"
-                value={formData.lang}
-                onChange={handleChange}
-                data-testid="input-lead-lang"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="age">Age</Label>
-              <Input
-                id="age"
-                name="age"
-                type="number"
-                value={formData.age}
-                onChange={handleChange}
-                data-testid="input-lead-age"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="occupation">Occupation</Label>
-              <Input
-                id="occupation"
-                name="occupation"
-                value={formData.occupation}
-                onChange={handleChange}
-                data-testid="input-lead-occupation"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="qualification">Qualification</Label>
-              <Input
-                id="qualification"
-                name="qualification"
-                value={formData.qualification}
-                onChange={handleChange}
-                data-testid="input-lead-qualification"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="lead_date">Lead Date</Label>
-              <Input
-                id="lead_date"
-                name="lead_date"
-                type="date"
-                value={formData.lead_date}
-                onChange={handleChange}
-                data-testid="input-lead-date"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="lead_time">Lead Time</Label>
-              <Input
-                id="lead_time"
-                name="lead_time"
-                type="time"
-                value={formData.lead_time}
-                onChange={handleChange}
-                data-testid="input-lead-time"
-              />
-            </div>
-            <div className="md:col-span-2 space-y-2">
-              <Label htmlFor="address">Address</Label>
-              <Textarea
-                id="address"
-                name="address"
-                value={formData.address}
-                onChange={handleChange}
-                rows={2}
-                data-testid="input-lead-address"
-              />
-            </div>
+            {sortedColumns.map((col) => renderField(col))}
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
@@ -236,7 +225,7 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
             </Button>
             <Button
               type="submit"
-              disabled={!formData.name.trim() || createMutation.isPending}
+              disabled={createMutation.isPending}
               data-testid="button-save-lead"
               className="min-h-[44px] w-full sm:w-auto"
             >

@@ -1171,6 +1171,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Remove owner_user_id from req.body to prevent client spoofing
       const { owner_user_id, ...leadData } = req.body;
       
+      // Validate required custom fields
+      const customColumns = await storage.getCustomColumns(sheet.company_id, req.params.id);
+      const requiredColumns = customColumns.filter(col => col.config.required);
+      const missingFields = requiredColumns.filter(col => {
+        const value = leadData.custom_fields?.[col.column_key];
+        // Check for null/undefined (nullish), but allow false, 0
+        if (value === null || value === undefined) return true;
+        // For text fields, check if they're just whitespace
+        if (col.type === "text" && typeof value === "string" && value.trim() === "") return true;
+        return false;
+      });
+      
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          error: "Missing required fields",
+          missingFields: missingFields.map(col => col.name)
+        });
+      }
+      
+      // Validate boolean field types
+      const booleanColumns = customColumns.filter(col => col.type === "boolean");
+      const invalidBooleanFields = booleanColumns.filter(col => {
+        const value = leadData.custom_fields?.[col.column_key];
+        if (value === null || value === undefined) return false; // Allow nullish for optional fields
+        return typeof value !== "boolean";
+      });
+      
+      if (invalidBooleanFields.length > 0) {
+        return res.status(400).json({
+          error: "Invalid boolean field values",
+          invalidFields: invalidBooleanFields.map(col => col.name)
+        });
+      }
+      
+      // Validate dropdown field values are in defined options
+      const dropdownColumns = customColumns.filter(col => col.type === "dropdown" && col.config.dropdown_options);
+      const invalidDropdownFields = dropdownColumns.filter(col => {
+        const value = leadData.custom_fields?.[col.column_key];
+        if (value === null || value === undefined) return false; // Allow nullish for optional fields
+        const options = col.config.dropdown_options || [];
+        return !options.includes(value);
+      });
+      
+      if (invalidDropdownFields.length > 0) {
+        return res.status(400).json({
+          error: "Invalid dropdown values",
+          invalidFields: invalidDropdownFields.map(col => `${col.name} (value not in options)`)
+        });
+      }
+      
       const lead = await storage.createLead({
         ...leadData,
         sheet_id: req.params.id,

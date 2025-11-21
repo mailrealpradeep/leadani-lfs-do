@@ -49,7 +49,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { format } from "date-fns";
-import type { Lead, DropdownOption } from "@shared/schema";
+import type { Lead, DropdownOption, CustomColumn } from "@shared/schema";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 
@@ -84,8 +84,13 @@ export function SpreadsheetGrid({
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
 
-  const { data: leads = [], isLoading } = useQuery<Lead[]>({
+  const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
+    enabled: !!sheetId,
+  });
+
+  const { data: customColumns = [], isLoading: isLoadingColumns } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/sheets", sheetId, "columns"],
     enabled: !!sheetId,
   });
 
@@ -94,9 +99,11 @@ export function SpreadsheetGrid({
     enabled: !!sheetId,
   });
 
+  const isLoading = isLoadingLeads || isLoadingColumns;
+
   const updateLeadMutation = useMutation({
-    mutationFn: async ({ leadId, data }: { leadId: string; data: Partial<Lead> }) => {
-      return await apiRequest("PATCH", `/api/leads/${leadId}`, data);
+    mutationFn: async ({ leadId, customFields }: { leadId: string; customFields: Record<string, any> }) => {
+      return await apiRequest("PATCH", `/api/leads/${leadId}`, { custom_fields: customFields });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
@@ -210,24 +217,28 @@ export function SpreadsheetGrid({
     };
   }, [sheetId]);
 
-  const handleCellClick = (leadId: string, field: string, currentValue: any) => {
-    setEditingCell({ leadId, field });
+  const handleCellClick = (lead: Lead, columnKey: string, currentValue: any) => {
+    setEditingCell({ leadId: lead.id, field: columnKey });
     setEditValue(currentValue || "");
   };
 
-  const handleCellSave = () => {
+  const handleCellSave = (lead: Lead) => {
     if (editingCell) {
+      const updatedFields = {
+        ...lead.custom_fields,
+        [editingCell.field]: editValue,
+      };
       updateLeadMutation.mutate({
         leadId: editingCell.leadId,
-        data: { [editingCell.field]: editValue },
+        customFields: updatedFields,
       });
       setEditingCell(null);
     }
   };
 
-  const handleCellKeyDown = (e: React.KeyboardEvent) => {
+  const handleCellKeyDown = (e: React.KeyboardEvent, lead: Lead) => {
     if (e.key === "Enter") {
-      handleCellSave();
+      handleCellSave(lead);
     } else if (e.key === "Escape") {
       setEditingCell(null);
     }
@@ -248,22 +259,18 @@ export function SpreadsheetGrid({
     }
   };
 
+  // Get value from lead's custom_fields
+  const getLeadValue = (lead: Lead, columnKey: string) => {
+    return lead.custom_fields[columnKey];
+  };
+
   const filteredAndSortedLeads = leads
     .filter((lead) => {
-      // Category filter
-      if (categoryFilter !== "all" && lead.lead_category !== categoryFilter) {
-        return false;
-      }
-      
-      // Search query filter
+      // Search query filter - search across all custom fields
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
-        const matchesSearch = (
-          lead.name?.toLowerCase().includes(query) ||
-          lead.mobile_no?.toLowerCase().includes(query) ||
-          lead.whatsapp?.toLowerCase().includes(query) ||
-          lead.executive?.toLowerCase().includes(query) ||
-          lead.address?.toLowerCase().includes(query)
+        const matchesSearch = Object.values(lead.custom_fields).some(value => 
+          String(value || "").toLowerCase().includes(query)
         );
         if (!matchesSearch) return false;
       }
@@ -271,7 +278,7 @@ export function SpreadsheetGrid({
       // Column filters
       for (const [columnKey, filterValue] of Object.entries(columnFilters)) {
         if (!filterValue) continue;
-        const cellValue = String((lead as any)[columnKey] || "").toLowerCase();
+        const cellValue = String(getLeadValue(lead, columnKey) || "").toLowerCase();
         const filter = filterValue.toLowerCase();
         if (!cellValue.includes(filter)) {
           return false;
@@ -282,34 +289,24 @@ export function SpreadsheetGrid({
     })
     .sort((a, b) => {
       if (!sortColumn) return 0;
-      const aVal = (a as any)[sortColumn] || "";
-      const bVal = (b as any)[sortColumn] || "";
+      const aVal = getLeadValue(a, sortColumn) || "";
+      const bVal = getLeadValue(b, sortColumn) || "";
       const comparison = aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
       return sortDirection === "asc" ? comparison : -comparison;
     });
 
-  const columns = [
-    { key: "lead_category", label: "Priority", width: "120px", sortable: true, isCategory: true },
-    { key: "lead_date", label: "Lead Date", width: "120px", sortable: true },
-    { key: "lead_time", label: "Time", width: "100px", sortable: false },
-    { key: "executive", label: "Executive", width: "140px", sortable: true },
-    { key: "lang", label: "Lang", width: "120px", sortable: true, dropdown: true },
-    { key: "address", label: "Address", width: "200px", sortable: false },
-    { key: "name", label: "Name", width: "150px", sortable: true },
-    { key: "mobile_no", label: "Mobile No", width: "130px", sortable: false },
-    { key: "whatsapp", label: "WhatsApp", width: "130px", sortable: false },
-    { key: "occupation", label: "Occupation", width: "140px", sortable: true, dropdown: true },
-    { key: "qualification", label: "Qualification", width: "140px", sortable: true, dropdown: true },
-    { key: "age", label: "Age", width: "80px", sortable: true },
-    { key: "exam_end", label: "Exam End", width: "120px", sortable: false },
-    { key: "exam_mark", label: "Exam Mark", width: "100px", sortable: false },
-    { key: "lead_status", label: "Lead Status", width: "130px", sortable: true, dropdown: true },
-    { key: "visit_status", label: "Visit Status", width: "130px", sortable: true, dropdown: true },
-    { key: "visit_date", label: "Visit Date", width: "120px", sortable: false },
-    { key: "nfdt", label: "NFDT", width: "100px", sortable: false },
-    { key: "call_1", label: "Call 1", width: "150px", sortable: false },
-    { key: "feedback_1", label: "Feedback 1", width: "200px", sortable: false },
-  ];
+  // Convert CustomColumn to display columns
+  const columns = customColumns
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((col) => ({
+      key: col.column_key,
+      label: col.name,
+      width: col.type === "text" ? "150px" : col.type === "number" ? "100px" : col.type === "date" ? "120px" : col.type === "boolean" ? "100px" : "140px",
+      sortable: true,
+      dropdown: col.type === "dropdown",
+      type: col.type,
+      config: col.config,
+    }));
 
   const visibleColumns = columns.filter((col) => !hiddenColumns.has(col.key));
 
@@ -334,27 +331,6 @@ export function SpreadsheetGrid({
       return next;
     });
   };
-
-  const updateCategory = (leadId: string, category: "hot" | "warm" | "cold") => {
-    updateLeadMutation.mutate({
-      leadId,
-      data: { lead_category: category },
-    });
-  };
-
-  const getCategoryColor = (category: "hot" | "warm" | "cold") => {
-    switch (category) {
-      case "hot":
-        return "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800";
-      case "warm":
-        return "text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800";
-      case "cold":
-      default:
-        return "text-muted-foreground";
-    }
-  };
-
-  const dropdownColumns = ["lang", "occupation", "qualification", "lead_status", "visit_status"];
 
   if (isLoading) {
     return (
@@ -411,118 +387,76 @@ export function SpreadsheetGrid({
                 <div className="text-center py-12 text-muted-foreground">
                   <div className="text-4xl mb-3">📋</div>
                   <p>No leads found.</p>
-                  {categoryFilter !== "all" && <p className="text-sm mt-1">Try changing the filter.</p>}
                 </div>
               ) : (
                 filteredAndSortedLeads.map((lead) => (
-            <div
-              key={lead.id}
-              className="bg-card border rounded-lg p-4 hover-elevate active-elevate-2"
-              data-testid={`card-lead-${lead.id}`}
-              onClick={() => onOpenLeadDetail(lead.id)}
-            >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="flex-1 min-w-0">
-                  {!hiddenColumns.has("name") && (
-                    <h3 className="font-semibold text-base truncate">{lead.name || "Unnamed Lead"}</h3>
-                  )}
-                  {(!hiddenColumns.has("occupation") || !hiddenColumns.has("executive")) && (
-                    <p className="text-sm text-muted-foreground truncate">
-                      {!hiddenColumns.has("occupation") && lead.occupation ? lead.occupation : 
-                       !hiddenColumns.has("executive") && lead.executive ? lead.executive : "—"}
-                    </p>
-                  )}
-                </div>
-                {!hiddenColumns.has("lead_category") && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                  <div
+                    key={lead.id}
+                    className="bg-card border rounded-lg p-4 hover-elevate active-elevate-2"
+                    data-testid={`card-lead-${lead.id}`}
+                    onClick={() => onOpenLeadDetail(lead.id)}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="flex-1 min-w-0">
+                        {visibleColumns.slice(0, 2).map((col) => {
+                          const value = getLeadValue(lead, col.key);
+                          return value ? (
+                            <p key={col.key} className="text-sm truncate">
+                              <span className="font-medium">{value}</span>
+                            </p>
+                          ) : null;
+                        })}
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      {visibleColumns.slice(2, 6).map((col) => {
+                        const value = getLeadValue(lead, col.key);
+                        return (
+                          <div key={col.key}>
+                            <span className="text-muted-foreground">{col.label}:</span>
+                            <p className="truncate">
+                              {col.type === "date" && value 
+                                ? format(new Date(value), "MMM d, yyyy")
+                                : value || "—"}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
                       <Button
                         variant="outline"
                         size="sm"
-                        className={`${getCategoryColor(lead.lead_category)} min-h-[44px]`}
-                        data-testid={`button-category-${lead.id}`}
+                        className="flex-1 min-h-[44px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedLeadForUpdate(lead.id);
+                          setUpdateDialogOpen(true);
+                        }}
+                        data-testid={`button-update-lead-${lead.id}`}
                       >
-                        <Flame className="h-3 w-3 mr-1" />
-                        {lead.lead_category?.charAt(0).toUpperCase() + lead.lead_category?.slice(1) || "Cold"}
+                        <Edit2 className="h-4 w-4 mr-2" />
+                        Update
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenuItem onClick={() => updateCategory(lead.id, "hot")}>
-                        <Flame className="h-4 w-4 mr-2 text-red-500" />
-                        Hot
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => updateCategory(lead.id, "warm")}>
-                        <Flame className="h-4 w-4 mr-2 text-orange-500" />
-                        Warm
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => updateCategory(lead.id, "cold")}>
-                        <Flame className="h-4 w-4 mr-2 text-muted-foreground" />
-                        Cold
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-              
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                {!hiddenColumns.has("mobile_no") && (
-                  <div>
-                    <span className="text-muted-foreground">Mobile:</span>
-                    <p className="truncate">{lead.mobile_no || "—"}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 min-h-[44px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedLeadForUpdate(lead.id);
+                          setUpdateHistoryDialogOpen(true);
+                        }}
+                        data-testid={`button-update-history-${lead.id}`}
+                      >
+                        <History className="h-4 w-4 mr-2" />
+                        History
+                      </Button>
+                    </div>
                   </div>
-                )}
-                {!hiddenColumns.has("whatsapp") && (
-                  <div>
-                    <span className="text-muted-foreground">WhatsApp:</span>
-                    <p className="truncate">{lead.whatsapp || "—"}</p>
-                  </div>
-                )}
-                {!hiddenColumns.has("lead_status") && (
-                  <div>
-                    <span className="text-muted-foreground">Status:</span>
-                    <p className="truncate">{lead.lead_status || "—"}</p>
-                  </div>
-                )}
-                {!hiddenColumns.has("lead_date") && (
-                  <div>
-                    <span className="text-muted-foreground">Date:</span>
-                    <p className="truncate">{lead.lead_date ? format(new Date(lead.lead_date), "MMM d, yyyy") : "—"}</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 min-h-[44px]"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedLeadForUpdate(lead.id);
-                    setUpdateDialogOpen(true);
-                  }}
-                  data-testid={`button-update-lead-${lead.id}`}
-                >
-                  <Edit2 className="h-4 w-4 mr-2" />
-                  Update
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 min-h-[44px]"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedLeadForUpdate(lead.id);
-                    setUpdateHistoryDialogOpen(true);
-                  }}
-                  data-testid={`button-update-history-${lead.id}`}
-                >
-                  <History className="h-4 w-4 mr-2" />
-                  History
-                </Button>
-              </div>
-                </div>
-              ))
+                ))
               )}
             </div>
           </div>
@@ -595,38 +529,36 @@ export function SpreadsheetGrid({
                           </Button>
                         )}
                       </div>
-                      {!col.isCategory && (
-                        <div className="relative">
-                          <Input
-                            placeholder="Filter..."
-                            value={columnFilters[col.key] || ""}
-                            onChange={(e) =>
-                              setColumnFilters((prev) => ({
-                                ...prev,
-                                [col.key]: e.target.value,
-                              }))
+                      <div className="relative">
+                        <Input
+                          placeholder="Filter..."
+                          value={columnFilters[col.key] || ""}
+                          onChange={(e) =>
+                            setColumnFilters((prev) => ({
+                              ...prev,
+                              [col.key]: e.target.value,
+                            }))
+                          }
+                          className="h-7 text-xs"
+                          data-testid={`input-filter-${col.key}`}
+                        />
+                        {columnFilters[col.key] && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
+                            onClick={() =>
+                              setColumnFilters((prev) => {
+                                const next = { ...prev };
+                                delete next[col.key];
+                                return next;
+                              })
                             }
-                            className="h-7 text-xs"
-                            data-testid={`input-filter-${col.key}`}
-                          />
-                          {columnFilters[col.key] && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                              onClick={() =>
-                                setColumnFilters((prev) => {
-                                  const next = { ...prev };
-                                  delete next[col.key];
-                                  return next;
-                                })
-                              }
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                      )}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -671,58 +603,29 @@ export function SpreadsheetGrid({
                     {visibleColumns.map((col) => {
                       const isEditing =
                         editingCell?.leadId === lead.id && editingCell?.field === col.key;
-                      const value = (lead as any)[col.key];
-                      const isDropdown = dropdownColumns.includes(col.key);
-                      const isCategory = col.key === "lead_category";
+                      const value = getLeadValue(lead, col.key);
+                      const isDropdown = col.dropdown;
 
                       return (
                         <div
                           key={col.key}
-                          onDoubleClick={() => {
-                            if (!isCategory) {
-                              handleCellClick(lead.id, col.key, value);
-                            }
-                          }}
+                          onDoubleClick={() => handleCellClick(lead, col.key, value)}
                           className="border-r px-3 py-2 whitespace-nowrap flex items-center"
                           data-testid={`cell-${lead.id}-${col.key}`}
                         >
-                        {isCategory ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className={getCategoryColor(lead.lead_category)}
-                                data-testid={`button-category-${lead.id}`}
-                              >
-                                <Flame className="h-3 w-3 mr-1" />
-                                {lead.lead_category?.charAt(0).toUpperCase() + lead.lead_category?.slice(1) || "Cold"}
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent>
-                              <DropdownMenuItem onClick={() => updateCategory(lead.id, "hot")}>
-                                <Flame className="h-4 w-4 mr-2 text-red-500" />
-                                Hot
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => updateCategory(lead.id, "warm")}>
-                                <Flame className="h-4 w-4 mr-2 text-orange-500" />
-                                Warm
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => updateCategory(lead.id, "cold")}>
-                                <Flame className="h-4 w-4 mr-2 text-muted-foreground" />
-                                Cold
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : isEditing ? (
+                        {isEditing ? (
                           isDropdown ? (
                             <Select
                               value={editValue}
                               onValueChange={(val) => {
                                 setEditValue(val);
+                                const updatedFields = {
+                                  ...lead.custom_fields,
+                                  [col.key]: val,
+                                };
                                 updateLeadMutation.mutate({
                                   leadId: lead.id,
-                                  data: { [col.key]: val },
+                                  customFields: updatedFields,
                                 });
                                 setEditingCell(null);
                               }}
@@ -735,9 +638,9 @@ export function SpreadsheetGrid({
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {getDropdownOptionsForColumn(col.key).map((opt) => (
-                                  <SelectItem key={opt.id} value={opt.value}>
-                                    {opt.value}
+                                {col.config.dropdown_options?.map((opt) => (
+                                  <SelectItem key={opt} value={opt}>
+                                    {opt}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -746,15 +649,19 @@ export function SpreadsheetGrid({
                             <Input
                               value={editValue}
                               onChange={(e) => setEditValue(e.target.value)}
-                              onBlur={handleCellSave}
-                              onKeyDown={handleCellKeyDown}
+                              onBlur={() => handleCellSave(lead)}
+                              onKeyDown={(e) => handleCellKeyDown(e, lead)}
                               className="h-8"
                               autoFocus
                               data-testid={`input-edit-${col.key}`}
                             />
                           )
                         ) : (
-                          <span className="text-sm">{value || "-"}</span>
+                          <span className="text-sm">
+                            {col.type === "date" && value
+                              ? format(new Date(value), "MMM d, yyyy")
+                              : value || "-"}
+                          </span>
                         )}
                         </div>
                       );

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Lead, Audit } from "@shared/schema";
+import type { Lead, Audit, CustomColumn } from "@shared/schema";
 import { format } from "date-fns";
 
 interface LeadDetailDrawerProps {
@@ -31,6 +31,39 @@ export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawe
     enabled: !!leadId && open,
   });
 
+  const { data: columns = [] } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/sheets", lead?.sheet_id, "columns"],
+    enabled: !!lead?.sheet_id && open,
+  });
+
+  const getLeadValue = (lead: Lead | undefined, key: string) => {
+    if (!lead) return undefined;
+    const value = lead.custom_fields[key];
+    return value !== null && value !== undefined ? value : undefined;
+  };
+
+  const formatValue = (value: any, type: string) => {
+    // Handle nullish values
+    if (value === null || value === undefined) return "-";
+    
+    // Handle different types
+    if (type === "date") {
+      try {
+        return format(new Date(value), "PPP");
+      } catch {
+        return String(value);
+      }
+    }
+    if (type === "boolean") {
+      return value === true || value === "true" ? "Yes" : "No";
+    }
+    // For numbers and other values, convert to string but preserve 0 and false
+    return String(value);
+  };
+
+  const sortedColumns = [...columns].sort((a, b) => a.order_index - b.order_index);
+  const nameField = sortedColumns.find(col => col.column_key === "name");
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
@@ -42,7 +75,9 @@ export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawe
         ) : lead ? (
           <>
             <SheetHeader className="pb-6">
-              <SheetTitle className="text-xl">{lead.name || "Unnamed Lead"}</SheetTitle>
+              <SheetTitle className="text-xl">
+                {getLeadValue(lead, nameField?.column_key || "name") || "Unnamed Lead"}
+              </SheetTitle>
               <SheetDescription>
                 Lead details and activity history
               </SheetDescription>
@@ -50,107 +85,23 @@ export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawe
 
             <div className="space-y-6">
               <div>
-                <h3 className="text-sm font-medium mb-3">Contact Information</h3>
-                <div className="space-y-3">
-                  <div className="flex items-start gap-3">
-                    <Phone className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">Mobile</div>
-                      <div className="text-sm text-muted-foreground">
-                        {lead.mobile_no || "Not provided"}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <Phone className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">WhatsApp</div>
-                      <div className="text-sm text-muted-foreground">
-                        {lead.whatsapp || "Not provided"}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">Address</div>
-                      <div className="text-sm text-muted-foreground">
-                        {lead.address || "Not provided"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div>
-                <h3 className="text-sm font-medium mb-3">Lead Details</h3>
+                <h3 className="text-sm font-medium mb-3">Lead Information</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Language</div>
-                    <div className="text-sm">{lead.lang || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Age</div>
-                    <div className="text-sm">{lead.age || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Occupation</div>
-                    <div className="text-sm">{lead.occupation || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Qualification</div>
-                    <div className="text-sm">{lead.qualification || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Lead Status</div>
-                    <Badge variant="secondary">{lead.lead_status || "Unknown"}</Badge>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Visit Status</div>
-                    <Badge variant="secondary">{lead.visit_status || "Unknown"}</Badge>
-                  </div>
-                </div>
-              </div>
+                  {sortedColumns.map((col) => {
+                    const value = getLeadValue(lead, col.column_key);
+                    const formattedValue = formatValue(value, col.type);
 
-              <Separator />
-
-              <div>
-                <h3 className="text-sm font-medium mb-3">Important Dates</h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Lead Date</span>
-                    <span>{lead.lead_date || "-"}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Visit Date</span>
-                    <span>{lead.visit_date || "-"}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Exam End</span>
-                    <span>{lead.exam_end || "-"}</span>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div>
-                <h3 className="text-sm font-medium mb-3">Notes & Feedback</h3>
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Call 1</div>
-                    <div className="text-sm p-3 bg-muted rounded-md">
-                      {lead.call_1 || "No notes"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Feedback 1</div>
-                    <div className="text-sm p-3 bg-muted rounded-md">
-                      {lead.feedback_1 || "No feedback"}
-                    </div>
-                  </div>
+                    return (
+                      <div key={col.id} className="space-y-1">
+                        <div className="text-xs text-muted-foreground">{col.name}</div>
+                        {col.type === "dropdown" ? (
+                          <Badge variant="secondary" className="text-xs">{formattedValue}</Badge>
+                        ) : (
+                          <div className="text-sm">{formattedValue}</div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

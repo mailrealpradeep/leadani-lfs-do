@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
+import { getDefaultColumnsForCompany } from "@shared/schema";
 
 export async function seedData() {
   console.log("🌱 Seeding multi-tenant database...");
@@ -15,6 +16,29 @@ export async function seedData() {
     status: "active",
   });
   console.log("✓ Created company: Acme Corporation (acme-corp)");
+
+  // ===== CREATE CUSTOM COLUMNS FOR DEMO COMPANY =====
+  const customColumns = [
+    { name: "Name", column_key: "name", type: "text" as const, config: { required: true }, order_index: 0 },
+    { name: "Mobile No", column_key: "mobile_no", type: "text" as const, config: {}, order_index: 1 },
+    { name: "WhatsApp", column_key: "whatsapp", type: "text" as const, config: {}, order_index: 2 },
+    { name: "Language", column_key: "lang", type: "dropdown" as const, config: { dropdown_options: ["English", "Hindi", "Odia", "Telugu", "Tamil"] }, order_index: 3 },
+    { name: "Occupation", column_key: "occupation", type: "dropdown" as const, config: { dropdown_options: ["Student", "Working Professional", "Business Owner", "Unemployed"] }, order_index: 4 },
+    { name: "Qualification", column_key: "qualification", type: "dropdown" as const, config: { dropdown_options: ["10th Pass", "12th Pass", "Graduate", "Post Graduate", "Doctorate"] }, order_index: 5 },
+    { name: "Age", column_key: "age", type: "number" as const, config: {}, order_index: 6 },
+    { name: "Lead Status", column_key: "lead_status", type: "dropdown" as const, config: { dropdown_options: ["New", "Contacted", "Qualified", "Converted", "Lost"] }, order_index: 7 },
+    { name: "Visit Status", column_key: "visit_status", type: "dropdown" as const, config: { dropdown_options: ["Not Visited", "Scheduled", "Visited", "Cancelled"] }, order_index: 8 },
+    { name: "Executive", column_key: "executive", type: "text" as const, config: {}, order_index: 9 },
+  ];
+
+  for (const col of customColumns) {
+    await storage.createCustomColumn({
+      company_id: demoCompany.id,
+      sheet_id: null, // company-wide
+      ...col,
+    });
+  }
+  console.log("✓ Created custom columns for Acme Corporation");
 
   // ===== CREATE SUPER ADMIN (No company affiliation) =====
   const superAdminPasswordHash = await bcrypt.hash("password123", 10);
@@ -125,29 +149,6 @@ export async function seedData() {
     role: "editor",
   });
 
-  // ===== CREATE COMPANY-WIDE DROPDOWN OPTIONS =====
-  // These are shared across all sheets in the company
-  const dropdownColumns = [
-    { key: "lang", values: ["English", "Hindi", "Odia", "Telugu", "Tamil"] },
-    { key: "occupation", values: ["Student", "Working Professional", "Business Owner", "Unemployed"] },
-    { key: "qualification", values: ["10th Pass", "12th Pass", "Graduate", "Post Graduate", "Doctorate"] },
-    { key: "lead_status", values: ["New", "Contacted", "Qualified", "Converted", "Lost"] },
-    { key: "visit_status", values: ["Not Visited", "Scheduled", "Visited", "Cancelled"] },
-  ];
-
-  for (const col of dropdownColumns) {
-    for (let i = 0; i < col.values.length; i++) {
-      await storage.createDropdownOption({
-        company_id: demoCompany.id,
-        sheet_id: null, // null = company-wide
-        column_key: col.key,
-        value: col.values[i],
-        order_index: i,
-      });
-    }
-  }
-  console.log("✓ Created company-wide dropdown options");
-
   // ===== CREATE SAMPLE LEADS FOR SALES NORTH =====
   const sampleLeadsNorth = [
     {
@@ -157,11 +158,10 @@ export async function seedData() {
       lang: "Hindi",
       occupation: "Student",
       qualification: "12th Pass",
-      age: 19,
+      age: "19",
       lead_status: "New",
       visit_status: "Not Visited",
       executive: "John Doe",
-      lead_category: "cold" as const,
     },
     {
       name: "Priya Sharma",
@@ -170,11 +170,10 @@ export async function seedData() {
       lang: "English",
       occupation: "Working Professional",
       qualification: "Graduate",
-      age: 26,
+      age: "26",
       lead_status: "Contacted",
       visit_status: "Scheduled",
       executive: "John Doe",
-      lead_category: "warm" as const,
     },
     {
       name: "Amit Patel",
@@ -183,11 +182,10 @@ export async function seedData() {
       lang: "Odia",
       occupation: "Student",
       qualification: "10th Pass",
-      age: 17,
+      age: "17",
       lead_status: "Qualified",
       visit_status: "Visited",
       executive: "Jane Smith",
-      lead_category: "hot" as const,
     },
     {
       name: "Sneha Reddy",
@@ -196,11 +194,10 @@ export async function seedData() {
       lang: "Telugu",
       occupation: "Business Owner",
       qualification: "Graduate",
-      age: 32,
+      age: "32",
       lead_status: "Converted",
       visit_status: "Visited",
       executive: "John Doe",
-      lead_category: "hot" as const,
     },
     {
       name: "Vikram Singh",
@@ -209,24 +206,18 @@ export async function seedData() {
       lang: "Hindi",
       occupation: "Student",
       qualification: "12th Pass",
-      age: 18,
+      age: "18",
       lead_status: "New",
       visit_status: "Not Visited",
       executive: "Jane Smith",
-      lead_category: "cold" as const,
     },
   ];
 
   for (const leadData of sampleLeadsNorth) {
     await storage.createLead({
-      ...leadData,
       sheet_id: salesNorth.id,
       owner_user_id: user1.id,
-      lead_date: new Date().toISOString().split("T")[0],
-      lead_time: "10:30",
-      address: "123 Main St, Delhi",
-      custom_fields: {},
-      meta: {},
+      custom_fields: leadData,
     });
   }
   console.log(`✓ Created ${sampleLeadsNorth.length} leads for Sales - North Region`);
@@ -240,11 +231,10 @@ export async function seedData() {
       lang: "Tamil",
       occupation: "Working Professional",
       qualification: "Post Graduate",
-      age: 28,
+      age: "28",
       lead_status: "Contacted",
       visit_status: "Not Visited",
       executive: "Jane Smith",
-      lead_category: "warm" as const,
     },
     {
       name: "Karthik Menon",
@@ -253,11 +243,10 @@ export async function seedData() {
       lang: "English",
       occupation: "Student",
       qualification: "Graduate",
-      age: 22,
+      age: "22",
       lead_status: "New",
       visit_status: "Not Visited",
       executive: "John Doe",
-      lead_category: "cold" as const,
     },
     {
       name: "Deepa Nair",
@@ -266,11 +255,10 @@ export async function seedData() {
       lang: "Tamil",
       occupation: "Business Owner",
       qualification: "Graduate",
-      age: 35,
+      age: "35",
       lead_status: "Qualified",
       visit_status: "Scheduled",
       executive: "Jane Smith",
-      lead_category: "hot" as const,
     },
     {
       name: "Arjun Rao",
@@ -279,11 +267,10 @@ export async function seedData() {
       lang: "Telugu",
       occupation: "Student",
       qualification: "12th Pass",
-      age: 19,
+      age: "19",
       lead_status: "Lost",
       visit_status: "Cancelled",
       executive: "John Doe",
-      lead_category: "cold" as const,
     },
     {
       name: "Meera Krishnan",
@@ -292,24 +279,18 @@ export async function seedData() {
       lang: "English",
       occupation: "Working Professional",
       qualification: "Post Graduate",
-      age: 30,
+      age: "30",
       lead_status: "Converted",
       visit_status: "Visited",
       executive: "Jane Smith",
-      lead_category: "hot" as const,
     },
   ];
 
   for (const leadData of sampleLeadsSouth) {
     await storage.createLead({
-      ...leadData,
       sheet_id: salesSouth.id,
       owner_user_id: user2.id,
-      lead_date: new Date().toISOString().split("T")[0],
-      lead_time: "14:00",
-      address: "456 Park Ave, Bangalore",
-      custom_fields: {},
-      meta: {},
+      custom_fields: leadData,
     });
   }
   console.log(`✓ Created ${sampleLeadsSouth.length} leads for Sales - South Region`);
