@@ -852,6 +852,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         exammark: "exam_mark",
         marks: "exam_mark",
         leadstatus: "lead_status",
+        leadsstatus: "lead_status",
         status: "lead_status",
         visitstatus: "visit_status",
         visitdate: "visit_date",
@@ -968,7 +969,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (crmField === "age") {
                 const parsed = parseInt(String(value), 10);
                 leadData.age = isNaN(parsed) ? null : parsed;
-              } else if (crmField === "lead_date" || crmField === "visit_date" || crmField === "exam_end") {
+              } else if (crmField === "lead_date" || crmField === "visit_date" || crmField === "exam_end" || crmField === "nfdt") {
                 if (typeof value === "number") {
                   try {
                     const date = XLSX.SSF.parse_date_code(value);
@@ -976,6 +977,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   } catch {
                     leadData[crmField] = String(value);
                   }
+                } else if (typeof value === "string") {
+                  // Extract date part from datetime string (e.g., "2025-09-24 17:57:05" -> "2025-09-24")
+                  const dateOnly = value.trim().split(' ')[0];
+                  leadData[crmField] = dateOnly || value;
                 } else {
                   leadData[crmField] = value;
                 }
