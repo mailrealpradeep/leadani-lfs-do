@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useDashboard } from "./dashboard-context";
 import {
   Plus,
   Trash2,
@@ -69,9 +70,9 @@ export function SpreadsheetGrid({
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
+  const { searchQuery, categoryFilter } = useDashboard();
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [editingCell, setEditingCell] = useState<{ leadId: string; field: string } | null>(null);
@@ -80,7 +81,6 @@ export function SpreadsheetGrid({
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
-  const [categoryFilter, setCategoryFilter] = useState<"all" | "hot" | "warm" | "cold">("all");
   const [isScrolled, setIsScrolled] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
@@ -119,15 +119,13 @@ export function SpreadsheetGrid({
     },
   });
 
-  // Load hidden columns for current sheet and reset filters on sheet change
+  // Load hidden columns for current sheet and reset column filters on sheet change  
   useEffect(() => {
     const stored = localStorage.getItem(`hiddenColumns_${sheetId}`);
     setHiddenColumns(stored ? new Set(JSON.parse(stored)) : new Set());
     
     // Reset filters when switching sheets
     setColumnFilters({});
-    setCategoryFilter("all");
-    setSearchQuery("");
     setSortColumn(null);
     setSortDirection("asc");
   }, [sheetId]);
@@ -387,96 +385,23 @@ export function SpreadsheetGrid({
         </>
       )}
 
-      <div className="space-y-4">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search leads..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 min-h-[44px]"
-                data-testid="input-search-leads"
-              />
-          </div>
-          <Select value={categoryFilter} onValueChange={(v: any) => setCategoryFilter(v)}>
-            <SelectTrigger className="w-full sm:w-[200px] min-h-[44px]" data-testid="select-category-filter">
-              <SelectValue placeholder="All Leads" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Leads</SelectItem>
-              <SelectItem value="hot">
-                <div className="flex items-center gap-2">
-                  <Flame className="h-4 w-4 text-red-500" />
-                  Hot Leads
-                </div>
-              </SelectItem>
-              <SelectItem value="warm">
-                <div className="flex items-center gap-2">
-                  <Flame className="h-4 w-4 text-orange-500" />
-                  Warm Leads
-                </div>
-              </SelectItem>
-              <SelectItem value="cold">Cold Leads</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {selectedRows.size > 0 && (
-            <>
-              <Badge variant="secondary" data-testid="text-selected-count">
-                {selectedRows.size} selected
-              </Badge>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => deleteLeadsMutation.mutate(Array.from(selectedRows))}
-                data-testid="button-delete-selected"
-                className="min-h-[44px]"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-            </>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" data-testid="button-toggle-columns" className="min-h-[44px] hidden md:flex">
-                <Eye className="h-4 w-4 mr-2" />
-                Columns
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[200px]">
-              {columns.map((col) => (
-                <DropdownMenuItem
-                  key={col.key}
-                  onClick={() => toggleColumnVisibility(col.key)}
-                  data-testid={`menuitem-toggle-${col.key}`}
-                >
-                  <div className="flex items-center gap-2 w-full">
-                    {hiddenColumns.has(col.key) ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                    <span className="flex-1">{col.label}</span>
-                  </div>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+      {selectedRows.size > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <Badge variant="secondary" data-testid="text-selected-count">
+            {selectedRows.size} selected
+          </Badge>
           <Button
-            variant="outline"
+            variant="destructive"
             size="sm"
-            onClick={() => window.open(`/api/sheets/${sheetId}/export?format=csv`, "_blank")}
-            data-testid="button-export"
+            onClick={() => deleteLeadsMutation.mutate(Array.from(selectedRows))}
+            data-testid="button-delete-selected"
+            className="min-h-[44px]"
           >
-            <Download className="h-4 w-4 mr-2" />
-            Export
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete
           </Button>
         </div>
-      </div>
+      )}
 
       {/* Conditionally render mobile or desktop view based on viewport */}
       {isMobile ? (
@@ -881,7 +806,6 @@ export function SpreadsheetGrid({
         </div>
         </div>
       )}
-      </div>
     </>
   );
 }

@@ -1,6 +1,16 @@
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Flame, Eye, Download } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useDashboard } from "./dashboard-context";
+import { SheetSelector } from "./sheet-selector";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sidebar,
   SidebarContent,
@@ -18,6 +28,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout, isAdmin } = useAuth();
+  const {
+    selectedSheetId,
+    setSelectedSheetId,
+    searchQuery,
+    setSearchQuery,
+    categoryFilter,
+    setCategoryFilter,
+    actions,
+  } = useDashboard();
 
   const mainItems = [
     {
@@ -106,6 +125,111 @@ export function AppSidebar() {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+        )}
+
+        {location === "/" && (
+          <>
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-4">Current Sheet</SidebarGroupLabel>
+              <SidebarGroupContent className="px-2">
+                <div className="space-y-2">
+                  <SheetSelector
+                    selectedSheetId={selectedSheetId}
+                    onSheetSelect={setSelectedSheetId}
+                  />
+                  {selectedSheetId && (
+                    <div className="flex flex-col gap-2">
+                      <Button
+                        onClick={actions.onAddLead}
+                        className="w-full justify-start"
+                        data-testid="button-add-lead"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Lead
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={actions.onImport}
+                        className="w-full justify-start"
+                        data-testid="button-import-leads"
+                      >
+                        <FileUp className="h-4 w-4 mr-2" />
+                        Import
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={actions.onManageColumns}
+                        className="w-full justify-start"
+                        data-testid="button-manage-columns"
+                      >
+                        <SettingsIcon className="h-4 w-4 mr-2" />
+                        Manage Columns
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            {selectedSheetId && (
+              <SidebarGroup>
+                <SidebarGroupLabel className="px-4">Filter & Search</SidebarGroupLabel>
+                <SidebarGroupContent className="px-2">
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search leads..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-9"
+                        data-testid="input-search-leads"
+                      />
+                    </div>
+                    <Select value={categoryFilter} onValueChange={(v: any) => setCategoryFilter(v)}>
+                      <SelectTrigger className="w-full" data-testid="select-category-filter">
+                        <SelectValue placeholder="All Leads" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Leads</SelectItem>
+                        <SelectItem value="hot">
+                          <div className="flex items-center gap-2">
+                            <Flame className="h-4 w-4 text-red-500" />
+                            Hot Leads
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="warm">
+                          <div className="flex items-center gap-2">
+                            <Flame className="h-4 w-4 text-orange-500" />
+                            Warm Leads
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="cold">Cold Leads</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      onClick={actions.onToggleColumns}
+                      className="w-full justify-start"
+                      data-testid="button-toggle-columns"
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      Toggle Columns
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={actions.onExport}
+                      className="w-full justify-start"
+                      data-testid="button-export"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Export
+                    </Button>
+                  </div>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
+          </>
         )}
       </SidebarContent>
 
