@@ -1609,12 +1609,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // For super admins, include per-company statistics
+      let companiesStats = [];
+      if (req.userRole === "super_admin") {
+        const allCompanies = await storage.getAllCompanies();
+        
+        for (const company of allCompanies) {
+          const companyUsers = allUsers.filter(u => u.company_id === company.id);
+          const companySheets = allSheets.filter(s => s.company_id === company.id);
+          let companyLeadCount = 0;
+          
+          for (const sheet of companySheets) {
+            const leads = await storage.getLeadsBySheetId(sheet.id);
+            companyLeadCount += leads.length;
+          }
+          
+          companiesStats.push({
+            company_id: company.id,
+            company_name: company.name,
+            user_count: companyUsers.length,
+            sheet_count: companySheets.length,
+            lead_count: companyLeadCount,
+          });
+        }
+      }
+
       res.json({
         total_sheets: allSheets.length,
         total_leads: totalLeads,
         total_users: allUsers.length,
         leads_by_sheet: leadsBySheet,
         recent_activity: auditLogs.slice(0, 20),
+        companies: companiesStats, // Only populated for super admins
       });
     } catch (error: any) {
       console.error("Get global reports error:", error);

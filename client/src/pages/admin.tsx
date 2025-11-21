@@ -208,7 +208,7 @@ function SuperAdminView() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {globalReport?.companies.map((company) => (
+                {globalReport?.companies?.map((company) => (
                   <div
                     key={company.company_id}
                     className="flex items-center gap-4 p-4 rounded-lg border hover-elevate"
