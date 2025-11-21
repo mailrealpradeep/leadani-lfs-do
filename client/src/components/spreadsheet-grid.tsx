@@ -317,6 +317,16 @@ export function SpreadsheetGrid({
 
   const visibleColumns = columns.filter((col) => !hiddenColumns.has(col.key));
 
+  // Calculate total table width: checkbox (50px) + all visible columns + actions (150px)
+  const calculateTableWidth = () => {
+    const checkboxWidth = 50;
+    const actionsWidth = 150;
+    const columnsWidth = visibleColumns.reduce((sum, col) => {
+      return sum + parseInt(col.width);
+    }, 0);
+    return checkboxWidth + columnsWidth + actionsWidth;
+  };
+
   const toggleColumnVisibility = (columnKey: string) => {
     setHiddenColumns((prev) => {
       const next = new Set(prev);
@@ -592,12 +602,12 @@ export function SpreadsheetGrid({
         </div>
       ) : (
         /* Desktop Table View */
-        <div className="border rounded-lg overflow-hidden">
-        <div ref={containerRef} className="overflow-x-scroll overflow-y-auto max-h-[calc(100vh-280px)]" style={{ overflowX: "scroll" }}>
-        <Table className="border-collapse" style={{ tableLayout: "auto", width: "max-content", minWidth: "100%" }}>
-          <TableHeader className="sticky top-0 bg-background z-20 border-b-2" style={{ position: "sticky", top: 0 }}>
+        <div className="border rounded-lg">
+        <div ref={containerRef} className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)]">
+        <Table className="border-collapse" style={{ minWidth: `${calculateTableWidth()}px`, tableLayout: "fixed" }}>
+          <TableHeader className="border-b-2">
             <TableRow>
-              <TableHead className="w-[50px]">
+              <TableHead className="w-[50px] sticky top-0 bg-background dark:bg-background z-20 border-b">
                 <Checkbox
                   checked={selectedRows.size === leads.length && leads.length > 0}
                   onCheckedChange={(checked) => {
@@ -613,8 +623,8 @@ export function SpreadsheetGrid({
               {visibleColumns.map((col) => (
                 <TableHead
                   key={col.key}
-                  style={{ minWidth: col.width, width: col.width }}
-                  className="font-medium text-xs uppercase tracking-wide whitespace-nowrap"
+                  style={{ width: col.width }}
+                  className="font-medium text-xs uppercase tracking-wide whitespace-nowrap sticky top-0 bg-background dark:bg-background z-20 border-b"
                 >
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-1">
@@ -685,7 +695,7 @@ export function SpreadsheetGrid({
                   </div>
                 </TableHead>
               ))}
-              <TableHead className="w-[50px]"></TableHead>
+              <TableHead className="w-[150px] sticky top-0 bg-background dark:bg-background z-20 border-b"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
