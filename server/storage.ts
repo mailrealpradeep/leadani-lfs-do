@@ -273,6 +273,13 @@ export class MemStorage implements IStorage {
       invited_by: null,
     } as any);
 
+    // Create default columns for the company
+    const { getDefaultColumnsForCompany } = await import("@shared/schema");
+    const defaultColumns = getDefaultColumnsForCompany(company.id);
+    for (const columnDef of defaultColumns) {
+      await this.createCustomColumn(columnDef);
+    }
+
     // Create default sheet for the company
     await this.createSheet({
       company_id: company.id,
@@ -290,7 +297,7 @@ export class MemStorage implements IStorage {
       action: "company_signup",
       model: "Company",
       model_id: company.id,
-      details: { company_name: companyName, admin_email: adminEmail },
+      payload: { company_name: companyName, admin_email: adminEmail },
     });
 
     // Generate JWT token (note: in production, this should use proper JWT library)
@@ -505,26 +512,6 @@ export class MemStorage implements IStorage {
       id,
       sheet_id: insertLead.sheet_id,
       owner_user_id: insertLead.owner_user_id || "",
-      lead_date: insertLead.lead_date || null,
-      lead_time: insertLead.lead_time || null,
-      executive: insertLead.executive || null,
-      lang: insertLead.lang || null,
-      address: insertLead.address || null,
-      name: insertLead.name || null,
-      mobile_no: insertLead.mobile_no || null,
-      whatsapp: insertLead.whatsapp || null,
-      occupation: insertLead.occupation || null,
-      qualification: insertLead.qualification || null,
-      age: insertLead.age || null,
-      exam_end: insertLead.exam_end || null,
-      exam_mark: insertLead.exam_mark || null,
-      lead_status: insertLead.lead_status || null,
-      visit_status: insertLead.visit_status || null,
-      visit_date: insertLead.visit_date || null,
-      nfdt: insertLead.nfdt || null,
-      call_1: insertLead.call_1 || null,
-      feedback_1: insertLead.feedback_1 || null,
-      lead_category: insertLead.lead_category || "cold",
       custom_fields: insertLead.custom_fields || {},
       meta: insertLead.meta || {},
       created_at: now,

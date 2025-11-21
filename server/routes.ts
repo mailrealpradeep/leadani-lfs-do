@@ -432,7 +432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         action: "invite_accepted",
         model: "User",
         model_id: user.id,
-        details: { invite_id: invite.id },
+        payload: { invite_id: invite.id },
       });
 
       // Generate JWT token
@@ -897,7 +897,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         action: "invite_created",
         model: "Invite",
         model_id: invite.id,
-        details: { email, role, code: invite.code },
+        payload: { email, role, code: invite.code },
       });
 
       res.status(201).json(invite);
@@ -960,7 +960,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         action: "invite_deleted",
         model: "Invite",
         model_id: req.params.id,
-        details: { email: invite.email },
+        payload: { email: invite.email },
       });
 
       res.json({ message: "Invite deleted" });
@@ -1820,46 +1820,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const leads = await storage.getLeadsBySheetId(req.params.id);
 
-      // Calculate metrics
+      // Calculate metrics based on custom_fields
       const leadsByStatus: Record<string, number> = {};
       const leadsByExecutive: Record<string, number> = {};
       const dailyTrends: { date: string; count: number }[] = [];
-      let visitsScheduled = 0;
-      let nfdtCount = 0;
-      let convertedCount = 0;
-
       const dateMap: Record<string, number> = {};
 
       for (const lead of leads) {
-        // By status
-        if (lead.lead_status) {
-          leadsByStatus[lead.lead_status] = (leadsByStatus[lead.lead_status] || 0) + 1;
+        // By status (check common field names: status, lead_status)
+        const status = lead.custom_fields?.status || lead.custom_fields?.lead_status;
+        if (status) {
+          leadsByStatus[status] = (leadsByStatus[status] || 0) + 1;
         }
 
-        // By executive
-        if (lead.executive) {
-          leadsByExecutive[lead.executive] = (leadsByExecutive[lead.executive] || 0) + 1;
+        // By executive (check common field names: executive, owner, assigned_to)
+        const executive = lead.custom_fields?.executive || lead.custom_fields?.owner || lead.custom_fields?.assigned_to;
+        if (executive) {
+          leadsByExecutive[executive] = (leadsByExecutive[executive] || 0) + 1;
         }
 
-        // Daily trends
-        if (lead.lead_date) {
-          dateMap[lead.lead_date] = (dateMap[lead.lead_date] || 0) + 1;
-        }
-
-        // Visits scheduled
-        if (lead.visit_status === "Scheduled") {
-          visitsScheduled++;
-        }
-
-        // NFDT
-        if (lead.nfdt) {
-          nfdtCount++;
-        }
-
-        // Converted
-        if (lead.lead_status === "Converted") {
-          convertedCount++;
-        }
+        // Daily trends based on created_at
+        const date = lead.created_at.split('T')[0];
+        dateMap[date] = (dateMap[date] || 0) + 1;
       }
 
       // Daily trends array
@@ -1868,16 +1850,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       dailyTrends.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-      const conversionRate = leads.length > 0 ? (convertedCount / leads.length) * 100 : 0;
-
       res.json({
         total_leads: leads.length,
         leads_by_status: leadsByStatus,
         leads_by_executive: leadsByExecutive,
         daily_trends: dailyTrends,
-        conversion_rate: conversionRate,
-        visits_scheduled: visitsScheduled,
-        nfdt_count: nfdtCount,
+        conversion_rate: 0, // Removed fixed conversion rate since "Converted" status is now custom
+        visits_scheduled: 0, // Removed fixed visits_scheduled since fields are custom
+        nfdt_count: 0, // Removed fixed nfdt_count since fields are custom
       });
     } catch (error: any) {
       console.error("Get reports error:", error);
@@ -2280,28 +2260,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const format = req.query.format as string || "csv";
       const leads = await storage.getLeadsBySheetId(req.params.id);
+      
+      // Get custom columns for the sheet to know which fields to export
+      const columns = await storage.getCustomColumns(req.params.id);
+      columns.sort((a, b) => a.order_index - b.order_index);
 
-      const data = leads.map((lead) => ({
-        "Lead Date": lead.lead_date,
-        "Time": lead.lead_time,
-        "Executive": lead.executive,
-        "Lang": lead.lang,
-        "Address": lead.address,
-        "Name": lead.name,
-        "Mobile No": lead.mobile_no,
-        "WhatsApp": lead.whatsapp,
-        "Occupation": lead.occupation,
-        "Qualification": lead.qualification,
-        "Age": lead.age,
-        "Exam End": lead.exam_end,
-        "Exam Mark": lead.exam_mark,
-        "Lead Status": lead.lead_status,
-        "Visit Status": lead.visit_status,
-        "Visit Date": lead.visit_date,
-        "NFDT": lead.nfdt,
-        "Call 1": lead.call_1,
-        "Feedback 1": lead.feedback_1,
-      }));
+      // Map leads to export format using custom columns
+      const data = leads.map((lead) => {
+        const row: Record<string, any> = {
+          ID: lead.id,
+          "Created At": lead.created_at,
+        };
+        
+        // Add custom field values based on defined columns
+        for (const column of columns) {
+          row[column.name] = lead.custom_fields[column.column_key] ?? "";
+        }
+        
+        return row;
+      });
 
       if (format === "xlsx") {
         const worksheet = XLSX.utils.json_to_sheet(data);

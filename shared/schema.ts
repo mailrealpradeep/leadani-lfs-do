@@ -158,32 +158,13 @@ export const insertSheetUserSchema = z.object({
 export type InsertSheetUser = z.infer<typeof insertSheetUserSchema>;
 
 // ============================================================================
-// LEADS
+// LEADS (Fully Customizable - all business fields defined by CustomColumns)
 // ============================================================================
 export interface Lead {
   id: string;
   sheet_id: string;
   owner_user_id: string;
-  lead_date: string | null;
-  lead_time: string | null;
-  executive: string | null;
-  lang: string | null;
-  address: string | null;
-  name: string | null;
-  mobile_no: string | null;
-  whatsapp: string | null;
-  occupation: string | null;
-  qualification: string | null;
-  age: number | null;
-  exam_end: string | null;
-  exam_mark: string | null;
-  lead_status: string | null;
-  visit_status: string | null;
-  visit_date: string | null;
-  nfdt: string | null;
-  call_1: string | null;
-  feedback_1: string | null;
-  lead_category: "hot" | "warm" | "cold";
+  // All business data stored in custom_fields based on company's CustomColumn definitions
   custom_fields: Record<string, any>;
   meta: Record<string, any>;
   created_at: string;
@@ -193,26 +174,7 @@ export interface Lead {
 export const insertLeadSchema = z.object({
   sheet_id: z.string(),
   owner_user_id: z.string().optional(),
-  lead_date: z.string().nullable().optional(),
-  lead_time: z.string().nullable().optional(),
-  executive: z.string().nullable().optional(),
-  lang: z.string().nullable().optional(),
-  address: z.string().nullable().optional(),
-  name: z.string().nullable().optional(),
-  mobile_no: z.string().nullable().optional(),
-  whatsapp: z.string().nullable().optional(),
-  occupation: z.string().nullable().optional(),
-  qualification: z.string().nullable().optional(),
-  age: z.number().nullable().optional(),
-  exam_end: z.string().nullable().optional(),
-  exam_mark: z.string().nullable().optional(),
-  lead_status: z.string().nullable().optional(),
-  visit_status: z.string().nullable().optional(),
-  visit_date: z.string().nullable().optional(),
-  nfdt: z.string().nullable().optional(),
-  call_1: z.string().nullable().optional(),
-  feedback_1: z.string().nullable().optional(),
-  lead_category: z.enum(["hot", "warm", "cold"]).default("cold"),
+  // All business data goes into custom_fields - validated dynamically based on company's columns
   custom_fields: z.record(z.any()).default({}),
   meta: z.record(z.any()).default({}),
 });
@@ -226,7 +188,7 @@ export interface DropdownOption {
   id: string;
   company_id: string;
   sheet_id: string | null; // null for company-wide options, specific sheet_id for sheet-specific
-  column_key: "lang" | "occupation" | "qualification" | "lead_status" | "visit_status" | string;
+  column_key: string; // matches CustomColumn.column_key
   value: string;
   order_index: number;
   created_at: string;
@@ -397,4 +359,70 @@ export interface GlobalReportSummary {
   total_users: number;
   companies: { company_id: string; company_name: string; user_count: number; sheet_count: number; lead_count: number }[];
   recent_activity: Audit[];
+}
+
+// ============================================================================
+// UTILITY: Default Columns for New Companies
+// ============================================================================
+export function getDefaultColumnsForCompany(companyId: string): InsertCustomColumn[] {
+  return [
+    {
+      company_id: companyId,
+      sheet_id: null,
+      name: "Name",
+      column_key: "name",
+      type: "text" as const,
+      config: { required: true },
+      order_index: 0,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
+      name: "Phone",
+      column_key: "phone",
+      type: "text" as const,
+      config: {},
+      order_index: 1,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
+      name: "Email",
+      column_key: "email",
+      type: "text" as const,
+      config: {},
+      order_index: 2,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
+      name: "Status",
+      column_key: "status",
+      type: "dropdown" as const,
+      config: {
+        dropdown_options: ["New", "Contacted", "Qualified", "Closed", "Lost"],
+      },
+      order_index: 3,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
+      name: "Priority",
+      column_key: "priority",
+      type: "dropdown" as const,
+      config: {
+        dropdown_options: ["High", "Medium", "Low"],
+      },
+      order_index: 4,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
+      name: "Notes",
+      column_key: "notes",
+      type: "text" as const,
+      config: {},
+      order_index: 5,
+    },
+  ];
 }
