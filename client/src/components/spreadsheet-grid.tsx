@@ -44,6 +44,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { format } from "date-fns";
 import type { Lead, DropdownOption } from "@shared/schema";
 
@@ -63,6 +64,7 @@ export function SpreadsheetGrid({
   onScroll,
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
@@ -122,6 +124,29 @@ export function SpreadsheetGrid({
     setSortColumn(null);
     setSortDirection("asc");
   }, [sheetId]);
+
+  // Reset view-specific state when switching between mobile and desktop
+  const prevIsMobileRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    // Skip on initial mount
+    if (prevIsMobileRef.current === null) {
+      prevIsMobileRef.current = isMobile;
+      return;
+    }
+    
+    // Only reset if layout actually changed (crossed breakpoint)
+    if (prevIsMobileRef.current !== isMobile) {
+      // Clear editing state when switching views
+      setEditingCell(null);
+      setEditValue("");
+      // Clear selected rows when switching views
+      setSelectedRows(new Set());
+      // Reset scroll state
+      setIsScrolled(false);
+      
+      prevIsMobileRef.current = isMobile;
+    }
+  }, [isMobile]);
 
   // Persist hidden columns to localStorage
   useEffect(() => {
@@ -419,16 +444,18 @@ export function SpreadsheetGrid({
         </div>
       </div>
 
-      {/* Mobile Card View */}
-      <div className="md:hidden space-y-3">
-        {filteredAndSortedLeads.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <div className="text-4xl mb-3">📋</div>
-            <p>No leads found.</p>
-            {categoryFilter !== "all" && <p className="text-sm mt-1">Try changing the filter.</p>}
-          </div>
-        ) : (
-          filteredAndSortedLeads.map((lead) => (
+      {/* Conditionally render mobile or desktop view based on viewport */}
+      {isMobile ? (
+        /* Mobile Card View */
+        <div className="space-y-3">
+          {filteredAndSortedLeads.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <div className="text-4xl mb-3">📋</div>
+              <p>No leads found.</p>
+              {categoryFilter !== "all" && <p className="text-sm mt-1">Try changing the filter.</p>}
+            </div>
+          ) : (
+            filteredAndSortedLeads.map((lead) => (
             <div
               key={lead.id}
               className="bg-card border rounded-lg p-4 hover-elevate active-elevate-2"
@@ -437,63 +464,80 @@ export function SpreadsheetGrid({
             >
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-base truncate">{lead.name || "Unnamed Lead"}</h3>
-                  <p className="text-sm text-muted-foreground truncate">{lead.occupation || lead.executive || "—"}</p>
+                  {!hiddenColumns.has("name") && (
+                    <h3 className="font-semibold text-base truncate">{lead.name || "Unnamed Lead"}</h3>
+                  )}
+                  {(!hiddenColumns.has("occupation") || !hiddenColumns.has("executive")) && (
+                    <p className="text-sm text-muted-foreground truncate">
+                      {!hiddenColumns.has("occupation") && lead.occupation ? lead.occupation : 
+                       !hiddenColumns.has("executive") && lead.executive ? lead.executive : "—"}
+                    </p>
+                  )}
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className={`${getCategoryColor(lead.lead_category)} min-h-[36px]`}
-                      data-testid={`button-category-${lead.id}`}
-                    >
-                      <Flame className="h-3 w-3 mr-1" />
-                      {lead.lead_category?.charAt(0).toUpperCase() + lead.lead_category?.slice(1) || "Cold"}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem onClick={() => updateCategory(lead.id, "hot")}>
-                      <Flame className="h-4 w-4 mr-2 text-red-500" />
-                      Hot
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => updateCategory(lead.id, "warm")}>
-                      <Flame className="h-4 w-4 mr-2 text-orange-500" />
-                      Warm
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => updateCategory(lead.id, "cold")}>
-                      <Flame className="h-4 w-4 mr-2 text-muted-foreground" />
-                      Cold
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {!hiddenColumns.has("lead_category") && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={`${getCategoryColor(lead.lead_category)} min-h-[44px]`}
+                        data-testid={`button-category-${lead.id}`}
+                      >
+                        <Flame className="h-3 w-3 mr-1" />
+                        {lead.lead_category?.charAt(0).toUpperCase() + lead.lead_category?.slice(1) || "Cold"}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenuItem onClick={() => updateCategory(lead.id, "hot")}>
+                        <Flame className="h-4 w-4 mr-2 text-red-500" />
+                        Hot
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => updateCategory(lead.id, "warm")}>
+                        <Flame className="h-4 w-4 mr-2 text-orange-500" />
+                        Warm
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => updateCategory(lead.id, "cold")}>
+                        <Flame className="h-4 w-4 mr-2 text-muted-foreground" />
+                        Cold
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
               
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Mobile:</span>
-                  <p className="truncate">{lead.mobile_no || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">WhatsApp:</span>
-                  <p className="truncate">{lead.whatsapp || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Status:</span>
-                  <p className="truncate">{lead.lead_status || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Date:</span>
-                  <p className="truncate">{lead.lead_date ? format(new Date(lead.lead_date), "MMM d, yyyy") : "—"}</p>
-                </div>
+                {!hiddenColumns.has("mobile_no") && (
+                  <div>
+                    <span className="text-muted-foreground">Mobile:</span>
+                    <p className="truncate">{lead.mobile_no || "—"}</p>
+                  </div>
+                )}
+                {!hiddenColumns.has("whatsapp") && (
+                  <div>
+                    <span className="text-muted-foreground">WhatsApp:</span>
+                    <p className="truncate">{lead.whatsapp || "—"}</p>
+                  </div>
+                )}
+                {!hiddenColumns.has("lead_status") && (
+                  <div>
+                    <span className="text-muted-foreground">Status:</span>
+                    <p className="truncate">{lead.lead_status || "—"}</p>
+                  </div>
+                )}
+                {!hiddenColumns.has("lead_date") && (
+                  <div>
+                    <span className="text-muted-foreground">Date:</span>
+                    <p className="truncate">{lead.lead_date ? format(new Date(lead.lead_date), "MMM d, yyyy") : "—"}</p>
+                  </div>
+                )}
               </div>
             </div>
           ))
-        )}
-      </div>
-
-      {/* Desktop Table View */}
-      <div ref={containerRef} className="hidden md:block border rounded-lg overflow-auto max-h-[calc(100vh-280px)]">
+          )}
+        </div>
+      ) : (
+        /* Desktop Table View */
+        <div ref={containerRef} className="border rounded-lg overflow-auto max-h-[calc(100vh-280px)]">
         <Table>
           <TableHeader className="sticky top-0 bg-background z-10 border-b-2">
             <TableRow>
@@ -739,7 +783,8 @@ export function SpreadsheetGrid({
             )}
           </TableBody>
         </Table>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -189,7 +189,7 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[90vh] md:max-h-[85vh] overflow-hidden flex flex-col w-[95vw] md:w-auto">
         <DialogHeader>
           <DialogTitle>Import Leads from Excel</DialogTitle>
           <DialogDescription>

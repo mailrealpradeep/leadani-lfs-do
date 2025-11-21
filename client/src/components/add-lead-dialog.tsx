@@ -99,7 +99,7 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] md:max-h-[85vh] overflow-y-auto w-[95vw] md:w-auto">
         <DialogHeader>
           <DialogTitle>Add New Lead</DialogTitle>
           <DialogDescription>
@@ -107,7 +107,7 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
-          <div className="grid grid-cols-2 gap-4 py-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="name">Name *</Label>
               <Input
@@ -212,7 +212,7 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
                 data-testid="input-lead-time"
               />
             </div>
-            <div className="col-span-2 space-y-2">
+            <div className="md:col-span-2 space-y-2">
               <Label htmlFor="address">Address</Label>
               <Textarea
                 id="address"
@@ -224,12 +224,13 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
               data-testid="button-cancel-add-lead"
+              className="min-h-[44px] w-full sm:w-auto"
             >
               Cancel
             </Button>
@@ -237,6 +238,7 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
               type="submit"
               disabled={!formData.name.trim() || createMutation.isPending}
               data-testid="button-save-lead"
+              className="min-h-[44px] w-full sm:w-auto"
             >
               {createMutation.isPending ? (
                 <>
