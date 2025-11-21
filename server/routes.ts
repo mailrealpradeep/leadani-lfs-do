@@ -845,6 +845,132 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // INVITE MANAGEMENT (Company Admin)
+  // ============================================================================
+  
+  // Create invite
+  app.post("/api/admin/company/invites", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { email, role } = req.body;
+
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      // Validate role
+      const validRoles = ["regular_user", "company_admin"];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: "Invalid role" });
+      }
+
+      // Check if user already exists with this email
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ error: "User with this email already exists" });
+      }
+
+      // Check if there's already a pending invite for this email
+      const companyInvites = await storage.getInvitesByCompany(req.companyId);
+      const pendingInvite = companyInvites.find(
+        inv => inv.email === email && inv.status === "pending" && new Date(inv.expires_at) > new Date()
+      );
+      
+      if (pendingInvite) {
+        return res.status(400).json({ 
+          error: "Active invite already exists for this email",
+          invite_code: pendingInvite.code
+        });
+      }
+
+      // Create invite
+      const invite = await storage.createInvite({
+        company_id: req.companyId,
+        email,
+        role,
+        inviter_id: req.userId!,
+      } as any);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId,
+        action: "invite_created",
+        model: "Invite",
+        model_id: invite.id,
+        details: { email, role, code: invite.code },
+      });
+
+      res.status(201).json(invite);
+    } catch (error: any) {
+      console.error("Create invite error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // List company invites
+  app.get("/api/admin/company/invites", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const invites = await storage.getInvitesByCompany(req.companyId);
+      
+      // Enrich with inviter info
+      const enrichedInvites = await Promise.all(
+        invites.map(async (invite) => {
+          const inviter = invite.inviter_id ? await storage.getUser(invite.inviter_id) : null;
+          const acceptedBy = invite.accepted_by ? await storage.getUser(invite.accepted_by) : null;
+          
+          return {
+            ...invite,
+            inviter_name: inviter?.name || null,
+            accepted_by_name: acceptedBy?.name || null,
+          };
+        })
+      );
+
+      res.json(enrichedInvites);
+    } catch (error: any) {
+      console.error("Get invites error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete/Revoke invite
+  app.delete("/api/admin/company/invites/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const invite = await storage.getInvite(req.params.id);
+      
+      if (!invite) {
+        return res.status(404).json({ error: "Invite not found" });
+      }
+
+      // Company admins can only delete invites from their company
+      if (invite.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete invites from other companies" });
+      }
+
+      await storage.deleteInvite(req.params.id);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "invite_deleted",
+        model: "Invite",
+        model_id: req.params.id,
+        details: { email: invite.email },
+      });
+
+      res.json({ message: "Invite deleted" });
+    } catch (error: any) {
+      console.error("Delete invite error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SHEETS
   // ============================================================================
   app.get("/api/sheets", authMiddleware, async (req: AuthRequest, res) => {
