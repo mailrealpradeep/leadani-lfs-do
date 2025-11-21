@@ -34,6 +34,17 @@ Preferred communication style: Simple, everyday language.
 
 **Real-time Updates**: Socket.io client establishes WebSocket connections for live data synchronization across users viewing the same sheet.
 
+**Mobile Responsive Implementation**: Full mobile-first responsive design with adaptive layouts:
+- **Breakpoints**: Uses Tailwind CSS media queries with 768px as primary mobile/desktop threshold
+- **Conditional Rendering**: Spreadsheet view switches between mobile card layout (<768px) and desktop table layout (≥768px). Only one view exists in DOM at any breakpoint for optimal performance.
+- **SSR-Safe Hook**: `useIsMobile` hook from `@/hooks/use-mobile.tsx` with window guards for server-side rendering compatibility
+- **State Management**: View-specific state (editing, selection, scroll) resets only when crossing breakpoint threshold, preventing data loss during window resizes
+- **Touch Targets**: All interactive elements meet minimum 44x44px touch target guidelines for mobile accessibility
+- **Mobile Dialogs**: Add Lead, Import, and other dialogs use near-full-screen layout (95vw) on mobile with vertically stacked form fields
+- **Responsive Toolbar**: Filters, search, and action buttons stack appropriately on smaller screens
+- **Column Visibility**: Hidden column preferences persist across mobile/desktop view switches via localStorage
+- **Sidebar**: Shadcn Sidebar component provides collapsible off-canvas drawer on mobile
+
 ### Backend Architecture
 
 **Server Framework**: Express.js provides the HTTP server with RESTful API endpoints.
