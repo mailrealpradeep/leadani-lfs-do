@@ -201,12 +201,331 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // COMPANY MANAGEMENT (Super Admin Only)
+  // ============================================================================
+  app.get("/api/admin/companies", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const companies = await storage.getAllCompanies();
+      res.json(companies);
+    } catch (error: any) {
+      console.error("Get companies error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/companies/:id", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const company = await storage.getCompany(req.params.id);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      
+      // Get company stats (user count, sheet count, etc.)
+      const users = await storage.getUsersByCompanyId(company.id);
+      const sheets = await storage.getSheetsByCompanyId(company.id);
+      
+      res.json({ 
+        ...company, 
+        stats: {
+          user_count: users.length,
+          sheet_count: sheets.length,
+        }
+      });
+    } catch (error: any) {
+      console.error("Get company error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/companies", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, slug, settings, status } = req.body;
+
+      // Check if slug is unique
+      const existing = await storage.getCompanyBySlug(slug);
+      if (existing) {
+        return res.status(400).json({ error: "Company slug already exists" });
+      }
+
+      const company = await storage.createCompany({
+        name,
+        slug,
+        settings: settings || {},
+        status: status || "active",
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: null,
+        action: "create",
+        model: "company",
+        model_id: company.id,
+        payload: { name, slug },
+      });
+
+      res.status(201).json(company);
+    } catch (error: any) {
+      console.error("Create company error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/admin/companies/:id", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, slug, settings, status } = req.body;
+
+      const company = await storage.getCompany(req.params.id);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      // If slug is being changed, check uniqueness
+      if (slug && slug !== company.slug) {
+        const existing = await storage.getCompanyBySlug(slug);
+        if (existing) {
+          return res.status(400).json({ error: "Company slug already exists" });
+        }
+      }
+
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (slug !== undefined) updates.slug = slug;
+      if (settings !== undefined) updates.settings = settings;
+      if (status !== undefined) updates.status = status;
+
+      const updated = await storage.updateCompany(req.params.id, updates);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: null,
+        action: "update",
+        model: "company",
+        model_id: req.params.id,
+        payload: updates,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update company error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/companies/:id", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const company = await storage.getCompany(req.params.id);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      // Soft delete by setting status to inactive
+      const updated = await storage.updateCompany(req.params.id, { status: "inactive" });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: null,
+        action: "delete",
+        model: "company",
+        model_id: req.params.id,
+        payload: {},
+      });
+
+      res.json({ message: "Company deactivated", company: updated });
+    } catch (error: any) {
+      console.error("Delete company error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // USER MANAGEMENT (Company Admin)
+  // ============================================================================
+  app.get("/api/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Company admins can only see users in their company
+      if (req.userRole === "company_admin") {
+        if (!req.companyId) {
+          return res.status(403).json({ error: "No company context" });
+        }
+        const users = await storage.getUsersByCompanyId(req.companyId);
+        const usersWithoutPasswords = users.map(u => {
+          const { password_hash, ...rest } = u;
+          return rest;
+        });
+        res.json(usersWithoutPasswords);
+      } else if (req.userRole === "super_admin") {
+        // Super admins can see all users
+        const users = await storage.getAllUsers();
+        const usersWithoutPasswords = users.map(u => {
+          const { password_hash, ...rest } = u;
+          return rest;
+        });
+        res.json(usersWithoutPasswords);
+      } else {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    } catch (error: any) {
+      console.error("Get users error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, email, password, role } = req.body;
+
+      // Company admins can only create users in their own company
+      const companyId = req.userRole === "super_admin" 
+        ? req.body.company_id 
+        : req.companyId;
+
+      if (!companyId) {
+        return res.status(400).json({ error: "Company ID required" });
+      }
+
+      // Company admins cannot create super admins
+      if (role === "super_admin" && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Cannot create super admin users" });
+      }
+
+      // Check if user exists
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ error: "Email already registered" });
+      }
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      // Create user
+      const user = await storage.createUser({
+        name,
+        email,
+        password_hash: passwordHash,
+        role: role || "user",
+        company_id: companyId,
+        invited_by: req.userId,
+      } as any);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: companyId,
+        action: "create",
+        model: "user",
+        model_id: user.id,
+        payload: { email, role },
+      });
+
+      const { password_hash: _, ...userWithoutPassword } = user;
+      res.status(201).json(userWithoutPassword);
+    } catch (error: any) {
+      console.error("Create user error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/company/users/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, role } = req.body;
+
+      const user = await storage.getUser(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Company admins can only update users in their own company
+      if (req.userRole === "company_admin" && user.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update users from other companies" });
+      }
+
+      // Company admins cannot modify super admins
+      if (user.role === "super_admin" && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Cannot modify super admin users" });
+      }
+
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (role !== undefined) {
+        // Company admins cannot promote to super admin
+        if (role === "super_admin" && req.userRole !== "super_admin") {
+          return res.status(403).json({ error: "Cannot promote to super admin" });
+        }
+        updates.role = role;
+      }
+
+      const updated = await storage.updateUser(req.params.id, updates);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: user.company_id,
+        action: "update",
+        model: "user",
+        model_id: req.params.id,
+        payload: updates,
+      });
+
+      const { password_hash: _, ...userWithoutPassword } = updated!;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      console.error("Update user error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/company/users/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Company admins can only delete users in their own company
+      if (req.userRole === "company_admin" && user.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete users from other companies" });
+      }
+
+      // Company admins cannot delete super admins
+      if (user.role === "super_admin" && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Cannot delete super admin users" });
+      }
+
+      // Cannot delete yourself
+      if (user.id === req.userId) {
+        return res.status(400).json({ error: "Cannot delete yourself" });
+      }
+
+      await storage.deleteUser(req.params.id);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: user.company_id,
+        action: "delete",
+        model: "user",
+        model_id: req.params.id,
+        payload: {},
+      });
+
+      res.json({ message: "User deleted" });
+    } catch (error: any) {
+      console.error("Delete user error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SHEETS
   // ============================================================================
   app.get("/api/sheets", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      // Admin users can see all sheets, regular users only see their own
-      const sheets = req.userRole === "admin"
+      // Super admins can see all sheets
+      // Company admins/users see sheets accessible to them via getSheetsByUserId
+      const sheets = req.userRole === "super_admin"
         ? await storage.getAllSheets()
         : await storage.getSheetsByUserId(req.userId!);
       res.json(sheets);
@@ -218,11 +537,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sheets", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { name, settings } = req.body;
+      const { name, settings, is_personal, visibility } = req.body;
+
+      // Users must belong to a company to create sheets
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company to create sheets" });
+      }
 
       const sheet = await storage.createSheet({
         name,
         owner_id: req.userId!,
+        company_id: req.companyId || "",
+        is_personal: is_personal ?? false,
+        visibility: visibility || (is_personal ? "personal" : "company"),
         settings: settings || {},
       });
 
@@ -236,10 +563,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Audit log
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: req.companyId,
         action: "create",
         model: "sheet",
         model_id: sheet.id,
-        payload: { name },
+        payload: { name, is_personal, visibility },
       });
 
       res.status(201).json(sheet);
@@ -249,17 +577,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/sheets/:id", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/sheets/:id", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
       const sheet = await storage.getSheet(req.params.id);
-      if (!sheet) {
+      if (!sheet || sheet.deleted_at) {
         return res.status(404).json({ error: "Sheet not found" });
-      }
-
-      // Check permission
-      const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
-      if (!sheetUser && req.userRole !== "admin") {
-        return res.status(403).json({ error: "Access denied" });
       }
 
       res.json(sheet);
@@ -269,28 +591,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/sheets/:id", authMiddleware, async (req: AuthRequest, res) => {
+  app.patch("/api/sheets/:id", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
-      const { name, settings } = req.body;
+      const { name, settings, visibility } = req.body;
 
-      // Check permission
-      const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
-      if (sheetUser?.role !== "owner" && req.userRole !== "admin") {
-        return res.status(403).json({ error: "Only owners can update sheet" });
-      }
-
-      const updated = await storage.updateSheet(req.params.id, { name, settings });
-      if (!updated) {
+      const sheet = await storage.getSheet(req.params.id);
+      if (!sheet || sheet.deleted_at) {
         return res.status(404).json({ error: "Sheet not found" });
       }
+
+      // Only owner or company admins can update sheets
+      const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
+      const isOwner = sheetUser?.role === "owner" || sheet.owner_id === req.userId;
+      const canEdit = isOwner || req.userRole === "company_admin" || req.userRole === "super_admin";
+
+      if (!canEdit) {
+        return res.status(403).json({ error: "Only owners and admins can update sheets" });
+      }
+
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (settings !== undefined) updates.settings = settings;
+      if (visibility !== undefined) {
+        // Only owner can change visibility
+        if (!isOwner && req.userRole !== "super_admin") {
+          return res.status(403).json({ error: "Only owners can change visibility" });
+        }
+        updates.visibility = visibility;
+      }
+
+      const updated = await storage.updateSheet(req.params.id, updates);
 
       // Audit log
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: sheet.company_id,
         action: "update",
         model: "sheet",
         model_id: req.params.id,
-        payload: { name, settings },
+        payload: updates,
       });
 
       res.json(updated);
@@ -300,29 +639,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/sheets/:id", authMiddleware, async (req: AuthRequest, res) => {
+  app.delete("/api/sheets/:id", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
-      // Check permission
-      const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
-      if (sheetUser?.role !== "owner" && req.userRole !== "admin") {
-        return res.status(403).json({ error: "Only owners can delete sheet" });
-      }
-
-      const deleted = await storage.deleteSheet(req.params.id);
-      if (!deleted) {
+      const sheet = await storage.getSheet(req.params.id);
+      if (!sheet || sheet.deleted_at) {
         return res.status(404).json({ error: "Sheet not found" });
       }
+
+      // Permission logic:
+      // - Super admins can delete any sheet
+      // - Owners can delete their own sheets
+      // - Company admins can delete non-personal sheets in their company
+      const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
+      const isOwner = sheetUser?.role === "owner" || sheet.owner_id === req.userId;
+      const isCompanyAdmin = req.userRole === "company_admin" && sheet.company_id === req.companyId;
+      const isSuperAdmin = req.userRole === "super_admin";
+      
+      // Personal sheets can only be deleted by owner or super admin
+      if (sheet.is_personal) {
+        if (!isOwner && !isSuperAdmin) {
+          return res.status(403).json({ error: "Only owners can delete personal sheets" });
+        }
+      } else {
+        // Company sheets can be deleted by owner, company admin, or super admin
+        if (!isOwner && !isCompanyAdmin && !isSuperAdmin) {
+          return res.status(403).json({ error: "Insufficient permissions to delete this sheet" });
+        }
+      }
+
+      // Soft delete
+      await storage.softDeleteSheet(req.params.id);
 
       // Audit log
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: sheet.company_id,
         action: "delete",
         model: "sheet",
         model_id: req.params.id,
         payload: {},
       });
 
-      res.json({ success: true });
+      res.json({ success: true, message: "Sheet deleted" });
     } catch (error: any) {
       console.error("Delete sheet error:", error);
       res.status(500).json({ error: error.message });
