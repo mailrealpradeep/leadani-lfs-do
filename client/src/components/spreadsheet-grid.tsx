@@ -592,9 +592,10 @@ export function SpreadsheetGrid({
         </div>
       ) : (
         /* Desktop Table View */
-        <div ref={containerRef} className="border rounded-lg overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)]">
-        <Table className="border-collapse" style={{ minWidth: "100%" }}>
-          <TableHeader className="sticky top-0 bg-background z-10 border-b-2">
+        <div className="border rounded-lg overflow-hidden">
+        <div ref={containerRef} className="overflow-x-scroll overflow-y-auto max-h-[calc(100vh-280px)]" style={{ overflowX: "scroll" }}>
+        <Table className="border-collapse" style={{ tableLayout: "auto", width: "max-content", minWidth: "100%" }}>
+          <TableHeader className="sticky top-0 bg-background z-20 border-b-2" style={{ position: "sticky", top: 0 }}>
             <TableRow>
               <TableHead className="w-[50px]">
                 <Checkbox
@@ -867,6 +868,7 @@ export function SpreadsheetGrid({
             )}
           </TableBody>
         </Table>
+        </div>
         </div>
       )}
       </div>
