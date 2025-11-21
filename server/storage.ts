@@ -240,6 +240,7 @@ export class MemStorage implements IStorage {
       nfdt: insertLead.nfdt || null,
       call_1: insertLead.call_1 || null,
       feedback_1: insertLead.feedback_1 || null,
+      lead_category: insertLead.lead_category || "cold",
       custom_fields: insertLead.custom_fields || {},
       meta: insertLead.meta || {},
       created_at: now,

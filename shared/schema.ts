@@ -94,6 +94,7 @@ export interface Lead {
   nfdt: string | null;
   call_1: string | null;
   feedback_1: string | null;
+  lead_category: "hot" | "warm" | "cold";
   custom_fields: Record<string, any>;
   meta: Record<string, any>;
   created_at: string;
@@ -122,6 +123,7 @@ export const insertLeadSchema = z.object({
   nfdt: z.string().nullable().optional(),
   call_1: z.string().nullable().optional(),
   feedback_1: z.string().nullable().optional(),
+  lead_category: z.enum(["hot", "warm", "cold"]).default("cold"),
   custom_fields: z.record(z.any()).default({}),
   meta: z.record(z.any()).default({}),
 });
