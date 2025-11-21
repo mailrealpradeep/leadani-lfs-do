@@ -25,6 +25,18 @@ const webhookLimiter = rateLimit({
   message: "Too many webhook requests",
 });
 
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  message: "Too many signup attempts, please try again later",
+});
+
+const inviteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: "Too many invite attempts, please try again later",
+});
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   const io = new SocketIOServer(httpServer, {
@@ -276,6 +288,171 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ user: userWithoutPassword, company });
     } catch (error: any) {
       console.error("Get me error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // PUBLIC ROUTES (Unauthenticated)
+  // ============================================================================
+  
+  // Company Signup
+  app.post("/api/public/signup", signupLimiter, async (req, res) => {
+    try {
+      const { companySignupSchema } = await import("@shared/schema");
+      const validatedData = companySignupSchema.parse(req.body);
+      
+      // Check if email already exists
+      const existingUser = await storage.getUserByEmail(validatedData.admin_email);
+      if (existingUser) {
+        return res.status(400).json({ error: "Email already registered" });
+      }
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(validatedData.admin_password, 10);
+
+      // Create company with admin user (transactional)
+      const { company, admin } = await storage.createCompanyWithAdmin(
+        validatedData.company_name,
+        validatedData.admin_name,
+        validatedData.admin_email,
+        passwordHash
+      );
+
+      // Generate JWT token
+      const token = generateToken(admin.id, admin.role, company.id);
+
+      const { password_hash: _, ...adminWithoutPassword } = admin;
+      res.status(201).json({
+        message: "Company created successfully",
+        company,
+        user: adminWithoutPassword,
+        token,
+      });
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid input data", details: error.errors });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get Invite by Code (view invite details before accepting)
+  app.get("/api/public/invites/:code", inviteLimiter, async (req, res) => {
+    try {
+      const invite = await storage.getInviteByCode(req.params.code);
+      
+      if (!invite) {
+        return res.status(404).json({ error: "Invite not found" });
+      }
+
+      // Check if invite is expired
+      if (new Date(invite.expires_at) < new Date()) {
+        return res.status(400).json({ error: "Invite has expired" });
+      }
+
+      // Check if already accepted
+      if (invite.status === "accepted") {
+        return res.status(400).json({ error: "Invite has already been used" });
+      }
+
+      // Get company info
+      const company = await storage.getCompany(invite.company_id);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      // Return invite details (without sensitive info)
+      res.json({
+        email: invite.email,
+        role: invite.role,
+        company_name: company.name,
+        expires_at: invite.expires_at,
+      });
+    } catch (error: any) {
+      console.error("Get invite error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Accept Invite (create user account and join company)
+  app.post("/api/public/invites/:code/accept", inviteLimiter, async (req, res) => {
+    try {
+      const { acceptInviteSchema } = await import("@shared/schema");
+      const validatedData = acceptInviteSchema.parse(req.body);
+      
+      const invite = await storage.getInviteByCode(req.params.code);
+      
+      if (!invite) {
+        return res.status(404).json({ error: "Invite not found" });
+      }
+
+      // Check if invite is expired
+      if (new Date(invite.expires_at) < new Date()) {
+        await storage.updateInvite(invite.id, { status: "expired" });
+        return res.status(400).json({ error: "Invite has expired" });
+      }
+
+      // Check if already accepted
+      if (invite.status === "accepted") {
+        return res.status(400).json({ error: "Invite has already been used" });
+      }
+
+      // Check if email already exists
+      const existingUser = await storage.getUserByEmail(invite.email);
+      if (existingUser) {
+        return res.status(400).json({ error: "User with this email already exists" });
+      }
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(validatedData.password, 10);
+
+      // Create user account
+      const user = await storage.createUser({
+        company_id: invite.company_id,
+        name: validatedData.name,
+        email: invite.email,
+        password: passwordHash,
+        role: invite.role,
+        invited_by: invite.inviter_id,
+      } as any);
+
+      // Mark invite as accepted
+      await storage.updateInvite(invite.id, {
+        status: "accepted",
+        accepted_by: user.id,
+        accepted_at: new Date().toISOString(),
+      });
+
+      // Create audit log
+      await storage.createAuditLog({
+        user_id: user.id,
+        company_id: user.company_id,
+        action: "invite_accepted",
+        model: "User",
+        model_id: user.id,
+        details: { invite_id: invite.id },
+      });
+
+      // Generate JWT token
+      const token = generateToken(user.id, user.role, user.company_id!);
+
+      // Get company info
+      const company = await storage.getCompany(user.company_id!);
+
+      const { password_hash: _, ...userWithoutPassword } = user;
+      res.status(201).json({
+        message: "Account created successfully",
+        user: userWithoutPassword,
+        company,
+        token,
+      });
+    } catch (error: any) {
+      console.error("Accept invite error:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid input data", details: error.errors });
+      }
       res.status(500).json({ error: error.message });
     }
   });
