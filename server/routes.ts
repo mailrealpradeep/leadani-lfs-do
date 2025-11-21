@@ -423,6 +423,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   // USER MANAGEMENT (Company Admin)
   // ============================================================================
+  app.get("/api/admin/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Company admins can only see users in their company
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+      const users = await storage.getUsersByCompanyId(req.companyId);
+      const usersWithoutPasswords = users.map(u => {
+        const { password_hash, ...rest } = u;
+        return rest;
+      });
+      res.json(usersWithoutPasswords);
+    } catch (error: any) {
+      console.error("Get company users error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, email, password, role } = req.body;
+
+      // Company admins can only create users in their own company
+      if (!req.companyId) {
+        return res.status(400).json({ error: "No company context" });
+      }
+
+      // Validate role - only user or company_admin allowed
+      if (role && role !== "user" && role !== "company_admin") {
+        return res.status(403).json({ error: "Invalid role. Only 'user' or 'company_admin' allowed" });
+      }
+
+      // Check if user exists
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ error: "Email already registered" });
+      }
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      // Create user
+      const user = await storage.createUser({
+        name,
+        email,
+        password_hash: passwordHash,
+        role: role || "user",
+        company_id: req.companyId,
+        invited_by: req.userId,
+      } as any);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId,
+        action: "create",
+        model: "user",
+        model_id: user.id,
+        payload: { email, role: user.role },
+      });
+
+      const { password_hash: _, ...userWithoutPassword } = user;
+      res.status(201).json(userWithoutPassword);
+    } catch (error: any) {
+      console.error("Create company user error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       // Company admins can only see users in their company
