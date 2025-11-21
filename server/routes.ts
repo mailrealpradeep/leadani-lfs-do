@@ -1701,9 +1701,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const headers = Object.keys(rows[0] as any);
       
+      // Get company-wide custom columns for intelligent mapping
+      const companyColumns = await storage.getCompanyColumns(sheet.company_id);
+      
       const fieldMap: Record<string, string> = {};
       const normalizeHeader = (h: string) => h.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
       
+      // Fixed lead field mappings
       const mappings: Record<string, string> = {
         leaddate: "lead_date",
         date: "lead_date",
@@ -1735,6 +1739,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         feedback: "feedback_1",
       };
 
+      // Add company column mappings (using column_key for matching)
+      companyColumns.forEach(col => {
+        const normalized = normalizeHeader(col.name);
+        const keyNormalized = normalizeHeader(col.column_key);
+        mappings[normalized] = `custom:${col.column_key}`;
+        mappings[keyNormalized] = `custom:${col.column_key}`;
+      });
+
       const seenFields = new Set<string>();
       headers.forEach((header) => {
         const normalized = normalizeHeader(header);
@@ -1753,6 +1765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         preview,
         totalRows: rows.length,
         fileName: fileName || "upload.xlsx",
+        companyColumns, // Send company columns to frontend for dropdown
       });
     } catch (error: any) {
       console.error("Import preview error:", error);
@@ -1762,12 +1775,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sheets/:id/import/execute", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { fileData, fieldMap, unmappedHeaders = [] } = req.body;
+      const { fileData, fieldMap } = req.body;
       const sheetId = req.params.id;
 
       if (!fileData || !fieldMap) {
         return res.status(400).json({ error: "File data and field map required" });
       }
+      
+      // Parse Excel headers to know what was in the file
+      const buffer = Buffer.from(fileData, "base64");
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null, raw: false }) as any[];
+      const allHeaders = rows.length > 0 ? Object.keys(rows[0]) : [];
+      
+      // Compute skipped headers: headers that are "_skip", empty, or missing from fieldMap
+      const skippedHeaders = allHeaders.filter(header => 
+        !fieldMap[header] || fieldMap[header] === "_skip" || fieldMap[header] === ""
+      );
 
       // Check sheet access
       const sheet = await storage.getSheet(sheetId);
@@ -1789,39 +1814,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(413).json({ error: "File too large (max 10MB)" });
       }
 
-      const buffer = Buffer.from(fileData, "base64");
-      const workbook = XLSX.read(buffer, { type: "buffer" });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null, raw: false }) as any[];
-
+      // (Excel already parsed above for header extraction)
       if (rows.length > 10000) {
         return res.status(413).json({ error: "File too large (max 10,000 rows)" });
       }
 
-      // Auto-create custom columns for unmapped headers
-      const existingColumns = await storage.getCustomColumns(sheetId);
-      const existingColumnNames = new Set(existingColumns.map(c => c.name.toLowerCase()));
-      const createdColumns: string[] = [];
-
-      for (const header of unmappedHeaders) {
-        if (header && header.trim() && !existingColumnNames.has(header.toLowerCase())) {
-          try {
-            await storage.createCustomColumn({
-              company_id: sheet.company_id,
-              sheet_id: sheetId,
-              name: header,
-              column_key: header.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
-              type: "text",
-              config: {},
-              order_index: 0,
-            });
-            createdColumns.push(header);
-            existingColumnNames.add(header.toLowerCase());
-          } catch (err) {
-            console.warn(`Could not create column ${header}:`, err);
-          }
-        }
-      }
+      // Get company-wide custom columns (no longer auto-creating sheet-specific columns)
+      const companyColumns = await storage.getCompanyColumns(sheet.company_id);
+      const companyColumnMap = new Map(companyColumns.map(c => [c.column_key, c]));
 
       const imported: any[] = [];
       const errors: any[] = [];
@@ -1837,58 +1837,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
             meta: {},
           };
 
-          // Process mapped fields
+          // Process mapped fields (both fixed fields and company custom columns)
           Object.entries(fieldMap).forEach(([excelHeader, crmField]) => {
-            if (crmField && row[excelHeader] !== undefined && row[excelHeader] !== null) {
+            if (crmField && crmField !== "_skip" && row[excelHeader] !== undefined && row[excelHeader] !== null) {
               let value = row[excelHeader];
               const fieldName = crmField as string;
               
-              if (fieldName === "age") {
-                const parsed = parseInt(String(value), 10);
-                leadData.age = isNaN(parsed) ? null : parsed;
-              } else if (fieldName === "lead_date" || fieldName === "visit_date" || fieldName === "exam_end" || fieldName === "nfdt") {
-                if (typeof value === "number") {
-                  try {
-                    const date = XLSX.SSF.parse_date_code(value);
-                    (leadData as any)[fieldName] = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
-                  } catch {
-                    (leadData as any)[fieldName] = String(value);
+              // Check if this is a company custom column (prefixed with "custom:")
+              if (fieldName.startsWith("custom:")) {
+                const columnKey = fieldName.substring(7); // Remove "custom:" prefix
+                const column = companyColumnMap.get(columnKey);
+                
+                if (column) {
+                  // Handle type conversions based on column type
+                  if (column.type === "number") {
+                    const parsed = parseFloat(String(value));
+                    value = isNaN(parsed) ? null : parsed;
+                  } else if (column.type === "date") {
+                    if (typeof value === "number") {
+                      try {
+                        const date = XLSX.SSF.parse_date_code(value);
+                        value = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+                      } catch {
+                        value = String(value);
+                      }
+                    } else if (typeof value === "string") {
+                      const dateOnly = value.trim().split(' ')[0];
+                      value = dateOnly || value;
+                    }
+                  } else if (column.type === "boolean") {
+                    value = ["yes", "true", "1", "y"].includes(String(value).toLowerCase());
+                  } else {
+                    value = String(value).trim() || null;
                   }
-                } else if (typeof value === "string") {
-                  // Extract date part from datetime string (e.g., "2025-09-24 17:57:05" -> "2025-09-24")
-                  const dateOnly = value.trim().split(' ')[0];
-                  (leadData as any)[fieldName] = dateOnly || value;
-                } else {
-                  (leadData as any)[fieldName] = value;
+                  
+                  leadData.custom_fields[columnKey] = value;
                 }
               } else {
-                (leadData as any)[fieldName] = String(value).trim() || null;
+                // Fixed lead fields
+                if (fieldName === "age") {
+                  const parsed = parseInt(String(value), 10);
+                  leadData.age = isNaN(parsed) ? null : parsed;
+                } else if (fieldName === "lead_date" || fieldName === "visit_date" || fieldName === "exam_end" || fieldName === "nfdt") {
+                  if (typeof value === "number") {
+                    try {
+                      const date = XLSX.SSF.parse_date_code(value);
+                      (leadData as any)[fieldName] = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+                    } catch {
+                      (leadData as any)[fieldName] = String(value);
+                    }
+                  } else if (typeof value === "string") {
+                    const dateOnly = value.trim().split(' ')[0];
+                    (leadData as any)[fieldName] = dateOnly || value;
+                  } else {
+                    (leadData as any)[fieldName] = value;
+                  }
+                } else {
+                  (leadData as any)[fieldName] = String(value).trim() || null;
+                }
               }
             }
           });
-
-          // Process unmapped headers as custom fields
-          for (const header of unmappedHeaders) {
-            if (header && row[header] !== undefined && row[header] !== null) {
-              let value = row[header];
-              if (typeof value === "string") {
-                value = value.trim() || null;
-              } else if (typeof value === "number") {
-                // Check if it's an Excel date
-                if (value > 1 && value < 60000) {
-                  try {
-                    const date = XLSX.SSF.parse_date_code(value);
-                    value = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
-                  } catch {
-                    value = String(value);
-                  }
-                } else {
-                  value = String(value);
-                }
-              }
-              leadData.custom_fields[header] = value;
-            }
-          }
 
           // Validate: require at least name OR mobile number
           if (!leadData.name && !leadData.mobile_no) {
@@ -1924,7 +1933,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imported: imported.length,
         errors: errors.length,
         errorDetails: errors.slice(0, 10),
-        createdColumns,
+        skippedHeaders, // Headers explicitly mapped to "_skip"
       });
     } catch (error: any) {
       console.error("Import execute error:", error);

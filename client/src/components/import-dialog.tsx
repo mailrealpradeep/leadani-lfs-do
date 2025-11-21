@@ -34,9 +34,10 @@ interface PreviewData {
   preview: any[];
   totalRows: number;
   fileName: string;
+  companyColumns?: any[];
 }
 
-const CRM_FIELDS = [
+const FIXED_CRM_FIELDS = [
   { value: "_skip", label: "-- Skip Column --" },
   { value: "lead_date", label: "Lead Date" },
   { value: "lead_time", label: "Time" },
@@ -75,7 +76,14 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
     },
     onSuccess: (data) => {
       setPreviewData(data);
-      setFieldMapping(data.fieldMap);
+      // Initialize fieldMap with ALL headers (auto-mapped + unmapped as empty string)
+      const fullMapping: Record<string, string> = { ...data.fieldMap };
+      data.headers.forEach(header => {
+        if (!fullMapping[header]) {
+          fullMapping[header] = ""; // Unmapped headers default to empty (will be skipped)
+        }
+      });
+      setFieldMapping(fullMapping);
       setStep("mapping");
     },
     onError: (error: any) => {
@@ -89,15 +97,9 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
 
   const executeMutation = useMutation({
     mutationFn: async () => {
-      // Calculate unmapped headers (headers not in field mapping or mapped to _skip)
-      const unmappedHeaders = previewData?.headers.filter(
-        (header: string) => !fieldMapping[header] || fieldMapping[header] === "_skip"
-      ).filter((header: string) => header && header.trim() && header !== " ");
-      
       return await apiRequest<any>("POST", `/api/sheets/${sheetId}/import/execute`, {
         fileData,
-        fieldMap: fieldMapping,
-        unmappedHeaders,
+        fieldMap: fieldMapping, // Backend will compute skippedHeaders from _skip mappings
         fileName: previewData?.fileName,
       });
     },
@@ -105,10 +107,9 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
       setImportResult(result);
       setStep("complete");
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "columns"] });
       toast({
         title: "Import complete",
-        description: `Successfully imported ${result.imported} leads${result.createdColumns?.length ? ` (${result.createdColumns.length} new columns created)` : ""}`,
+        description: `Successfully imported ${result.imported} leads`,
       });
     },
     onError: (error: any) => {
@@ -176,15 +177,10 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
   };
 
   const handleFieldMappingChange = (excelHeader: string, crmField: string) => {
-    setFieldMapping((prev) => {
-      const newMapping = { ...prev };
-      if (crmField === "_skip") {
-        delete newMapping[excelHeader];
-      } else {
-        newMapping[excelHeader] = crmField;
-      }
-      return newMapping;
-    });
+    setFieldMapping((prev) => ({
+      ...prev,
+      [excelHeader]: crmField, // Keep _skip in mapping instead of deleting
+    }));
   };
 
   return (
@@ -255,7 +251,17 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
             </div>
           )}
 
-          {step === "mapping" && previewData && (
+          {step === "mapping" && previewData && (() => {
+            // Build dynamic field list from fixed fields + company columns
+            const allFields = [
+              ...FIXED_CRM_FIELDS,
+              ...(previewData.companyColumns || []).map(col => ({
+                value: `custom:${col.column_key}`,
+                label: `${col.name} (Custom)`,
+              })),
+            ];
+            
+            return (
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground" data-testid="text-file-info">
@@ -277,7 +283,7 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
                             <SelectValue placeholder="Select field" />
                           </SelectTrigger>
                           <SelectContent>
-                            {CRM_FIELDS.map((field) => (
+                            {allFields.map((field) => (
                               <SelectItem key={field.value} value={field.value}>
                                 {field.label}
                               </SelectItem>
@@ -317,7 +323,8 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
                   </div>
                 </div>
             </div>
-          )}
+            );
+          })()}
 
           {step === "complete" && importResult && (
             <div className="space-y-4 py-8">
@@ -330,10 +337,9 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
                   <p className="text-muted-foreground" data-testid="text-import-result">
                     {importResult.imported} leads imported successfully
                   </p>
-                  {importResult.createdColumns && importResult.createdColumns.length > 0 && (
-                    <p className="text-sm text-muted-foreground mt-2" data-testid="text-created-columns">
-                      Created {importResult.createdColumns.length} new custom columns:{" "}
-                      {importResult.createdColumns.join(", ")}
+                  {importResult.skippedHeaders && importResult.skippedHeaders.length > 0 && (
+                    <p className="text-sm text-muted-foreground mt-2" data-testid="text-skipped-headers">
+                      Skipped {importResult.skippedHeaders.length} unmapped column{importResult.skippedHeaders.length > 1 ? 's' : ''}: {importResult.skippedHeaders.join(", ")}
                     </p>
                   )}
                 </div>
