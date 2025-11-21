@@ -1,0 +1,175 @@
+You are a full-stack development agent. Build a complete, production-capable, Replit or anywhere hostable web application named **Dabluz CRM** that implements the following detailed requirements. Produce all project files (frontend + backend + DB migrations + README + run instructions) in one output, with runnable start commands and instructions for deployment on Replit.
+
+GOAL
+Build Dabluz CRM — a multi-user, spreadsheet-like CRM with per-user sheets (workspaces), editable dropdown columns (Make Lang, Occupation, Qualification, Lead Status, Visit Status), an "Add Column" feature, webhook ingestion to create rows, inline editing, role-based access, reports for each sheet and global reports, webhooks, history/audit and export features.
+
+TECH STACK (must use these unless you explicitly justify an alternative)
+- Backend: Node.js + Express (or Fastify) with clear file layout.
+- Database: SQLite (for Replit persistence) with migrations (use knex or sequelize) OR provide option to switch to PostgreSQL via env var.
+- Frontend: React (Create-React-App or Vite). Use Tailwind CSS for styling.
+- Realtime updates: WebSockets (socket.io) or server-sent events.
+- Authentication: JWT-based with a simple user model + password hashing (bcrypt). Include an Admin role.
+- File structure, package.json, and scripts must be provided for `replit run`/`npm run dev` and production start.
+- Provide a Dockerfile optionally (not required by Replit but helpful).
+- Provide environment variables and instructions how to set them in Replit (DB path, JWT_SECRET, PORT).
+
+ACCEPTANCE CRITERIA
+1. UI: spreadsheet-like grid for leads with columns:
+   - Lead Date, Time, Executive, Lang, ADDRESS, Name, Mobile No, Whatsapp, Occupation, Qualification, Age, Exam End, Exam Mark, Leads Status, Visit Status, visit date, NFDT, Call 1, Feedback 1
+   - Additional columns can be added by the user via UI.
+   - Lang, Occupation, Qualification, Lead Status, Visit Status must render as dropdowns in the grid.
+   - There must be a UI to **edit the dropdown options** (add/delete/reorder options) for these fields. Changes immediately affect all rows.
+   - Inline editing (double-click cell) and save by Enter or clicking Save.
+   - Add, edit, delete lead rows UI.
+   - Bulk actions: select multiple rows, change status, delete.
+   - Sorting, filtering, search across columns.
+   - Pagination and virtual scroll for performance (explain approach if dataset > 100k).
+
+2. Multi-user & Workspaces:
+   - Each user has one or more **Sheets** (workspaces). A sheet is a filter/segregated workspace; leads belong to a sheet via `sheet_id`.
+   - Users can create sheets and invite other users (share) by email (simple invite flow). Provide roles per sheet: Owner, Editor, Viewer.
+   - Provide Admin global view to see all sheets, switch into sheets, and see consolidated reports across all sheets.
+   - Each sheet has its own dropdown options that can be customized (option inheritance from organization default offered).
+   - Reports: per-sheet dashboard and a global dashboard. Reports include: leads by status, leads by executive, daily trends, conversion rate, visits scheduled, no-shows (NFDT) and custom date-range filter. Provide endpoints that supply data for these charts.
+
+3. Webhooks:
+   - Provide a secure webhook endpoint `/api/webhooks/leads` that accepts POST JSON payload and creates a new lead in the specified sheet (or default sheet if none). Use an HMAC signature or `X-API-KEY` verify header to secure it.
+   - Map common external fields to our columns and save unknown keys into a `meta` JSON column.
+   - On successful webhook lead insert, the system should:
+     - create the lead row,
+     - emit a realtime event to clients connected to that sheet,
+     - log the webhook payload/audit entry,
+     - send optional notifications (email/WhatsApp placeholder).
+   - Provide sample webhook payloads and example HMAC signing script.
+
+4. Column management and dynamic columns:
+   - UI & backend support for **Add Column**: name, type (text, number, date, dropdown, boolean), default value.
+   - For dropdown column type, store options in `dropdown_options` table and allow CRUD of options.
+   - Allow renaming and deleting columns (deleting must remove data safely and provide an "Are you sure?" confirmation).
+   - Provide migration scripts for new columns (or implement a `key-value` `custom_fields` JSON column per lead if you prefer a dynamic schema approach — implement either but explain tradeoffs and implement one).
+
+5. Data model (proposed; agent must create SQL migrations)
+   - users: id, name, email, password_hash, role (admin|user), created_at
+   - sheets: id, name, owner_id, settings (json), created_at
+   - sheet_users: id, sheet_id, user_id, role (owner|editor|viewer)
+   - leads: id, sheet_id, owner_user_id, lead_date (date), lead_time (time), executive (string), lang (string or foreign key), address, name, mobile_no, whatsapp, occupation (string), qualification (string), age (int), exam_end (date), exam_mark, lead_status (fk), visit_status (fk), visit_date (date), nfdt (boolean/string), call_1 (text), feedback_1 (text), meta (JSON), created_at, updated_at
+   - dropdown_options: id, sheet_id (nullable for global), column_key (enum: lang, occupation, qualification, lead_status, visit_status, or custom), value, order_index
+   - audits: id, user_id, action, model, model_id, payload(json), created_at
+   - webhook_logs: id, sheet_id, payload(json), headers(json), status, created_at
+   - (Optional) custom_columns: id, sheet_id, name, type, config(json)
+   - Provide migrations to create these tables.
+
+6. API Endpoints (sample list; implement them)
+   - Auth: POST /api/auth/register, POST /api/auth/login, GET /api/auth/me, POST /api/auth/refresh
+   - Sheets: GET /api/sheets, POST /api/sheets, GET /api/sheets/:id, PATCH /api/sheets/:id, DELETE /api/sheets/:id
+   - Sheet Users: POST /api/sheets/:id/invite, PATCH /api/sheets/:id/users/:userId, DELETE /api/sheets/:id/users/:userId
+   - Leads: GET /api/sheets/:id/leads (filters, pagination), POST /api/sheets/:id/leads, GET /api/leads/:id, PATCH /api/leads/:id, DELETE /api/leads/:id, POST /api/leads/bulk
+   - Dropdowns: GET/POST/PATCH/DELETE /api/sheets/:id/dropdowns/:columnKey
+   - Columns: POST /api/sheets/:id/columns (add), PATCH /api/sheets/:id/columns/:colId, DELETE /api/sheets/:id/columns/:colId
+   - Webhook: POST /api/webhooks/leads (secure)
+   - Reports: GET /api/sheets/:id/reports/summary, GET /api/reports/global
+   - Audit & logs: GET /api/sheets/:id/audit, GET /api/webhook/logs
+   - Exports: GET /api/sheets/:id/export?format=csv|xlsx
+   - Health: GET /api/health
+
+7. Frontend features (implement pages/components)
+   - Login/Register, Dashboard (per-sheet), Sheet selector (switch sheets)
+   - Grid view: spreadsheet-like with inline editing, dropdowns, add column, add row, delete row, bulk actions, filter bar, quick search, column show/hide, column reorder (drag & drop).
+   - Dropdown management modal: list options for selected dropdown column (sheet-level), add/delete/edit option, reorder options.
+   - Column manager modal: add/rename/delete columns, set type, set default.
+   - Lead detail drawer: open a row to see full details, history, audit trail, notes, attachments.
+   - Reports page per sheet with charts (use lightweight chart library or render JSON so charts can be hooked up).
+   - Admin console: manage sheets, view global reports, manage users.
+   - Responsive design.
+
+8. Realtime
+   - Implement WebSocket (socket.io) or SSE for sheet updates: user viewing a sheet receives new lead inserted via webhook instantly; other users editing get notified of changes.
+
+9. Security & best practices
+   - Hash passwords with bcrypt.
+   - Protect endpoints with JWT middleware and role & sheet membership checks.
+   - CSRF protection where needed, sanitize inputs (server-side).
+   - Validate webhook HMAC signature or API key; reject unsigned requests.
+   - Rate-limit webhook endpoint and login endpoint.
+   - Audit logs for create/update/delete actions (who did what).
+   - CORS config for frontend origin.
+
+10. Testing & sample data
+   - Provide a `seed` script to create:
+     - 1 admin user (admin@example.com / password: Passw0rd! for dev only)
+     - 2 normal users (user1@example.com, user2@example.com)
+     - 2 sheets (Sales North, Sales South) with each user assigned and sample dropdown options and 10 sample leads each.
+   - Provide test scripts for:
+     - webhook ingestion (curl example),
+     - dropdown update and propagation test,
+     - adding a column and verifying lead data.
+   - Add unit/integration test examples (at least tests for webhook endpoint and lead creation).
+
+11. DevOps / Replit specifics
+   - Provide `start` and `dev` scripts in package.json.
+   - Explain how to set environment variables in Replit (JWT_SECRET, HMAC_SECRET, DB_PATH).
+   - Show how to persist SQLite DB across repl runs (path in `/data/dabluz.db`).
+   - Provide a Replit-friendly `replit.nix` file or clear `package.json` start instructions.
+   - Include a `README.md` with clear Replit step-by-step: Import repo to Replit, set env vars, click Run, open app, set up admin, send test webhook.
+
+12. Deliverables (what the agent should output)
+   - Full backend code (routes, controllers, models, migrations, seeds).
+   - Full frontend code (React + Tailwind) with components, routing, API client code and config to connect to backend.
+   - README with setup + Replit deployment instructions + example webhook payloads + sample curl commands.
+   - SQL migration files and seed scripts.
+   - Sample environment file `.env.example`.
+   - Postman collection or curl examples for all major endpoints.
+   - A short demo video script (a step-by-step script the developer can follow to demo the app).
+   - A checklist of manual QA steps to verify features.
+
+IMPLEMENTATION DETAILS & SMALL PRINT (important hard rules)
+- The grid must support dropdown cells for the specified columns. The dropdown options must be editable via a modal and stored per-sheet (with a global fallback).
+- When a new lead arrives via webhook:
+  - If the payload includes `sheet_id`, add it to that sheet (verify sender authorized to post to that sheet). If no `sheet_id` is provided, put lead into a default 'inbox' sheet for the target account.
+  - Map `lang`, `occupation`, `qualification`, `lead_status`, `visit_status` — if value not in dropdown options, create it automatically and add to the dropdown (mark as "added by webhook" in audit).
+  - Return 201 + lead id and webhook_log id.
+- For "Add column": implement both a server migration (alter table) OR dynamic `custom_fields` column (JSON). If you choose JSON dynamic fields, implement UI to add custom field and display it in the grid. Explain trade-offs in README.
+- Every API response must be JSON and use conventional HTTP response codes.
+- Provide clear error messages (400 with reason).
+- Keep UX simple and quick: minimal clicks to add lead, simple modals, keyboard shortcuts for grid (Enter to edit/save, Esc to cancel).
+
+SAMPLE WEBHOOK JSON (include examples in the output)
+- Example 1:
+  {
+    "sheet_id": "SHEET123",
+    "name": "Ramesh",
+    "mobile_no": "9123456789",
+    "whatsapp": "9123456789",
+    "lang": "Odia",
+    "occupation": "Student",
+    "qualification": "10th Pass",
+    "lead_date": "2025-11-21",
+    "lead_time": "14:30",
+    "lead_status": "New",
+    "visit_status": "Not Visited",
+    "meta": {"utm_source": "facebook", "campaign": "nov"}
+  }
+- Provide HMAC signature example and curl command to post.
+
+EXPLAIN TRADEOFFS BRIEFLY
+- If you implement dynamic columns as JSON vs DB typed table columns, briefly explain pros/cons and how to migrate later.
+
+DELIVER CODE & FILE LIST
+- The assistant must produce the full file listing (tree) and the contents of each important file, not just pseudo-code. The produced code must be runnable (development mode) with the provided scripts and seeds.
+
+USER-SIDE UX INSTRUCTIONS (for the README)
+- How to create sheets, invite users, customize dropdowns, add columns, connect webhook, test webhook quickly.
+
+FINALLY
+- After building, summarize manual QA steps and provide a one-page API reference.
+- Provide a short note on future improvements and scaling (migrating to PostgreSQL, adding full-text search, RBAC policies, audit retention).
+
+If any requirement is ambiguous, make reasonable assumptions and document them in README. Prioritize correctness and a working minimal viable product that meets acceptance criteria over fancy UX.
+
+Now produce:
+1) A short high-level design summary (1–2 paragraphs).
+2) The complete runnable project files (server + client + migrations + seed + README + .env.example + package.json scripts) — ensure the code can run on Replit with minimal manual edits.
+3) Postman/curl examples and a webhook test script.
+4) The `SAMPLE_WEBHOOK_PAYLOAD` and HMAC signature example.
+
+End of prompt.
