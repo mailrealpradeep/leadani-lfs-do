@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ImportDialogProps {
   sheetId: string;
@@ -200,7 +199,7 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-auto">
           {step === "upload" && (
             <div className="space-y-4 py-4">
               <div
@@ -257,17 +256,16 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
           )}
 
           {step === "mapping" && previewData && (
-            <div className="space-y-4 py-4 flex flex-col">
+            <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground" data-testid="text-file-info">
                   File: <span className="font-medium">{previewData.fileName}</span> • {previewData.totalRows} rows
                 </p>
               </div>
 
-              <ScrollArea className="border rounded-lg max-h-[500px]">
-                <div className="p-4 space-y-4">
-                  <h3 className="font-medium">Field Mapping</h3>
-                  <div className="grid grid-cols-3 gap-4" data-testid="container-field-mapping">
+              <div className="space-y-4">
+                <h3 className="font-medium">Field Mapping</h3>
+                <div className="grid grid-cols-3 gap-4" data-testid="container-field-mapping">
                     {previewData.headers.map((header) => (
                       <div key={header} className="space-y-2">
                         <Label className="text-xs text-muted-foreground">{header}</Label>
@@ -318,7 +316,6 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
                     </div>
                   </div>
                 </div>
-              </ScrollArea>
             </div>
           )}
 
