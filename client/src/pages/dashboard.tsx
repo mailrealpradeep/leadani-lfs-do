@@ -67,10 +67,15 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex flex-col h-full relative">
-      <div className={`sticky top-0 z-20 bg-background border-b px-6 py-4 transition-transform duration-300 ${
-        isHeaderHidden ? "-translate-y-full" : "translate-y-0"
-      }`}>
+    <div className="flex flex-col h-full">
+      <div 
+        className={`bg-background border-b px-6 transition-all duration-300 ${
+          isHeaderHidden ? 'h-0 opacity-0 py-0' : 'h-auto opacity-100 py-4'
+        }`}
+        style={{
+          overflow: 'hidden'
+        }}
+      >
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-semibold">Leads</h1>
