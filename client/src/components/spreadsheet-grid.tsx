@@ -329,20 +329,20 @@ export function SpreadsheetGrid({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2 flex-1 max-w-2xl flex-wrap">
-          <div className="relative flex-1 min-w-[200px]">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search leads..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+              className="pl-9 min-h-[44px]"
               data-testid="input-search-leads"
             />
           </div>
           <Select value={categoryFilter} onValueChange={(v: any) => setCategoryFilter(v)}>
-            <SelectTrigger className="w-[180px]" data-testid="select-category-filter">
+            <SelectTrigger className="w-full sm:w-[200px] min-h-[44px]" data-testid="select-category-filter">
               <SelectValue placeholder="All Leads" />
             </SelectTrigger>
             <SelectContent>
@@ -374,6 +374,7 @@ export function SpreadsheetGrid({
                 size="sm"
                 onClick={() => deleteLeadsMutation.mutate(Array.from(selectedRows))}
                 data-testid="button-delete-selected"
+                className="min-h-[44px]"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete
@@ -382,7 +383,7 @@ export function SpreadsheetGrid({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" data-testid="button-toggle-columns">
+              <Button variant="outline" size="sm" data-testid="button-toggle-columns" className="min-h-[44px] hidden md:flex">
                 <Eye className="h-4 w-4 mr-2" />
                 Columns
               </Button>
@@ -418,7 +419,81 @@ export function SpreadsheetGrid({
         </div>
       </div>
 
-      <div ref={containerRef} className="border rounded-lg overflow-auto max-h-[calc(100vh-280px)]">
+      {/* Mobile Card View */}
+      <div className="md:hidden space-y-3">
+        {filteredAndSortedLeads.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <div className="text-4xl mb-3">📋</div>
+            <p>No leads found.</p>
+            {categoryFilter !== "all" && <p className="text-sm mt-1">Try changing the filter.</p>}
+          </div>
+        ) : (
+          filteredAndSortedLeads.map((lead) => (
+            <div
+              key={lead.id}
+              className="bg-card border rounded-lg p-4 hover-elevate active-elevate-2"
+              data-testid={`card-lead-${lead.id}`}
+              onClick={() => onOpenLeadDetail(lead.id)}
+            >
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-base truncate">{lead.name || "Unnamed Lead"}</h3>
+                  <p className="text-sm text-muted-foreground truncate">{lead.occupation || lead.executive || "—"}</p>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`${getCategoryColor(lead.lead_category)} min-h-[36px]`}
+                      data-testid={`button-category-${lead.id}`}
+                    >
+                      <Flame className="h-3 w-3 mr-1" />
+                      {lead.lead_category?.charAt(0).toUpperCase() + lead.lead_category?.slice(1) || "Cold"}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem onClick={() => updateCategory(lead.id, "hot")}>
+                      <Flame className="h-4 w-4 mr-2 text-red-500" />
+                      Hot
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => updateCategory(lead.id, "warm")}>
+                      <Flame className="h-4 w-4 mr-2 text-orange-500" />
+                      Warm
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => updateCategory(lead.id, "cold")}>
+                      <Flame className="h-4 w-4 mr-2 text-muted-foreground" />
+                      Cold
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Mobile:</span>
+                  <p className="truncate">{lead.mobile_no || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">WhatsApp:</span>
+                  <p className="truncate">{lead.whatsapp || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Status:</span>
+                  <p className="truncate">{lead.lead_status || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Date:</span>
+                  <p className="truncate">{lead.lead_date ? format(new Date(lead.lead_date), "MMM d, yyyy") : "—"}</p>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop Table View */}
+      <div ref={containerRef} className="hidden md:block border rounded-lg overflow-auto max-h-[calc(100vh-280px)]">
         <Table>
           <TableHeader className="sticky top-0 bg-background z-10 border-b-2">
             <TableRow>

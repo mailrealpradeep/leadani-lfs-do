@@ -88,9 +88,9 @@ function AppLayout() {
     <SidebarProvider style={sidebarStyle as React.CSSProperties}>
       <div className="flex h-screen w-full">
         <AppSidebar />
-        <div className="flex flex-col flex-1">
+        <div className="flex flex-col flex-1 min-w-0">
           <header 
-            className="flex items-center justify-between px-4 py-2 border-b transition-all duration-300"
+            className="flex items-center justify-between px-3 sm:px-4 py-2 border-b transition-all duration-300 shrink-0"
             data-app-header
           >
             <SidebarTrigger data-testid="button-sidebar-toggle" />

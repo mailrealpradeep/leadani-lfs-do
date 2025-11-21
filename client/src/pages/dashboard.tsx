@@ -73,48 +73,68 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col h-full">
       <div 
-        className="sticky top-0 z-20 bg-background border-b px-6 py-4"
+        className="sticky top-0 z-20 bg-background border-b px-3 sm:px-4 md:px-6 py-3 md:py-4"
         data-dashboard-header
       >
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-semibold">Leads</h1>
-            <SheetSelector
-              selectedSheetId={selectedSheetId}
-              onSheetSelect={setSelectedSheetId}
-            />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <h1 className="text-xl sm:text-2xl font-semibold truncate">Leads</h1>
+            <div className="flex-shrink-0 w-full sm:w-auto max-w-[200px] sm:max-w-none">
+              <SheetSelector
+                selectedSheetId={selectedSheetId}
+                onSheetSelect={setSelectedSheetId}
+              />
+            </div>
           </div>
           {selectedSheetId && (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setIsColumnsDialogOpen(true)}
-                data-testid="button-manage-columns"
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Columns
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setIsImportOpen(true)}
-                data-testid="button-import-leads"
-              >
-                <FileUp className="h-4 w-4 mr-2" />
-                Import
-              </Button>
-              <Button
-                onClick={() => setIsAddLeadOpen(true)}
-                data-testid="button-add-lead"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Lead
-              </Button>
-            </div>
+            <>
+              {/* Desktop buttons */}
+              <div className="hidden sm:flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsColumnsDialogOpen(true)}
+                  data-testid="button-manage-columns"
+                  className="min-h-[44px]"
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Columns
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsImportOpen(true)}
+                  data-testid="button-import-leads"
+                  className="min-h-[44px]"
+                >
+                  <FileUp className="h-4 w-4 mr-2" />
+                  Import
+                </Button>
+                <Button
+                  onClick={() => setIsAddLeadOpen(true)}
+                  data-testid="button-add-lead"
+                  className="min-h-[44px]"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Lead
+                </Button>
+              </div>
+              {/* Mobile: Single Add button */}
+              <div className="sm:hidden">
+                <Button
+                  onClick={() => setIsAddLeadOpen(true)}
+                  data-testid="button-add-lead"
+                  className="w-full min-h-[44px]"
+                  size="lg"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  Add Lead
+                </Button>
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      <div ref={containerRef} className="flex-1 overflow-auto px-6 py-6">
+      <div ref={containerRef} className="flex-1 overflow-auto px-3 sm:px-4 md:px-6 py-4 md:py-6">
         {selectedSheetId ? (
           <SpreadsheetGrid
             sheetId={selectedSheetId}
