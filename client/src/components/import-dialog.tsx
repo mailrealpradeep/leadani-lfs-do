@@ -257,14 +257,14 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
           )}
 
           {step === "mapping" && previewData && (
-            <div className="space-y-4 py-4 h-full flex flex-col">
+            <div className="space-y-4 py-4 flex flex-col">
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground" data-testid="text-file-info">
                   File: <span className="font-medium">{previewData.fileName}</span> • {previewData.totalRows} rows
                 </p>
               </div>
 
-              <ScrollArea className="flex-1 border rounded-lg">
+              <ScrollArea className="border rounded-lg max-h-[500px]">
                 <div className="p-4 space-y-4">
                   <h3 className="font-medium">Field Mapping</h3>
                   <div className="grid grid-cols-3 gap-4" data-testid="container-field-mapping">
