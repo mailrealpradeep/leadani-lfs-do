@@ -29,6 +29,7 @@ Preferred communication style: Simple, everyday language.
 - React Query (`@tanstack/react-query`) handles all server state, caching, and synchronization
 - Local component state for UI interactions
 - Auth context provides global authentication state
+- Dashboard context (`DashboardContext`) shares state between Dashboard page and AppSidebar for sheet selection, search, filtering, and action handlers
 
 **UI Components**: Shadcn UI component library built on Radix UI primitives, styled with Tailwind CSS. Uses a custom design system with theme support (light/dark modes).
 
@@ -152,6 +153,40 @@ Preferred communication style: Simple, everyday language.
 **Component Library**: Shadcn UI provides accessible, customizable components. All components use compound pattern with separate parts (e.g., Dialog, DialogContent, DialogTitle).
 
 **Responsive Design**: Mobile-first approach with collapsible sidebar and responsive grid layouts.
+
+### Dashboard Architecture
+
+**Clean Workspace Design**: The dashboard provides a full-width spreadsheet interface with all controls consolidated in the sidebar for an uncluttered workspace:
+
+**DashboardContext**: Centralized state management for:
+- `selectedSheetId`: Currently active sheet
+- `searchQuery`: Global search filter for leads
+- `categoryFilter`: Hot/Warm/Cold lead filter
+- `actions`: Handler functions for Add Lead, Import, Manage Columns, Toggle Columns, Export
+
+**Sidebar Controls** (when viewing dashboard):
+- **Current Sheet Section**:
+  - Sheet selector dropdown with all accessible sheets
+  - Add Lead button (opens AddLeadDialog)
+  - Import button (opens ImportDialog for CSV/Excel import)
+  - Manage Columns button (opens ColumnManagerModal for adding custom columns)
+- **Filter & Search Section**:
+  - Search input (filters leads globally across name, mobile, email, etc.)
+  - Category dropdown (filters by Hot/Warm/Cold lead category)
+  - Toggle Columns button (opens ColumnsDialog for show/hide column visibility)
+  - Export button (exports to CSV)
+
+**SpreadsheetGrid**: Clean table interface that:
+- Reads `searchQuery` and `categoryFilter` from DashboardContext
+- Displays only the filtered spreadsheet table (no toolbar clutter)
+- Shows contextual "Delete selected" button when rows are selected
+- Maintains sticky headers and horizontal scrollbar for large datasets
+
+**State Flow**:
+1. User interacts with sidebar controls (search, filter, actions)
+2. Updates propagate through DashboardContext
+3. SpreadsheetGrid reads context values and re-renders filtered data
+4. Real-time updates via Socket.io keep all connected users synchronized
 
 ## External Dependencies
 
