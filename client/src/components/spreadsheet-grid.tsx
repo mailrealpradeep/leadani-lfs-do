@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Plus,
@@ -10,6 +10,10 @@ import {
   ChevronUp,
   ChevronDown,
   Settings2,
+  Eye,
+  EyeOff,
+  Flame,
+  X,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -57,12 +61,19 @@ export function SpreadsheetGrid({
   onOpenColumnManager,
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
+  const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [editingCell, setEditingCell] = useState<{ leadId: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState("");
+  
+  // New features state
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [categoryFilter, setCategoryFilter] = useState<"all" | "hot" | "warm" | "cold">("all");
+  const [isScrolled, setIsScrolled] = useState(false);
 
   const { data: leads = [], isLoading } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
@@ -96,6 +107,40 @@ export function SpreadsheetGrid({
       });
     },
   });
+
+  // Load hidden columns for current sheet and reset filters on sheet change
+  useEffect(() => {
+    const stored = localStorage.getItem(`hiddenColumns_${sheetId}`);
+    setHiddenColumns(stored ? new Set(JSON.parse(stored)) : new Set());
+    
+    // Reset filters when switching sheets
+    setColumnFilters({});
+    setCategoryFilter("all");
+    setSearchQuery("");
+    setSortColumn(null);
+    setSortDirection("asc");
+  }, [sheetId]);
+
+  // Persist hidden columns to localStorage
+  useEffect(() => {
+    if (hiddenColumns.size === 0 && !localStorage.getItem(`hiddenColumns_${sheetId}`)) {
+      return; // Don't persist empty set on initial load
+    }
+    localStorage.setItem(`hiddenColumns_${sheetId}`, JSON.stringify(Array.from(hiddenColumns)));
+  }, [hiddenColumns, sheetId]);
+
+  // Scroll event handler for header auto-hide
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      setIsScrolled(container.scrollTop > 50);
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
 
   // Socket.io realtime updates
   useEffect(() => {
@@ -165,14 +210,35 @@ export function SpreadsheetGrid({
 
   const filteredAndSortedLeads = leads
     .filter((lead) => {
-      if (!searchQuery) return true;
-      const query = searchQuery.toLowerCase();
-      return (
-        lead.name?.toLowerCase().includes(query) ||
-        lead.mobile_no?.toLowerCase().includes(query) ||
-        lead.email?.toLowerCase().includes(query) ||
-        lead.executive?.toLowerCase().includes(query)
-      );
+      // Category filter
+      if (categoryFilter !== "all" && lead.lead_category !== categoryFilter) {
+        return false;
+      }
+      
+      // Search query filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = (
+          lead.name?.toLowerCase().includes(query) ||
+          lead.mobile_no?.toLowerCase().includes(query) ||
+          lead.whatsapp?.toLowerCase().includes(query) ||
+          lead.executive?.toLowerCase().includes(query) ||
+          lead.address?.toLowerCase().includes(query)
+        );
+        if (!matchesSearch) return false;
+      }
+      
+      // Column filters
+      for (const [columnKey, filterValue] of Object.entries(columnFilters)) {
+        if (!filterValue) continue;
+        const cellValue = String((lead as any)[columnKey] || "").toLowerCase();
+        const filter = filterValue.toLowerCase();
+        if (!cellValue.includes(filter)) {
+          return false;
+        }
+      }
+      
+      return true;
     })
     .sort((a, b) => {
       if (!sortColumn) return 0;
@@ -183,6 +249,7 @@ export function SpreadsheetGrid({
     });
 
   const columns = [
+    { key: "lead_category", label: "Priority", width: "120px", sortable: true, isCategory: true },
     { key: "lead_date", label: "Lead Date", width: "120px", sortable: true },
     { key: "lead_time", label: "Time", width: "100px", sortable: false },
     { key: "executive", label: "Executive", width: "140px", sortable: true },
@@ -204,6 +271,39 @@ export function SpreadsheetGrid({
     { key: "feedback_1", label: "Feedback 1", width: "200px", sortable: false },
   ];
 
+  const visibleColumns = columns.filter((col) => !hiddenColumns.has(col.key));
+
+  const toggleColumnVisibility = (columnKey: string) => {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(columnKey)) {
+        next.delete(columnKey);
+      } else {
+        next.add(columnKey);
+      }
+      return next;
+    });
+  };
+
+  const updateCategory = (leadId: string, category: "hot" | "warm" | "cold") => {
+    updateLeadMutation.mutate({
+      leadId,
+      data: { lead_category: category },
+    });
+  };
+
+  const getCategoryColor = (category: "hot" | "warm" | "cold") => {
+    switch (category) {
+      case "hot":
+        return "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800";
+      case "warm":
+        return "text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800";
+      case "cold":
+      default:
+        return "text-muted-foreground";
+    }
+  };
+
   const dropdownColumns = ["lang", "occupation", "qualification", "lead_status", "visit_status"];
 
   if (isLoading) {
@@ -218,8 +318,8 @@ export function SpreadsheetGrid({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2 flex-1 max-w-md">
-          <div className="relative flex-1">
+        <div className="flex items-center gap-2 flex-1 max-w-2xl flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search leads..."
@@ -229,8 +329,29 @@ export function SpreadsheetGrid({
               data-testid="input-search-leads"
             />
           </div>
+          <Select value={categoryFilter} onValueChange={(v: any) => setCategoryFilter(v)}>
+            <SelectTrigger className="w-[180px]" data-testid="select-category-filter">
+              <SelectValue placeholder="All Leads" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Leads</SelectItem>
+              <SelectItem value="hot">
+                <div className="flex items-center gap-2">
+                  <Flame className="h-4 w-4 text-red-500" />
+                  Hot Leads
+                </div>
+              </SelectItem>
+              <SelectItem value="warm">
+                <div className="flex items-center gap-2">
+                  <Flame className="h-4 w-4 text-orange-500" />
+                  Warm Leads
+                </div>
+              </SelectItem>
+              <SelectItem value="cold">Cold Leads</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {selectedRows.size > 0 && (
             <>
               <Badge variant="secondary" data-testid="text-selected-count">
@@ -247,15 +368,32 @@ export function SpreadsheetGrid({
               </Button>
             </>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onOpenColumnManager}
-            data-testid="button-manage-columns"
-          >
-            <Settings2 className="h-4 w-4 mr-2" />
-            Columns
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" data-testid="button-toggle-columns">
+                <Eye className="h-4 w-4 mr-2" />
+                Columns
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[200px]">
+              {columns.map((col) => (
+                <DropdownMenuItem
+                  key={col.key}
+                  onClick={() => toggleColumnVisibility(col.key)}
+                  data-testid={`menuitem-toggle-${col.key}`}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    {hiddenColumns.has(col.key) ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                    <span className="flex-1">{col.label}</span>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="outline"
             size="sm"
@@ -268,9 +406,9 @@ export function SpreadsheetGrid({
         </div>
       </div>
 
-      <div className="border rounded-lg overflow-auto max-h-[calc(100vh-280px)]">
+      <div ref={containerRef} className="border rounded-lg overflow-auto max-h-[calc(100vh-280px)]">
         <Table>
-          <TableHeader className="sticky top-0 bg-background z-10">
+          <TableHeader className="sticky top-0 bg-background z-10 border-b-2">
             <TableRow>
               <TableHead className="w-[50px]">
                 <Checkbox
@@ -285,43 +423,77 @@ export function SpreadsheetGrid({
                   data-testid="checkbox-select-all"
                 />
               </TableHead>
-              {columns.map((col) => (
+              {visibleColumns.map((col) => (
                 <TableHead
                   key={col.key}
                   style={{ minWidth: col.width }}
                   className="font-medium text-xs uppercase tracking-wide"
                 >
-                  <div className="flex items-center gap-1">
-                    <span>{col.label}</span>
-                    {col.dropdown && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5"
-                        onClick={() => onOpenDropdownManager(col.key)}
-                        data-testid={`button-manage-dropdown-${col.key}`}
-                      >
-                        <Settings2 className="h-3 w-3" />
-                      </Button>
-                    )}
-                    {col.sortable && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5"
-                        onClick={() => toggleSort(col.key)}
-                        data-testid={`button-sort-${col.key}`}
-                      >
-                        {sortColumn === col.key ? (
-                          sortDirection === "asc" ? (
-                            <ChevronUp className="h-3 w-3" />
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-1">
+                      <span>{col.label}</span>
+                      {col.dropdown && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => onOpenDropdownManager(col.key)}
+                          data-testid={`button-manage-dropdown-${col.key}`}
+                        >
+                          <Settings2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                      {col.sortable && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => toggleSort(col.key)}
+                          data-testid={`button-sort-${col.key}`}
+                        >
+                          {sortColumn === col.key ? (
+                            sortDirection === "asc" ? (
+                              <ChevronUp className="h-3 w-3" />
+                            ) : (
+                              <ChevronDown className="h-3 w-3" />
+                            )
                           ) : (
-                            <ChevronDown className="h-3 w-3" />
-                          )
-                        ) : (
-                          <ChevronDown className="h-3 w-3 opacity-30" />
+                            <ChevronDown className="h-3 w-3 opacity-30" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                    {!col.isCategory && (
+                      <div className="relative">
+                        <Input
+                          placeholder="Filter..."
+                          value={columnFilters[col.key] || ""}
+                          onChange={(e) =>
+                            setColumnFilters((prev) => ({
+                              ...prev,
+                              [col.key]: e.target.value,
+                            }))
+                          }
+                          className="h-7 text-xs"
+                          data-testid={`input-filter-${col.key}`}
+                        />
+                        {columnFilters[col.key] && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
+                            onClick={() =>
+                              setColumnFilters((prev) => {
+                                const next = { ...prev };
+                                delete next[col.key];
+                                return next;
+                              })
+                            }
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
                         )}
-                      </Button>
+                      </div>
                     )}
                   </div>
                 </TableHead>
@@ -332,15 +504,15 @@ export function SpreadsheetGrid({
           <TableBody>
             {filteredAndSortedLeads.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length + 2} className="text-center py-12 text-muted-foreground">
-                  No leads found. Add your first lead to get started.
+                <TableCell colSpan={visibleColumns.length + 2} className="text-center py-12 text-muted-foreground">
+                  No leads found. {categoryFilter !== "all" ? `Try changing the filter.` : `Add your first lead to get started.`}
                 </TableCell>
               </TableRow>
             ) : (
               filteredAndSortedLeads.map((lead) => (
                 <TableRow
                   key={lead.id}
-                  className="hover-elevate cursor-pointer"
+                  className={`hover-elevate cursor-pointer ${isScrolled ? "" : ""}`}
                   data-testid={`row-lead-${lead.id}`}
                 >
                   <TableCell onClick={(e) => e.stopPropagation()}>
@@ -358,20 +530,50 @@ export function SpreadsheetGrid({
                       data-testid={`checkbox-select-${lead.id}`}
                     />
                   </TableCell>
-                  {columns.map((col) => {
+                  {visibleColumns.map((col) => {
                     const isEditing =
                       editingCell?.leadId === lead.id && editingCell?.field === col.key;
                     const value = (lead as any)[col.key];
                     const isDropdown = dropdownColumns.includes(col.key);
+                    const isCategory = col.key === "lead_category";
 
                     return (
                       <TableCell
                         key={col.key}
-                        onDoubleClick={() => handleCellClick(lead.id, col.key, value)}
+                        onDoubleClick={() => !isCategory && handleCellClick(lead.id, col.key, value)}
                         className="px-3 py-2"
                         data-testid={`cell-${lead.id}-${col.key}`}
+                        onClick={(e) => isCategory && e.stopPropagation()}
                       >
-                        {isEditing ? (
+                        {isCategory ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className={getCategoryColor(lead.lead_category)}
+                                data-testid={`button-category-${lead.id}`}
+                              >
+                                <Flame className="h-3 w-3 mr-1" />
+                                {lead.lead_category?.charAt(0).toUpperCase() + lead.lead_category?.slice(1) || "Cold"}
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                              <DropdownMenuItem onClick={() => updateCategory(lead.id, "hot")}>
+                                <Flame className="h-4 w-4 mr-2 text-red-500" />
+                                Hot
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateCategory(lead.id, "warm")}>
+                                <Flame className="h-4 w-4 mr-2 text-orange-500" />
+                                Warm
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateCategory(lead.id, "cold")}>
+                                <Flame className="h-4 w-4 mr-2 text-muted-foreground" />
+                                Cold
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : isEditing ? (
                           isDropdown ? (
                             <Select
                               value={editValue}

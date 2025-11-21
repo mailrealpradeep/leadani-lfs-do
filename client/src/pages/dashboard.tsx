@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, FileUp, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { ColumnsDialog } from "@/components/columns-dialog";
 import type { Sheet } from "@shared/schema";
 
 export default function Dashboard() {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false);
@@ -22,6 +23,7 @@ export default function Dashboard() {
   const [dropdownColumn, setDropdownColumn] = useState<string | null>(null);
   const [isDropdownManagerOpen, setIsDropdownManagerOpen] = useState(false);
   const [isColumnManagerOpen, setIsColumnManagerOpen] = useState(false);
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
 
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -34,6 +36,26 @@ export default function Dashboard() {
     }
   }, [selectedSheetId, sheets]);
 
+  // Auto-hide header on scroll
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let lastScrollTop = 0;
+    const handleScroll = () => {
+      const scrollTop = container.scrollTop;
+      if (scrollTop > 100 && scrollTop > lastScrollTop) {
+        setIsHeaderHidden(true);
+      } else {
+        setIsHeaderHidden(false);
+      }
+      lastScrollTop = scrollTop;
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const handleOpenLeadDetail = (leadId: string) => {
     setSelectedLeadId(leadId);
     setIsLeadDetailOpen(true);
@@ -45,8 +67,10 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="border-b px-6 py-4">
+    <div className="flex flex-col h-full relative">
+      <div className={`sticky top-0 z-20 bg-background border-b px-6 py-4 transition-transform duration-300 ${
+        isHeaderHidden ? "-translate-y-full" : "translate-y-0"
+      }`}>
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-semibold">Leads</h1>
@@ -85,7 +109,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-6 py-6">
+      <div ref={containerRef} className="flex-1 overflow-auto px-6 py-6">
         {selectedSheetId ? (
           <SpreadsheetGrid
             sheetId={selectedSheetId}
