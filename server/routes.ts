@@ -786,10 +786,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   app.post("/api/sheets/:id/import/preview", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      const sheetId = req.params.id;
       const { fileData, fileName } = req.body;
 
       if (!fileData) {
         return res.status(400).json({ error: "File data required" });
+      }
+
+      // Check sheet access
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Check permissions (unless admin)
+      const user = await storage.getUser(req.userId);
+      if (user?.role !== "admin") {
+        const sheetUser = await storage.getSheetUser(sheetId, req.userId);
+        if (!sheetUser || sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Insufficient permissions" });
+        }
+      }
+
+      // Limit payload size (10MB base64 = ~7.5MB file)
+      if (fileData.length > 10 * 1024 * 1024) {
+        return res.status(413).json({ error: "File too large (max 10MB)" });
       }
 
       const buffer = Buffer.from(fileData, "base64");
@@ -799,6 +820,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (rows.length === 0) {
         return res.status(400).json({ error: "File is empty" });
+      }
+
+      if (rows.length > 10000) {
+        return res.status(413).json({ error: "File too large (max 10,000 rows)" });
       }
 
       const headers = Object.keys(rows[0] as any);
@@ -836,10 +861,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         feedback: "feedback_1",
       };
 
+      const seenFields = new Set<string>();
       headers.forEach((header) => {
         const normalized = normalizeHeader(header);
-        if (mappings[normalized]) {
-          fieldMap[header] = mappings[normalized];
+        const mappedField = mappings[normalized];
+        if (mappedField && !seenFields.has(mappedField)) {
+          fieldMap[header] = mappedField;
+          seenFields.add(mappedField);
         }
       });
 
@@ -867,28 +895,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "File data and field map required" });
       }
 
+      // Check sheet access
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Check permissions (unless admin)
+      const user = await storage.getUser(req.userId);
+      if (user?.role !== "admin") {
+        const sheetUser = await storage.getSheetUser(sheetId, req.userId);
+        if (!sheetUser || sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Insufficient permissions" });
+        }
+      }
+
+      // Limit payload size
+      if (fileData.length > 10 * 1024 * 1024) {
+        return res.status(413).json({ error: "File too large (max 10MB)" });
+      }
+
       const buffer = Buffer.from(fileData, "base64");
       const workbook = XLSX.read(buffer, { type: "buffer" });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null }) as any[];
 
+      if (rows.length > 10000) {
+        return res.status(413).json({ error: "File too large (max 10,000 rows)" });
+      }
+
       const imported: any[] = [];
       const errors: any[] = [];
+      const io = app.get("io") as SocketIOServer;
 
       for (let i = 0; i < rows.length; i++) {
         try {
           const row = rows[i];
-          const leadData: any = { sheet_id: sheetId, owner_user_id: req.userId };
+          const leadData: any = { 
+            sheet_id: sheetId, 
+            owner_user_id: req.userId,
+            custom_fields: {},
+            meta: {},
+          };
 
           Object.entries(fieldMap).forEach(([excelHeader, crmField]) => {
-            if (crmField && row[excelHeader] !== undefined) {
+            if (crmField && row[excelHeader] !== undefined && row[excelHeader] !== null) {
               let value = row[excelHeader];
               
-              if (crmField === "age" && value !== null) {
-                value = parseInt(String(value), 10);
+              if (crmField === "age") {
+                const parsed = parseInt(String(value), 10);
+                leadData.age = isNaN(parsed) ? null : parsed;
+              } else if (crmField === "lead_date" || crmField === "visit_date" || crmField === "exam_end") {
+                if (typeof value === "number") {
+                  try {
+                    const date = XLSX.SSF.parse_date_code(value);
+                    leadData[crmField] = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+                  } catch {
+                    leadData[crmField] = String(value);
+                  }
+                } else {
+                  leadData[crmField] = value;
+                }
+              } else {
+                leadData[crmField] = String(value).trim() || null;
               }
-              
-              leadData[crmField] = value;
+            }
+          });
+
+          // Validate: require at least name OR mobile number
+          if (!leadData.name && !leadData.mobile_no) {
+            throw new Error("Row must have either Name or Mobile Number");
+          }
+
+          // Ensure no undefined values
+          Object.keys(leadData).forEach(key => {
+            if (leadData[key] === undefined) {
+              leadData[key] = null;
             }
           });
 
@@ -900,15 +982,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             action: "import",
             model: "lead",
             model_id: lead.id,
-            payload: { source: "excel_import", row: i + 1 },
+            payload: { source: "excel_import", row: i + 1, fileName: req.body.fileName || "upload" },
           });
+
+          io.to(`sheet:${sheetId}`).emit("lead_created", lead);
         } catch (error: any) {
           errors.push({ row: i + 1, error: error.message });
         }
       }
-
-      const io = app.get("io") as SocketIOServer;
-      io.to(`sheet:${sheetId}`).emit("leads_imported", { count: imported.length });
 
       res.json({
         imported: imported.length,

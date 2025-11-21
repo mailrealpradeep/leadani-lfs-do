@@ -171,3 +171,11 @@ Required configuration:
 **Webhook API**: External systems can POST JSON to `/api/webhooks/leads` with HMAC signature for automated lead creation. Supports custom field mapping and stores unknown fields in metadata.
 
 **Export Functionality**: Users can download lead data as Excel or CSV files for use in external tools.
+
+**Import Functionality**: 
+- **Excel/CSV Import**: Upload .xlsx, .xls, or .csv files with automatic column mapping. The system intelligently maps common column headers to CRM fields and provides a UI for manual field mapping adjustments. Supports bulk import with error handling and real-time updates.
+- **Google Sheets Import** (Requires Setup): To enable Google Sheets import, either:
+  1. Set up the Replit Google Sheets connector (provides OAuth and secure credential management), or
+  2. Manually provide Google Sheets API credentials and store them as secrets (`GOOGLE_SHEETS_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`)
+  
+  Note: Google Sheets import integration was proposed but not configured in the current deployment. Excel import is fully functional.
