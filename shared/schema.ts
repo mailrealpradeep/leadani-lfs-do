@@ -59,6 +59,51 @@ export const insertUserSchema = z.object({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 
 // ============================================================================
+// COMPANY SIGNUP (Public Registration)
+// ============================================================================
+export const companySignupSchema = z.object({
+  company_name: z.string().min(1, "Company name is required"),
+  admin_name: z.string().min(1, "Your name is required"),
+  admin_email: z.string().email("Invalid email address"),
+  admin_password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export type CompanySignupRequest = z.infer<typeof companySignupSchema>;
+
+// ============================================================================
+// INVITES (Staff Invitation System)
+// ============================================================================
+export interface Invite {
+  id: string;
+  company_id: string;
+  email: string;
+  code: string; // unique invite code
+  role: "company_admin" | "user";
+  inviter_id: string; // user who created the invite
+  status: "pending" | "accepted" | "expired";
+  expires_at: string;
+  accepted_by: string | null; // user_id who accepted
+  accepted_at: string | null;
+  created_at: string;
+}
+
+export const insertInviteSchema = z.object({
+  company_id: z.string(),
+  email: z.string().email("Invalid email address"),
+  role: z.enum(["company_admin", "user"]).default("user"),
+  inviter_id: z.string(),
+});
+
+export type InsertInvite = z.infer<typeof insertInviteSchema>;
+
+export const acceptInviteSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export type AcceptInviteRequest = z.infer<typeof acceptInviteSchema>;
+
+// ============================================================================
 // SHEETS (Workspaces)
 // ============================================================================
 export interface Sheet {
