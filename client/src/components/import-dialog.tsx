@@ -90,18 +90,26 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
 
   const executeMutation = useMutation({
     mutationFn: async () => {
+      // Calculate unmapped headers (headers not in field mapping or mapped to _skip)
+      const unmappedHeaders = previewData?.headers.filter(
+        (header: string) => !fieldMapping[header] || fieldMapping[header] === "_skip"
+      ).filter((header: string) => header && header.trim() && header !== " ");
+      
       return await apiRequest<any>("POST", `/api/sheets/${sheetId}/import/execute`, {
         fileData,
         fieldMap: fieldMapping,
+        unmappedHeaders,
+        fileName: previewData?.fileName,
       });
     },
     onSuccess: (result) => {
       setImportResult(result);
       setStep("complete");
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "columns"] });
       toast({
         title: "Import complete",
-        description: `Successfully imported ${result.imported} leads`,
+        description: `Successfully imported ${result.imported} leads${result.createdColumns?.length ? ` (${result.createdColumns.length} new columns created)` : ""}`,
       });
     },
     onError: (error: any) => {
@@ -325,6 +333,12 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
                   <p className="text-muted-foreground" data-testid="text-import-result">
                     {importResult.imported} leads imported successfully
                   </p>
+                  {importResult.createdColumns && importResult.createdColumns.length > 0 && (
+                    <p className="text-sm text-muted-foreground mt-2" data-testid="text-created-columns">
+                      Created {importResult.createdColumns.length} new custom columns:{" "}
+                      {importResult.createdColumns.join(", ")}
+                    </p>
+                  )}
                 </div>
                 
                 {importResult.errors > 0 && (

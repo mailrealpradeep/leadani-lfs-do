@@ -888,7 +888,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sheets/:id/import/execute", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { fileData, fieldMap } = req.body;
+      const { fileData, fieldMap, unmappedHeaders = [] } = req.body;
       const sheetId = req.params.id;
 
       if (!fileData || !fieldMap) {
@@ -924,6 +924,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(413).json({ error: "File too large (max 10,000 rows)" });
       }
 
+      // Auto-create custom columns for unmapped headers
+      const existingColumns = await storage.getCustomColumns(sheetId);
+      const existingColumnNames = new Set(existingColumns.map(c => c.name.toLowerCase()));
+      const createdColumns: string[] = [];
+
+      for (const header of unmappedHeaders) {
+        if (header && header.trim() && !existingColumnNames.has(header.toLowerCase())) {
+          try {
+            await storage.createCustomColumn({
+              sheet_id: sheetId,
+              name: header,
+              type: "text",
+              options: null,
+            });
+            createdColumns.push(header);
+            existingColumnNames.add(header.toLowerCase());
+          } catch (err) {
+            console.warn(`Could not create column ${header}:`, err);
+          }
+        }
+      }
+
       const imported: any[] = [];
       const errors: any[] = [];
       const io = app.get("io") as SocketIOServer;
@@ -938,6 +960,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             meta: {},
           };
 
+          // Process mapped fields
           Object.entries(fieldMap).forEach(([excelHeader, crmField]) => {
             if (crmField && row[excelHeader] !== undefined && row[excelHeader] !== null) {
               let value = row[excelHeader];
@@ -961,6 +984,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
           });
+
+          // Process unmapped headers as custom fields
+          for (const header of unmappedHeaders) {
+            if (header && row[header] !== undefined && row[header] !== null) {
+              let value = row[header];
+              if (typeof value === "string") {
+                value = value.trim() || null;
+              } else if (typeof value === "number") {
+                // Check if it's an Excel date
+                if (value > 1 && value < 60000) {
+                  try {
+                    const date = XLSX.SSF.parse_date_code(value);
+                    value = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+                  } catch {
+                    value = String(value);
+                  }
+                } else {
+                  value = String(value);
+                }
+              }
+              leadData.custom_fields[header] = value;
+            }
+          }
 
           // Validate: require at least name OR mobile number
           if (!leadData.name && !leadData.mobile_no) {
@@ -995,6 +1041,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imported: imported.length,
         errors: errors.length,
         errorDetails: errors.slice(0, 10),
+        createdColumns,
       });
     } catch (error: any) {
       console.error("Import execute error:", error);

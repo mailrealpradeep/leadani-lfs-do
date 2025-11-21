@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, FileUp } from "lucide-react";
+import { Plus, FileUp, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SheetSelector } from "@/components/sheet-selector";
 import { SpreadsheetGrid } from "@/components/spreadsheet-grid";
@@ -9,6 +9,7 @@ import { DropdownManagerModal } from "@/components/dropdown-manager-modal";
 import { ColumnManagerModal } from "@/components/column-manager-modal";
 import { AddLeadDialog } from "@/components/add-lead-dialog";
 import { ImportDialog } from "@/components/import-dialog";
+import { ColumnsDialog } from "@/components/columns-dialog";
 import type { Sheet } from "@shared/schema";
 
 export default function Dashboard() {
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isColumnsDialogOpen, setIsColumnsDialogOpen] = useState(false);
   const [dropdownColumn, setDropdownColumn] = useState<string | null>(null);
   const [isDropdownManagerOpen, setIsDropdownManagerOpen] = useState(false);
   const [isColumnManagerOpen, setIsColumnManagerOpen] = useState(false);
@@ -55,6 +57,14 @@ export default function Dashboard() {
           </div>
           {selectedSheetId && (
             <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsColumnsDialogOpen(true)}
+                data-testid="button-manage-columns"
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Columns
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => setIsImportOpen(true)}
@@ -123,6 +133,11 @@ export default function Dashboard() {
             sheetId={selectedSheetId}
             open={isImportOpen}
             onOpenChange={setIsImportOpen}
+          />
+          <ColumnsDialog
+            sheetId={selectedSheetId}
+            open={isColumnsDialogOpen}
+            onOpenChange={setIsColumnsDialogOpen}
           />
         </>
       )}
