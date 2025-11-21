@@ -70,10 +70,63 @@ export function requireRole(...roles: ("super_admin" | "company_admin" | "user")
   };
 }
 
+// Helper function to check if a user has access to a sheet
+export async function hasSheetAccess(
+  userId: string,
+  userRole: "super_admin" | "company_admin" | "user",
+  companyId: string | null,
+  sheetId: string
+): Promise<boolean> {
+  try {
+    // Super admins have access to all sheets
+    if (userRole === "super_admin") {
+      return true;
+    }
+
+    const sheet = await storage.getSheet(sheetId);
+    if (!sheet || sheet.deleted_at) {
+      return false;
+    }
+
+    // Personal sheets: Only owner has access (unless there's explicit SheetUser permission)
+    if (sheet.is_personal) {
+      if (sheet.company_id !== companyId && sheet.owner_id !== userId) {
+        return false;
+      }
+      
+      if (sheet.owner_id === userId) {
+        return true;
+      }
+      // Check for explicit permission
+      const sheetUsers = await storage.getSheetUsers(sheetId);
+      return sheetUsers.some(su => su.user_id === userId);
+    }
+
+    // Company sheets with restricted visibility: Check explicit permissions
+    if (sheet.visibility === "restricted") {
+      if (sheet.company_id !== companyId) {
+        return false;
+      }
+      
+      const sheetUsers = await storage.getSheetUsers(sheetId);
+      return sheetUsers.some(su => su.user_id === userId);
+    }
+
+    // Company sheets with company visibility: All company members have access
+    if (sheet.visibility === "company" && sheet.company_id === companyId) {
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    return false;
+  }
+}
+
 // Check if user has access to a specific sheet (for company users)
 export async function requireSheetAccess(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const sheetId = req.params.sheetId || req.body.sheetId;
+    const sheetId = req.params.id || req.params.sheetId || req.body.sheetId;
     if (!sheetId) {
       return res.status(400).json({ error: "Sheet ID required" });
     }

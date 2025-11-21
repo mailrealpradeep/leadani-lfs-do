@@ -4,7 +4,7 @@ import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { storage } from "./storage";
-import { authMiddleware, adminMiddleware, generateToken, type AuthRequest, requireSuperAdmin, requireCompanyAdmin, requireSheetAccess } from "./middleware/auth";
+import { authMiddleware, adminMiddleware, generateToken, type AuthRequest, requireSuperAdmin, requireCompanyAdmin, requireSheetAccess, hasSheetAccess } from "./middleware/auth";
 import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
@@ -1142,16 +1142,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   // LEADS
   // ============================================================================
-  app.get("/api/sheets/:id/leads", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/sheets/:id/leads", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
-      // Super admin bypasses permission check
-      if (req.userRole !== "super_admin") {
-        const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
-        if (!sheetUser) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      }
-
       const leads = await storage.getLeadsBySheetId(req.params.id);
       res.json(leads);
     } catch (error: any) {
@@ -1160,7 +1152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/sheets/:id/leads", authMiddleware, async (req: AuthRequest, res) => {
+  app.post("/api/sheets/:id/leads", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
       // Get sheet to access company_id
       const sheet = await storage.getSheet(req.params.id);
@@ -1168,16 +1160,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Sheet not found" });
       }
 
-      // Super admin and company admins bypass sheet-level permission check
+      // Check if user has edit permission (not just view)
       if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
         const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
-        if (!sheetUser || sheetUser.role === "viewer") {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (req.userRole === "company_admin") {
-        // Company admins can only create leads on sheets in their company
-        if (sheet.company_id !== req.companyId) {
-          return res.status(403).json({ error: "Access denied to this company's sheets" });
+        if (sheetUser && sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Viewers cannot create leads" });
         }
       }
 
@@ -1218,12 +1205,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Lead not found" });
       }
 
-      // Super admin bypasses permission check
-      if (req.userRole !== "super_admin") {
-        const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
-        if (!sheetUser) {
-          return res.status(403).json({ error: "Access denied" });
-        }
+      // Check if user has access to the lead's sheet
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
       }
 
       res.json(lead);
@@ -1246,11 +1231,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Sheet not found" });
       }
 
-      // Super admin bypasses permission check
-      if (req.userRole !== "super_admin") {
+      // Check if user has access to the lead's sheet
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Check if user has edit permission (not just view)
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
         const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
-        if (!sheetUser || sheetUser.role === "viewer") {
-          return res.status(403).json({ error: "Access denied" });
+        if (sheetUser && sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Viewers cannot edit leads" });
         }
       }
 
@@ -1290,11 +1281,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Sheet not found" });
       }
 
-      // Super admin bypasses permission check
-      if (req.userRole !== "super_admin") {
+      // Check if user has access to the lead's sheet
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Check if user has edit permission (not just view)
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
         const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
-        if (!sheetUser || sheetUser.role === "viewer") {
-          return res.status(403).json({ error: "Access denied" });
+        if (sheetUser && sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Viewers cannot delete leads" });
         }
       }
 
@@ -1343,11 +1340,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Sheet not found" });
       }
 
-      // Super admin bypasses permission check
-      if (req.userRole !== "super_admin") {
+      // Check if user has access to the lead's sheet
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Check if user has edit permission (not just view)
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
         const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
-        if (!sheetUser || sheetUser.role === "viewer") {
-          return res.status(403).json({ error: "Access denied" });
+        if (sheetUser && sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Viewers cannot add lead updates" });
         }
       }
 
