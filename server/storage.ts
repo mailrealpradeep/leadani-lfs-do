@@ -78,6 +78,8 @@ export interface IStorage {
   // Custom Columns (Company-scoped)
   getCustomColumns(sheetId: string): Promise<CustomColumn[]>;
   getCustomColumnsByCompany(companyId: string): Promise<CustomColumn[]>;
+  getCompanyColumns(companyId: string): Promise<CustomColumn[]>;
+  getCustomColumnById(id: string): Promise<CustomColumn | undefined>;
   createCustomColumn(column: InsertCustomColumn): Promise<CustomColumn>;
   updateCustomColumn(id: string, updates: Partial<CustomColumn>): Promise<CustomColumn | undefined>;
   deleteCustomColumn(id: string): Promise<boolean>;
@@ -477,6 +479,16 @@ export class MemStorage implements IStorage {
     return Array.from(this.customColumns.values()).filter(
       (col) => col.company_id === companyId
     );
+  }
+
+  async getCompanyColumns(companyId: string): Promise<CustomColumn[]> {
+    return Array.from(this.customColumns.values()).filter(
+      (col) => col.company_id === companyId
+    );
+  }
+
+  async getCustomColumnById(id: string): Promise<CustomColumn | undefined> {
+    return this.customColumns.get(id);
   }
 
   async createCustomColumn(insertColumn: InsertCustomColumn): Promise<CustomColumn> {

@@ -2,8 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { storage } from "./storage";
-import { authMiddleware, adminMiddleware, generateToken, type AuthRequest } from "./middleware/auth";
+import { authMiddleware, adminMiddleware, generateToken, type AuthRequest, requireSuperAdmin, requireCompanyAdmin, requireSheetAccess } from "./middleware/auth";
 import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
@@ -33,13 +34,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   });
 
-  // Socket.io connection handling
+  // Socket.io connection handling with company isolation
   io.on("connection", (socket) => {
     console.log("Socket connected:", socket.id);
 
-    socket.on("join_sheet", (sheetId: string) => {
-      socket.join(`sheet:${sheetId}`);
-      console.log(`Socket ${socket.id} joined sheet:${sheetId}`);
+    // Defensive validation: only allow joining sheets user has access to
+    socket.on("join_sheet", async (sheetId: string) => {
+      try {
+        // Extract and verify JWT token
+        const token = socket.handshake.auth.token;
+        if (!token) {
+          console.warn(`Socket ${socket.id} attempted to join sheet without auth - REJECTED`);
+          return;
+        }
+
+        // Verify JWT and decode user info
+        let decoded: any;
+        try {
+          const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
+          decoded = jwt.verify(token, JWT_SECRET) as any;
+        } catch (error) {
+          console.warn(`Socket ${socket.id} has invalid JWT token - REJECTED`);
+          return;
+        }
+
+        const userId = decoded.userId;
+        const userRole = decoded.role;
+        const userCompanyId = decoded.companyId;
+
+        // Verify sheet exists and is not deleted
+        const sheet = await storage.getSheet(sheetId);
+        if (!sheet || sheet.deleted_at) {
+          console.warn(`Socket ${socket.id} attempted to join non-existent sheet ${sheetId} - REJECTED`);
+          return;
+        }
+
+        // Super admins have access to all sheets
+        if (userRole === "super_admin") {
+          socket.join(`sheet:${sheetId}`);
+          console.log(`Socket ${socket.id} (super admin) joined sheet:${sheetId}`);
+          return;
+        }
+
+        // Check if user has access to this sheet
+        const sheetUser = await storage.getSheetUser(sheetId, userId);
+        
+        // For personal sheets: verify company_id matches or user is owner
+        if (sheet.is_personal) {
+          if (sheet.company_id !== userCompanyId && sheet.owner_id !== userId) {
+            console.warn(`Socket ${socket.id} attempted to join sheet from different company - REJECTED`);
+            return;
+          }
+          if (sheet.owner_id === userId || sheetUser) {
+            socket.join(`sheet:${sheetId}`);
+            console.log(`Socket ${socket.id} joined personal sheet:${sheetId}`);
+            return;
+          }
+          console.warn(`Socket ${socket.id} no permission for personal sheet ${sheetId} - REJECTED`);
+          return;
+        }
+
+        // For restricted company sheets: require explicit permission
+        if (sheet.visibility === "restricted") {
+          if (sheet.company_id !== userCompanyId) {
+            console.warn(`Socket ${socket.id} attempted to join sheet from different company - REJECTED`);
+            return;
+          }
+          if (sheetUser) {
+            socket.join(`sheet:${sheetId}`);
+            console.log(`Socket ${socket.id} joined restricted sheet:${sheetId}`);
+            return;
+          }
+          console.warn(`Socket ${socket.id} no permission for restricted sheet ${sheetId} - REJECTED`);
+          return;
+        }
+
+        // For company sheets: all company members have access
+        if (sheet.visibility === "company" && sheet.company_id === userCompanyId) {
+          socket.join(`sheet:${sheetId}`);
+          console.log(`Socket ${socket.id} joined company sheet:${sheetId}`);
+          return;
+        }
+
+        console.warn(`Socket ${socket.id} no access to sheet ${sheetId} - REJECTED`);
+      } catch (error) {
+        console.error(`Error joining sheet ${sheetId}:`, error);
+      }
     });
 
     socket.on("leave_sheet", (sheetId: string) => {
@@ -320,8 +400,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Company not found" });
       }
 
-      // Soft delete by setting status to inactive
-      const updated = await storage.updateCompany(req.params.id, { status: "inactive" });
+      // Soft delete by setting status to suspended
+      const updated = await storage.updateCompany(req.params.id, { status: "suspended" });
 
       // Audit log
       await storage.createAuditLog({
@@ -692,8 +772,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   app.get("/api/sheets/:id/leads", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      // Admin bypasses permission check
-      if (req.userRole !== "admin") {
+      // Super admin bypasses permission check
+      if (req.userRole !== "super_admin") {
         const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
         if (!sheetUser) {
           return res.status(403).json({ error: "Access denied" });
@@ -710,23 +790,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sheets/:id/leads", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      // Admin bypasses permission check
-      if (req.userRole !== "admin") {
+      // Get sheet to access company_id
+      const sheet = await storage.getSheet(req.params.id);
+      if (!sheet || sheet.deleted_at) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Super admin and company admins bypass sheet-level permission check
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
         const sheetUser = await storage.getSheetUser(req.params.id, req.userId!);
         if (!sheetUser || sheetUser.role === "viewer") {
           return res.status(403).json({ error: "Access denied" });
         }
+      } else if (req.userRole === "company_admin") {
+        // Company admins can only create leads on sheets in their company
+        if (sheet.company_id !== req.companyId) {
+          return res.status(403).json({ error: "Access denied to this company's sheets" });
+        }
       }
 
+      // Remove owner_user_id from req.body to prevent client spoofing
+      const { owner_user_id, ...leadData } = req.body;
+      
       const lead = await storage.createLead({
-        ...req.body,
+        ...leadData,
         sheet_id: req.params.id,
-        owner_user_id: req.userId,
+        owner_user_id: req.userId!, // Force to authenticated user
       });
 
-      // Audit log
+      // Audit log with company_id
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: sheet.company_id,
         action: "create",
         model: "lead",
         model_id: lead.id,
@@ -751,8 +846,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Lead not found" });
       }
 
-      // Admin bypasses permission check
-      if (req.userRole !== "admin") {
+      // Super admin bypasses permission check
+      if (req.userRole !== "super_admin") {
         const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
         if (!sheetUser) {
           return res.status(403).json({ error: "Access denied" });
@@ -773,8 +868,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Lead not found" });
       }
 
-      // Admin bypasses permission check
-      if (req.userRole !== "admin") {
+      // Get sheet to access company_id
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Super admin bypasses permission check
+      if (req.userRole !== "super_admin") {
         const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
         if (!sheetUser || sheetUser.role === "viewer") {
           return res.status(403).json({ error: "Access denied" });
@@ -783,9 +884,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const updated = await storage.updateLead(req.params.id, req.body);
 
-      // Audit log
+      // Audit log with company_id
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: sheet.company_id,
         action: "update",
         model: "lead",
         model_id: req.params.id,
@@ -810,8 +912,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Lead not found" });
       }
 
-      // Admin bypasses permission check
-      if (req.userRole !== "admin") {
+      // Get sheet to access company_id
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Super admin bypasses permission check
+      if (req.userRole !== "super_admin") {
         const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
         if (!sheetUser || sheetUser.role === "viewer") {
           return res.status(403).json({ error: "Access denied" });
@@ -820,9 +928,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.deleteLead(req.params.id);
 
-      // Audit log
+      // Audit log with company_id
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: sheet.company_id,
         action: "delete",
         model: "lead",
         model_id: req.params.id,
@@ -856,8 +965,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Lead not found" });
       }
 
-      // Admin bypasses permission check
-      if (req.userRole !== "admin") {
+      // Get sheet to access company_id
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Super admin bypasses permission check
+      if (req.userRole !== "super_admin") {
         const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
         if (!sheetUser || sheetUser.role === "viewer") {
           return res.status(403).json({ error: "Access denied" });
@@ -872,9 +987,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const update = await storage.createLeadUpdate(parsed);
 
-      // Audit log
+      // Audit log with company_id
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: sheet.company_id,
         action: "create",
         model: "lead_update",
         model_id: update.id,
@@ -899,14 +1015,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Update not found" });
       }
 
-      // Audit log
-      await storage.createAuditLog({
-        user_id: req.userId!,
-        action: "update",
-        model: "lead_update",
-        model_id: req.params.id,
-        payload: req.body,
-      });
+      // Get lead to access company_id
+      const lead = await storage.getLead(update.lead_id);
+      if (lead) {
+        const sheet = await storage.getSheet(lead.sheet_id);
+        if (sheet) {
+          // Audit log with company_id
+          await storage.createAuditLog({
+            user_id: req.userId!,
+            company_id: sheet.company_id,
+            action: "update",
+            model: "lead_update",
+            model_id: req.params.id,
+            payload: req.body,
+          });
+        }
+      }
 
       res.json(update);
     } catch (error: any) {
@@ -960,7 +1084,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sheets/:id/dropdowns/:columnKey", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      // Fetch sheet to get company_id
+      const sheet = await storage.getSheet(req.params.id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
       const option = await storage.createDropdownOption({
+        company_id: sheet.company_id,
         sheet_id: req.params.id,
         column_key: req.params.columnKey,
         value: req.body.value,
@@ -970,6 +1101,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Audit log
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: sheet.company_id,
         action: "create",
         model: "dropdown_option",
         model_id: option.id,
@@ -1004,59 +1136,194 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
-  // CUSTOM COLUMNS
+  // CUSTOM COLUMNS (Company-Scoped)
   // ============================================================================
-  app.get("/api/sheets/:id/columns", authMiddleware, async (req: AuthRequest, res) => {
+  // Get company-wide columns (and optionally sheet-specific overrides)
+  app.get("/api/company/columns", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const columns = await storage.getCustomColumns(req.params.id);
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id 
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      const columns = await storage.getCompanyColumns(companyId);
       res.json(columns);
     } catch (error: any) {
-      console.error("Get columns error:", error);
+      console.error("Get company columns error:", error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.post("/api/sheets/:id/columns", authMiddleware, async (req: AuthRequest, res) => {
+  // Create company-wide column (Company Admin only)
+  app.post("/api/company/columns", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
+      const { name, column_key, type, config, sheet_id } = req.body;
+
+      // Determine company_id: super admins can specify it, company admins use their own
+      let companyId: string;
+      if (req.userRole === "super_admin") {
+        if (!req.body.company_id) {
+          return res.status(400).json({ error: "Super admins must provide company_id" });
+        }
+        companyId = req.body.company_id;
+      } else {
+        if (!req.companyId) {
+          return res.status(403).json({ error: "Must belong to a company" });
+        }
+        companyId = req.companyId;
+      }
+
+      // Validate dropdown types have options in config
+      if (type === "dropdown") {
+        if (!config || !Array.isArray(config.dropdown_options) || config.dropdown_options.length === 0) {
+          return res.status(400).json({ error: "Dropdown columns must have dropdown_options array in config" });
+        }
+      }
+
+      // Check for duplicate column_key within company (company-wide columns only)
+      const existingColumns = await storage.getCompanyColumns(companyId);
+      const duplicate = existingColumns.find(c => 
+        c.column_key === column_key && 
+        c.sheet_id === null &&
+        c.company_id === companyId
+      );
+      if (duplicate) {
+        return res.status(400).json({ error: "Column key already exists for this company" });
+      }
+
       const column = await storage.createCustomColumn({
-        sheet_id: req.params.id,
-        name: req.body.name,
-        type: req.body.type,
-        config: req.body.config || {},
+        company_id: companyId,
+        sheet_id: sheet_id || null,
+        name,
+        column_key,
+        type,
+        config: config || {},
+        order_index: req.body.order_index || 0,
       });
 
       // Audit log
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: companyId,
         action: "create",
         model: "custom_column",
         model_id: column.id,
-        payload: req.body,
+        payload: { name, column_key, type },
       });
 
       res.status(201).json(column);
     } catch (error: any) {
-      console.error("Create column error:", error);
+      console.error("Create company column error:", error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.delete("/api/sheets/:id/columns/:columnId", authMiddleware, async (req: AuthRequest, res) => {
+  // Update company column (Company Admin only)
+  app.patch("/api/company/columns/:columnId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
+      const column = await storage.getCustomColumnById(req.params.columnId);
+      if (!column) {
+        return res.status(404).json({ error: "Column not found" });
+      }
+
+      // Company admins can only update columns in their company
+      if (req.userRole === "company_admin" && column.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update columns from other companies" });
+      }
+
+      const { name, type, config } = req.body;
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (type !== undefined) updates.type = type;
+      if (config !== undefined) updates.config = config;
+
+      const updated = await storage.updateCustomColumn(req.params.columnId, updates);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: column.company_id,
+        action: "update",
+        model: "custom_column",
+        model_id: req.params.columnId,
+        payload: updates,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update company column error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete company column (Company Admin only)
+  app.delete("/api/company/columns/:columnId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const column = await storage.getCustomColumnById(req.params.columnId);
+      if (!column) {
+        return res.status(404).json({ error: "Column not found" });
+      }
+
+      // Company admins can only delete columns in their company
+      if (req.userRole === "company_admin" && column.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete columns from other companies" });
+      }
+
       await storage.deleteCustomColumn(req.params.columnId);
 
       // Audit log
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: column.company_id,
         action: "delete",
         model: "custom_column",
         model_id: req.params.columnId,
         payload: {},
       });
 
-      res.json({ success: true });
+      res.json({ success: true, message: "Column deleted" });
     } catch (error: any) {
-      console.error("Delete column error:", error);
+      console.error("Delete company column error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Legacy endpoint for getting columns for a sheet (reads from company columns)
+  app.get("/api/sheets/:id/columns", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
+    try {
+      const sheet = await storage.getSheet(req.params.id);
+      if (!sheet || sheet.deleted_at) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Get company columns for this sheet's company
+      const columns = await storage.getCompanyColumns(sheet.company_id);
+      
+      // Separate company-wide columns and sheet-specific overrides
+      const companyColumns = columns.filter(c => c.sheet_id === null);
+      const sheetOverrides = columns.filter(c => c.sheet_id === req.params.id);
+      
+      // De-duplicate by column_key: sheet overrides replace company defaults
+      const columnMap = new Map();
+      
+      // Add company columns first
+      companyColumns.forEach(col => {
+        columnMap.set(col.column_key, col);
+      });
+      
+      // Override with sheet-specific columns (these take precedence)
+      sheetOverrides.forEach(col => {
+        columnMap.set(col.column_key, col);
+      });
+      
+      // Return merged result
+      const mergedColumns = Array.from(columnMap.values());
+      res.json(mergedColumns);
+    } catch (error: any) {
+      console.error("Get sheet columns error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -1067,12 +1334,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/webhooks/leads", webhookLimiter, async (req, res) => {
     const headers = req.headers as Record<string, any>;
     let leadId: string | null = null;
+    let companyId: string = "";
 
     try {
       // Verify API key or HMAC signature
       const apiKey = headers["x-api-key"];
+      
+      // Try to get company_id early for logging
+      if (req.body.sheet_id) {
+        const sheet = await storage.getSheet(req.body.sheet_id);
+        if (sheet) {
+          companyId = sheet.company_id;
+        }
+      }
+      
       if (!apiKey || apiKey !== HMAC_SECRET) {
         await storage.createWebhookLog({
+          company_id: companyId || "",
           sheet_id: req.body.sheet_id || null,
           payload: req.body,
           headers,
@@ -1087,6 +1365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!sheet_id) {
         await storage.createWebhookLog({
+          company_id: "",
           sheet_id: null,
           payload: req.body,
           headers,
@@ -1113,6 +1392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Log success
       await storage.createWebhookLog({
+        company_id: companyId,
         sheet_id,
         payload: req.body,
         headers,
@@ -1125,6 +1405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Webhook error:", error);
       await storage.createWebhookLog({
+        company_id: companyId || "",
         sheet_id: req.body.sheet_id || null,
         payload: req.body,
         headers,
@@ -1138,8 +1419,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/webhook/logs", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const logs = await storage.getWebhookLogs();
-      res.json(logs);
+      const allLogs = await storage.getWebhookLogs();
+      
+      // Super admins see all logs
+      if (req.userRole === "super_admin") {
+        res.json(allLogs);
+      } else if (req.companyId) {
+        // Company users see only their company's logs
+        const companyLogs = allLogs.filter(log => log.company_id === req.companyId);
+        res.json(companyLogs);
+      } else {
+        // Users without company context see no logs
+        res.json([]);
+      }
     } catch (error: any) {
       console.error("Get webhook logs error:", error);
       res.status(500).json({ error: error.message });
@@ -1149,7 +1441,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   // REPORTS
   // ============================================================================
-  app.get("/api/sheets/:id/reports", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/sheets/:id/reports", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
       const leads = await storage.getLeadsBySheetId(req.params.id);
 
@@ -1218,11 +1510,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/reports/global", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/reports/global", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      const allSheets = await storage.getAllSheets();
-      const allUsers = await storage.getAllUsers();
-      const auditLogs = await storage.getAuditLogs();
+      // Super admins see all data, company admins see only their company's data
+      let allSheets, allUsers, auditLogs;
+      
+      if (req.userRole === "super_admin") {
+        allSheets = await storage.getAllSheets();
+        allUsers = await storage.getAllUsers();
+        auditLogs = await storage.getAuditLogs();
+      } else {
+        // Company admin sees only their company's data
+        allSheets = await storage.getSheetsByCompanyId(req.companyId!);
+        allUsers = await storage.getUsersByCompanyId(req.companyId!);
+        const allLogs = await storage.getAuditLogs();
+        auditLogs = allLogs.filter(log => log.company_id === req.companyId);
+      }
 
       const leadsBySheet: { sheet_id: string; sheet_name: string; count: number }[] = [];
       let totalLeads = 0;
@@ -1255,8 +1558,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   app.get("/api/audit", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const logs = await storage.getAuditLogs();
-      res.json(logs);
+      // Super admins see all logs, company users see only their company's logs
+      if (req.userRole === "super_admin") {
+        const logs = await storage.getAuditLogs();
+        res.json(logs);
+      } else if (req.companyId) {
+        const allLogs = await storage.getAuditLogs();
+        const companyLogs = allLogs.filter(log => log.company_id === req.companyId);
+        res.json(companyLogs);
+      } else {
+        res.json([]);
+      }
     } catch (error: any) {
       console.error("Get audit logs error:", error);
       res.status(500).json({ error: error.message });
@@ -1291,10 +1603,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Sheet not found" });
       }
 
-      // Check permissions (unless admin)
-      const user = await storage.getUser(req.userId);
-      if (user?.role !== "admin") {
-        const sheetUser = await storage.getSheetUser(sheetId, req.userId);
+      // Check permissions (unless super admin)
+      const user = await storage.getUser(req.userId!);
+      if (user?.role !== "super_admin") {
+        const sheetUser = await storage.getSheetUser(sheetId, req.userId!);
         if (!sheetUser || sheetUser.role === "viewer") {
           return res.status(403).json({ error: "Insufficient permissions" });
         }
@@ -1394,10 +1706,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Sheet not found" });
       }
 
-      // Check permissions (unless admin)
-      const user = await storage.getUser(req.userId);
-      if (user?.role !== "admin") {
-        const sheetUser = await storage.getSheetUser(sheetId, req.userId);
+      // Check permissions (unless super admin)
+      const user = await storage.getUser(req.userId!);
+      if (user?.role !== "super_admin") {
+        const sheetUser = await storage.getSheetUser(sheetId, req.userId!);
         if (!sheetUser || sheetUser.role === "viewer") {
           return res.status(403).json({ error: "Insufficient permissions" });
         }
@@ -1426,10 +1738,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (header && header.trim() && !existingColumnNames.has(header.toLowerCase())) {
           try {
             await storage.createCustomColumn({
+              company_id: sheet.company_id,
               sheet_id: sheetId,
               name: header,
+              column_key: header.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
               type: "text",
-              options: null,
+              config: {},
+              order_index: 0,
             });
             createdColumns.push(header);
             existingColumnNames.add(header.toLowerCase());
@@ -1457,27 +1772,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           Object.entries(fieldMap).forEach(([excelHeader, crmField]) => {
             if (crmField && row[excelHeader] !== undefined && row[excelHeader] !== null) {
               let value = row[excelHeader];
+              const fieldName = crmField as string;
               
-              if (crmField === "age") {
+              if (fieldName === "age") {
                 const parsed = parseInt(String(value), 10);
                 leadData.age = isNaN(parsed) ? null : parsed;
-              } else if (crmField === "lead_date" || crmField === "visit_date" || crmField === "exam_end" || crmField === "nfdt") {
+              } else if (fieldName === "lead_date" || fieldName === "visit_date" || fieldName === "exam_end" || fieldName === "nfdt") {
                 if (typeof value === "number") {
                   try {
                     const date = XLSX.SSF.parse_date_code(value);
-                    leadData[crmField] = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+                    (leadData as any)[fieldName] = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
                   } catch {
-                    leadData[crmField] = String(value);
+                    (leadData as any)[fieldName] = String(value);
                   }
                 } else if (typeof value === "string") {
                   // Extract date part from datetime string (e.g., "2025-09-24 17:57:05" -> "2025-09-24")
                   const dateOnly = value.trim().split(' ')[0];
-                  leadData[crmField] = dateOnly || value;
+                  (leadData as any)[fieldName] = dateOnly || value;
                 } else {
-                  leadData[crmField] = value;
+                  (leadData as any)[fieldName] = value;
                 }
               } else {
-                leadData[crmField] = String(value).trim() || null;
+                (leadData as any)[fieldName] = String(value).trim() || null;
               }
             }
           });
@@ -1521,7 +1837,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           imported.push(lead);
 
           await storage.createAuditLog({
-            user_id: req.userId,
+            user_id: req.userId!,
+            company_id: sheet.company_id,
             action: "import",
             model: "lead",
             model_id: lead.id,
