@@ -163,8 +163,9 @@ export const webhook_logs = pgTable('webhook_logs', {
 export const lead_updates = pgTable('lead_updates', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
-  update_via: varchar('update_via', { length: 50 }).notNull(), // whatsapp, call
+  update_via: varchar('update_via', { length: 50 }).notNull(), // whatsapp, call, transfer
   update_on: varchar('update_on', { length: 255 }).notNull(), // date string
   remark: text('remark').notNull(),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });

@@ -1409,7 +1409,7 @@ export class PgStorage implements IStorage {
       .select({
         lead_update: dbSchema.lead_updates,
         user: {
-          first_name: dbSchema.users.first_name,
+          name: dbSchema.users.name,
         },
       })
       .from(dbSchema.lead_updates)
@@ -1419,7 +1419,7 @@ export class PgStorage implements IStorage {
     
     return result.map((row) => ({
       ...this.mapLeadUpdate(row.lead_update),
-      created_by_first_name: row.user?.first_name || null,
+      created_by_first_name: row.user?.name || null,
     })) as any;
   }
 
