@@ -336,30 +336,8 @@ export default function Webhooks() {
       </Dialog>
 
       {/* Configure Webhook Dialog */}
-      <Dialog open={configureDialogOpen} onOpenChange={setConfigureDialogOpen} modal={true}>
-        <DialogContent 
-          className="max-w-4xl max-h-[90vh] overflow-auto"
-          onPointerDownOutside={(e) => {
-            // Allow interactions with Radix Select dropdowns
-            const target = e.target as HTMLElement;
-            // Check if the click is within any Radix portal content (Select dropdowns)
-            if (target.closest('[data-radix-portal]') || 
-                target.closest('[role="listbox"]') || 
-                target.closest('[data-radix-select-content]') ||
-                target.closest('[data-radix-popper-content-wrapper]')) {
-              e.preventDefault();
-            }
-          }}
-          onInteractOutside={(e) => {
-            // Also prevent dialog close on interact outside for Select portals
-            const target = e.target as HTMLElement;
-            if (target.closest('[data-radix-portal]') || 
-                target.closest('[role="listbox"]') ||
-                target.closest('[data-radix-select-content]')) {
-              e.preventDefault();
-            }
-          }}
-        >
+      <Dialog open={configureDialogOpen} onOpenChange={setConfigureDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
           <DialogHeader>
             <DialogTitle>Configure Webhook: {selectedWebhook?.name}</DialogTitle>
             <DialogDescription>

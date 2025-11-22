@@ -319,21 +319,19 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             <div key={index} className="flex items-end gap-2" data-testid={`rule-row-${index}`}>
               <div className="flex-1">
                 <Label className="text-xs text-muted-foreground">Sheet</Label>
-                <Select
+                <select
                   value={rule.sheet_id}
-                  onValueChange={(value) => updateAllocationRule(index, "sheet_id", value)}
+                  onChange={(e) => updateAllocationRule(index, "sheet_id", e.target.value)}
+                  data-testid={`select-sheet-${index}`}
+                  className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <SelectTrigger data-testid={`select-sheet-${index}`}>
-                    <SelectValue placeholder="Select sheet" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sheets.map((sheet) => (
-                      <SelectItem key={sheet.id} value={sheet.id}>
-                        {sheet.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <option value="">Select sheet</option>
+                  {sheets.map((sheet) => (
+                    <option key={sheet.id} value={sheet.id}>
+                      {sheet.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="w-32">
                 <Label className="text-xs text-muted-foreground">Percentage</Label>

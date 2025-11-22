@@ -2,7 +2,7 @@
 
 ## Overview
 
-Dabluz CRM is a production-ready, multi-tenant spreadsheet-like CRM for lead management and collaboration across multiple companies. It offers Excel-like grid interfaces with customizable workspaces, dynamic company-wide column management, webhook integration for automated lead creation, comprehensive reporting, and chronological lead update tracking. Key features include three-tier role-based access control (Super Admin, Company Admin, Regular User), data isolation per company, audit logging, data export/import, and a mobile-responsive design. The system now includes a complete self-service signup flow that enables companies to register independently, with the first user becoming company admin who can then invite staff members via time-limited invite codes.
+Dabluz CRM is a multi-tenant, spreadsheet-like CRM designed for lead management and collaboration across multiple companies. It features an Excel-like grid interface, customizable workspaces, dynamic column management, webhook integration for automated lead creation, comprehensive reporting, and chronological lead update tracking. The system includes three-tier role-based access control (Super Admin, Company Admin, Regular User), data isolation per company, audit logging, data export/import, and a mobile-responsive design. A self-service signup flow allows companies to register independently, with the first user becoming a company admin who can then invite staff via time-limited codes.
 
 ## User Preferences
 
@@ -12,117 +12,88 @@ Preferred communication style: Simple, everyday language.
 
 ### Application Structure
 
-The application uses a monorepo structure with `client/` (React frontend), `server/` (Node.js Express backend), and `shared/` (TypeScript types and schemas). It supports distinct development and production environments.
+The application utilizes a monorepo structure comprising `client/` (React frontend), `server/` (Node.js Express backend), and `shared/` (TypeScript types and schemas), supporting distinct development and production environments.
 
 ### Frontend Architecture
 
-The frontend is built with React and Vite. It uses Wouter for routing, `@tanstack/react-query` for server state management, and local/context state for UI. Shadcn UI, based on Radix UI and Tailwind CSS, provides components with theme support. Real-time updates are handled via Socket.io. The design is fully mobile-responsive, adapting layouts and interactions based on screen size, with specific considerations for touch targets and mobile dialogs. The desktop view utilizes CSS Grid for sticky headers and efficient horizontal scrolling, designed to prevent accidental lead detail opening during cell interaction.
+Built with React and Vite, the frontend uses Wouter for routing, `@tanstack/react-query` for server state, and local/context state for UI. Shadcn UI, based on Radix UI and Tailwind CSS, provides themed components. Real-time updates are managed via Socket.io. The design is fully mobile-responsive, adapting layouts and interactions for various screen sizes, with specific considerations for touch targets and mobile dialogs. Desktop views leverage CSS Grid for sticky headers and efficient horizontal scrolling.
 
 ### Backend Architecture
 
-The backend is an Express.js application providing RESTful API endpoints. Authentication is JWT-based with bcrypt for password hashing, token-based sessions, and rate limiting. Data is stored in **PostgreSQL** using Drizzle ORM with the `PgStorage` implementation. The storage layer uses a common `IStorage` interface for flexibility. Socket.io manages real-time bidirectional communication, broadcasting CRUD events to relevant clients.
+The backend is an Express.js application offering RESTful API endpoints. Authentication is JWT-based with bcrypt for password hashing, token-based sessions, and rate limiting. Data is persisted in PostgreSQL using Drizzle ORM with a flexible `IStorage` interface. Socket.io facilitates real-time bidirectional communication, broadcasting CRUD events.
 
 ### Data Model
 
-Core entities include Users, Companies, Invites, Sheets, SheetUsers, Leads (with fixed and custom fields), LeadUpdates (chronological tracking), DropdownOptions, CustomColumns, Audit logs, and WebhookLogs. The schema is defined using Drizzle ORM in `shared/schema.ts` with PostgreSQL table definitions. All tables use `varchar` UUID primary keys with `gen_random_uuid()` defaults. Lead custom fields are stored as JSON. Invites are single-use, time-limited (7 days) codes that enable staff onboarding.
+Core entities include Users, Companies, Invites, Sheets, SheetUsers, Leads (with fixed and custom fields), LeadUpdates (chronological tracking), DropdownOptions, CustomColumns, Audit logs, and WebhookLogs. The schema is defined in `shared/schema.ts` using Drizzle ORM for PostgreSQL. All tables use `varchar` UUID primary keys, and lead custom fields are stored as JSON. Invites are single-use, time-limited codes for staff onboarding.
 
 ### API Architecture
 
-RESTful endpoints cover authentication, self-service signup, invite management, sheet management (CRUD for leads, columns, dropdowns, reports), lead updates, admin functions, audit logs, and webhooks for external lead creation. Public endpoints (`/api/public/*`) enable unauthenticated company signup and invite acceptance with rate limiting. Admin endpoints (`/api/admin/*`) provide invite creation and management for company admins. The request flow involves JWT validation, processing by route handlers, interaction with the storage layer, and Socket.io broadcasts for mutations. Centralized error handling is implemented.
+RESTful endpoints manage authentication, self-service signup, invite management, sheet operations (CRUD for leads, columns, dropdowns, reports), lead updates, admin functions, audit logs, and webhooks for external lead creation. Public endpoints (`/api/public/*`) handle unauthenticated company signup and invite acceptance with rate limiting, while admin endpoints (`/api/admin/*`) manage invite creation. The request flow involves JWT validation, route handling, storage interaction, and Socket.io broadcasts. Centralized error handling is implemented.
 
 ### Security
 
-Security features include JWT-based authentication and authorization with role-based and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit for endpoint protection (especially on public signup/invite endpoints), and a comprehensive audit trail for all CRUD operations. The authentication system uses an `authenticate()` helper that synchronizes token state across localStorage, AuthProvider state, and React Query cache to ensure proper auth context for all subsequent requests.
+Security features include JWT-based authentication and authorization with role-based and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit for endpoint protection (especially on public signup/invite endpoints), and a comprehensive audit trail for all CRUD operations. Authentication synchronizes token state across localStorage, AuthProvider, and React Query cache.
 
 ### Real-time Synchronization
 
-Socket.io enables real-time synchronization by allowing clients to join sheet-specific rooms. The server emits events (`lead_created`, `lead_updated`, `lead_deleted`, etc.) which trigger client-side React Query cache invalidation and refetching, supported by optimistic updates for immediate UI feedback.
+Socket.io enables real-time synchronization by allowing clients to join sheet-specific rooms. The server emits events (e.g., `lead_created`, `lead_updated`) that trigger client-side React Query cache invalidation and refetching, supported by optimistic updates for immediate UI feedback.
 
 ### Lead Update Tracking
 
-The system provides chronological tracking of lead updates, recording the method (WhatsApp/Phone Call), date, and remarks. UI components for recording and viewing updates are integrated into both desktop and mobile views, with real-time synchronization via Socket.io.
-
-**User Attribution**: Each lead update tracks the user who created it via the `created_by_user_id` field. The lead update history dialog displays the first name of the user who added each update.
-
-**Permission Controls**: 
-- Any user with edit access can create and modify lead updates
-- Only admin users (company_admin and super_admin) can delete lead updates
-- Delete button is hidden in the UI for non-admin users
+The system provides chronological tracking of lead updates, recording method (WhatsApp/Phone Call), date, and remarks, with user attribution. UI components for recording and viewing updates are integrated into both desktop and mobile views, with real-time synchronization via Socket.io. Only admin users can delete lead updates.
 
 ### Data Export/Import
 
-The application supports exporting lead data to Excel (XLSX library) and CSV formats. The import system includes:
-- Bulk lead import from Excel/CSV with intelligent column mapping
-- Field-level validation with error/warning reporting
-- Pre-validation for required columns
-- **Dropdown field validation**: When importing dropdown fields, the system validates values against configured CRM dropdown options:
-  - **Optional dropdown fields**: Invalid values generate warnings and are converted to empty/null. Warning format: "Field 'X': value 'Y' does not match CRM dropdown options. Valid options are: A, B, C. Value converted to empty."
-  - **Required dropdown fields**: Invalid values generate errors and reject the row. Error format: "Field 'X': value 'Y' does not match CRM dropdown options. Valid options are: A, B, C. This field is required and cannot be empty."
-- **Date field parsing**: Date fields support multiple formats during import:
-  - ISO format: YYYY-MM-DD
-  - DD/MM/YYYY (slash-separated)
-  - DD-MM-YYYY (dash-separated)
-  - DD-Mon-YYYY (e.g., "14-May-2026") with three-letter month abbreviations (case-insensitive)
-  - Excel date codes (numeric serial dates)
-- **Bulk lead update history import**: Users can include historical update records during import using a special "_lead_updates" column. The format is multi-line text with 3 lines per update: Method, Date, and Remark (remark can be blank). The parser features:
-  - **Strict method validation**: Accepts only Call/Phone/WA/WhatsApp tokens (case-insensitive), rejects unknown methods with clear error messages
-  - **Multi-format date parsing**: Supports DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD-Mon-YYYY, and YYYY-MM-DD (ISO) formats
-  - **2-digit year normalization**: YY → 20YY for years 00-49, YY → 19YY for years 50-99
-  - **Strict date validation**: Validates month (1-12) and day (1-31) bounds, rejects invalid calendar dates (e.g., Feb 30, Feb 31)
-  - **Blank remark support**: Empty remark lines are preserved while maintaining 3-line grouping
-  - **Comprehensive error reporting**: Position-specific error messages for debugging malformed blocks
+The application supports exporting lead data to Excel (XLSX) and CSV formats. The import system handles bulk lead import from Excel/CSV with intelligent column mapping, field-level validation, pre-validation for required columns, and dropdown field validation. Date fields support multiple formats (ISO, DD/MM/YYYY, DD-MM-YYYY, DD-Mon-YYYY, Excel serial dates). Bulk lead update history can be imported via a special "_lead_updates" column, with strict method and date validation, 2-digit year normalization, and comprehensive error reporting.
 
 ### Design System
 
-Styling uses Tailwind CSS with custom design tokens and supports light/dark themes. Shadcn UI provides accessible, customizable components following a compound pattern. The design is mobile-first with responsive layouts.
+Styling uses Tailwind CSS with custom design tokens, supporting light/dark themes. Shadcn UI provides accessible, customizable components following a compound pattern. The design prioritizes a mobile-first approach with responsive layouts.
 
 ### Self-Service Signup System
 
-The system supports complete self-service onboarding with the following flow:
-1. **Landing Page**: Public landing page with "Get Started" call-to-action
-2. **Company Signup**: Form to create new company + admin user (transactional creation ensures atomicity)
-3. **Onboarding**: Post-signup flow for company setup (company admin only)
-4. **Invite Management**: Admin console allows company admins to create time-limited (7-day) invite codes for staff
-5. **Invite Acceptance**: Public page where invitees can create accounts using invite codes
-6. **Staff Onboarding**: New staff members are automatically associated with the company and can access shared sheets
-
-Authentication flows (signup, invite acceptance) use the `authenticate()` helper from AuthProvider to properly synchronize token, localStorage, and query cache state. Client-side form normalization (trimming, email lowercasing) prevents avoidable validation errors.
+The system provides a complete self-service onboarding flow:
+1.  **Landing Page**: Public "Get Started" call-to-action.
+2.  **Company Signup**: Transactional creation of new company and admin user.
+3.  **Onboarding**: Post-signup setup for company admin.
+4.  **Invite Management**: Admins create time-limited (7-day) invite codes for staff.
+5.  **Invite Acceptance**: Public page for invitees to create accounts.
+6.  **Staff Onboarding**: New staff are automatically associated with the company and gain sheet access.
+Authentication flows (signup, invite acceptance) use the `authenticate()` helper for token synchronization. Client-side form normalization prevents validation errors.
 
 ### Dashboard Architecture
 
-The dashboard features a clean, full-width spreadsheet interface with controls consolidated in a sidebar. `DashboardContext` manages central state for `selectedSheetId`, `searchQuery`, `categoryFilter`, and action handlers. The sidebar provides sheet selection, lead actions (Add, Import, Manage Columns), filtering, search, and export options. The `SpreadsheetGrid` dynamically displays filtered data based on `DashboardContext` values, maintaining sticky headers and horizontal scrolling.
+The dashboard features a full-width spreadsheet interface with controls consolidated in a sidebar. `DashboardContext` manages central state for `selectedSheetId`, `searchQuery`, `categoryFilter`, and action handlers. The sidebar offers sheet selection, lead actions, filtering, search, and export options. The `SpreadsheetGrid` dynamically displays filtered data with sticky headers and horizontal scrolling.
 
 ### Sheet Management
 
-**Sheet Creation:**
-- Company admins and super admins can create both personal and company-wide sheets
-- Regular users can only create personal sheets (company sheet option not available)
-- Personal sheets are only visible to the owner
-- Company sheets are visible to all users in the company
+Company and super admins can create personal and company-wide sheets, while regular users are limited to personal sheets. Deletion of sheets is soft (sets `deleted_at`) and cascade deletes related data. Permissions for sheet deletion are role-based (owner/admin/super admin). Lead deletion is restricted to company admins and super admins to protect critical data. All deletions are audit logged and synchronized in real-time via Socket.io.
 
-**Sheet Deletion:**
-- DELETE endpoint at `/api/sheets/:id` with role-based permission checks
-- Permission rules:
-  - **Personal sheets**: Only the sheet owner or super admin can delete
-  - **Company sheets**: Sheet owner, company admin, or super admin can delete
-- Frontend UI shows delete button only when user has permission
-- Confirmation dialog with AlertDialog component prevents accidental deletion
-- Uses soft delete (sets `deleted_at` timestamp)
-- CASCADE deletes configured in schema automatically clean up related data (SheetUsers, Leads, LeadUpdates, etc.)
-- Audit logging records all deletion events
-- Real-time synchronization via Socket.io ensures deletion propagates to all connected clients
+### Webhook Integration System
 
-**Lead Deletion:**
-- DELETE endpoint at `/api/leads/:id` with admin-only permission checks
-- Only company admins and super admins can delete leads
-- Regular users (non-admins) receive a 403 error when attempting to delete
-- This ensures critical lead data is protected from accidental deletion by regular users
+A comprehensive webhook system allows external systems to automatically create leads in the CRM via HTTP POST requests, eliminating manual data entry.
+
+**Database Schema:** Stores webhook configurations (`company_webhooks`), field mappings (`webhook_field_mappings`), allocation rules (`webhook_allocation_rules`), and request logs (`webhook_requests`).
+
+**API Endpoints:**
+*Admin Endpoints* (`/api/admin/company/webhooks*`): CRUD operations for webhooks, management of mappings and rules, and access to request logs (company_admin role required).
+*Public Endpoint* (`POST /api/public/webhooks/:token`): Ingests webhook data, validates token, applies field mappings, uses percentage-based round-robin allocation, creates leads, and logs requests. It is rate-limited.
+
+**Field Mapping:** Transforms incoming JSON payloads to CRM lead structures, mapping to fixed and custom fields, and preserving unmapped fields in the `meta` JSON column.
+
+**Allocation Logic:** Uses percentage-based round-robin distribution among sheets, ensuring leads are distributed according to configured percentages.
+
+**Lead Attribution:** Webhook-created leads are attributed to the webhook's `created_by_user_id` for proper permissions and audit trails.
+
+**UI Features:** Webhook management page for admins to create/delete, toggle active status, configure field mappings and allocation rules, and view request logs. Includes real-time validation.
+
+**Security:** Webhook tokens are uniquely generated and hashed. The public endpoint is rate-limited, and comprehensive logging is in place.
 
 ## External Dependencies
 
 ### Required Services
 
--   **Database**: PostgreSQL (Neon-backed) accessed via `DATABASE_URL` environment variable. All tables created using Drizzle ORM schema.
+-   **Database**: PostgreSQL (Neon-backed) via `DATABASE_URL` environment variable, with tables defined by Drizzle ORM.
 
 ### Third-Party Libraries
 
@@ -141,8 +112,8 @@ The dashboard features a clean, full-width spreadsheet interface with controls c
 
 ### Integration Points
 
--   **Self-Service Signup**: Public endpoint `POST /api/public/signup` creates company + admin user atomically
--   **Invite System**: Public endpoints `GET /api/public/invites/:code` and `POST /api/public/invites/:code/accept` for staff onboarding
--   **Webhook API**: External systems can create leads via `POST /api/webhooks/leads` with HMAC signature
--   **Export Functionality**: Exports lead data to Excel or CSV
--   **Import Functionality**: Supports bulk import from Excel/CSV with intelligent column mapping. Google Sheets import is proposed but requires additional setup (Replit connector or manual API credentials)
+-   **Self-Service Signup**: `POST /api/public/signup` for company and admin user creation.
+-   **Invite System**: `GET /api/public/invites/:code` and `POST /api/public/invites/:code/accept` for staff onboarding.
+-   **Webhook API**: External systems integrate via `POST /api/public/webhooks/:token` with HMAC signature.
+-   **Export Functionality**: Exports lead data to Excel or CSV.
+-   **Import Functionality**: Bulk import from Excel/CSV with intelligent column mapping.
