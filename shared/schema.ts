@@ -167,6 +167,8 @@ export interface Lead {
   // All business data stored in custom_fields based on company's CustomColumn definitions
   custom_fields: Record<string, any>;
   meta: Record<string, any>;
+  deleted_at: string | null;
+  deleted_by_user_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -507,6 +509,8 @@ export const leads = pgTable('leads', {
   owner_user_id: varchar('owner_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   custom_fields: json('custom_fields').$type<Record<string, any>>().default({}).notNull(),
   meta: json('meta').$type<Record<string, any>>().default({}).notNull(),
+  deleted_at: timestamp('deleted_at'),
+  deleted_by_user_id: varchar('deleted_by_user_id').references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
