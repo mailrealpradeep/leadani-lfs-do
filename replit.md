@@ -48,6 +48,9 @@ The application supports exporting lead data to Excel (XLSX library) and CSV for
 - Bulk lead import from Excel/CSV with intelligent column mapping
 - Field-level validation with error/warning reporting
 - Pre-validation for required columns
+- **Dropdown field validation**: When importing dropdown fields, the system validates values against configured CRM dropdown options:
+  - **Optional dropdown fields**: Invalid values generate warnings and are converted to empty/null. Warning format: "Field 'X': value 'Y' does not match CRM dropdown options. Valid options are: A, B, C. Value converted to empty."
+  - **Required dropdown fields**: Invalid values generate errors and reject the row. Error format: "Field 'X': value 'Y' does not match CRM dropdown options. Valid options are: A, B, C. This field is required and cannot be empty."
 - **Bulk lead update history import**: Users can include historical update records during import using a special "_lead_updates" column. The format is multi-line text with 3 lines per update: Method, Date, and Remark (remark can be blank). The parser features:
   - **Strict method validation**: Accepts only Call/Phone/WA/WhatsApp tokens (case-insensitive), rejects unknown methods with clear error messages
   - **Multi-format date parsing**: Supports DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, and YYYY-MM-DD (ISO) formats

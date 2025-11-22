@@ -1585,7 +1585,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create company-wide column (Company Admin only)
   app.post("/api/company/columns", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      const { name, column_key, type, config, sheet_id } = req.body;
+      const { name, type, config, sheet_id } = req.body;
+      let { column_key } = req.body;
+
+      // Auto-generate column_key from name if not provided
+      if (!column_key) {
+        column_key = name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      }
 
       // Determine company_id: super admins can specify it, company admins use their own
       let companyId: string;
@@ -1610,20 +1616,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check for duplicate column_key within company (company-wide columns only)
       const existingColumns = await storage.getCompanyColumns(companyId);
+      let finalColumnKey = column_key;
       const duplicate = existingColumns.find(c => 
-        c.column_key === column_key && 
+        c.column_key === finalColumnKey && 
         c.sheet_id === null &&
         c.company_id === companyId
       );
+      
+      // If duplicate found, append a number to make it unique
       if (duplicate) {
-        return res.status(400).json({ error: "Column key already exists for this company" });
+        let counter = 1;
+        while (existingColumns.find(c => 
+          c.column_key === `${column_key}_${counter}` && 
+          c.sheet_id === null &&
+          c.company_id === companyId
+        )) {
+          counter++;
+        }
+        finalColumnKey = `${column_key}_${counter}`;
       }
 
       const column = await storage.createCustomColumn({
         company_id: companyId,
         sheet_id: sheet_id || null,
         name,
-        column_key,
+        column_key: finalColumnKey,
         type,
         config: config || {},
         order_index: req.body.order_index || 0,
@@ -2437,7 +2454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               } else if (column.type === "boolean") {
                 value = ["yes", "true", "1", "y"].includes(String(value).toLowerCase());
               } else if (column.type === "dropdown") {
-                // Validate dropdown value
+                // Validate dropdown value against CRM options
                 const options = column.config.dropdown_options || [];
                 const stringValue = String(value).trim();
                 if (options.includes(stringValue)) {
@@ -2446,9 +2463,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   value = null;
                   if (stringValue !== "") {
                     if (column.config.required) {
-                      throw new Error(`Field "${column.name}": invalid option "${stringValue}". Must be one of: ${options.join(", ")}`);
+                      throw new Error(`Field "${column.name}": value "${stringValue}" does not match CRM dropdown options. Valid options are: ${options.join(", ")}. This field is required and cannot be empty.`);
                     } else {
-                      rowWarnings.push(`Field "${column.name}": invalid option "${stringValue}" converted to empty (valid: ${options.join(", ")})`);
+                      rowWarnings.push(`Field "${column.name}": value "${stringValue}" does not match CRM dropdown options. Valid options are: ${options.join(", ")}. Value converted to empty.`);
                     }
                   }
                 }
