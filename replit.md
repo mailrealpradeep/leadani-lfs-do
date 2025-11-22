@@ -76,6 +76,26 @@ Authentication flows (signup, invite acceptance) use the `authenticate()` helper
 
 The dashboard features a clean, full-width spreadsheet interface with controls consolidated in a sidebar. `DashboardContext` manages central state for `selectedSheetId`, `searchQuery`, `categoryFilter`, and action handlers. The sidebar provides sheet selection, lead actions (Add, Import, Manage Columns), filtering, search, and export options. The `SpreadsheetGrid` dynamically displays filtered data based on `DashboardContext` values, maintaining sticky headers and horizontal scrolling.
 
+### Sheet Management
+
+**Sheet Creation:**
+- Company admins and super admins can create both personal and company-wide sheets
+- Regular users can only create personal sheets (company sheet option not available)
+- Personal sheets are only visible to the owner
+- Company sheets are visible to all users in the company
+
+**Sheet Deletion:**
+- DELETE endpoint at `/api/sheets/:id` with role-based permission checks
+- Permission rules:
+  - **Personal sheets**: Only the sheet owner or super admin can delete
+  - **Company sheets**: Sheet owner, company admin, or super admin can delete
+- Frontend UI shows delete button only when user has permission
+- Confirmation dialog with AlertDialog component prevents accidental deletion
+- Uses soft delete (sets `deleted_at` timestamp)
+- CASCADE deletes configured in schema automatically clean up related data (SheetUsers, Leads, LeadUpdates, etc.)
+- Audit logging records all deletion events
+- Real-time synchronization via Socket.io ensures deletion propagates to all connected clients
+
 ## External Dependencies
 
 ### Required Services
