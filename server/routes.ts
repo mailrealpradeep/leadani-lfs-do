@@ -2081,10 +2081,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const seenFields = new Set<string>();
       headers.forEach((header) => {
         const normalized = normalizeHeader(header);
-        const mappedField = mappings[normalized];
-        if (mappedField && !seenFields.has(mappedField)) {
-          fieldMap[header] = mappedField;
-          seenFields.add(mappedField);
+        
+        // Check for special "Lead Updates" column
+        if (normalized === "leadupdates" || normalized === "updates" || normalized === "updatehistory") {
+          fieldMap[header] = "_lead_updates";
+        } else {
+          const mappedField = mappings[normalized];
+          if (mappedField && !seenFields.has(mappedField)) {
+            fieldMap[header] = mappedField;
+            seenFields.add(mappedField);
+          }
         }
       });
 
@@ -2191,11 +2197,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Validate fieldMap entries - only process columns that exist in this sheet
       // Filter out empty, skip, and invalid mappings
+      // Allow special "_lead_updates" field for bulk update history import
       const validatedFieldMap: Record<string, string> = {};
       Object.entries(fieldMap).forEach(([header, columnKey]) => {
         const key = String(columnKey || "").trim();
-        if (key && key !== "_skip" && columnMap.has(key)) {
-          validatedFieldMap[header] = key;
+        if (key && key !== "_skip") {
+          if (key === "_lead_updates" || columnMap.has(key)) {
+            validatedFieldMap[header] = key;
+          }
         }
       });
 
@@ -2211,12 +2220,141 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Helper function to parse lead updates from multi-line text
+      const parseLeadUpdates = (text: string): Array<{method: string, date: string, remark: string}> => {
+        if (!text || typeof text !== 'string') return [];
+        
+        const updates: Array<{method: string, date: string, remark: string}> = [];
+        // Split by newlines and trim each line, but PRESERVE empty lines for proper 3-line grouping
+        const lines = text.split('\n').map(l => l.trim());
+        
+        let i = 0;
+        while (i < lines.length) {
+          // Each update block needs exactly 3 lines: Method, Date, Remark
+          // Stop when we can't form a complete 3-line block
+          if (i + 2 >= lines.length) {
+            if (i < lines.length) {
+              // Incomplete block - emit validation error
+              throw new Error(`Incomplete update block at position ${i + 1}: Expected 3 lines (Method, Date, Remark) but found ${lines.length - i}`);
+            }
+            break;
+          }
+          
+          const rawMethod = lines[i];
+          const dateStr = lines[i + 1];
+          const remark = lines[i + 2]; // Can be empty string (blank remark is allowed)
+          
+          // Validate method is not empty (remark can be empty, but method and date cannot)
+          if (!rawMethod.trim()) {
+            throw new Error(`Update block at position ${i + 1}: Method line cannot be empty`);
+          }
+          
+          // Normalize method with strict validation - only accept known method tokens
+          const methodLower = rawMethod.toLowerCase().trim();
+          let method: 'call' | 'whatsapp';
+          if (methodLower === 'wa' || methodLower === 'whatsapp') {
+            method = 'whatsapp';
+          } else if (methodLower === 'call' || methodLower === 'phone' || methodLower === 'phone call') {
+            method = 'call';
+          } else {
+            throw new Error(`Update block at position ${i + 1}: Invalid method "${rawMethod}". Must be one of: Call, WA, WhatsApp, Phone`);
+          }
+          
+          // Validate date is not empty
+          if (!dateStr.trim()) {
+            throw new Error(`Update block at position ${i + 1}: Date line cannot be empty`);
+          }
+          
+          // Parse and normalize date - support multiple formats:
+          // DD/MM/YYYY variants: 23/11/2025, 26/10/25, 23-11-2025, 23.11.2025
+          // YYYY-MM-DD variants: 2025-11-23 (ISO format)
+          const dateNormalized = dateStr.trim().replace(/[.\s]/g, '/'); // Normalize dots/spaces to /
+          let dateParts: string[];
+          let isISOFormat = false;
+          
+          // Check if it's YYYY-MM-DD format (ISO) by looking at separator and first part length
+          if (dateStr.includes('-')) {
+            dateParts = dateStr.trim().split('-');
+            if (dateParts.length === 3 && dateParts[0].length === 4) {
+              isISOFormat = true;
+            } else {
+              // DD-MM-YYYY format
+              dateParts = dateNormalized.split('/');
+            }
+          } else {
+            dateParts = dateNormalized.split('/');
+          }
+          
+          let formattedDate = '';
+          if (dateParts.length === 3) {
+            let dayNum: number, monthNum: number, yearStr: string;
+            
+            if (isISOFormat) {
+              // YYYY-MM-DD format
+              yearStr = dateParts[0];
+              monthNum = parseInt(dateParts[1], 10);
+              dayNum = parseInt(dateParts[2], 10);
+            } else {
+              // DD/MM/YYYY format
+              dayNum = parseInt(dateParts[0], 10);
+              monthNum = parseInt(dateParts[1], 10);
+              yearStr = dateParts[2];
+            }
+            
+            // Validate day/month are numbers
+            if (isNaN(dayNum) || isNaN(monthNum)) {
+              throw new Error(`Invalid date "${dateStr}": day and month must be numbers`);
+            }
+            
+            // Validate day/month bounds (strict validation to prevent auto-rollover)
+            if (monthNum < 1 || monthNum > 12) {
+              throw new Error(`Invalid date "${dateStr}": month must be between 1 and 12, got ${monthNum}`);
+            }
+            if (dayNum < 1 || dayNum > 31) {
+              throw new Error(`Invalid date "${dateStr}": day must be between 1 and 31, got ${dayNum}`);
+            }
+            
+            // Handle 2-digit years (e.g., "25" -> "2025") - only for DD/MM/YY format
+            let year = yearStr;
+            if (!isISOFormat && year.length === 2) {
+              const yearNum = parseInt(year, 10);
+              if (isNaN(yearNum)) {
+                throw new Error(`Invalid date "${dateStr}": year must be a number`);
+              }
+              // Assume years 00-49 are 2000-2049, 50-99 are 1950-1999
+              year = yearNum < 50 ? '20' + year : '19' + year;
+            } else if (year.length !== 4) {
+              throw new Error(`Invalid date format "${dateStr}": year must be 4 digits (or 2 digits for DD/MM/YY format)`);
+            }
+            
+            const day = String(dayNum).padStart(2, '0');
+            const month = String(monthNum).padStart(2, '0');
+            formattedDate = `${year}-${month}-${day}`;
+            
+            // Additional validation: check the date is actually valid (e.g., not Feb 30)
+            const testDate = new Date(formattedDate);
+            const reconstructed = `${testDate.getFullYear()}-${String(testDate.getMonth() + 1).padStart(2, '0')}-${String(testDate.getDate()).padStart(2, '0')}`;
+            if (testDate.toString() === 'Invalid Date' || reconstructed !== formattedDate) {
+              throw new Error(`Invalid date "${dateStr}": not a valid calendar date (e.g., Feb 30, Feb 31 don't exist)`);
+            }
+          } else {
+            throw new Error(`Invalid date format "${dateStr}": expected DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, or YYYY-MM-DD`);
+          }
+          
+          updates.push({ method, date: formattedDate, remark });
+          i += 3;
+        }
+        
+        return updates;
+      };
+
       const imported: any[] = [];
       const errors: any[] = [];
       const warnings: any[] = [];
       const io = app.get("io") as SocketIOServer;
 
       for (let i = 0; i < rows.length; i++) {
+        const rowWarnings: string[] = [];
         try {
           const row = rows[i];
           const leadData: any = { 
@@ -2225,12 +2363,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             custom_fields: {},
             meta: {},
           };
-          const rowWarnings: string[] = [];
           const coercionIssues: string[] = []; // Track which fields had coercion issues
+          let leadUpdatesText: string | null = null;
 
-          // Process mapped fields (all are custom columns now)
+          // Process mapped fields (all are custom columns now, plus special _lead_updates)
           Object.entries(validatedFieldMap).forEach(([excelHeader, columnKey]) => {
             const key = columnKey as string;
+            
+            // Handle special _lead_updates field
+            if (key === "_lead_updates") {
+              leadUpdatesText = row[excelHeader] ? String(row[excelHeader]) : null;
+              return;
+            }
             if (row[excelHeader] !== undefined && row[excelHeader] !== null) {
               let value = row[excelHeader];
               const column = columnMap.get(key)!; // Safe to use ! since validatedFieldMap only has valid keys
@@ -2349,6 +2493,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const lead = await storage.createLead(leadData);
           imported.push(lead);
+
+          // Create lead updates if provided
+          if (leadUpdatesText) {
+            try {
+              const parsedUpdates = parseLeadUpdates(leadUpdatesText);
+              for (const update of parsedUpdates) {
+                await storage.createLeadUpdate({
+                  lead_id: lead.id,
+                  update_via: update.method as 'call' | 'whatsapp',
+                  update_on: update.date,
+                  remark: update.remark,
+                });
+              }
+              
+              if (parsedUpdates.length > 0) {
+                rowWarnings.push(`Imported ${parsedUpdates.length} lead update(s)`);
+              }
+            } catch (updateError: any) {
+              rowWarnings.push(`Failed to parse lead updates: ${updateError.message}`);
+            }
+          }
 
           // Track warnings ONLY for successfully imported rows (not for failed rows)
           if (rowWarnings.length > 0) {

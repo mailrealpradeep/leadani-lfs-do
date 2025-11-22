@@ -42,9 +42,13 @@ Socket.io enables real-time synchronization by allowing clients to join sheet-sp
 
 The system provides chronological tracking of lead updates, recording the method (WhatsApp/Phone Call), date, and remarks. UI components for recording and viewing updates are integrated into both desktop and mobile views, with real-time synchronization via Socket.io.
 
-### Data Export
+### Data Export/Import
 
-The application supports exporting lead data to Excel (XLSX library) and CSV formats.
+The application supports exporting lead data to Excel (XLSX library) and CSV formats. The import system includes:
+- Bulk lead import from Excel/CSV with intelligent column mapping
+- Field-level validation with error/warning reporting
+- Pre-validation for required columns
+- **Bulk lead update history import**: Users can include historical update records during import using a special "_lead_updates" column. The format is multi-line text with 3 lines per update: Method (Call/WA), Date (DD/MM/YYYY), and Remark. The parser automatically normalizes method names ("Call"/"call" → "call", "WA"/"wa" → "whatsapp") and supports various date formats including 2-digit years.
 
 ### Design System
 

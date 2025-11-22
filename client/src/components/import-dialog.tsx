@@ -244,6 +244,7 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
             // Build dynamic field list from company's custom columns
             const allFields = [
               { value: "_skip", label: "-- Skip Column --" },
+              { value: "_lead_updates", label: "📝 Lead Updates (History)" },
               ...(previewData.companyColumns || []).map(col => ({
                 value: col.column_key,
                 label: `${col.name}${col.config.required ? ' *' : ''}`,
