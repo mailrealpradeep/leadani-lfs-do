@@ -539,10 +539,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public Webhook Ingestion Endpoint
   app.post("/api/public/webhooks/:token", webhookLimiter, async (req, res) => {
     let webhook;
-    let requestStatus: "success" | "failed" = "failed";
+    let requestStatus: "success" | "failed" | "pending_configuration" = "failed";
     let errorMessage: string | null = null;
     let createdLeadId: string | null = null;
     let targetSheetId: string | null = null;
+    let alreadyLogged = false; // Track if we've already logged this request
 
     try {
       // Find webhook by token
@@ -563,9 +564,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fieldMappings = await storage.getWebhookFieldMappings(webhook.id);
       const allocationRules = await storage.getWebhookAllocationRules(webhook.id);
 
+      // If no allocation rules configured, accept the data but don't create a lead
+      // This allows users to test webhooks and see field names before completing configuration
       if (allocationRules.length === 0) {
-        errorMessage = "No allocation rules configured";
-        return res.status(400).json({ error: errorMessage });
+        requestStatus = "pending_configuration";
+        // Log request before returning so status is properly recorded
+        await storage.createWebhookRequest({
+          webhook_id: webhook.id,
+          status: requestStatus,
+          payload: req.body,
+          headers: req.headers as any,
+          error_message: null,
+          lead_id: null,
+          allocated_sheet_id: null,
+        });
+        alreadyLogged = true; // Prevent duplicate logging in finally block
+        
+        return res.status(200).json({ 
+          success: true,
+          message: "Webhook data received. Please configure allocation rules in your CRM to start creating leads.",
+          status: "pending_configuration"
+        });
       }
 
       // Apply field mappings to transform webhook payload to lead data
@@ -669,8 +688,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       errorMessage = error.message;
       res.status(500).json({ error: errorMessage });
     } finally {
-      // Log webhook request regardless of success or failure
-      if (webhook) {
+      // Log webhook request regardless of success or failure (unless already logged)
+      if (webhook && !alreadyLogged) {
         try {
           await storage.createWebhookRequest({
             webhook_id: webhook.id,

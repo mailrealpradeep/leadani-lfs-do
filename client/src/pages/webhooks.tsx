@@ -382,8 +382,12 @@ export default function Webhooks() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <Badge variant={request.status === "success" ? "default" : "destructive"}>
-                          {request.status}
+                        <Badge variant={
+                          request.status === "success" ? "default" : 
+                          request.status === "pending_configuration" ? "secondary" : 
+                          "destructive"
+                        }>
+                          {request.status === "pending_configuration" ? "pending setup" : request.status}
                         </Badge>
                         <span className="text-sm text-muted-foreground">
                           {format(new Date(request.created_at), "PPpp")}
@@ -392,6 +396,11 @@ export default function Webhooks() {
                     </div>
                     {request.error_message && (
                       <p className="text-xs text-destructive mb-2">{request.error_message}</p>
+                    )}
+                    {request.status === "pending_configuration" && !request.error_message && (
+                      <p className="text-xs text-muted-foreground mb-2">
+                        ✓ Data received successfully. Configure allocation rules to start creating leads.
+                      </p>
                     )}
                     
                     {/* Field Names - Prominently Displayed */}
