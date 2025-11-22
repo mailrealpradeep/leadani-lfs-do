@@ -16,14 +16,15 @@ interface DropdownFilterProps {
 }
 
 export function DropdownFilter({ value, onChange, options, placeholder = "Filter..." }: DropdownFilterProps) {
-  const handleClear = () => {
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
     onChange(null);
   };
 
   return (
-    <div className="relative">
+    <div className="flex items-center gap-0.5">
       <Select value={value || ""} onValueChange={(val) => onChange(val || null)}>
-        <SelectTrigger className="h-7 text-xs" data-testid="select-dropdown-filter">
+        <SelectTrigger className="h-7 text-xs flex-1" data-testid="select-dropdown-filter">
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -39,7 +40,7 @@ export function DropdownFilter({ value, onChange, options, placeholder = "Filter
         <Button
           variant="ghost"
           size="icon"
-          className="h-5 w-5 absolute right-5 top-1/2 -translate-y-1/2 z-10"
+          className="h-5 w-5 shrink-0"
           onClick={handleClear}
           data-testid="button-clear-dropdown-filter"
         >

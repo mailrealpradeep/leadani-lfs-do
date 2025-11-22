@@ -321,6 +321,19 @@ export function SpreadsheetGrid({
     return lead.custom_fields[columnKey];
   };
 
+  // Convert CustomColumn to display columns (must be before filteredAndSortedLeads)
+  const columns = customColumns
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((col) => ({
+      key: col.column_key,
+      label: col.name,
+      width: col.type === "text" ? "150px" : col.type === "number" ? "100px" : col.type === "date" ? "120px" : col.type === "boolean" ? "100px" : "140px",
+      sortable: true,
+      dropdown: col.type === "dropdown",
+      type: col.type,
+      config: col.config,
+    }));
+
   const filteredAndSortedLeads = leads
     .filter((lead) => {
       // Search query filter - search across all custom fields
@@ -366,7 +379,14 @@ export function SpreadsheetGrid({
             return false;
           }
         }
-        // Text/Dropdown filter (string)
+        // Dropdown filter (string) - exact match
+        else if (typeof filterValue === "string" && column?.type === "dropdown") {
+          const cellValueStr = String(cellValue || "");
+          if (cellValueStr !== filterValue) {
+            return false;
+          }
+        }
+        // Text filter (string) - substring match
         else if (typeof filterValue === "string") {
           const cellValueStr = String(cellValue || "").toLowerCase();
           const filter = filterValue.toLowerCase();
@@ -385,19 +405,6 @@ export function SpreadsheetGrid({
       const comparison = aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
       return sortDirection === "asc" ? comparison : -comparison;
     });
-
-  // Convert CustomColumn to display columns
-  const columns = customColumns
-    .sort((a, b) => a.order_index - b.order_index)
-    .map((col) => ({
-      key: col.column_key,
-      label: col.name,
-      width: col.type === "text" ? "150px" : col.type === "number" ? "100px" : col.type === "date" ? "120px" : col.type === "boolean" ? "100px" : "140px",
-      sortable: true,
-      dropdown: col.type === "dropdown",
-      type: col.type,
-      config: col.config,
-    }));
 
   const visibleColumns = columns.filter((col) => !hiddenColumns.has(col.key));
 
