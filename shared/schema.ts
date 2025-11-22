@@ -301,6 +301,7 @@ export interface LeadUpdate {
   update_via: "whatsapp" | "call";
   update_on: string; // date
   remark: string;
+  created_by_user_id?: string | null;
   created_at: string;
 }
 
@@ -309,6 +310,7 @@ export const insertLeadUpdateSchema = z.object({
   update_via: z.enum(["whatsapp", "call"]),
   update_on: z.string(), // date string
   remark: z.string().min(1, "Remark is required"),
+  created_by_user_id: z.string().optional(),
 });
 
 export type InsertLeadUpdate = z.infer<typeof insertLeadUpdateSchema>;
@@ -565,5 +567,6 @@ export const lead_updates = pgTable('lead_updates', {
   update_via: varchar('update_via', { length: 50 }).notNull(),
   update_on: varchar('update_on', { length: 255 }).notNull(),
   remark: text('remark').notNull(),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });

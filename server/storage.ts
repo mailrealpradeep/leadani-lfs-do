@@ -718,6 +718,7 @@ export class MemStorage implements IStorage {
     const update: LeadUpdate = {
       ...insertUpdate,
       id,
+      created_by_user_id: insertUpdate.created_by_user_id || null,
       created_at: new Date().toISOString(),
     };
     this.leadUpdates.set(id, update);
@@ -1309,8 +1310,22 @@ export class PgStorage implements IStorage {
 
   // Lead Updates
   async getLeadUpdates(leadId: string): Promise<LeadUpdate[]> {
-    const result = await db.select().from(dbSchema.lead_updates).where(eq(dbSchema.lead_updates.lead_id, leadId)).orderBy(desc(dbSchema.lead_updates.created_at));
-    return result.map(this.mapLeadUpdate);
+    const result = await db
+      .select({
+        lead_update: dbSchema.lead_updates,
+        user: {
+          first_name: dbSchema.users.first_name,
+        },
+      })
+      .from(dbSchema.lead_updates)
+      .leftJoin(dbSchema.users, eq(dbSchema.lead_updates.created_by_user_id, dbSchema.users.id))
+      .where(eq(dbSchema.lead_updates.lead_id, leadId))
+      .orderBy(desc(dbSchema.lead_updates.created_at));
+    
+    return result.map((row) => ({
+      ...this.mapLeadUpdate(row.lead_update),
+      created_by_first_name: row.user?.first_name || null,
+    })) as any;
   }
 
   async createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate> {
@@ -1424,6 +1439,7 @@ export class PgStorage implements IStorage {
   private mapLeadUpdate(row: any): LeadUpdate {
     return {
       ...row,
+      created_by_user_id: row.created_by_user_id || null,
       created_at: row.created_at?.toISOString() || row.created_at,
     };
   }

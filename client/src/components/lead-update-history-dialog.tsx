@@ -12,6 +12,7 @@ import { Trash2, Phone, MessageSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/lib/auth";
 
 interface LeadUpdateHistoryDialogProps {
   leadId: string;
@@ -19,14 +20,20 @@ interface LeadUpdateHistoryDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+type LeadUpdateWithUser = LeadUpdate & {
+  created_by_first_name?: string | null;
+};
+
 export function LeadUpdateHistoryDialog({
   leadId,
   open,
   onOpenChange,
 }: LeadUpdateHistoryDialogProps) {
   const { toast } = useToast();
+  const { isSuperAdmin, isCompanyAdmin } = useAuth();
+  const isAdmin = isSuperAdmin || isCompanyAdmin;
 
-  const { data: updates = [], isLoading } = useQuery<LeadUpdate[]>({
+  const { data: updates = [], isLoading } = useQuery<LeadUpdateWithUser[]>({
     queryKey: ["/api/leads", leadId, "updates"],
     enabled: open && !!leadId,
   });
@@ -85,6 +92,11 @@ export function LeadUpdateHistoryDialog({
                         <span className="font-semibold capitalize">
                           {update.update_via}
                         </span>
+                        {update.created_by_first_name && (
+                          <span className="text-xs text-muted-foreground">
+                            by {update.created_by_first_name}
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground mb-2">
                         {format(new Date(update.created_at), "MMM dd, yyyy HH:mm")}
@@ -98,15 +110,17 @@ export function LeadUpdateHistoryDialog({
                         {update.remark}
                       </p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteUpdateMutation.mutate(update.id)}
-                      disabled={deleteUpdateMutation.isPending}
-                      data-testid={`button-delete-update-${update.id}`}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteUpdateMutation.mutate(update.id)}
+                        disabled={deleteUpdateMutation.isPending}
+                        data-testid={`button-delete-update-${update.id}`}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

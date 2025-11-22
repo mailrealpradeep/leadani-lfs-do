@@ -1337,12 +1337,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      // Check if user has edit permission (not just view)
+      // Only company admins and super admins can delete leads
       if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
-        const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
-        if (sheetUser && sheetUser.role === "viewer") {
-          return res.status(403).json({ error: "Viewers cannot delete leads" });
-        }
+        return res.status(403).json({ error: "Only admin users can delete leads" });
       }
 
       await storage.deleteLead(req.params.id);
@@ -1408,6 +1405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertLeadUpdateSchema.parse({
         lead_id: req.params.id,
         ...req.body,
+        created_by_user_id: req.userId,
       });
 
       const update = await storage.createLeadUpdate(parsed);
@@ -1466,6 +1464,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/lead-updates/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      // Only company admins and super admins can delete lead updates
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+        return res.status(403).json({ error: "Only admin users can delete lead updates" });
+      }
+
       await storage.deleteLeadUpdate(req.params.id);
 
       // Audit log
@@ -2430,10 +2433,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   }
                 } else if (typeof value === "string") {
                   const dateOnly = value.trim().split(' ')[0];
+                  
+                  // Check for ISO format YYYY-MM-DD
                   if (dateOnly && /^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
                     value = dateOnly;
                     validDate = true;
-                  } else {
+                  }
+                  // Check for DD-Mon-YYYY format (e.g., "14-May-2026")
+                  else if (/^\d{1,2}-[A-Za-z]{3}-\d{4}$/.test(dateOnly)) {
+                    const monthMap: Record<string, string> = {
+                      jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+                      jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12'
+                    };
+                    const parts = dateOnly.split('-');
+                    const day = parts[0].padStart(2, '0');
+                    const monthAbbr = parts[1].toLowerCase();
+                    const year = parts[2];
+                    
+                    if (monthMap[monthAbbr]) {
+                      value = `${year}-${monthMap[monthAbbr]}-${day}`;
+                      validDate = true;
+                    }
+                  }
+                  // Check for DD/MM/YYYY or DD-MM-YYYY formats
+                  else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(dateOnly)) {
+                    const separator = dateOnly.includes('/') ? '/' : '-';
+                    const parts = dateOnly.split(separator);
+                    const day = parts[0].padStart(2, '0');
+                    const month = parts[1].padStart(2, '0');
+                    const year = parts[2];
+                    value = `${year}-${month}-${day}`;
+                    validDate = true;
+                  }
+                  
+                  if (!validDate) {
                     value = null;
                     if (String(originalValue).trim() !== "") {
                       const msg = `Field "${column.name}": invalid date "${originalValue}" converted to empty`;
