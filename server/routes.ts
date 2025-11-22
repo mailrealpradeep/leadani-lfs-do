@@ -2021,6 +2021,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Transfer leads to another sheet
+  app.post("/api/leads/transfer", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { leadIds, targetSheetId } = req.body;
+
+      if (!leadIds || !Array.isArray(leadIds) || leadIds.length === 0) {
+        return res.status(400).json({ error: "Lead IDs are required" });
+      }
+
+      if (!targetSheetId) {
+        return res.status(400).json({ error: "Target sheet ID is required" });
+      }
+
+      // Get target sheet
+      const targetSheet = await storage.getSheet(targetSheetId);
+      if (!targetSheet || targetSheet.deleted_at) {
+        return res.status(404).json({ error: "Target sheet not found" });
+      }
+
+      // Check if user has access to target sheet and can edit
+      const hasTargetAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, targetSheetId);
+      if (!hasTargetAccess) {
+        return res.status(403).json({ error: "Access denied to target sheet" });
+      }
+
+      // Check if user has edit permission on target sheet
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+        const targetSheetUser = await storage.getSheetUser(targetSheetId, req.userId!);
+        if (targetSheetUser && targetSheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Cannot transfer to sheet where you only have viewer access" });
+        }
+      }
+
+      // Process each lead
+      const results = [];
+      const io = app.get("io") as SocketIOServer;
+
+      for (const leadId of leadIds) {
+        const lead = await storage.getLead(leadId);
+        if (!lead) {
+          results.push({ leadId, success: false, error: "Lead not found" });
+          continue;
+        }
+
+        const sourceSheet = await storage.getSheet(lead.sheet_id);
+        if (!sourceSheet) {
+          results.push({ leadId, success: false, error: "Source sheet not found" });
+          continue;
+        }
+
+        // Check if user has access to source sheet
+        const hasSourceAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+        if (!hasSourceAccess) {
+          results.push({ leadId, success: false, error: "Access denied to source sheet" });
+          continue;
+        }
+
+        // Check if user has edit permission on source sheet
+        if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+          const sourceSheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
+          if (sourceSheetUser && sourceSheetUser.role === "viewer") {
+            results.push({ leadId, success: false, error: "Cannot transfer from sheet where you only have viewer access" });
+            continue;
+          }
+        }
+
+        // Verify both sheets belong to the same company
+        if (sourceSheet.company_id !== targetSheet.company_id) {
+          results.push({ leadId, success: false, error: "Cannot transfer leads between different companies" });
+          continue;
+        }
+
+        const oldSheetId = lead.sheet_id;
+
+        // Update lead's sheet_id
+        await storage.updateLead(leadId, { sheet_id: targetSheetId });
+
+        // Create audit log
+        await storage.createAuditLog({
+          user_id: req.userId!,
+          company_id: targetSheet.company_id,
+          action: "transfer",
+          model: "lead",
+          model_id: leadId,
+          payload: { from_sheet_id: oldSheetId, to_sheet_id: targetSheetId },
+        });
+
+        // Emit realtime events to both sheets
+        io.to(`sheet:${oldSheetId}`).emit("lead_deleted", { id: leadId });
+        
+        const updatedLead = await storage.getLead(leadId);
+        io.to(`sheet:${targetSheetId}`).emit("lead_created", updatedLead);
+
+        results.push({ leadId, success: true });
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+
+      res.json({ 
+        success: true, 
+        message: `Transferred ${successCount} lead(s)${failCount > 0 ? `, ${failCount} failed` : ''}`,
+        results 
+      });
+    } catch (error: any) {
+      console.error("Transfer leads error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // LEAD UPDATES
   // ============================================================================
