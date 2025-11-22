@@ -463,6 +463,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let requestStatus: "success" | "failed" = "failed";
     let errorMessage: string | null = null;
     let createdLeadId: string | null = null;
+    let targetSheetId: string | null = null;
 
     try {
       // Find webhook by token
@@ -543,19 +544,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: errorMessage });
       }
 
-      // Create the lead in the target sheet
+      // Get webhook creator to use as lead owner
+      const webhookCreator = await storage.getUser(webhook.created_by_user_id);
+      if (!webhookCreator) {
+        errorMessage = "Webhook creator not found";
+        return res.status(500).json({ error: errorMessage });
+      }
+
+      // Create the lead in the target sheet with all fields in custom_fields
       const lead = await storage.createLead({
         sheet_id: targetSheetId,
-        name: leadData.name || "",
-        mobile_no: leadData.mobile_no || "",
-        whatsapp: leadData.whatsapp || leadData.mobile_no || "",
-        lang: leadData.lang || "",
-        occupation: leadData.occupation || "",
-        qualification: leadData.qualification || "",
-        lead_date: leadData.lead_date || new Date().toISOString().split('T')[0],
-        lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
-        lead_status: leadData.lead_status || "New",
-        visit_status: leadData.visit_status || "Not Visited",
+        owner_user_id: webhook.created_by_user_id,
+        custom_fields: {
+          name: leadData.name || "",
+          mobile_no: leadData.mobile_no || "",
+          whatsapp: leadData.whatsapp || leadData.mobile_no || "",
+          lang: leadData.lang || "",
+          occupation: leadData.occupation || "",
+          qualification: leadData.qualification || "",
+          lead_date: leadData.lead_date || new Date().toISOString().split('T')[0],
+          lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+          lead_status: leadData.lead_status || "New",
+          visit_status: leadData.visit_status || "Not Visited",
+          ...leadData,
+        },
         meta: leadData.meta || {},
       });
 
@@ -585,9 +597,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             webhook_id: webhook.id,
             status: requestStatus,
             payload: req.body,
-            response_status: requestStatus === "success" ? 201 : 500,
+            headers: req.headers as any,
             error_message: errorMessage,
             lead_id: createdLeadId,
+            allocated_sheet_id: createdLeadId ? targetSheetId : null,
           });
         } catch (logError: any) {
           console.error("Failed to log webhook request:", logError);
