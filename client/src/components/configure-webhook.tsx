@@ -116,17 +116,38 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     enabled: !!webhook.id,
   });
 
+  // Helper function to flatten nested objects into dot-notation paths
+  const flattenObject = (obj: Record<string, any>, prefix = ''): string[] => {
+    const fields: string[] = [];
+    
+    for (const [key, value] of Object.entries(obj)) {
+      const fullPath = prefix ? `${prefix}.${key}` : key;
+      
+      // Add the current field
+      fields.push(fullPath);
+      
+      // If value is a nested object (not array, not null), recurse
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        fields.push(...flattenObject(value, fullPath));
+      }
+    }
+    
+    return fields;
+  };
+
   // Extract unique field names from the most recent webhook request
   const availableWebhookFields = (() => {
     if (webhookRequests.length === 0) return [];
     
-    // Get the most recent request (first in array, assuming sorted by created_at desc)
+    // Backend returns requests ordered by created_at DESC, so first is most recent
     const mostRecentRequest = webhookRequests[0];
     if (!mostRecentRequest.payload) return [];
     
-    // Extract all field names from the payload
-    const fieldNames = Object.keys(mostRecentRequest.payload);
-    return fieldNames.sort(); // Sort alphabetically for easier selection
+    // Flatten nested objects to extract all possible field paths (including dot notation)
+    const fieldPaths = flattenObject(mostRecentRequest.payload);
+    
+    // Remove duplicates and sort alphabetically
+    return Array.from(new Set(fieldPaths)).sort();
   })();
 
   // Load existing configuration when data arrives
@@ -300,7 +321,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                {availableWebhookFields.length} field{availableWebhookFields.length !== 1 ? 's' : ''} detected from your webhook data. Select from the dropdown or type manually.
+                {availableWebhookFields.length} field{availableWebhookFields.length !== 1 ? 's' : ''} detected from your webhook data. Type to see suggestions or enter custom field names.
               </AlertDescription>
             </Alert>
           )}
@@ -309,38 +330,20 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
               <div className="flex-1">
                 <Label className="text-xs text-muted-foreground">Webhook Field</Label>
-                {availableWebhookFields.length > 0 ? (
-                  <Select
-                    value={mapping.webhook_field}
-                    onValueChange={(value) => updateFieldMapping(index, "webhook_field", value)}
-                  >
-                    <SelectTrigger data-testid={`select-webhook-field-${index}`}>
-                      <SelectValue placeholder="Select or type field name" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                        Available Fields
-                      </div>
-                      {availableWebhookFields.map((field) => (
-                        <SelectItem key={field} value={field}>
-                          {field}
-                        </SelectItem>
-                      ))}
-                      {/* Allow manual entry if the current value is not in the list */}
-                      {mapping.webhook_field && !availableWebhookFields.includes(mapping.webhook_field) && (
-                        <SelectItem value={mapping.webhook_field}>
-                          {mapping.webhook_field} (custom)
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    value={mapping.webhook_field}
-                    onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
-                    placeholder="Send test webhook data first"
-                    data-testid={`input-webhook-field-${index}`}
-                  />
+                <Input
+                  value={mapping.webhook_field}
+                  onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
+                  placeholder={availableWebhookFields.length > 0 ? "Select from suggestions or type" : "e.g., phone, email, name"}
+                  list={`webhook-fields-${index}`}
+                  data-testid={`input-webhook-field-${index}`}
+                />
+                {/* Native HTML datalist for autocomplete suggestions */}
+                {availableWebhookFields.length > 0 && (
+                  <datalist id={`webhook-fields-${index}`}>
+                    {availableWebhookFields.map((field) => (
+                      <option key={field} value={field} />
+                    ))}
+                  </datalist>
                 )}
               </div>
               <div className="flex-1">

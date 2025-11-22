@@ -587,13 +587,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Helper function to extract value from nested object using dot notation
+      const getNestedValue = (obj: any, path: string): any => {
+        const keys = path.split('.');
+        let current = obj;
+        
+        for (const key of keys) {
+          if (current && typeof current === 'object' && key in current) {
+            current = current[key];
+          } else {
+            return undefined;
+          }
+        }
+        
+        return current;
+      };
+
       // Apply field mappings to transform webhook payload to lead data
       const incomingData = req.body;
       const leadData: any = {};
 
-      // Map webhook fields to sheet column keys
+      // Map webhook fields to sheet column keys (supports dot notation for nested fields)
       for (const mapping of fieldMappings) {
-        const value = incomingData[mapping.webhook_field];
+        const value = getNestedValue(incomingData, mapping.webhook_field);
         if (value !== undefined && value !== null) {
           leadData[mapping.sheet_column_key] = value;
         }
