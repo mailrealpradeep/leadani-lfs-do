@@ -615,34 +615,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Determine which sheet to allocate to using round-robin with percentage distribution
-      let targetSheetId: string;
-      const totalPercentage = allocationRules.reduce((sum, rule) => sum + rule.percentage, 0);
-      
-      if (totalPercentage !== 100) {
-        errorMessage = "Allocation rules percentages must sum to 100";
+      // Helper function to evaluate conditions
+      const evaluateCondition = (rule: any, webhookData: any): boolean => {
+        // If rule has no condition (is_default=true or no condition fields), treat as default
+        if (!rule.condition_field || !rule.condition_operator || !rule.condition_value) {
+          return rule.is_default === true;
+        }
+
+        // Extract value from webhook data using dot notation
+        const actualValue = getNestedValue(webhookData, rule.condition_field);
+        if (actualValue === undefined || actualValue === null) {
+          return false;
+        }
+
+        // Convert to string for comparison
+        const actualStr = String(actualValue).toLowerCase();
+        const expectedStr = String(rule.condition_value).toLowerCase();
+
+        // Evaluate based on operator
+        switch (rule.condition_operator) {
+          case "equals":
+            return actualStr === expectedStr;
+          case "contains":
+            return actualStr.includes(expectedStr);
+          case "starts_with":
+            return actualStr.startsWith(expectedStr);
+          default:
+            return false;
+        }
+      };
+
+      // Filter allocation rules based on conditions
+      let applicableRules = allocationRules.filter(rule => evaluateCondition(rule, incomingData));
+
+      // If no rules match conditions, fall back to default rules
+      if (applicableRules.length === 0) {
+        applicableRules = allocationRules.filter(rule => rule.is_default === true);
+      }
+
+      // If still no rules, error out
+      if (applicableRules.length === 0) {
+        errorMessage = "No allocation rules match the incoming data and no default rules configured";
         return res.status(400).json({ error: errorMessage });
       }
 
+      // Validate percentages sum to 100 for applicable rules
+      const totalPercentage = applicableRules.reduce((sum, rule) => sum + rule.percentage, 0);
+      if (totalPercentage !== 100) {
+        errorMessage = `Matching allocation rules percentages must sum to 100 (current: ${totalPercentage}%)`;
+        return res.status(400).json({ error: errorMessage });
+      }
+
+      // Determine which sheet to allocate to using round-robin with percentage distribution
+      let targetSheetId: string;
+      
       // Get the last allocated sheet to continue round-robin
       const lastAllocatedSheetId = webhook.last_allocated_sheet_id;
       
-      // Find next sheet in round-robin order
+      // Find next sheet in round-robin order within applicable rules
       if (!lastAllocatedSheetId) {
-        // First allocation - use the first sheet in the rules
-        targetSheetId = allocationRules[0].sheet_id;
+        // First allocation - use the first sheet in the applicable rules
+        targetSheetId = applicableRules[0].sheet_id;
       } else {
-        // Find current sheet index
-        const currentIndex = allocationRules.findIndex(rule => rule.sheet_id === lastAllocatedSheetId);
+        // Find current sheet index in applicable rules
+        const currentIndex = applicableRules.findIndex(rule => rule.sheet_id === lastAllocatedSheetId);
         
         if (currentIndex === -1) {
-          // Last allocated sheet not found in current rules, start from first
-          targetSheetId = allocationRules[0].sheet_id;
+          // Last allocated sheet not found in current applicable rules, start from first
+          targetSheetId = applicableRules[0].sheet_id;
         } else {
-          // Use weighted round-robin: allocate based on percentage
-          // Simplification: rotate through sheets proportionally
-          const nextIndex = (currentIndex + 1) % allocationRules.length;
-          targetSheetId = allocationRules[nextIndex].sheet_id;
+          // Use weighted round-robin: rotate through sheets
+          const nextIndex = (currentIndex + 1) % applicableRules.length;
+          targetSheetId = applicableRules[nextIndex].sheet_id;
         }
       }
 

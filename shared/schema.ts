@@ -597,6 +597,11 @@ export const webhook_allocation_rules = pgTable('webhook_allocation_rules', {
   webhook_id: varchar('webhook_id').notNull().references(() => company_webhooks.id, { onDelete: 'cascade' }),
   sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
   percentage: integer('percentage').notNull(),
+  condition_field: varchar('condition_field', { length: 255 }), // e.g., "language", "data.0.value"
+  condition_operator: varchar('condition_operator', { length: 50 }), // "equals", "contains", "starts_with"
+  condition_value: varchar('condition_value', { length: 255 }), // e.g., "Telugu", "Odia"
+  priority: integer('priority').notNull().default(0), // for ordering rules
+  is_default: boolean('is_default').notNull().default(false), // fallback if no conditions match
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
