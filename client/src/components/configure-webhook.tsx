@@ -90,10 +90,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     { sheet_id: "", percentage: 100 },
   ]);
 
-  // Field picker state
-  const [fieldSearchQuery, setFieldSearchQuery] = useState("");
-  const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
-
   // Fetch sheets for allocation
   const { data: sheets = [] } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -120,39 +116,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     enabled: !!webhook.id,
   });
 
-  // Helper function to flatten nested objects into dot-notation paths with values
-  const flattenObject = (obj: Record<string, any>, prefix = ''): Array<{path: string, value: any}> => {
-    const fields: Array<{path: string, value: any}> = [];
-    
-    for (const [key, value] of Object.entries(obj)) {
-      const fullPath = prefix ? `${prefix}.${key}` : key;
-      
-      // Add the current field with its value
-      fields.push({ path: fullPath, value });
-      
-      // If value is a nested object (not array, not null), recurse
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        fields.push(...flattenObject(value, fullPath));
-      }
-    }
-    
-    return fields;
-  };
-
-  // Extract webhook fields with values from the most recent webhook request
-  const webhookFieldsWithValues = (() => {
-    if (webhookRequests.length === 0) return [];
-    
-    // Backend returns requests ordered by created_at DESC, so first is most recent
-    const mostRecentRequest = webhookRequests[0];
-    if (!mostRecentRequest.payload) return [];
-    
-    // Flatten nested objects to extract all possible field paths with their values
-    return flattenObject(mostRecentRequest.payload);
-  })();
-
-  // Just the field paths for autocomplete
-  const availableWebhookFields = webhookFieldsWithValues.map(f => f.path);
 
   // Load existing configuration when data arrives
   useEffect(() => {
@@ -200,20 +163,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     updated[index][field] = value;
     setFieldMappings(updated);
   };
-
-  // Insert webhook field path into active field input
-  const insertFieldPath = (path: string) => {
-    if (activeFieldIndex !== null) {
-      updateFieldMapping(activeFieldIndex, "webhook_field", path);
-      setActiveFieldIndex(null); // Clear active index after insertion
-    }
-  };
-
-  // Filter webhook fields based on search query
-  const filteredWebhookFields = webhookFieldsWithValues.filter(field =>
-    field.path.toLowerCase().includes(fieldSearchQuery.toLowerCase()) ||
-    String(field.value).toLowerCase().includes(fieldSearchQuery.toLowerCase())
-  );
 
   // Allocation Rule Handlers
   const addAllocationRule = () => {
@@ -310,38 +259,25 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Map fields from your webhook payload to CRM fields. {webhookFieldsWithValues.length > 0 ? "Select from detected fields or type custom field names." : "Send a test webhook to see available fields."}
+            Map fields from your webhook payload to CRM fields. Use dot notation for nested fields (e.g., user.contact.email).
           </AlertDescription>
         </Alert>
+
+        {/* Show raw webhook JSON payload */}
+        {webhookRequests.length > 0 && webhookRequests[0].payload && (
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Most Recent Webhook Data</Label>
+            <div className="border rounded-lg p-4 bg-muted max-h-96 overflow-auto">
+              <pre className="text-xs font-mono whitespace-pre-wrap">
+                {JSON.stringify(webhookRequests[0].payload, null, 2)}
+              </pre>
+            </div>
+          </div>
+        )}
 
         {/* Field Mappings */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Field Mappings</Label>
-          
-          {/* Show detected webhook data inline */}
-          {webhookFieldsWithValues.length > 0 && (
-            <div className="border rounded-lg p-4 bg-muted/30 space-y-2">
-              <Label className="text-sm font-medium">Detected Webhook Data</Label>
-              <div className="text-xs text-muted-foreground mb-2">
-                {webhookFieldsWithValues.length} field{webhookFieldsWithValues.length !== 1 ? 's' : ''} detected from your most recent webhook
-              </div>
-              <div className="space-y-1 max-h-64 overflow-y-auto">
-                {webhookFieldsWithValues.map((field, idx) => {
-                  const isObject = typeof field.value === 'object' && field.value !== null;
-                  const valueStr = isObject ? '[Object]' : String(field.value);
-                  const valueType = Array.isArray(field.value) ? 'array' : typeof field.value;
-                  
-                  return (
-                    <div key={idx} className="text-xs pl-2 border-l-2 border-muted">
-                      <div className="font-medium text-foreground">{field.path} Key: <span className="font-mono text-primary">{field.path}</span></div>
-                      <div className="text-muted-foreground">Value: <span className="font-mono">{valueStr}</span></div>
-                      <div className="text-muted-foreground">Type: <span className="font-mono">{valueType}</span></div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
           
           {fieldMappings.map((mapping, index) => (
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
@@ -350,18 +286,9 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                 <Input
                   value={mapping.webhook_field}
                   onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
-                  placeholder={availableWebhookFields.length > 0 ? "Type or select field key" : "e.g., phone, email, name"}
-                  list={`webhook-fields-${index}`}
+                  placeholder="e.g., name, mobile_no, user.contact.email"
                   data-testid={`input-webhook-field-${index}`}
                 />
-                {/* Native HTML datalist for autocomplete suggestions */}
-                {availableWebhookFields.length > 0 && (
-                  <datalist id={`webhook-fields-${index}`}>
-                    {availableWebhookFields.map((field) => (
-                      <option key={field} value={field} />
-                    ))}
-                  </datalist>
-                )}
               </div>
               <div className="flex-1">
                 <Label className="text-xs text-muted-foreground">CRM Field</Label>
