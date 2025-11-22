@@ -83,10 +83,14 @@ export interface IStorage {
   // Leads
   getLead(id: string): Promise<Lead | undefined>;
   getLeadsBySheetId(sheetId: string): Promise<Lead[]>;
+  getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]>;
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined>;
-  deleteLead(id: string): Promise<boolean>;
-  deleteLeads(ids: string[]): Promise<number>;
+  deleteLead(id: string, userId: string): Promise<boolean>;
+  deleteLeads(ids: string[], userId: string): Promise<number>;
+  restoreLead(id: string): Promise<boolean>;
+  restoreLeads(ids: string[]): Promise<number>;
+  cleanupOldDeletedLeads(): Promise<number>;
 
   // Dropdown Options (Company-scoped)
   getDropdownOptions(sheetId: string): Promise<DropdownOption[]>;
@@ -533,7 +537,11 @@ export class MemStorage implements IStorage {
   }
 
   async getLeadsBySheetId(sheetId: string): Promise<Lead[]> {
-    return Array.from(this.leads.values()).filter((lead) => lead.sheet_id === sheetId);
+    return Array.from(this.leads.values()).filter((lead) => lead.sheet_id === sheetId && !lead.deleted_at);
+  }
+
+  async getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]> {
+    return Array.from(this.leads.values()).filter((lead) => lead.sheet_id === sheetId && lead.deleted_at);
   }
 
   async createLead(insertLead: InsertLead): Promise<Lead> {
@@ -560,14 +568,54 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
-  async deleteLead(id: string): Promise<boolean> {
-    return this.leads.delete(id);
+  async deleteLead(id: string, userId: string): Promise<boolean> {
+    const lead = this.leads.get(id);
+    if (lead) {
+      lead.deleted_at = new Date().toISOString();
+      lead.deleted_by_user_id = userId;
+      this.leads.set(id, lead);
+      return true;
+    }
+    return false;
   }
 
-  async deleteLeads(ids: string[]): Promise<number> {
+  async deleteLeads(ids: string[], userId: string): Promise<number> {
     let count = 0;
     for (const id of ids) {
-      if (this.leads.delete(id)) count++;
+      if (await this.deleteLead(id, userId)) count++;
+    }
+    return count;
+  }
+
+  async restoreLead(id: string): Promise<boolean> {
+    const lead = this.leads.get(id);
+    if (lead) {
+      lead.deleted_at = null;
+      lead.deleted_by_user_id = null;
+      this.leads.set(id, lead);
+      return true;
+    }
+    return false;
+  }
+
+  async restoreLeads(ids: string[]): Promise<number> {
+    let count = 0;
+    for (const id of ids) {
+      if (await this.restoreLead(id)) count++;
+    }
+    return count;
+  }
+
+  async cleanupOldDeletedLeads(): Promise<number> {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    let count = 0;
+    for (const [id, lead] of this.leads.entries()) {
+      if (lead.deleted_at && new Date(lead.deleted_at) < thirtyDaysAgo) {
+        this.leads.delete(id);
+        count++;
+      }
     }
     return count;
   }
@@ -837,7 +885,7 @@ export class MemStorage implements IStorage {
 // POSTGRESQL STORAGE (Permanent Database)
 // ============================================================================
 import { db } from "./db";
-import { eq, and, desc, isNull, sql as drizzleSql } from "drizzle-orm";
+import { eq, and, desc, isNull, isNotNull, sql as drizzleSql } from "drizzle-orm";
 import * as dbSchema from "@shared/schema";
 import jwt from "jsonwebtoken";
 
@@ -1194,7 +1242,22 @@ export class PgStorage implements IStorage {
   }
 
   async getLeadsBySheetId(sheetId: string): Promise<Lead[]> {
-    const result = await db.select().from(dbSchema.leads).where(eq(dbSchema.leads.sheet_id, sheetId));
+    const result = await db.select().from(dbSchema.leads).where(
+      and(
+        eq(dbSchema.leads.sheet_id, sheetId),
+        isNull(dbSchema.leads.deleted_at)
+      )
+    );
+    return result.map(this.mapLead);
+  }
+
+  async getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]> {
+    const result = await db.select().from(dbSchema.leads).where(
+      and(
+        eq(dbSchema.leads.sheet_id, sheetId),
+        isNotNull(dbSchema.leads.deleted_at)
+      )
+    );
     return result.map(this.mapLead);
   }
 
@@ -1228,16 +1291,56 @@ export class PgStorage implements IStorage {
     return this.getLead(id);
   }
 
-  async deleteLead(id: string): Promise<boolean> {
-    await db.delete(dbSchema.leads).where(eq(dbSchema.leads.id, id));
+  async deleteLead(id: string, userId: string): Promise<boolean> {
+    const deleted_at = new Date();
+    await db.update(dbSchema.leads).set({
+      deleted_at,
+      deleted_by_user_id: userId
+    }).where(eq(dbSchema.leads.id, id));
     return true;
   }
 
-  async deleteLeads(ids: string[]): Promise<number> {
+  async deleteLeads(ids: string[], userId: string): Promise<number> {
+    const deleted_at = new Date();
     for (const id of ids) {
-      await db.delete(dbSchema.leads).where(eq(dbSchema.leads.id, id));
+      await db.update(dbSchema.leads).set({
+        deleted_at,
+        deleted_by_user_id: userId
+      }).where(eq(dbSchema.leads.id, id));
     }
     return ids.length;
+  }
+
+  async restoreLead(id: string): Promise<boolean> {
+    await db.update(dbSchema.leads).set({
+      deleted_at: null,
+      deleted_by_user_id: null
+    }).where(eq(dbSchema.leads.id, id));
+    return true;
+  }
+
+  async restoreLeads(ids: string[]): Promise<number> {
+    for (const id of ids) {
+      await db.update(dbSchema.leads).set({
+        deleted_at: null,
+        deleted_by_user_id: null
+      }).where(eq(dbSchema.leads.id, id));
+    }
+    return ids.length;
+  }
+
+  async cleanupOldDeletedLeads(): Promise<number> {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const result = await db.delete(dbSchema.leads).where(
+      and(
+        isNotNull(dbSchema.leads.deleted_at),
+        drizzleSql`${dbSchema.leads.deleted_at} < ${thirtyDaysAgo}`
+      )
+    );
+    
+    return 0;
   }
 
   // Dropdown Options
@@ -1497,6 +1600,8 @@ export class PgStorage implements IStorage {
   private mapLead(row: any): Lead {
     return {
       ...row,
+      deleted_at: row.deleted_at?.toISOString() || row.deleted_at,
+      deleted_by_user_id: row.deleted_by_user_id || null,
       created_at: row.created_at?.toISOString() || row.created_at,
       updated_at: row.updated_at?.toISOString() || row.updated_at,
     };
