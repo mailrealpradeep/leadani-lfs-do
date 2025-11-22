@@ -362,39 +362,83 @@ export default function Webhooks() {
           </DialogHeader>
           <div className="space-y-3">
             {selectedWebhookRequests.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No webhook requests yet
-              </p>
+              <div className="text-center py-8 space-y-3">
+                <p className="text-sm text-muted-foreground">No webhook requests yet</p>
+                <p className="text-xs text-muted-foreground">
+                  Send a test from Paperform or your webhook provider to see the field names here
+                </p>
+              </div>
             ) : (
-              selectedWebhookRequests.map((request) => (
-                <div
-                  key={request.id}
-                  className="border rounded-lg p-3"
-                  data-testid={`request-${request.id}`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={request.status === "success" ? "default" : "destructive"}>
-                        {request.status}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {format(new Date(request.created_at), "PPpp")}
-                      </span>
+              selectedWebhookRequests.map((request) => {
+                const fieldNames = request.payload && typeof request.payload === 'object' 
+                  ? Object.keys(request.payload) 
+                  : [];
+                
+                return (
+                  <div
+                    key={request.id}
+                    className="border rounded-lg p-3"
+                    data-testid={`request-${request.id}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={request.status === "success" ? "default" : "destructive"}>
+                          {request.status}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {format(new Date(request.created_at), "PPpp")}
+                        </span>
+                      </div>
                     </div>
+                    {request.error_message && (
+                      <p className="text-xs text-destructive mb-2">{request.error_message}</p>
+                    )}
+                    
+                    {/* Field Names - Prominently Displayed */}
+                    {fieldNames.length > 0 && (
+                      <div className="mb-3 p-3 bg-muted/50 rounded-md">
+                        <Label className="text-xs font-semibold mb-2 block">
+                          Field Names Received (use these for mapping):
+                        </Label>
+                        <div className="flex flex-wrap gap-2">
+                          {fieldNames.map((fieldName) => (
+                            <div
+                              key={fieldName}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-background rounded border text-xs font-mono"
+                            >
+                              <code>{fieldName}</code>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-4 w-4 p-0"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(fieldName);
+                                  toast({
+                                    title: "Copied",
+                                    description: `Field name "${fieldName}" copied to clipboard`,
+                                  });
+                                }}
+                                data-testid={`button-copy-field-${fieldName}`}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    <details>
+                      <summary className="text-sm cursor-pointer hover-elevate active-elevate-2 p-2 rounded">
+                        View Full Payload
+                      </summary>
+                      <pre className="mt-2 p-3 bg-muted rounded-md text-xs font-mono overflow-x-auto">
+                        {JSON.stringify(request.payload, null, 2)}
+                      </pre>
+                    </details>
                   </div>
-                  {request.error_message && (
-                    <p className="text-xs text-destructive mb-2">{request.error_message}</p>
-                  )}
-                  <details>
-                    <summary className="text-sm cursor-pointer hover-elevate active-elevate-2 p-2 rounded">
-                      View Payload
-                    </summary>
-                    <pre className="mt-2 p-3 bg-muted rounded-md text-xs font-mono overflow-x-auto">
-                      {JSON.stringify(request.payload, null, 2)}
-                    </pre>
-                  </details>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </DialogContent>
