@@ -76,9 +76,10 @@ The system supports bulk lead transfer between sheets, enabling users to move le
 - **Permission Checks**: Validates user has editor/admin access to both source and destination sheets (viewers cannot transfer)
 - **Company Isolation**: Prevents cross-company transfers, maintaining data security boundaries
 - **Audit Logging**: Records transfer actions with source and destination sheet IDs for compliance
+- **Lead Update History**: Automatically creates a "Transfer" entry in lead update history showing the source sheet, target sheet, date, and transferring user's name
 - **Real-time Sync**: Emits Socket.io events to both sheets (removal from source, addition to target) for instant UI updates
 - **Confirmation Flow**: Requires explicit user confirmation before executing the transfer
-- **Error Handling**: Provides detailed feedback for permission issues or failed transfers
+- **Error Handling**: Provides detailed feedback for permission issues or failed transfers; only successful transfers create history entries
 
 ### Webhook Integration System
 
