@@ -17,6 +17,7 @@ import {
   X,
   Edit2,
   History,
+  ArrowRightLeft,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -49,6 +50,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -90,6 +99,8 @@ export function SpreadsheetGrid({
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
 
   const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
@@ -104,6 +115,10 @@ export function SpreadsheetGrid({
   const { data: dropdownOptions = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/sheets", sheetId, "dropdowns"],
     enabled: !!sheetId,
+  });
+
+  const { data: allSheets = [] } = useQuery<any[]>({
+    queryKey: ["/api/sheets"],
   });
 
   const isLoading = isLoadingLeads || isLoadingColumns;
@@ -127,6 +142,30 @@ export function SpreadsheetGrid({
       toast({
         title: "Leads deleted",
         description: `${selectedRows.size} lead(s) deleted successfully`,
+      });
+    },
+  });
+
+  const transferLeadsMutation = useMutation({
+    mutationFn: async ({ leadIds, targetSheetId }: { leadIds: string[]; targetSheetId: string }) => {
+      return await apiRequest("POST", "/api/leads/transfer", { leadIds, targetSheetId });
+    },
+    onSuccess: (data: any, variables) => {
+      // Invalidate both source and target sheets
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", variables.targetSheetId, "leads"] });
+      setSelectedRows(new Set());
+      setTransferDialogOpen(false);
+      toast({
+        title: "Leads transferred",
+        description: data.message,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Transfer failed",
+        description: error.message || "Failed to transfer leads",
+        variant: "destructive",
       });
     },
   });
@@ -380,6 +419,16 @@ export function SpreadsheetGrid({
           <Badge variant="secondary" data-testid="text-selected-count">
             {selectedRows.size} selected
           </Badge>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setTransferDialogOpen(true)}
+            data-testid="button-transfer-selected"
+            className="min-h-[44px]"
+          >
+            <ArrowRightLeft className="h-4 w-4 mr-2" />
+            Transfer
+          </Button>
           <Button
             variant="destructive"
             size="sm"
@@ -825,6 +874,71 @@ export function SpreadsheetGrid({
           </div>
         </div>
       )}
+
+      {/* Transfer Dialog */}
+      <Dialog open={transferDialogOpen} onOpenChange={(open) => {
+        setTransferDialogOpen(open);
+        if (!open) {
+          setSelectedTargetSheetId("");
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Transfer Leads</DialogTitle>
+            <DialogDescription>
+              Select a sheet to transfer {selectedRows.size} lead(s) to
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Select
+              value={selectedTargetSheetId}
+              onValueChange={setSelectedTargetSheetId}
+              disabled={transferLeadsMutation.isPending}
+            >
+              <SelectTrigger data-testid="select-target-sheet">
+                <SelectValue placeholder="Select target sheet..." />
+              </SelectTrigger>
+              <SelectContent>
+                {allSheets
+                  .filter((sheet: any) => sheet.id !== sheetId && !sheet.deleted_at)
+                  .map((sheet: any) => (
+                    <SelectItem key={sheet.id} value={sheet.id} data-testid={`select-sheet-${sheet.id}`}>
+                      {sheet.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            {transferLeadsMutation.isPending && (
+              <p className="text-sm text-muted-foreground">Transferring leads...</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTransferDialogOpen(false)}
+              disabled={transferLeadsMutation.isPending}
+              data-testid="button-cancel-transfer"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => {
+                if (selectedTargetSheetId) {
+                  transferLeadsMutation.mutate({
+                    leadIds: Array.from(selectedRows),
+                    targetSheetId: selectedTargetSheetId,
+                  });
+                }
+              }}
+              disabled={!selectedTargetSheetId || transferLeadsMutation.isPending}
+              data-testid="button-confirm-transfer"
+            >
+              {transferLeadsMutation.isPending ? "Transferring..." : "Transfer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

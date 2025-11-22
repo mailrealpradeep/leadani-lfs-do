@@ -69,6 +69,17 @@ The dashboard features a full-width spreadsheet interface with controls consolid
 
 Company and super admins can create personal and company-wide sheets, while regular users are limited to personal sheets. Deletion of sheets is soft (sets `deleted_at`) and cascade deletes related data. Permissions for sheet deletion are role-based (owner/admin/super admin). Lead deletion is restricted to company admins and super admins to protect critical data. All deletions are audit logged and synchronized in real-time via Socket.io.
 
+### Lead Transfer
+
+The system supports bulk lead transfer between sheets, enabling users to move leads from one sheet to another while maintaining data integrity and audit trails. Users with editor or admin permissions on both source and target sheets can initiate transfers. The transfer feature includes:
+- **Bulk Transfer UI**: Transfer button appears when leads are selected, opening a dialog to choose the target sheet
+- **Permission Checks**: Validates user has editor/admin access to both source and destination sheets (viewers cannot transfer)
+- **Company Isolation**: Prevents cross-company transfers, maintaining data security boundaries
+- **Audit Logging**: Records transfer actions with source and destination sheet IDs for compliance
+- **Real-time Sync**: Emits Socket.io events to both sheets (removal from source, addition to target) for instant UI updates
+- **Confirmation Flow**: Requires explicit user confirmation before executing the transfer
+- **Error Handling**: Provides detailed feedback for permission issues or failed transfers
+
 ### Webhook Integration System
 
 A comprehensive webhook system allows external systems to automatically create leads in the CRM via HTTP POST requests, eliminating manual data entry.
