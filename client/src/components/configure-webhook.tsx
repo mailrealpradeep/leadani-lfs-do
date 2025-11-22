@@ -25,6 +25,11 @@ interface FieldMapping {
 interface AllocationRule {
   sheet_id: string;
   percentage: number;
+  condition_field?: string | null;
+  condition_operator?: string | null;
+  condition_value?: string | null;
+  is_default?: boolean;
+  priority?: number;
 }
 
 interface ConfigureWebhookProps {
@@ -173,12 +178,24 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     setAllocationRules(allocationRules.filter((_, i) => i !== index));
   };
 
-  const updateAllocationRule = (index: number, field: keyof AllocationRule, value: string | number) => {
+  const updateAllocationRule = (index: number, field: keyof AllocationRule, value: string | number | boolean) => {
     const updated = [...allocationRules];
     if (field === "percentage") {
       updated[index].percentage = Number(value);
-    } else {
+    } else if (field === "is_default") {
+      updated[index].is_default = Boolean(value);
+      // Clear condition fields when marking as default
+      if (Boolean(value)) {
+        updated[index].condition_field = null;
+        updated[index].condition_operator = null;
+        updated[index].condition_value = null;
+      }
+    } else if (field === "condition_field" || field === "condition_operator" || field === "condition_value") {
+      updated[index][field] = value as string | null;
+    } else if (field === "sheet_id") {
       updated[index].sheet_id = String(value);
+    } else if (field === "priority") {
+      updated[index].priority = Number(value);
     }
     setAllocationRules(updated);
   };
@@ -347,56 +364,114 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         </div>
       </TabsContent>
 
-      <TabsContent value="allocation" className="space-y-4">
-        <Alert>
+      <TabsContent value="allocation" className="space-y-4 py-2">
+        <Alert className="mb-4">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Configure how incoming leads are distributed across sheets. Percentages must sum to 100%.
+            Configure conditional routing: leads are allocated based on webhook field values. Add conditions to route leads to specific sheets, or mark rules as default for unmatched leads.
           </AlertDescription>
         </Alert>
 
         {/* Allocation Rules */}
-        <div className="space-y-3">
+        <div className="space-y-4">
           <Label className="text-sm font-medium">Allocation Rules</Label>
           {allocationRules.map((rule, index) => (
-            <div key={index} className="flex items-end gap-2" data-testid={`rule-row-${index}`}>
-              <div className="flex-1">
-                <Label className="text-xs text-muted-foreground">Sheet</Label>
-                <select
-                  value={rule.sheet_id}
-                  onChange={(e) => updateAllocationRule(index, "sheet_id", e.target.value)}
-                  data-testid={`select-sheet-${index}`}
-                  className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            <div key={index} className="border rounded-lg p-4 space-y-3" data-testid={`rule-row-${index}`}>
+              {/* Condition Configuration */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-medium">Condition (optional)</Label>
+                  <input
+                    type="checkbox"
+                    checked={rule.is_default === true}
+                    onChange={(e) => updateAllocationRule(index, "is_default", e.target.checked)}
+                    className="h-4 w-4"
+                    data-testid={`checkbox-is-default-${index}`}
+                  />
+                  <Label className="text-xs text-muted-foreground">Mark as Default/Fallback</Label>
+                </div>
+                
+                {!rule.is_default && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="flex-1 min-w-0">
+                      <Label className="text-xs text-muted-foreground">Webhook Field</Label>
+                      <Input
+                        value={rule.condition_field || ""}
+                        onChange={(e) => updateAllocationRule(index, "condition_field", e.target.value)}
+                        placeholder="e.g., language, source"
+                        className="w-full"
+                        data-testid={`input-condition-field-${index}`}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <Label className="text-xs text-muted-foreground">Operator</Label>
+                      <select
+                        value={rule.condition_operator || ""}
+                        onChange={(e) => updateAllocationRule(index, "condition_operator", e.target.value)}
+                        data-testid={`select-condition-operator-${index}`}
+                        className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">Select</option>
+                        <option value="equals">Equals</option>
+                        <option value="contains">Contains</option>
+                        <option value="starts_with">Starts With</option>
+                      </select>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <Label className="text-xs text-muted-foreground">Value</Label>
+                      <Input
+                        value={rule.condition_value || ""}
+                        onChange={(e) => updateAllocationRule(index, "condition_value", e.target.value)}
+                        placeholder="e.g., Telugu, Odia"
+                        className="w-full"
+                        data-testid={`input-condition-value-${index}`}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Sheet & Percentage */}
+              <div className="flex items-end gap-2">
+                <div className="flex-1 min-w-0">
+                  <Label className="text-xs text-muted-foreground">Executive Sheet</Label>
+                  <select
+                    value={rule.sheet_id}
+                    onChange={(e) => updateAllocationRule(index, "sheet_id", e.target.value)}
+                    data-testid={`select-sheet-${index}`}
+                    className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Select sheet</option>
+                    {sheets.map((sheet) => (
+                      <option key={sheet.id} value={sheet.id}>
+                        {sheet.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="w-28">
+                  <Label className="text-xs text-muted-foreground">Percentage</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={rule.percentage}
+                    onChange={(e) => updateAllocationRule(index, "percentage", e.target.value)}
+                    placeholder="0"
+                    data-testid={`input-percentage-${index}`}
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeAllocationRule(index)}
+                  disabled={allocationRules.length === 1}
+                  data-testid={`button-remove-rule-${index}`}
+                  className="flex-shrink-0"
                 >
-                  <option value="">Select sheet</option>
-                  {sheets.map((sheet) => (
-                    <option key={sheet.id} value={sheet.id}>
-                      {sheet.name}
-                    </option>
-                  ))}
-                </select>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
-              <div className="w-32">
-                <Label className="text-xs text-muted-foreground">Percentage</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={rule.percentage}
-                  onChange={(e) => updateAllocationRule(index, "percentage", e.target.value)}
-                  placeholder="0"
-                  data-testid={`input-percentage-${index}`}
-                />
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => removeAllocationRule(index)}
-                disabled={allocationRules.length === 1}
-                data-testid={`button-remove-rule-${index}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
             </div>
           ))}
           <Button
@@ -404,6 +479,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             size="sm"
             onClick={addAllocationRule}
             data-testid="button-add-rule"
+            className="mt-2"
           >
             <Plus className="h-4 w-4 mr-2" />
             Add Rule

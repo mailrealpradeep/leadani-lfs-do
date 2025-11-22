@@ -81,7 +81,12 @@ A comprehensive webhook system allows external systems to automatically create l
 
 **Field Mapping:** Transforms incoming JSON payloads to CRM lead structures, mapping to fixed and custom fields, and preserving unmapped fields in the `meta` JSON column.
 
-**Allocation Logic:** Uses percentage-based round-robin distribution among sheets, ensuring leads are distributed according to configured percentages.
+**Allocation Logic:** Supports conditional two-tier allocation:
+- **Tier 1 (Team/Condition-based)**: Routes leads to sheet groups based on webhook field values (e.g., language="Telugu" → Telugu executives' sheets)
+- **Tier 2 (Executive/Percentage-based)**: Within matching sheets, distributes using percentage-based round-robin
+- **Operators**: Supports "equals", "contains", and "starts_with" for flexible matching
+- **Fallback**: Default rules handle unmatched leads when no conditions apply
+- **Validation**: Percentages within each condition group must sum to 100%
 
 **Lead Attribution:** Webhook-created leads are attributed to the webhook's `created_by_user_id` for proper permissions and audit trails.
 
