@@ -20,11 +20,11 @@ The frontend is built with React and Vite. It uses Wouter for routing, `@tanstac
 
 ### Backend Architecture
 
-The backend is an Express.js application providing RESTful API endpoints. Authentication is JWT-based with bcrypt for password hashing, token-based sessions, and rate limiting. Data is currently stored in an in-memory implementation (`MemStorage`) but is designed for easy migration to PostgreSQL using a common `IStorage` interface and Drizzle ORM. Socket.io manages real-time bidirectional communication, broadcasting CRUD events to relevant clients.
+The backend is an Express.js application providing RESTful API endpoints. Authentication is JWT-based with bcrypt for password hashing, token-based sessions, and rate limiting. Data is stored in **PostgreSQL** using Drizzle ORM with the `PgStorage` implementation. The storage layer uses a common `IStorage` interface for flexibility. Socket.io manages real-time bidirectional communication, broadcasting CRUD events to relevant clients.
 
 ### Data Model
 
-Core entities include Users, Companies, Invites, Sheets, SheetUsers, Leads (with fixed and custom fields), LeadUpdates (chronological tracking), DropdownOptions, CustomColumns, Audit logs, and WebhookLogs. The schema is TypeScript-first and Drizzle ORM-ready. Invites are single-use, time-limited (7 days) codes that enable staff onboarding.
+Core entities include Users, Companies, Invites, Sheets, SheetUsers, Leads (with fixed and custom fields), LeadUpdates (chronological tracking), DropdownOptions, CustomColumns, Audit logs, and WebhookLogs. The schema is defined using Drizzle ORM in `shared/schema.ts` with PostgreSQL table definitions. All tables use `varchar` UUID primary keys with `gen_random_uuid()` defaults. Lead custom fields are stored as JSON. Invites are single-use, time-limited (7 days) codes that enable staff onboarding.
 
 ### API Architecture
 
@@ -70,7 +70,7 @@ The dashboard features a clean, full-width spreadsheet interface with controls c
 
 ### Required Services
 
--   **Database**: Currently in-memory; designed for PostgreSQL using `DATABASE_URL` and Drizzle ORM.
+-   **Database**: PostgreSQL (Neon-backed) accessed via `DATABASE_URL` environment variable. All tables created using Drizzle ORM schema.
 
 ### Third-Party Libraries
 
