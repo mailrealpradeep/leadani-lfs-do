@@ -767,6 +767,70 @@ export class MemStorage implements IStorage {
   async deleteLeadUpdate(id: string): Promise<boolean> {
     return this.leadUpdates.delete(id);
   }
+
+  // Company Webhooks (stub implementations for MemStorage)
+  async getCompanyWebhook(id: string): Promise<CompanyWebhook | undefined> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
+  
+  async getCompanyWebhookByToken(token: string): Promise<CompanyWebhook | undefined> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
+  
+  async getCompanyWebhooksByCompanyId(companyId: string): Promise<CompanyWebhook[]> {
+    return [];
+  }
+  
+  async createCompanyWebhook(webhook: InsertCompanyWebhook): Promise<CompanyWebhook> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
+  
+  async updateCompanyWebhook(id: string, updates: Partial<CompanyWebhook>): Promise<CompanyWebhook | undefined> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
+  
+  async deleteCompanyWebhook(id: string): Promise<boolean> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
+
+  // Webhook Field Mappings (stub implementations)
+  async getWebhookFieldMappings(webhookId: string): Promise<WebhookFieldMapping[]> {
+    return [];
+  }
+  
+  async createWebhookFieldMapping(mapping: InsertWebhookFieldMapping): Promise<WebhookFieldMapping> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
+  
+  async deleteWebhookFieldMappingsByWebhookId(webhookId: string): Promise<boolean> {
+    return false;
+  }
+
+  // Webhook Allocation Rules (stub implementations)
+  async getWebhookAllocationRules(webhookId: string): Promise<WebhookAllocationRule[]> {
+    return [];
+  }
+  
+  async createWebhookAllocationRule(rule: InsertWebhookAllocationRule): Promise<WebhookAllocationRule> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
+  
+  async deleteWebhookAllocationRulesByWebhookId(webhookId: string): Promise<boolean> {
+    return false;
+  }
+
+  // Webhook Requests (stub implementations)
+  async getWebhookRequests(webhookId: string): Promise<WebhookRequest[]> {
+    return [];
+  }
+  
+  async getWebhookRequestsByCompanyId(companyId: string): Promise<WebhookRequest[]> {
+    return [];
+  }
+  
+  async createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
 }
 
 // ============================================================================
@@ -1471,6 +1535,163 @@ export class PgStorage implements IStorage {
     return {
       ...row,
       created_by_user_id: row.created_by_user_id || null,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  // Company Webhooks
+  async getCompanyWebhook(id: string): Promise<CompanyWebhook | undefined> {
+    const result = await db.select().from(dbSchema.company_webhooks).where(eq(dbSchema.company_webhooks.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapCompanyWebhook(result[0]);
+  }
+
+  async getCompanyWebhookByToken(token: string): Promise<CompanyWebhook | undefined> {
+    const result = await db.select().from(dbSchema.company_webhooks).where(eq(dbSchema.company_webhooks.token, token));
+    if (result.length === 0) return undefined;
+    return this.mapCompanyWebhook(result[0]);
+  }
+
+  async getCompanyWebhooksByCompanyId(companyId: string): Promise<CompanyWebhook[]> {
+    const result = await db.select().from(dbSchema.company_webhooks).where(eq(dbSchema.company_webhooks.company_id, companyId));
+    return result.map(this.mapCompanyWebhook.bind(this));
+  }
+
+  async createCompanyWebhook(webhook: InsertCompanyWebhook): Promise<CompanyWebhook> {
+    const id = randomUUID();
+    const now = new Date();
+    const newWebhook = {
+      id,
+      ...webhook,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.company_webhooks).values(newWebhook);
+    return this.mapCompanyWebhook(newWebhook as any);
+  }
+
+  async updateCompanyWebhook(id: string, updates: Partial<CompanyWebhook>): Promise<CompanyWebhook | undefined> {
+    const now = new Date();
+    const convertedUpdates: any = { ...updates, updated_at: now };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    await db.update(dbSchema.company_webhooks).set(convertedUpdates).where(eq(dbSchema.company_webhooks.id, id));
+    const result = await db.select().from(dbSchema.company_webhooks).where(eq(dbSchema.company_webhooks.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapCompanyWebhook(result[0]);
+  }
+
+  async deleteCompanyWebhook(id: string): Promise<boolean> {
+    await db.delete(dbSchema.company_webhooks).where(eq(dbSchema.company_webhooks.id, id));
+    return true;
+  }
+
+  // Webhook Field Mappings
+  async getWebhookFieldMappings(webhookId: string): Promise<WebhookFieldMapping[]> {
+    const result = await db.select().from(dbSchema.webhook_field_mappings).where(eq(dbSchema.webhook_field_mappings.webhook_id, webhookId));
+    return result.map(this.mapWebhookFieldMapping.bind(this));
+  }
+
+  async createWebhookFieldMapping(mapping: InsertWebhookFieldMapping): Promise<WebhookFieldMapping> {
+    const id = randomUUID();
+    const now = new Date();
+    const newMapping = {
+      id,
+      ...mapping,
+      created_at: now,
+    };
+    await db.insert(dbSchema.webhook_field_mappings).values(newMapping);
+    return this.mapWebhookFieldMapping(newMapping as any);
+  }
+
+  async deleteWebhookFieldMappingsByWebhookId(webhookId: string): Promise<boolean> {
+    await db.delete(dbSchema.webhook_field_mappings).where(eq(dbSchema.webhook_field_mappings.webhook_id, webhookId));
+    return true;
+  }
+
+  // Webhook Allocation Rules
+  async getWebhookAllocationRules(webhookId: string): Promise<WebhookAllocationRule[]> {
+    const result = await db.select().from(dbSchema.webhook_allocation_rules).where(eq(dbSchema.webhook_allocation_rules.webhook_id, webhookId));
+    return result.map(this.mapWebhookAllocationRule.bind(this));
+  }
+
+  async createWebhookAllocationRule(rule: InsertWebhookAllocationRule): Promise<WebhookAllocationRule> {
+    const id = randomUUID();
+    const now = new Date();
+    const newRule = {
+      id,
+      ...rule,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.webhook_allocation_rules).values(newRule);
+    return this.mapWebhookAllocationRule(newRule as any);
+  }
+
+  async deleteWebhookAllocationRulesByWebhookId(webhookId: string): Promise<boolean> {
+    await db.delete(dbSchema.webhook_allocation_rules).where(eq(dbSchema.webhook_allocation_rules.webhook_id, webhookId));
+    return true;
+  }
+
+  // Webhook Requests
+  async getWebhookRequests(webhookId: string): Promise<WebhookRequest[]> {
+    const result = await db.select().from(dbSchema.webhook_requests).where(eq(dbSchema.webhook_requests.webhook_id, webhookId)).orderBy(desc(dbSchema.webhook_requests.created_at));
+    return result.map(this.mapWebhookRequest.bind(this));
+  }
+
+  async getWebhookRequestsByCompanyId(companyId: string): Promise<WebhookRequest[]> {
+    const result = await db
+      .select({ request: dbSchema.webhook_requests })
+      .from(dbSchema.webhook_requests)
+      .innerJoin(dbSchema.company_webhooks, eq(dbSchema.webhook_requests.webhook_id, dbSchema.company_webhooks.id))
+      .where(eq(dbSchema.company_webhooks.company_id, companyId))
+      .orderBy(desc(dbSchema.webhook_requests.created_at));
+    return result.map((row) => this.mapWebhookRequest(row.request));
+  }
+
+  async createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest> {
+    const id = randomUUID();
+    const now = new Date();
+    const newRequest = {
+      id,
+      ...request,
+      created_at: now,
+    };
+    await db.insert(dbSchema.webhook_requests).values(newRequest);
+    return this.mapWebhookRequest(newRequest as any);
+  }
+
+  // Mapping functions for webhook entities
+  private mapCompanyWebhook(row: any): CompanyWebhook {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapWebhookFieldMapping(row: any): WebhookFieldMapping {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  private mapWebhookAllocationRule(row: any): WebhookAllocationRule {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapWebhookRequest(row: any): WebhookRequest {
+    return {
+      ...row,
       created_at: row.created_at?.toISOString() || row.created_at,
     };
   }
