@@ -63,10 +63,12 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { format } from "date-fns";
+import { format, isWithinInterval, parseISO } from "date-fns";
 import type { Lead, DropdownOption, CustomColumn } from "@shared/schema";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
+import { DateRangeFilter, type DateFilterValue } from "./filters/date-range-filter";
+import { DropdownFilter } from "./filters/dropdown-filter";
 
 interface SpreadsheetGridProps {
   sheetId: string;
@@ -94,7 +96,7 @@ export function SpreadsheetGrid({
   
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [columnFilters, setColumnFilters] = useState<Record<string, string | DateFilterValue | null>>({});
   const [isScrolled, setIsScrolled] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
@@ -333,10 +335,44 @@ export function SpreadsheetGrid({
       // Column filters
       for (const [columnKey, filterValue] of Object.entries(columnFilters)) {
         if (!filterValue) continue;
-        const cellValue = String(getLeadValue(lead, columnKey) || "").toLowerCase();
-        const filter = filterValue.toLowerCase();
-        if (!cellValue.includes(filter)) {
-          return false;
+        
+        const cellValue = getLeadValue(lead, columnKey);
+        const column = columns.find(c => c.key === columnKey);
+        
+        // Date range filter
+        if (typeof filterValue === "object" && "type" in filterValue && filterValue.from && filterValue.to) {
+          if (!cellValue) return false;
+          
+          try {
+            // Parse the cell value as a date (supports dd/MM/yyyy, ISO strings, etc.)
+            let cellDate: Date;
+            if (typeof cellValue === "string") {
+              // Try to parse as dd/MM/yyyy first
+              const parts = cellValue.split("/");
+              if (parts.length === 3) {
+                const [day, month, year] = parts;
+                cellDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+              } else {
+                cellDate = parseISO(cellValue);
+              }
+            } else {
+              cellDate = new Date(cellValue);
+            }
+            
+            if (!isWithinInterval(cellDate, { start: filterValue.from, end: filterValue.to })) {
+              return false;
+            }
+          } catch (e) {
+            return false;
+          }
+        }
+        // Text/Dropdown filter (string)
+        else if (typeof filterValue === "string") {
+          const cellValueStr = String(cellValue || "").toLowerCase();
+          const filter = filterValue.toLowerCase();
+          if (!cellValueStr.includes(filter)) {
+            return false;
+          }
         }
       }
       
@@ -595,33 +631,58 @@ export function SpreadsheetGrid({
                         )}
                       </div>
                       <div className="relative">
-                        <Input
-                          placeholder="Filter..."
-                          value={columnFilters[col.key] || ""}
-                          onChange={(e) =>
-                            setColumnFilters((prev) => ({
-                              ...prev,
-                              [col.key]: e.target.value,
-                            }))
-                          }
-                          className="h-7 text-xs"
-                          data-testid={`input-filter-${col.key}`}
-                        />
-                        {columnFilters[col.key] && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                            onClick={() =>
-                              setColumnFilters((prev) => {
-                                const next = { ...prev };
-                                delete next[col.key];
-                                return next;
-                              })
+                        {col.type === "date" ? (
+                          <DateRangeFilter
+                            value={columnFilters[col.key] as DateFilterValue}
+                            onChange={(value) =>
+                              setColumnFilters((prev) => ({
+                                ...prev,
+                                [col.key]: value,
+                              }))
                             }
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
+                          />
+                        ) : col.type === "dropdown" ? (
+                          <DropdownFilter
+                            value={columnFilters[col.key] as string | null}
+                            onChange={(value) =>
+                              setColumnFilters((prev) => ({
+                                ...prev,
+                                [col.key]: value,
+                              }))
+                            }
+                            options={getDropdownOptionsForColumn(col.key).map(opt => opt.value)}
+                          />
+                        ) : (
+                          <>
+                            <Input
+                              placeholder="Filter..."
+                              value={(columnFilters[col.key] as string) || ""}
+                              onChange={(e) =>
+                                setColumnFilters((prev) => ({
+                                  ...prev,
+                                  [col.key]: e.target.value,
+                                }))
+                              }
+                              className="h-7 text-xs"
+                              data-testid={`input-filter-${col.key}`}
+                            />
+                            {columnFilters[col.key] && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
+                                onClick={() =>
+                                  setColumnFilters((prev) => {
+                                    const next = { ...prev };
+                                    delete next[col.key];
+                                    return next;
+                                  })
+                                }
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
