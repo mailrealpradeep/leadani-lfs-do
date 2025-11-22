@@ -942,8 +942,50 @@ export class PgStorage implements IStorage {
   }
 
   async getSheetsByUserId(userId: string): Promise<Sheet[]> {
-    const result = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.owner_id, userId));
-    return result.map(this.mapSheet);
+    // Get sheets accessible to this user:
+    // 1. Sheets with explicit SheetUser permission
+    // 2. Personal sheets owned by user
+    // 3. Company-wide sheets (visibility: "company") for user's company
+    const user = await this.getUser(userId);
+    if (!user) return [];
+
+    const allSheets: Sheet[] = [];
+
+    // 1. Explicitly permissioned sheets (via sheet_users table)
+    const sheetUserRows = await db.select().from(dbSchema.sheet_users).where(eq(dbSchema.sheet_users.user_id, userId));
+    for (const su of sheetUserRows) {
+      const sheet = await this.getSheet(su.sheet_id);
+      if (sheet && sheet.deleted_at === null) {
+        allSheets.push(sheet);
+      }
+    }
+
+    // 2. Personal sheets owned by this user
+    const personalSheets = await db.select().from(dbSchema.sheets).where(
+      and(
+        eq(dbSchema.sheets.owner_id, userId),
+        eq(dbSchema.sheets.is_personal, true),
+        isNull(dbSchema.sheets.deleted_at)
+      )
+    );
+    allSheets.push(...personalSheets.map(this.mapSheet));
+
+    // 3. Company-wide sheets (visibility: "company") if user belongs to a company
+    if (user.company_id) {
+      const companyWideSheets = await db.select().from(dbSchema.sheets).where(
+        and(
+          eq(dbSchema.sheets.company_id, user.company_id),
+          eq(dbSchema.sheets.visibility, 'company'),
+          eq(dbSchema.sheets.is_personal, false),
+          isNull(dbSchema.sheets.deleted_at)
+        )
+      );
+      allSheets.push(...companyWideSheets.map(this.mapSheet));
+    }
+
+    // Deduplicate by sheet ID
+    const uniqueSheets = Array.from(new Map(allSheets.map(s => [s.id, s])).values());
+    return uniqueSheets;
   }
 
   async getSheetsByCompanyId(companyId: string): Promise<Sheet[]> {
