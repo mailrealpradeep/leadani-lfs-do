@@ -310,73 +310,38 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Map fields from your webhook payload to CRM fields. {webhookFieldsWithValues.length > 0 ? "Click on a field from the data viewer to insert it." : "Send a test webhook to see available fields."}
+            Map fields from your webhook payload to CRM fields. {webhookFieldsWithValues.length > 0 ? "Select from detected fields or type custom field names." : "Send a test webhook to see available fields."}
           </AlertDescription>
         </Alert>
 
-        {/* Data Viewer and Field Mappings - Two Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Field Mappings */}
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Field Mappings</Label>
           
-          {/* Left Column: Visual Field Picker (Pabbly-style) */}
+          {/* Show detected webhook data inline */}
           {webhookFieldsWithValues.length > 0 && (
-            <div className="space-y-3">
-              <Label className="text-sm font-medium">Webhook Data Viewer</Label>
-              <div className="border rounded-lg overflow-hidden bg-card">
-                {/* Search box */}
-                <div className="p-3 border-b bg-muted/50">
-                  <Input
-                    placeholder="Search fields or values..."
-                    value={fieldSearchQuery}
-                    onChange={(e) => setFieldSearchQuery(e.target.value)}
-                    className="h-8"
-                    data-testid="input-search-webhook-fields"
-                  />
-                </div>
-                
-                {/* Field list */}
-                <div className="max-h-96 overflow-y-auto p-2 space-y-1">
-                  {filteredWebhookFields.length === 0 ? (
-                    <div className="text-sm text-muted-foreground text-center py-8">
-                      No fields match your search
+            <div className="border rounded-lg p-4 bg-muted/30 space-y-2">
+              <Label className="text-sm font-medium">Detected Webhook Data</Label>
+              <div className="text-xs text-muted-foreground mb-2">
+                {webhookFieldsWithValues.length} field{webhookFieldsWithValues.length !== 1 ? 's' : ''} detected from your most recent webhook
+              </div>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {webhookFieldsWithValues.map((field, idx) => {
+                  const isObject = typeof field.value === 'object' && field.value !== null;
+                  const valueStr = isObject ? '[Object]' : String(field.value);
+                  const valueType = Array.isArray(field.value) ? 'array' : typeof field.value;
+                  
+                  return (
+                    <div key={idx} className="text-xs pl-2 border-l-2 border-muted">
+                      <div className="font-medium text-foreground">{field.path} Key: <span className="font-mono text-primary">{field.path}</span></div>
+                      <div className="text-muted-foreground">Value: <span className="font-mono">{valueStr}</span></div>
+                      <div className="text-muted-foreground">Type: <span className="font-mono">{valueType}</span></div>
                     </div>
-                  ) : (
-                    filteredWebhookFields.map((field, index) => {
-                      const displayValue = typeof field.value === 'object' 
-                        ? JSON.stringify(field.value) 
-                        : String(field.value);
-                      const isLongValue = displayValue.length > 50;
-                      
-                      return (
-                        <button
-                          key={index}
-                          onClick={() => {
-                            if (activeFieldIndex !== null) {
-                              insertFieldPath(field.path);
-                            }
-                          }}
-                          className="w-full text-left p-2 rounded hover-elevate active-elevate-2 text-sm transition-colors"
-                          data-testid={`button-field-${field.path}`}
-                        >
-                          <div className="font-medium text-primary truncate">{field.path}</div>
-                          <div className={`text-muted-foreground text-xs ${isLongValue ? 'truncate' : ''}`}>
-                            {displayValue}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-                
-                <div className="p-2 border-t bg-muted/30 text-xs text-muted-foreground text-center">
-                  {filteredWebhookFields.length} field{filteredWebhookFields.length !== 1 ? 's' : ''} available
-                </div>
+                  );
+                })}
               </div>
             </div>
           )}
-
-          {/* Right Column: Field Mappings */}
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Field Mappings</Label>
           
           {fieldMappings.map((mapping, index) => (
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
@@ -385,11 +350,9 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                 <Input
                   value={mapping.webhook_field}
                   onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
-                  onFocus={() => setActiveFieldIndex(index)}
-                  placeholder={availableWebhookFields.length > 0 ? "Click to select from data viewer or type" : "e.g., phone, email, name"}
+                  placeholder={availableWebhookFields.length > 0 ? "Type or select field key" : "e.g., phone, email, name"}
                   list={`webhook-fields-${index}`}
                   data-testid={`input-webhook-field-${index}`}
-                  className={activeFieldIndex === index ? "ring-2 ring-primary" : ""}
                 />
                 {/* Native HTML datalist for autocomplete suggestions */}
                 {availableWebhookFields.length > 0 && (
@@ -438,7 +401,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             <Plus className="h-4 w-4 mr-2" />
             Add Mapping
           </Button>
-          </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-4 border-t">
