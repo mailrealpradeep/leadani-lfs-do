@@ -22,6 +22,14 @@ import type {
   InsertLeadUpdate,
   Invite,
   InsertInvite,
+  CompanyWebhook,
+  InsertCompanyWebhook,
+  WebhookFieldMapping,
+  InsertWebhookFieldMapping,
+  WebhookAllocationRule,
+  InsertWebhookAllocationRule,
+  WebhookRequest,
+  InsertWebhookRequest,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -113,6 +121,29 @@ export interface IStorage {
   createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate>;
   updateLeadUpdate(id: string, updates: Partial<LeadUpdate>): Promise<LeadUpdate | undefined>;
   deleteLeadUpdate(id: string): Promise<boolean>;
+
+  // Company Webhooks
+  getCompanyWebhook(id: string): Promise<CompanyWebhook | undefined>;
+  getCompanyWebhookByToken(token: string): Promise<CompanyWebhook | undefined>;
+  getCompanyWebhooksByCompanyId(companyId: string): Promise<CompanyWebhook[]>;
+  createCompanyWebhook(webhook: InsertCompanyWebhook): Promise<CompanyWebhook>;
+  updateCompanyWebhook(id: string, updates: Partial<CompanyWebhook>): Promise<CompanyWebhook | undefined>;
+  deleteCompanyWebhook(id: string): Promise<boolean>;
+
+  // Webhook Field Mappings
+  getWebhookFieldMappings(webhookId: string): Promise<WebhookFieldMapping[]>;
+  createWebhookFieldMapping(mapping: InsertWebhookFieldMapping): Promise<WebhookFieldMapping>;
+  deleteWebhookFieldMappingsByWebhookId(webhookId: string): Promise<boolean>;
+
+  // Webhook Allocation Rules
+  getWebhookAllocationRules(webhookId: string): Promise<WebhookAllocationRule[]>;
+  createWebhookAllocationRule(rule: InsertWebhookAllocationRule): Promise<WebhookAllocationRule>;
+  deleteWebhookAllocationRulesByWebhookId(webhookId: string): Promise<boolean>;
+
+  // Webhook Requests
+  getWebhookRequests(webhookId: string): Promise<WebhookRequest[]>;
+  getWebhookRequestsByCompanyId(companyId: string): Promise<WebhookRequest[]>;
+  createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest>;
 }
 
 export class MemStorage implements IStorage {

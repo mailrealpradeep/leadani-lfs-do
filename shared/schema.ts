@@ -578,6 +578,7 @@ export const company_webhooks = pgTable('company_webhooks', {
   token: varchar('token', { length: 255 }).notNull().unique(),
   secret: varchar('secret', { length: 255 }).notNull(),
   is_active: boolean('is_active').notNull().default(true),
+  last_allocated_sheet_id: varchar('last_allocated_sheet_id').references(() => sheets.id, { onDelete: 'set null' }),
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
