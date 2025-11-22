@@ -102,9 +102,7 @@ A comprehensive webhook system allows external systems to automatically create l
 - Added per-condition percentage validation with visual breakdown in UI (green ✓ for valid groups, red ✗ for invalid, yellow ⚠ for incomplete)
 - Fixed Express rate-limit X-Forwarded-For header issue by enabling `app.set('trust proxy', true)`
 - Backend validation mirrors frontend to prevent API bypasses
-
-**Known Issues:**
-- Investigation needed: E2E test reported "200%" allocation error for conditional rules (database shows correct 100% per group, suggesting possible runtime filtering bug in webhook processing logic)
+- **RESOLVED:** Fixed webhook conditional allocation bug where default rules were incorrectly matching alongside conditional rules, causing "200% allocation" errors. Default rules now only activate as fallback when no conditional rules match, ensuring proper two-tier allocation (conditional → default fallback).
 
 ## External Dependencies
 
