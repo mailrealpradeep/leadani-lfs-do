@@ -426,3 +426,144 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
     },
   ];
 }
+
+// ============================================================================
+// DRIZZLE ORM TABLE DEFINITIONS (for PostgreSQL)
+// ============================================================================
+import { pgTable, varchar, text, boolean, json, timestamp, integer } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+
+export const companies = pgTable('companies', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar('name', { length: 255 }).notNull(),
+  slug: varchar('slug', { length: 255 }).notNull().unique(),
+  settings: json('settings').$type<{
+    timezone?: string;
+    date_format?: string;
+    custom_branding?: any;
+  }>().default({}).notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('active'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const users = pgTable('users', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  password_hash: varchar('password_hash', { length: 255 }).notNull(),
+  role: varchar('role', { length: 50 }).notNull().default('user'),
+  invited_by: varchar('invited_by').references(() => users.id, { onDelete: 'set null' }),
+  last_login: timestamp('last_login'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const invites = pgTable('invites', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  email: varchar('email', { length: 255 }).notNull(),
+  code: varchar('code', { length: 255 }).notNull().unique(),
+  role: varchar('role', { length: 50 }).notNull().default('user'),
+  inviter_id: varchar('inviter_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: varchar('status', { length: 50 }).notNull().default('pending'),
+  expires_at: timestamp('expires_at').notNull(),
+  accepted_by: varchar('accepted_by').references(() => users.id, { onDelete: 'set null' }),
+  accepted_at: timestamp('accepted_at'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const sheets = pgTable('sheets', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  owner_id: varchar('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  is_personal: boolean('is_personal').notNull().default(false),
+  visibility: varchar('visibility', { length: 50 }).notNull().default('company'),
+  settings: json('settings').$type<{
+    default_lead_status?: string;
+    default_visit_status?: string;
+    custom_fields?: any[];
+  }>().default({}).notNull(),
+  deleted_at: timestamp('deleted_at'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const sheet_users = pgTable('sheet_users', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: varchar('role', { length: 50 }).notNull().default('viewer'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const leads = pgTable('leads', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  owner_user_id: varchar('owner_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  custom_fields: json('custom_fields').$type<Record<string, any>>().default({}).notNull(),
+  meta: json('meta').$type<Record<string, any>>().default({}).notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const dropdown_options = pgTable('dropdown_options', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'cascade' }),
+  column_key: varchar('column_key', { length: 255 }).notNull(),
+  value: varchar('value', { length: 255 }).notNull(),
+  order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const custom_columns = pgTable('custom_columns', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  column_key: varchar('column_key', { length: 255 }).notNull(),
+  type: varchar('type', { length: 50 }).notNull(),
+  config: json('config').$type<{
+    default_value?: any;
+    dropdown_options?: string[];
+    required?: boolean;
+  }>().default({}).notNull(),
+  order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const audit_logs = pgTable('audit_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  action: varchar('action', { length: 255 }).notNull(),
+  model: varchar('model', { length: 255 }).notNull(),
+  model_id: varchar('model_id', { length: 255 }).notNull(),
+  payload: json('payload').$type<Record<string, any>>().default({}).notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const webhook_logs = pgTable('webhook_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'cascade' }),
+  payload: json('payload').$type<Record<string, any>>().default({}).notNull(),
+  headers: json('headers').$type<Record<string, any>>().default({}).notNull(),
+  status: varchar('status', { length: 50 }).notNull(),
+  error_message: text('error_message'),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const lead_updates = pgTable('lead_updates', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  update_via: varchar('update_via', { length: 50 }).notNull(),
+  update_on: varchar('update_on', { length: 255 }).notNull(),
+  remark: text('remark').notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});

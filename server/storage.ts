@@ -737,4 +737,655 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// ============================================================================
+// POSTGRESQL STORAGE (Permanent Database)
+// ============================================================================
+import { db } from "./db";
+import { eq, and, desc, isNull, sql as drizzleSql } from "drizzle-orm";
+import * as dbSchema from "@shared/schema";
+import jwt from "jsonwebtoken";
+
+const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
+
+function generateToken(userId: string, role: string, companyId: string | null): string {
+  return jwt.sign({ userId, role, companyId }, JWT_SECRET, { expiresIn: "7d" });
+}
+
+export class PgStorage implements IStorage {
+  // Companies
+  async getCompany(id: string): Promise<Company | undefined> {
+    const result = await db.select().from(dbSchema.companies).where(eq(dbSchema.companies.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapCompany(result[0]);
+  }
+
+  async getCompanyBySlug(slug: string): Promise<Company | undefined> {
+    const result = await db.select().from(dbSchema.companies).where(eq(dbSchema.companies.slug, slug));
+    if (result.length === 0) return undefined;
+    return this.mapCompany(result[0]);
+  }
+
+  async getAllCompanies(): Promise<Company[]> {
+    const result = await db.select().from(dbSchema.companies);
+    return result.map(this.mapCompany);
+  }
+
+  async createCompany(company: InsertCompany): Promise<Company> {
+    const id = randomUUID();
+    const now = new Date();
+    const newCompany = {
+      id,
+      ...company,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.companies).values(newCompany);
+    return this.mapCompany(newCompany as any);
+  }
+
+  async updateCompany(id: string, updates: Partial<Company>): Promise<Company | undefined> {
+    const updated_at = new Date();
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    convertedUpdates.updated_at = updated_at;
+    await db.update(dbSchema.companies).set(convertedUpdates).where(eq(dbSchema.companies.id, id));
+    return this.getCompany(id);
+  }
+
+  async deleteCompany(id: string): Promise<boolean> {
+    await db.delete(dbSchema.companies).where(eq(dbSchema.companies.id, id));
+    return true;
+  }
+
+  // Users
+  async getUser(id: string): Promise<User | undefined> {
+    const result = await db.select().from(dbSchema.users).where(eq(dbSchema.users.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapUser(result[0]);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const result = await db.select().from(dbSchema.users).where(eq(dbSchema.users.email, email));
+    if (result.length === 0) return undefined;
+    return this.mapUser(result[0]);
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    const result = await db.select().from(dbSchema.users);
+    return result.map(this.mapUser);
+  }
+
+  async getUsersByCompanyId(companyId: string): Promise<User[]> {
+    const result = await db.select().from(dbSchema.users).where(eq(dbSchema.users.company_id, companyId));
+    return result.map(this.mapUser);
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const id = randomUUID();
+    const now = new Date();
+    const newUser = {
+      id,
+      ...user,
+      password_hash: (user as any).password_hash,
+      last_login: null,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.users).values(newUser);
+    return this.mapUser(newUser as any);
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
+    const updated_at = new Date();
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    if (updates.last_login && typeof updates.last_login === 'string') {
+      convertedUpdates.last_login = new Date(updates.last_login);
+    }
+    convertedUpdates.updated_at = updated_at;
+    await db.update(dbSchema.users).set(convertedUpdates).where(eq(dbSchema.users.id, id));
+    return this.getUser(id);
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    await db.delete(dbSchema.users).where(eq(dbSchema.users.id, id));
+    return true;
+  }
+
+  // Company Signup (Transactional)
+  async createCompanyWithAdmin(companyName: string, adminName: string, adminEmail: string, passwordHash: string): Promise<{ company: Company; admin: User; token: string }> {
+    const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const company = await this.createCompany({ name: companyName, slug, settings: {}, status: 'active' });
+    const admin = await this.createUser({ 
+      company_id: company.id, 
+      name: adminName, 
+      email: adminEmail, 
+      password_hash: passwordHash, 
+      role: 'company_admin' 
+    } as any);
+    const token = generateToken(admin.id, admin.role, admin.company_id);
+    return { company, admin, token };
+  }
+
+  // Invites
+  async getInvite(id: string): Promise<Invite | undefined> {
+    const result = await db.select().from(dbSchema.invites).where(eq(dbSchema.invites.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapInvite(result[0]);
+  }
+
+  async getInviteByCode(code: string): Promise<Invite | undefined> {
+    const result = await db.select().from(dbSchema.invites).where(eq(dbSchema.invites.code, code));
+    if (result.length === 0) return undefined;
+    return this.mapInvite(result[0]);
+  }
+
+  async getInvitesByCompany(companyId: string): Promise<Invite[]> {
+    const result = await db.select().from(dbSchema.invites).where(eq(dbSchema.invites.company_id, companyId));
+    return result.map(this.mapInvite);
+  }
+
+  async createInvite(invite: InsertInvite): Promise<Invite> {
+    const id = randomUUID();
+    const code = randomUUID().substring(0, 8);
+    const now = new Date();
+    const expires_at = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const newInvite = {
+      id,
+      ...invite,
+      code,
+      status: 'pending' as const,
+      expires_at,
+      accepted_by: null,
+      accepted_at: null,
+      created_at: now,
+    };
+    await db.insert(dbSchema.invites).values(newInvite);
+    return this.mapInvite(newInvite as any);
+  }
+
+  async updateInvite(id: string, updates: Partial<Invite>): Promise<Invite | undefined> {
+    const convertedUpdates: any = { ...updates };
+    if (updates.expires_at && typeof updates.expires_at === 'string') {
+      convertedUpdates.expires_at = new Date(updates.expires_at);
+    }
+    if (updates.accepted_at && typeof updates.accepted_at === 'string') {
+      convertedUpdates.accepted_at = new Date(updates.accepted_at);
+    }
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    await db.update(dbSchema.invites).set(convertedUpdates).where(eq(dbSchema.invites.id, id));
+    return this.getInvite(id);
+  }
+
+  async deleteInvite(id: string): Promise<boolean> {
+    await db.delete(dbSchema.invites).where(eq(dbSchema.invites.id, id));
+    return true;
+  }
+
+  // Sheets
+  async getSheet(id: string): Promise<Sheet | undefined> {
+    const result = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapSheet(result[0]);
+  }
+
+  async getSheetsByUserId(userId: string): Promise<Sheet[]> {
+    const result = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.owner_id, userId));
+    return result.map(this.mapSheet);
+  }
+
+  async getSheetsByCompanyId(companyId: string): Promise<Sheet[]> {
+    const result = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.company_id, companyId));
+    return result.map(this.mapSheet);
+  }
+
+  async getPersonalSheets(userId: string): Promise<Sheet[]> {
+    const result = await db.select().from(dbSchema.sheets).where(and(eq(dbSchema.sheets.owner_id, userId), eq(dbSchema.sheets.is_personal, true)));
+    return result.map(this.mapSheet);
+  }
+
+  async getCompanySheets(companyId: string): Promise<Sheet[]> {
+    const result = await db.select().from(dbSchema.sheets).where(and(eq(dbSchema.sheets.company_id, companyId), eq(dbSchema.sheets.is_personal, false)));
+    return result.map(this.mapSheet);
+  }
+
+  async getAllSheets(): Promise<Sheet[]> {
+    const result = await db.select().from(dbSchema.sheets);
+    return result.map(this.mapSheet);
+  }
+
+  async createSheet(sheet: InsertSheet): Promise<Sheet> {
+    const id = randomUUID();
+    const now = new Date();
+    const newSheet = {
+      id,
+      ...sheet,
+      deleted_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.sheets).values(newSheet);
+    return this.mapSheet(newSheet as any);
+  }
+
+  async updateSheet(id: string, updates: Partial<Sheet>): Promise<Sheet | undefined> {
+    const updated_at = new Date();
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    if (updates.deleted_at && typeof updates.deleted_at === 'string') {
+      convertedUpdates.deleted_at = new Date(updates.deleted_at);
+    }
+    convertedUpdates.updated_at = updated_at;
+    await db.update(dbSchema.sheets).set(convertedUpdates).where(eq(dbSchema.sheets.id, id));
+    return this.getSheet(id);
+  }
+
+  async deleteSheet(id: string): Promise<boolean> {
+    await db.delete(dbSchema.sheets).where(eq(dbSchema.sheets.id, id));
+    return true;
+  }
+
+  async softDeleteSheet(id: string): Promise<boolean> {
+    const deleted_at = new Date();
+    await db.update(dbSchema.sheets).set({ deleted_at }).where(eq(dbSchema.sheets.id, id));
+    return true;
+  }
+
+  // Sheet Users
+  async getSheetUsers(sheetId: string): Promise<SheetUser[]> {
+    const result = await db.select().from(dbSchema.sheet_users).where(eq(dbSchema.sheet_users.sheet_id, sheetId));
+    return result.map(this.mapSheetUser);
+  }
+
+  async getSheetUser(sheetId: string, userId: string): Promise<SheetUser | undefined> {
+    const result = await db.select().from(dbSchema.sheet_users).where(and(eq(dbSchema.sheet_users.sheet_id, sheetId), eq(dbSchema.sheet_users.user_id, userId)));
+    if (result.length === 0) return undefined;
+    return this.mapSheetUser(result[0]);
+  }
+
+  async createSheetUser(sheetUser: InsertSheetUser): Promise<SheetUser> {
+    const id = randomUUID();
+    const now = new Date();
+    const newSheetUser = {
+      id,
+      ...sheetUser,
+      created_at: now,
+    };
+    await db.insert(dbSchema.sheet_users).values(newSheetUser);
+    return this.mapSheetUser(newSheetUser as any);
+  }
+
+  async updateSheetUser(id: string, updates: Partial<SheetUser>): Promise<SheetUser | undefined> {
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    await db.update(dbSchema.sheet_users).set(convertedUpdates).where(eq(dbSchema.sheet_users.id, id));
+    const result = await db.select().from(dbSchema.sheet_users).where(eq(dbSchema.sheet_users.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapSheetUser(result[0]);
+  }
+
+  async deleteSheetUser(id: string): Promise<boolean> {
+    await db.delete(dbSchema.sheet_users).where(eq(dbSchema.sheet_users.id, id));
+    return true;
+  }
+
+  // Leads
+  async getLead(id: string): Promise<Lead | undefined> {
+    const result = await db.select().from(dbSchema.leads).where(eq(dbSchema.leads.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapLead(result[0]);
+  }
+
+  async getLeadsBySheetId(sheetId: string): Promise<Lead[]> {
+    const result = await db.select().from(dbSchema.leads).where(eq(dbSchema.leads.sheet_id, sheetId));
+    return result.map(this.mapLead);
+  }
+
+  async createLead(lead: InsertLead): Promise<Lead> {
+    const id = randomUUID();
+    const now = new Date();
+    const newLead = {
+      id,
+      sheet_id: lead.sheet_id,
+      owner_user_id: lead.owner_user_id || '',
+      custom_fields: lead.custom_fields || {},
+      meta: lead.meta || {},
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.leads).values(newLead);
+    return this.mapLead(newLead as any);
+  }
+
+  async updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined> {
+    const updated_at = new Date();
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    convertedUpdates.updated_at = updated_at;
+    await db.update(dbSchema.leads).set(convertedUpdates).where(eq(dbSchema.leads.id, id));
+    return this.getLead(id);
+  }
+
+  async deleteLead(id: string): Promise<boolean> {
+    await db.delete(dbSchema.leads).where(eq(dbSchema.leads.id, id));
+    return true;
+  }
+
+  async deleteLeads(ids: string[]): Promise<number> {
+    for (const id of ids) {
+      await db.delete(dbSchema.leads).where(eq(dbSchema.leads.id, id));
+    }
+    return ids.length;
+  }
+
+  // Dropdown Options
+  async getDropdownOptions(sheetId: string): Promise<DropdownOption[]> {
+    const result = await db.select().from(dbSchema.dropdown_options).where(eq(dbSchema.dropdown_options.sheet_id, sheetId));
+    return result.map(this.mapDropdownOption);
+  }
+
+  async getDropdownOptionsByCompany(companyId: string): Promise<DropdownOption[]> {
+    const result = await db.select().from(dbSchema.dropdown_options).where(eq(dbSchema.dropdown_options.company_id, companyId));
+    return result.map(this.mapDropdownOption);
+  }
+
+  async getDropdownOptionsByColumn(companyId: string, columnKey: string): Promise<DropdownOption[]> {
+    const result = await db.select().from(dbSchema.dropdown_options).where(and(eq(dbSchema.dropdown_options.company_id, companyId), eq(dbSchema.dropdown_options.column_key, columnKey)));
+    return result.map(this.mapDropdownOption);
+  }
+
+  async createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption> {
+    const id = randomUUID();
+    const now = new Date();
+    const newOption = {
+      id,
+      ...option,
+      created_at: now,
+    };
+    await db.insert(dbSchema.dropdown_options).values(newOption);
+    return this.mapDropdownOption(newOption as any);
+  }
+
+  async updateDropdownOption(id: string, updates: Partial<DropdownOption>): Promise<DropdownOption | undefined> {
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    await db.update(dbSchema.dropdown_options).set(convertedUpdates).where(eq(dbSchema.dropdown_options.id, id));
+    const result = await db.select().from(dbSchema.dropdown_options).where(eq(dbSchema.dropdown_options.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapDropdownOption(result[0]);
+  }
+
+  async deleteDropdownOption(id: string): Promise<boolean> {
+    await db.delete(dbSchema.dropdown_options).where(eq(dbSchema.dropdown_options.id, id));
+    return true;
+  }
+
+  // Custom Columns
+  async getCustomColumns(sheetId: string): Promise<CustomColumn[]> {
+    const sheet = await this.getSheet(sheetId);
+    if (!sheet) return [];
+    
+    // Get both company-wide and sheet-specific columns
+    const result = await db.select().from(dbSchema.custom_columns)
+      .where(and(
+        eq(dbSchema.custom_columns.company_id, sheet.company_id),
+        drizzleSql`(${dbSchema.custom_columns.sheet_id} = ${sheetId} OR ${dbSchema.custom_columns.sheet_id} IS NULL)`
+      ))
+      .orderBy(dbSchema.custom_columns.order_index);
+    
+    return result.map(this.mapCustomColumn);
+  }
+
+  async getCustomColumnsByCompany(companyId: string): Promise<CustomColumn[]> {
+    const result = await db.select().from(dbSchema.custom_columns)
+      .where(and(
+        eq(dbSchema.custom_columns.company_id, companyId),
+        isNull(dbSchema.custom_columns.sheet_id)
+      ))
+      .orderBy(dbSchema.custom_columns.order_index);
+    return result.map(this.mapCustomColumn);
+  }
+
+  async getCompanyColumns(companyId: string): Promise<CustomColumn[]> {
+    return this.getCustomColumnsByCompany(companyId);
+  }
+
+  async getCustomColumnById(id: string): Promise<CustomColumn | undefined> {
+    const result = await db.select().from(dbSchema.custom_columns).where(eq(dbSchema.custom_columns.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapCustomColumn(result[0]);
+  }
+
+  async createCustomColumn(column: InsertCustomColumn): Promise<CustomColumn> {
+    const id = randomUUID();
+    const now = new Date();
+    const newColumn = {
+      id,
+      ...column,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.custom_columns).values(newColumn);
+    return this.mapCustomColumn(newColumn as any);
+  }
+
+  async updateCustomColumn(id: string, updates: Partial<CustomColumn>): Promise<CustomColumn | undefined> {
+    const updated_at = new Date();
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    convertedUpdates.updated_at = updated_at;
+    await db.update(dbSchema.custom_columns).set(convertedUpdates).where(eq(dbSchema.custom_columns.id, id));
+    return this.getCustomColumnById(id);
+  }
+
+  async deleteCustomColumn(id: string): Promise<boolean> {
+    await db.delete(dbSchema.custom_columns).where(eq(dbSchema.custom_columns.id, id));
+    return true;
+  }
+
+  // Audit Logs
+  async getAuditLogs(): Promise<Audit[]> {
+    const result = await db.select().from(dbSchema.audit_logs).orderBy(desc(dbSchema.audit_logs.created_at));
+    return result.map(this.mapAudit);
+  }
+
+  async getAuditLogsByCompany(companyId: string): Promise<Audit[]> {
+    const result = await db.select().from(dbSchema.audit_logs).where(eq(dbSchema.audit_logs.company_id, companyId)).orderBy(desc(dbSchema.audit_logs.created_at));
+    return result.map(this.mapAudit);
+  }
+
+  async getAuditLogsByModel(model: string, modelId: string): Promise<Audit[]> {
+    const result = await db.select().from(dbSchema.audit_logs).where(and(eq(dbSchema.audit_logs.model, model), eq(dbSchema.audit_logs.model_id, modelId))).orderBy(desc(dbSchema.audit_logs.created_at));
+    return result.map(this.mapAudit);
+  }
+
+  async createAuditLog(audit: InsertAudit): Promise<Audit> {
+    const id = randomUUID();
+    const now = new Date();
+    const newAudit = {
+      id,
+      ...audit,
+      created_at: now,
+    };
+    await db.insert(dbSchema.audit_logs).values(newAudit);
+    return this.mapAudit(newAudit as any);
+  }
+
+  // Webhook Logs
+  async getWebhookLogs(): Promise<WebhookLog[]> {
+    const result = await db.select().from(dbSchema.webhook_logs).orderBy(desc(dbSchema.webhook_logs.created_at));
+    return result.map(this.mapWebhookLog);
+  }
+
+  async getWebhookLogsByCompany(companyId: string): Promise<WebhookLog[]> {
+    const result = await db.select().from(dbSchema.webhook_logs).where(eq(dbSchema.webhook_logs.company_id, companyId)).orderBy(desc(dbSchema.webhook_logs.created_at));
+    return result.map(this.mapWebhookLog);
+  }
+
+  async createWebhookLog(log: InsertWebhookLog): Promise<WebhookLog> {
+    const id = randomUUID();
+    const now = new Date();
+    const newLog = {
+      id,
+      ...log,
+      created_at: now,
+    };
+    await db.insert(dbSchema.webhook_logs).values(newLog);
+    return this.mapWebhookLog(newLog as any);
+  }
+
+  // Lead Updates
+  async getLeadUpdates(leadId: string): Promise<LeadUpdate[]> {
+    const result = await db.select().from(dbSchema.lead_updates).where(eq(dbSchema.lead_updates.lead_id, leadId)).orderBy(desc(dbSchema.lead_updates.created_at));
+    return result.map(this.mapLeadUpdate);
+  }
+
+  async createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate> {
+    const id = randomUUID();
+    const now = new Date();
+    const newUpdate = {
+      id,
+      ...update,
+      created_at: now,
+    };
+    await db.insert(dbSchema.lead_updates).values(newUpdate);
+    return this.mapLeadUpdate(newUpdate as any);
+  }
+
+  async updateLeadUpdate(id: string, updates: Partial<LeadUpdate>): Promise<LeadUpdate | undefined> {
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    await db.update(dbSchema.lead_updates).set(convertedUpdates).where(eq(dbSchema.lead_updates.id, id));
+    const result = await db.select().from(dbSchema.lead_updates).where(eq(dbSchema.lead_updates.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapLeadUpdate(result[0]);
+  }
+
+  async deleteLeadUpdate(id: string): Promise<boolean> {
+    await db.delete(dbSchema.lead_updates).where(eq(dbSchema.lead_updates.id, id));
+    return true;
+  }
+
+  // Helper mapping functions to convert timestamps to ISO strings
+  private mapCompany(row: any): Company {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapUser(row: any): User {
+    return {
+      ...row,
+      last_login: row.last_login?.toISOString() || row.last_login,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapInvite(row: any): Invite {
+    return {
+      ...row,
+      expires_at: row.expires_at?.toISOString() || row.expires_at,
+      accepted_at: row.accepted_at?.toISOString() || row.accepted_at,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  private mapSheet(row: any): Sheet {
+    return {
+      ...row,
+      deleted_at: row.deleted_at?.toISOString() || row.deleted_at,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapSheetUser(row: any): SheetUser {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  private mapLead(row: any): Lead {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapDropdownOption(row: any): DropdownOption {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  private mapCustomColumn(row: any): CustomColumn {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapAudit(row: any): Audit {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  private mapWebhookLog(row: any): WebhookLog {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  private mapLeadUpdate(row: any): LeadUpdate {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+}
+
+// Use PostgreSQL storage if DATABASE_URL is available, otherwise use in-memory
+export const storage = process.env.DATABASE_URL ? new PgStorage() : new MemStorage();
