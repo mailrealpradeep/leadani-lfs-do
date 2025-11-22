@@ -12,6 +12,7 @@ interface DashboardContextType {
     onImport?: () => void;
     onManageColumns?: () => void;
     onToggleColumns?: () => void;
+    onViewDeletedLeads?: () => void;
     onExport?: () => void;
   };
   setActions: (actions: DashboardContextType["actions"]) => void;

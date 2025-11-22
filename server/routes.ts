@@ -2014,6 +2014,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: {},
       });
 
+      // Emit socket event for real-time updates
+      const io = app.get("io") as SocketIOServer;
+      io.to(`sheet_${lead.sheet_id}`).emit("lead_deleted", { leadId: req.params.id, sheetId: lead.sheet_id });
+
       res.json({ success: true });
     } catch (error: any) {
       console.error("Delete lead error:", error);
@@ -3549,6 +3553,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // ============================================================================
+  // SCHEDULED CLEANUP - 30-Day Lead Retention
+  // ============================================================================
+  // Run initial cleanup on startup
+  (async () => {
+    try {
+      console.log('[Cleanup] Running initial cleanup of deleted leads older than 30 days...');
+      const count = await storage.cleanupOldDeletedLeads();
+      console.log(`[Cleanup] Initial cleanup completed: ${count} leads permanently removed`);
+    } catch (error) {
+      console.error('[Cleanup] Failed to run initial lead cleanup:', error);
+    }
+  })();
+
+  // Schedule daily cleanup (every 24 hours)
+  const cleanupInterval = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  setInterval(async () => {
+    try {
+      console.log('[Cleanup] Running scheduled cleanup of deleted leads older than 30 days...');
+      const count = await storage.cleanupOldDeletedLeads();
+      console.log(`[Cleanup] Scheduled cleanup completed: ${count} leads permanently removed`);
+    } catch (error) {
+      console.error('[Cleanup] Failed to run scheduled lead cleanup:', error);
+    }
+  }, cleanupInterval);
 
   return httpServer;
 }

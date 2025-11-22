@@ -553,6 +553,8 @@ export class MemStorage implements IStorage {
       owner_user_id: insertLead.owner_user_id || "",
       custom_fields: insertLead.custom_fields || {},
       meta: insertLead.meta || {},
+      deleted_at: null,
+      deleted_by_user_id: null,
       created_at: now,
       updated_at: now,
     };

@@ -211,6 +211,17 @@ export function AppSidebar() {
                           <FileUp className="h-4 w-4 mr-2" />
                           Import
                         </Button>
+                        {(isCompanyAdmin || isSuperAdmin) && (
+                          <Button
+                            variant="outline"
+                            onClick={actions.onViewDeletedLeads}
+                            className="w-full justify-start"
+                            data-testid="button-view-deleted-leads"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Deleted Leads
+                          </Button>
+                        )}
                         {isCompanyAdmin && (
                           <Button
                             variant="outline"

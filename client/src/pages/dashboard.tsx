@@ -7,6 +7,7 @@ import { DropdownManagerModal } from "@/components/dropdown-manager-modal";
 import { AddLeadDialog } from "@/components/add-lead-dialog";
 import { ImportDialog } from "@/components/import-dialog";
 import { ColumnsDialog } from "@/components/columns-dialog";
+import { DeletedLeadsDialog } from "@/components/deleted-leads-dialog";
 import type { Sheet } from "@shared/schema";
 
 export default function Dashboard() {
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
+  const [isDeletedLeadsOpen, setIsDeletedLeadsOpen] = useState(false);
   const [dropdownColumn, setDropdownColumn] = useState<string | null>(null);
   const [isDropdownManagerOpen, setIsDropdownManagerOpen] = useState(false);
 
@@ -30,6 +32,7 @@ export default function Dashboard() {
       onAddLead: () => setIsAddLeadOpen(true),
       onImport: () => setIsImportOpen(true),
       onToggleColumns: () => setIsColumnVisibilityOpen(true),
+      onViewDeletedLeads: () => setIsDeletedLeadsOpen(true),
       onExport: () => {
         if (selectedSheetId) {
           window.open(`/api/sheets/${selectedSheetId}/export?format=csv`, "_blank");
@@ -130,6 +133,11 @@ export default function Dashboard() {
             sheetId={selectedSheetId}
             open={isImportOpen}
             onOpenChange={setIsImportOpen}
+          />
+          <DeletedLeadsDialog
+            sheetId={selectedSheetId}
+            open={isDeletedLeadsOpen}
+            onOpenChange={setIsDeletedLeadsOpen}
           />
         </>
       )}
