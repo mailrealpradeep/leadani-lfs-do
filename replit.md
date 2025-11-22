@@ -48,7 +48,13 @@ The application supports exporting lead data to Excel (XLSX library) and CSV for
 - Bulk lead import from Excel/CSV with intelligent column mapping
 - Field-level validation with error/warning reporting
 - Pre-validation for required columns
-- **Bulk lead update history import**: Users can include historical update records during import using a special "_lead_updates" column. The format is multi-line text with 3 lines per update: Method (Call/WA), Date (DD/MM/YYYY), and Remark. The parser automatically normalizes method names ("Call"/"call" → "call", "WA"/"wa" → "whatsapp") and supports various date formats including 2-digit years.
+- **Bulk lead update history import**: Users can include historical update records during import using a special "_lead_updates" column. The format is multi-line text with 3 lines per update: Method, Date, and Remark (remark can be blank). The parser features:
+  - **Strict method validation**: Accepts only Call/Phone/WA/WhatsApp tokens (case-insensitive), rejects unknown methods with clear error messages
+  - **Multi-format date parsing**: Supports DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, and YYYY-MM-DD (ISO) formats
+  - **2-digit year normalization**: YY → 20YY for years 00-49, YY → 19YY for years 50-99
+  - **Strict date validation**: Validates month (1-12) and day (1-31) bounds, rejects invalid calendar dates (e.g., Feb 30, Feb 31)
+  - **Blank remark support**: Empty remark lines are preserved while maintaining 3-line grouping
+  - **Comprehensive error reporting**: Position-specific error messages for debugging malformed blocks
 
 ### Design System
 
