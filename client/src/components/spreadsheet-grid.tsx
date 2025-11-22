@@ -44,6 +44,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -73,8 +79,9 @@ export function SpreadsheetGrid({
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [editingCell, setEditingCell] = useState<{ leadId: string; field: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ leadId: string; field: string; originalValue?: any } | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [datePickerOpen, setDatePickerOpen] = useState<{ leadId: string; field: string } | null>(null);
   
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -217,23 +224,32 @@ export function SpreadsheetGrid({
     };
   }, [sheetId]);
 
-  const handleCellClick = (lead: Lead, columnKey: string, currentValue: any) => {
-    setEditingCell({ leadId: lead.id, field: columnKey });
+  const handleCellClick = (lead: Lead, columnKey: string, currentValue: any, columnType?: string) => {
+    setEditingCell({ leadId: lead.id, field: columnKey, originalValue: currentValue });
     setEditValue(currentValue || "");
+    // Automatically open date picker for date fields
+    if (columnType === "date") {
+      setDatePickerOpen({ leadId: lead.id, field: columnKey });
+    }
   };
 
   const handleCellSave = (lead: Lead) => {
-    if (editingCell) {
-      const updatedFields = {
-        ...lead.custom_fields,
-        [editingCell.field]: editValue,
-      };
-      updateLeadMutation.mutate({
-        leadId: editingCell.leadId,
-        customFields: updatedFields,
-      });
-      setEditingCell(null);
+    if (editingCell && editValue !== undefined) {
+      // Only save if value has changed
+      const originalValue = editingCell.originalValue ?? "";
+      if (editValue !== originalValue) {
+        const updatedFields = {
+          ...lead.custom_fields,
+          [editingCell.field]: editValue,
+        };
+        updateLeadMutation.mutate({
+          leadId: editingCell.leadId,
+          customFields: updatedFields,
+        });
+      }
     }
+    setEditingCell(null);
+    setEditValue("");
   };
 
   const handleCellKeyDown = (e: React.KeyboardEvent, lead: Lead) => {
@@ -609,7 +625,7 @@ export function SpreadsheetGrid({
                       return (
                         <div
                           key={col.key}
-                          onDoubleClick={() => handleCellClick(lead, col.key, value)}
+                          onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
                           className="border-r px-3 py-2 whitespace-nowrap flex items-center"
                           data-testid={`cell-${lead.id}-${col.key}`}
                         >
@@ -645,6 +661,83 @@ export function SpreadsheetGrid({
                                 ))}
                               </SelectContent>
                             </Select>
+                          ) : col.type === "date" ? (
+                            <Popover 
+                              open={datePickerOpen?.leadId === lead.id && datePickerOpen?.field === col.key} 
+                              onOpenChange={(open) => {
+                                if (!open) {
+                                  // Close and exit edit mode
+                                  setDatePickerOpen(null);
+                                  setEditingCell(null);
+                                }
+                              }}
+                            >
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className="h-8 w-full justify-start text-left font-normal"
+                                  data-testid={`date-picker-trigger-${col.key}`}
+                                >
+                                  {editingCell?.originalValue 
+                                    ? format(new Date(editingCell.originalValue), "MMM d, yyyy") 
+                                    : "Pick a date"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent 
+                                className="w-auto p-0" 
+                                align="start"
+                                onEscapeKeyDown={(e) => {
+                                  e.preventDefault();
+                                  setDatePickerOpen(null);
+                                  setEditingCell(null);
+                                }}
+                                onInteractOutside={() => {
+                                  setDatePickerOpen(null);
+                                  setEditingCell(null);
+                                }}
+                              >
+                                <Calendar
+                                  mode="single"
+                                  selected={editingCell?.originalValue ? new Date(editingCell.originalValue) : undefined}
+                                  onSelect={(date) => {
+                                    if (date) {
+                                      const formattedDate = format(date, "yyyy-MM-dd");
+                                      const updatedFields = {
+                                        ...lead.custom_fields,
+                                        [col.key]: formattedDate,
+                                      };
+                                      updateLeadMutation.mutate({
+                                        leadId: lead.id,
+                                        customFields: updatedFields,
+                                      });
+                                      setDatePickerOpen(null);
+                                      setEditingCell(null);
+                                    }
+                                  }}
+                                  initialFocus
+                                />
+                                <div className="p-2 border-t">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full"
+                                    onClick={() => {
+                                      const updatedFields = { ...lead.custom_fields };
+                                      delete updatedFields[col.key];
+                                      updateLeadMutation.mutate({
+                                        leadId: lead.id,
+                                        customFields: updatedFields,
+                                      });
+                                      setDatePickerOpen(null);
+                                      setEditingCell(null);
+                                    }}
+                                    data-testid={`button-clear-date-${col.key}`}
+                                  >
+                                    Clear date
+                                  </Button>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                           ) : (
                             <Input
                               value={editValue}
