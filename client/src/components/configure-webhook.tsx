@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import type { CompanyWebhook, Sheet } from "@shared/schema";
 
 interface FieldMapping {
@@ -259,6 +260,38 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     updateMutation.mutate({ allocation_rules: validRules });
   };
 
+  // Calculate percentage totals per condition group
+  const calculateConditionGroups = () => {
+    const groups: Record<string, { rules: AllocationRule[], total: number, label: string }> = {};
+    
+    allocationRules.forEach(rule => {
+      // Create a key for this condition group
+      let groupKey: string;
+      let groupLabel: string;
+      
+      if (rule.is_default) {
+        groupKey = 'default';
+        groupLabel = 'Default/Fallback Rules';
+      } else if (rule.condition_field && rule.condition_operator && rule.condition_value) {
+        groupKey = `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value}`;
+        groupLabel = `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`;
+      } else {
+        groupKey = 'incomplete';
+        groupLabel = 'Incomplete Rules';
+      }
+      
+      if (!groups[groupKey]) {
+        groups[groupKey] = { rules: [], total: 0, label: groupLabel };
+      }
+      
+      groups[groupKey].rules.push(rule);
+      groups[groupKey].total += rule.percentage || 0;
+    });
+    
+    return groups;
+  };
+
+  const conditionGroups = calculateConditionGroups();
   const totalPercentage = allocationRules.reduce((sum, rule) => sum + rule.percentage, 0);
 
   return (
@@ -486,24 +519,74 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           </Button>
         </div>
 
-        {/* Percentage Summary */}
-        <div className="border rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Total Allocation</span>
-            <span
-              className={`text-lg font-semibold ${
-                totalPercentage === 100 ? "text-green-600" : "text-destructive"
-              }`}
-            >
-              {totalPercentage}%
-            </span>
+        {/* Percentage Summary with Condition Breakdown */}
+        {allocationRules.length > 0 && (
+          <div className="border rounded-lg p-4 space-y-3">
+            <div className="text-sm font-medium mb-2">Allocation Breakdown</div>
+            
+            {Object.entries(conditionGroups).map(([groupKey, group]) => {
+              const isValid = group.total === 100;
+              const isIncomplete = groupKey === 'incomplete';
+              const isUnderAllocated = group.total < 100;
+              const isOverAllocated = group.total > 100;
+              
+              return (
+                <div
+                  key={groupKey}
+                  className={cn(
+                    "p-3 rounded-md border",
+                    isValid && !isIncomplete ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950" : "",
+                    !isValid && !isIncomplete ? "border-destructive bg-destructive/10" : "",
+                    isIncomplete ? "border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950" : ""
+                  )}
+                  data-testid={`allocation-group-${groupKey}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">{group.label}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {group.rules.length} rule{group.rules.length !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "text-lg font-bold",
+                          isValid && !isIncomplete ? "text-green-600 dark:text-green-400" : "",
+                          !isValid && !isIncomplete ? "text-destructive" : "",
+                          isIncomplete ? "text-yellow-600 dark:text-yellow-400" : ""
+                        )}
+                        data-testid={`allocation-total-${groupKey}`}
+                      >
+                        {group.total}%
+                      </span>
+                      {isValid && !isIncomplete && (
+                        <Check className="w-5 h-5 text-green-600 dark:text-green-400" />
+                      )}
+                      {!isValid && !isIncomplete && (
+                        <AlertCircle className="w-5 h-5 text-destructive" />
+                      )}
+                      {isIncomplete && (
+                        <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+                      )}
+                    </div>
+                  </div>
+                  {!isValid && !isIncomplete && (
+                    <div className="text-xs text-destructive mt-2" data-testid={`allocation-error-${groupKey}`}>
+                      {isUnderAllocated && `⚠️ ${100 - group.total}% unallocated - add more rules or adjust percentages`}
+                      {isOverAllocated && `⚠️ ${group.total - 100}% over-allocated - reduce percentages`}
+                    </div>
+                  )}
+                  {isIncomplete && (
+                    <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
+                      ⚠️ Complete the condition fields or mark as default
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          {totalPercentage !== 100 && (
-            <p className="text-xs text-muted-foreground mt-2">
-              Percentages must sum to 100% for the webhook to work correctly
-            </p>
-          )}
-        </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-4 border-t">
           <Button variant="outline" onClick={onClose}>
