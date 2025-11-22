@@ -96,7 +96,15 @@ A comprehensive webhook system allows external systems to automatically create l
 
 **UI Features:** Webhook management page for admins to create/delete, toggle active status, configure field mappings and allocation rules, and view request logs. Includes real-time validation.
 
-**Security:** Webhook tokens are uniquely generated and hashed. The public endpoint is rate-limited, and comprehensive logging is in place.
+**Security:** Webhook tokens are uniquely generated and hashed. The public endpoint is rate-limited, and comprehensive logging is in place. Express trust proxy is enabled in `server/app.ts` to ensure rate limiting works correctly behind Replit's proxy.
+
+**Recent Updates (November 22, 2025):**
+- Added per-condition percentage validation with visual breakdown in UI (green ✓ for valid groups, red ✗ for invalid, yellow ⚠ for incomplete)
+- Fixed Express rate-limit X-Forwarded-For header issue by enabling `app.set('trust proxy', true)`
+- Backend validation mirrors frontend to prevent API bypasses
+
+**Known Issues:**
+- Investigation needed: E2E test reported "200%" allocation error for conditional rules (database shows correct 100% per group, suggesting possible runtime filtering bug in webhook processing logic)
 
 ## External Dependencies
 

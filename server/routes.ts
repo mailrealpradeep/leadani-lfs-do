@@ -617,9 +617,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Helper function to evaluate conditions
       const evaluateCondition = (rule: any, webhookData: any): boolean => {
-        // If rule has no condition (is_default=true or no condition fields), treat as default
+        // Default rules (no condition fields) are NOT evaluated in the main filter
+        // They are only used as fallback when no other rules match
         if (!rule.condition_field || !rule.condition_operator || !rule.condition_value) {
-          return rule.is_default === true;
+          return false;
         }
 
         // Extract value from webhook data using dot notation
