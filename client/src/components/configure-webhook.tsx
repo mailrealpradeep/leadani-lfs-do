@@ -45,18 +45,16 @@ const AVAILABLE_CRM_FIELDS = [
   { key: "visit_status", label: "Visit Status" },
 ];
 
-const DEMO_WEBHOOK_DATA = {
-  name: "John Doe",
-  email: "john@example.com",
-  phone: "9876543210",
-  source: "Website",
-  campaign: "Summer2025",
-  interest: "Product Demo",
-};
+// Demo webhook data is now fetched dynamically from the API based on company's custom columns
 
 export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("mappings");
+
+  // Fetch dynamic sample payload based on company's custom columns
+  const { data: samplePayload, isLoading: isLoadingSample } = useQuery<Record<string, string>>({
+    queryKey: ["/api/admin/company/webhooks/sample-payload"],
+  });
   
   // Field Mappings State
   const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([
@@ -224,16 +222,22 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Map fields from your webhook payload to CRM fields. Sample webhook data is shown below.
+            Map fields from your webhook payload to CRM fields. The sample below is automatically generated based on your company's actual sheet fields.
           </AlertDescription>
         </Alert>
 
         {/* Demo Data Preview */}
         <div className="border rounded-lg p-4 bg-muted">
           <Label className="text-sm font-medium mb-2 block">Sample Webhook Payload</Label>
-          <pre className="text-xs font-mono overflow-x-auto">
-            {JSON.stringify(DEMO_WEBHOOK_DATA, null, 2)}
-          </pre>
+          {isLoadingSample ? (
+            <div className="text-xs text-muted-foreground">Loading sample payload...</div>
+          ) : samplePayload ? (
+            <pre className="text-xs font-mono overflow-x-auto">
+              {JSON.stringify(samplePayload, null, 2)}
+            </pre>
+          ) : (
+            <div className="text-xs text-muted-foreground">No sample data available</div>
+          )}
         </div>
 
         {/* Field Mappings */}

@@ -12,6 +12,85 @@ import { seedData } from "./seed";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
+// Helper function to generate mock values for webhook sample payload
+function generateMockValue(fieldKey: string, fieldType?: string): string {
+  // Generate realistic sample values based on field type and name
+  const lowerKey = fieldKey.toLowerCase();
+  
+  // Date fields
+  if (fieldType === 'date' || lowerKey.includes('date')) {
+    return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  }
+  
+  // Time fields
+  if (lowerKey.includes('time')) {
+    return '14:30';
+  }
+  
+  // Number fields
+  if (fieldType === 'number' || lowerKey.includes('age') || lowerKey.includes('amount') || lowerKey.includes('price')) {
+    return '25';
+  }
+  
+  // Phone/Mobile fields
+  if (lowerKey.includes('phone') || lowerKey.includes('mobile')) {
+    return '9876543210';
+  }
+  
+  // WhatsApp fields
+  if (lowerKey.includes('whatsapp') || lowerKey.includes('wa')) {
+    return '9876543210';
+  }
+  
+  // Email fields
+  if (lowerKey.includes('email') || lowerKey.includes('mail')) {
+    return 'john.doe@example.com';
+  }
+  
+  // Name fields
+  if (lowerKey.includes('name')) {
+    return 'John Doe';
+  }
+  
+  // Status fields
+  if (lowerKey.includes('status')) {
+    return 'Active';
+  }
+  
+  // Source fields
+  if (lowerKey.includes('source')) {
+    return 'Website';
+  }
+  
+  // Language fields
+  if (lowerKey.includes('lang') || lowerKey.includes('language')) {
+    return 'English';
+  }
+  
+  // Occupation fields
+  if (lowerKey.includes('occupation') || lowerKey.includes('job')) {
+    return 'Software Engineer';
+  }
+  
+  // Qualification/Education fields
+  if (lowerKey.includes('qualification') || lowerKey.includes('education') || lowerKey.includes('degree')) {
+    return 'Bachelor\'s Degree';
+  }
+  
+  // Location/Address fields
+  if (lowerKey.includes('city') || lowerKey.includes('location') || lowerKey.includes('address')) {
+    return 'Mumbai';
+  }
+  
+  // Campaign/Marketing fields
+  if (lowerKey.includes('campaign') || lowerKey.includes('utm')) {
+    return 'Summer2025';
+  }
+  
+  // Default: generic text
+  return 'Sample Value';
+}
+
 // Rate limiters
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -1352,6 +1431,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(requests);
     } catch (error: any) {
       console.error("Get webhook requests error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate sample webhook payload based on company's custom columns
+  app.get("/api/admin/company/webhooks/sample-payload", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      // Get company's custom columns
+      const customColumns = await storage.getCompanyColumns(req.companyId);
+      
+      // Build sample payload with fixed fields + custom fields
+      const samplePayload: Record<string, string> = {};
+      
+      // Add fixed CRM fields
+      const fixedFields = [
+        { key: 'name', type: 'text' },
+        { key: 'mobile_no', type: 'text' },
+        { key: 'whatsapp', type: 'text' },
+        { key: 'lang', type: 'text' },
+        { key: 'occupation', type: 'text' },
+        { key: 'qualification', type: 'text' },
+        { key: 'lead_date', type: 'date' },
+        { key: 'lead_time', type: 'text' },
+        { key: 'lead_status', type: 'text' },
+        { key: 'visit_status', type: 'text' },
+      ];
+      
+      fixedFields.forEach(field => {
+        samplePayload[field.key] = generateMockValue(field.key, field.type);
+      });
+      
+      // Add custom columns from the company
+      customColumns.forEach(column => {
+        // Use the column_key for the field key
+        const fieldKey = column.column_key;
+        samplePayload[fieldKey] = generateMockValue(fieldKey, column.type);
+      });
+      
+      res.json(samplePayload);
+    } catch (error: any) {
+      console.error("Generate sample payload error:", error);
       res.status(500).json({ error: error.message });
     }
   });
