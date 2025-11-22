@@ -104,6 +104,31 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     enabled: !!webhook.id,
   });
 
+  // Fetch webhook requests to extract available field names from actual payloads
+  const { data: webhookRequests = [] } = useQuery<Array<{
+    id: string;
+    webhook_id: string;
+    status: string;
+    payload: Record<string, any>;
+    created_at: string;
+  }>>({
+    queryKey: ["/api/admin/company/webhooks", webhook.id, "requests"],
+    enabled: !!webhook.id,
+  });
+
+  // Extract unique field names from the most recent webhook request
+  const availableWebhookFields = (() => {
+    if (webhookRequests.length === 0) return [];
+    
+    // Get the most recent request (first in array, assuming sorted by created_at desc)
+    const mostRecentRequest = webhookRequests[0];
+    if (!mostRecentRequest.payload) return [];
+    
+    // Extract all field names from the payload
+    const fieldNames = Object.keys(mostRecentRequest.payload);
+    return fieldNames.sort(); // Sort alphabetically for easier selection
+  })();
+
   // Load existing configuration when data arrives
   useEffect(() => {
     if (webhookDetails?.field_mappings && webhookDetails.field_mappings.length > 0) {
@@ -269,16 +294,54 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         {/* Field Mappings */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Field Mappings</Label>
+          
+          {/* Show helper text when webhook fields are available */}
+          {availableWebhookFields.length > 0 && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                {availableWebhookFields.length} field{availableWebhookFields.length !== 1 ? 's' : ''} detected from your webhook data. Select from the dropdown or type manually.
+              </AlertDescription>
+            </Alert>
+          )}
+          
           {fieldMappings.map((mapping, index) => (
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
               <div className="flex-1">
                 <Label className="text-xs text-muted-foreground">Webhook Field</Label>
-                <Input
-                  value={mapping.webhook_field}
-                  onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
-                  placeholder="e.g., phone, email, name"
-                  data-testid={`input-webhook-field-${index}`}
-                />
+                {availableWebhookFields.length > 0 ? (
+                  <Select
+                    value={mapping.webhook_field}
+                    onValueChange={(value) => updateFieldMapping(index, "webhook_field", value)}
+                  >
+                    <SelectTrigger data-testid={`select-webhook-field-${index}`}>
+                      <SelectValue placeholder="Select or type field name" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                        Available Fields
+                      </div>
+                      {availableWebhookFields.map((field) => (
+                        <SelectItem key={field} value={field}>
+                          {field}
+                        </SelectItem>
+                      ))}
+                      {/* Allow manual entry if the current value is not in the list */}
+                      {mapping.webhook_field && !availableWebhookFields.includes(mapping.webhook_field) && (
+                        <SelectItem value={mapping.webhook_field}>
+                          {mapping.webhook_field} (custom)
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={mapping.webhook_field}
+                    onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
+                    placeholder="Send test webhook data first"
+                    data-testid={`input-webhook-field-${index}`}
+                  />
+                )}
               </div>
               <div className="flex-1">
                 <Label className="text-xs text-muted-foreground">CRM Field</Label>
