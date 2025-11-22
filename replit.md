@@ -38,6 +38,8 @@ Socket.io enables real-time synchronization by allowing clients to join sheet-sp
 
 The system includes chronological tracking of lead updates (method, date, remarks, user attribution). It supports exporting lead data to Excel/CSV and importing leads from Excel/CSV with intelligent column mapping, field-level validation, and handling of various date formats. Bulk lead transfer between sheets is supported with permission checks, company isolation, audit logging, and real-time updates.
 
+**Soft Delete and Recovery**: Leads support soft deletion with a 30-day retention period. Company admins and super admins can delete leads (which sets `deleted_at` timestamp and `deleted_by_user_id`), view deleted leads through a dedicated UI in the dashboard sidebar, and restore them within 30 days. A scheduled cleanup job runs daily on server startup and every 24 hours thereafter to permanently remove leads deleted more than 30 days ago. All lead queries automatically exclude soft-deleted records. Real-time Socket.io events synchronize deletions and restorations across connected clients.
+
 ### Design System
 
 Styling uses Tailwind CSS with custom design tokens, supporting light/dark themes. Shadcn UI provides accessible, customizable components, prioritizing a mobile-first approach.
