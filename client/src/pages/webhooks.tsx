@@ -337,7 +337,7 @@ export default function Webhooks() {
 
       {/* Configure Webhook Dialog */}
       <Dialog open={configureDialogOpen} onOpenChange={setConfigureDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Configure Webhook: {selectedWebhook?.name}</DialogTitle>
             <DialogDescription>

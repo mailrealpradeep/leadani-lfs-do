@@ -255,8 +255,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="mappings" className="space-y-4">
-        <Alert>
+      <TabsContent value="mappings" className="space-y-4 py-2">
+        <Alert className="mb-4">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             Map fields from your webhook payload to CRM fields. Use dot notation for nested fields (e.g., user.contact.email).
@@ -265,10 +265,10 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
 
         {/* Show raw webhook JSON payload */}
         {webhookRequests.length > 0 && webhookRequests[0].payload && (
-          <div className="space-y-2">
+          <div className="space-y-2 mb-4">
             <Label className="text-sm font-medium">Most Recent Webhook Data</Label>
-            <div className="border rounded-lg p-4 bg-muted max-h-96 overflow-auto">
-              <pre className="text-xs font-mono whitespace-pre-wrap">
+            <div className="border rounded-md p-3 bg-muted/50 max-h-64 overflow-auto">
+              <pre className="text-xs font-mono whitespace-pre-wrap break-all">
                 {JSON.stringify(webhookRequests[0].payload, null, 2)}
               </pre>
             </div>
@@ -281,22 +281,23 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           
           {fieldMappings.map((mapping, index) => (
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <Label className="text-xs text-muted-foreground">Webhook Field</Label>
                 <Input
                   value={mapping.webhook_field}
                   onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
-                  placeholder="e.g., name, mobile_no, user.contact.email"
+                  placeholder="e.g., name, mobile_no"
+                  className="w-full"
                   data-testid={`input-webhook-field-${index}`}
                 />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <Label className="text-xs text-muted-foreground">CRM Field</Label>
                 <Select
                   value={mapping.sheet_column_key}
                   onValueChange={(value) => updateFieldMapping(index, "sheet_column_key", value)}
                 >
-                  <SelectTrigger data-testid={`select-crm-field-${index}`}>
+                  <SelectTrigger className="w-full" data-testid={`select-crm-field-${index}`}>
                     <SelectValue placeholder="Select CRM field" />
                   </SelectTrigger>
                   <SelectContent>
@@ -314,6 +315,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                 onClick={() => removeFieldMapping(index)}
                 disabled={fieldMappings.length === 1}
                 data-testid={`button-remove-mapping-${index}`}
+                className="flex-shrink-0"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -324,14 +326,15 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             size="sm"
             onClick={addFieldMapping}
             data-testid="button-add-mapping"
+            className="mt-2"
           >
             <Plus className="h-4 w-4 mr-2" />
             Add Mapping
           </Button>
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={onClose}>
+        <div className="flex justify-end gap-2 pt-4 border-t mt-6">
+          <Button variant="outline" onClick={onClose} data-testid="button-cancel-mappings">
             Cancel
           </Button>
           <Button
