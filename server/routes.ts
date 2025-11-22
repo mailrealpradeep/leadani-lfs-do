@@ -2002,7 +2002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Only admin users can delete leads" });
       }
 
-      await storage.deleteLead(req.params.id);
+      await storage.deleteLead(req.params.id, req.userId!);
 
       // Audit log with company_id
       await storage.createAuditLog({
@@ -2017,6 +2017,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error: any) {
       console.error("Delete lead error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get deleted leads for a sheet
+  app.get("/api/sheets/:id/deleted-leads", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const sheet = await storage.getSheet(req.params.id);
+      if (!sheet || sheet.deleted_at) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Check if user has access to this sheet
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, req.params.id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Only admin users can view deleted leads
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+        return res.status(403).json({ error: "Only admin users can view deleted leads" });
+      }
+
+      const deletedLeads = await storage.getDeletedLeadsBySheetId(req.params.id);
+      res.json(deletedLeads);
+    } catch (error: any) {
+      console.error("Get deleted leads error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Restore deleted leads
+  app.post("/api/leads/restore", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { leadIds } = req.body;
+
+      if (!leadIds || !Array.isArray(leadIds) || leadIds.length === 0) {
+        return res.status(400).json({ error: "Lead IDs are required" });
+      }
+
+      // Only admin users can restore leads
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+        return res.status(403).json({ error: "Only admin users can restore leads" });
+      }
+
+      const io = app.get("io") as SocketIOServer;
+      const results = [];
+
+      for (const leadId of leadIds) {
+        const lead = await storage.getLead(leadId);
+        if (!lead) {
+          results.push({ leadId, success: false, error: "Lead not found" });
+          continue;
+        }
+
+        // Get sheet to access company_id
+        const sheet = await storage.getSheet(lead.sheet_id);
+        if (!sheet) {
+          results.push({ leadId, success: false, error: "Sheet not found" });
+          continue;
+        }
+
+        // Check if user has access to the lead's sheet
+        const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+        if (!hasAccess) {
+          results.push({ leadId, success: false, error: "Access denied" });
+          continue;
+        }
+
+        // Restore the lead
+        await storage.restoreLead(leadId);
+
+        // Audit log
+        await storage.createAuditLog({
+          user_id: req.userId!,
+          company_id: sheet.company_id,
+          action: "restore",
+          model: "lead",
+          model_id: leadId,
+          payload: {},
+        });
+
+        // Emit socket event
+        io.to(`sheet_${lead.sheet_id}`).emit("lead_restored", { leadId, sheetId: lead.sheet_id });
+
+        results.push({ leadId, success: true });
+      }
+
+      res.json({ results });
+    } catch (error: any) {
+      console.error("Restore leads error:", error);
       res.status(500).json({ error: error.message });
     }
   });
