@@ -45,16 +45,40 @@ const AVAILABLE_CRM_FIELDS = [
   { key: "visit_status", label: "Visit Status" },
 ];
 
-// Demo webhook data is now fetched dynamically from the API based on company's custom columns
+// Default sample payload (used as fallback when API fails)
+const DEFAULT_SAMPLE_PAYLOAD = {
+  name: "John Doe",
+  mobile_no: "9876543210",
+  whatsapp: "9876543210",
+  lang: "English",
+  occupation: "Software Engineer",
+  qualification: "Bachelor's Degree",
+  lead_date: new Date().toISOString().split('T')[0],
+  lead_time: "14:30",
+  lead_status: "New",
+  visit_status: "Not Visited",
+};
 
 export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("mappings");
 
-  // Fetch dynamic sample payload based on company's custom columns
-  const { data: samplePayload, isLoading: isLoadingSample } = useQuery<Record<string, string>>({
+  // Fetch dynamic sample payload and available fields based on company's custom columns
+  const { data: sampleData, isLoading: isLoadingSample, error: sampleError } = useQuery<{
+    samplePayload: Record<string, string>;
+    availableFields: Array<{ key: string; label: string }>;
+  }>({
     queryKey: ["/api/admin/company/webhooks/sample-payload"],
+    retry: 2, // Retry on failure
   });
+  
+  // Extract sample payload and available fields from the response with proper fallbacks
+  const samplePayload = sampleData?.samplePayload || (sampleError ? DEFAULT_SAMPLE_PAYLOAD : null);
+  // Always include fixed CRM fields and merge with custom fields from backend
+  const customFieldsFromBackend = sampleData?.availableFields?.filter(
+    field => !AVAILABLE_CRM_FIELDS.some(f => f.key === field.key)
+  ) || [];
+  const availableCrmFields = [...AVAILABLE_CRM_FIELDS, ...customFieldsFromBackend];
   
   // Field Mappings State
   const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([
@@ -230,7 +254,9 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         <div className="border rounded-lg p-4 bg-muted">
           <Label className="text-sm font-medium mb-2 block">Sample Webhook Payload</Label>
           {isLoadingSample ? (
-            <div className="text-xs text-muted-foreground">Loading sample payload...</div>
+            <div className="text-xs text-muted-foreground">Loading sample payload based on your company fields...</div>
+          ) : sampleError ? (
+            <div className="text-xs text-destructive">Failed to load sample payload. Using default fields.</div>
           ) : samplePayload ? (
             <pre className="text-xs font-mono overflow-x-auto">
               {JSON.stringify(samplePayload, null, 2)}
@@ -264,7 +290,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                     <SelectValue placeholder="Select CRM field" />
                   </SelectTrigger>
                   <SelectContent>
-                    {AVAILABLE_CRM_FIELDS.map((field) => (
+                    {availableCrmFields.map((field) => (
                       <SelectItem key={field.key} value={field.key}>
                         {field.label}
                       </SelectItem>

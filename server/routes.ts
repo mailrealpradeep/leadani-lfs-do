@@ -1448,18 +1448,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Build sample payload with fixed fields + custom fields
       const samplePayload: Record<string, string> = {};
       
-      // Add fixed CRM fields
+      // Add fixed CRM fields with labels
       const fixedFields = [
-        { key: 'name', type: 'text' },
-        { key: 'mobile_no', type: 'text' },
-        { key: 'whatsapp', type: 'text' },
-        { key: 'lang', type: 'text' },
-        { key: 'occupation', type: 'text' },
-        { key: 'qualification', type: 'text' },
-        { key: 'lead_date', type: 'date' },
-        { key: 'lead_time', type: 'text' },
-        { key: 'lead_status', type: 'text' },
-        { key: 'visit_status', type: 'text' },
+        { key: 'name', label: 'Name', type: 'text' },
+        { key: 'mobile_no', label: 'Mobile Number', type: 'text' },
+        { key: 'whatsapp', label: 'WhatsApp', type: 'text' },
+        { key: 'lang', label: 'Language', type: 'text' },
+        { key: 'occupation', label: 'Occupation', type: 'text' },
+        { key: 'qualification', label: 'Qualification', type: 'text' },
+        { key: 'lead_date', label: 'Lead Date', type: 'date' },
+        { key: 'lead_time', label: 'Lead Time', type: 'text' },
+        { key: 'lead_status', label: 'Lead Status', type: 'text' },
+        { key: 'visit_status', label: 'Visit Status', type: 'text' },
       ];
       
       fixedFields.forEach(field => {
@@ -1467,13 +1467,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // Add custom columns from the company
+      const customFieldOptions: Array<{ key: string; label: string }> = [];
       customColumns.forEach(column => {
         // Use the column_key for the field key
         const fieldKey = column.column_key;
         samplePayload[fieldKey] = generateMockValue(fieldKey, column.type);
+        customFieldOptions.push({ key: fieldKey, label: column.name });
       });
       
-      res.json(samplePayload);
+      // Return both sample payload and available field options (fixed + custom)
+      res.json({
+        samplePayload,
+        availableFields: [
+          ...fixedFields.map(f => ({ key: f.key, label: f.label })),
+          ...customFieldOptions
+        ]
+      });
     } catch (error: any) {
       console.error("Generate sample payload error:", error);
       res.status(500).json({ error: error.message });
