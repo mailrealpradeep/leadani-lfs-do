@@ -457,6 +457,145 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public Webhook Ingestion Endpoint
+  app.post("/api/public/webhooks/:token", webhookLimiter, async (req, res) => {
+    let webhook;
+    let requestStatus: "success" | "failed" = "failed";
+    let errorMessage: string | null = null;
+    let createdLeadId: string | null = null;
+
+    try {
+      // Find webhook by token
+      webhook = await storage.getCompanyWebhookByToken(req.params.token);
+      
+      if (!webhook) {
+        errorMessage = "Invalid webhook token";
+        return res.status(404).json({ error: errorMessage });
+      }
+
+      // Check if webhook is active
+      if (!webhook.is_active) {
+        errorMessage = "Webhook is inactive";
+        return res.status(403).json({ error: errorMessage });
+      }
+
+      // Get field mappings and allocation rules
+      const fieldMappings = await storage.getWebhookFieldMappings(webhook.id);
+      const allocationRules = await storage.getWebhookAllocationRules(webhook.id);
+
+      if (allocationRules.length === 0) {
+        errorMessage = "No allocation rules configured";
+        return res.status(400).json({ error: errorMessage });
+      }
+
+      // Apply field mappings to transform webhook payload to lead data
+      const incomingData = req.body;
+      const leadData: any = {};
+
+      // Map webhook fields to sheet column keys
+      for (const mapping of fieldMappings) {
+        const value = incomingData[mapping.webhook_field];
+        if (value !== undefined && value !== null) {
+          leadData[mapping.sheet_column_key] = value;
+        }
+      }
+
+      // Determine which sheet to allocate to using round-robin with percentage distribution
+      let targetSheetId: string;
+      const totalPercentage = allocationRules.reduce((sum, rule) => sum + rule.percentage, 0);
+      
+      if (totalPercentage !== 100) {
+        errorMessage = "Allocation rules percentages must sum to 100";
+        return res.status(400).json({ error: errorMessage });
+      }
+
+      // Get the last allocated sheet to continue round-robin
+      const lastAllocatedSheetId = webhook.last_allocated_sheet_id;
+      
+      // Find next sheet in round-robin order
+      if (!lastAllocatedSheetId) {
+        // First allocation - use the first sheet in the rules
+        targetSheetId = allocationRules[0].sheet_id;
+      } else {
+        // Find current sheet index
+        const currentIndex = allocationRules.findIndex(rule => rule.sheet_id === lastAllocatedSheetId);
+        
+        if (currentIndex === -1) {
+          // Last allocated sheet not found in current rules, start from first
+          targetSheetId = allocationRules[0].sheet_id;
+        } else {
+          // Use weighted round-robin: allocate based on percentage
+          // Simplification: rotate through sheets proportionally
+          const nextIndex = (currentIndex + 1) % allocationRules.length;
+          targetSheetId = allocationRules[nextIndex].sheet_id;
+        }
+      }
+
+      // Verify target sheet exists and belongs to the company
+      const targetSheet = await storage.getSheet(targetSheetId);
+      if (!targetSheet) {
+        errorMessage = "Target sheet not found";
+        return res.status(404).json({ error: errorMessage });
+      }
+
+      if (targetSheet.company_id !== webhook.company_id) {
+        errorMessage = "Sheet does not belong to webhook company";
+        return res.status(403).json({ error: errorMessage });
+      }
+
+      // Create the lead in the target sheet
+      const lead = await storage.createLead({
+        sheet_id: targetSheetId,
+        name: leadData.name || "",
+        mobile_no: leadData.mobile_no || "",
+        whatsapp: leadData.whatsapp || leadData.mobile_no || "",
+        lang: leadData.lang || "",
+        occupation: leadData.occupation || "",
+        qualification: leadData.qualification || "",
+        lead_date: leadData.lead_date || new Date().toISOString().split('T')[0],
+        lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+        lead_status: leadData.lead_status || "New",
+        visit_status: leadData.visit_status || "Not Visited",
+        meta: leadData.meta || {},
+      });
+
+      createdLeadId = lead.id;
+
+      // Update webhook's last allocated sheet for round-robin
+      await storage.updateCompanyWebhook(webhook.id, {
+        last_allocated_sheet_id: targetSheetId,
+      });
+
+      requestStatus = "success";
+      res.status(201).json({ 
+        success: true, 
+        lead_id: lead.id,
+        sheet_id: targetSheetId,
+        message: "Lead created successfully"
+      });
+    } catch (error: any) {
+      console.error("Webhook ingestion error:", error);
+      errorMessage = error.message;
+      res.status(500).json({ error: errorMessage });
+    } finally {
+      // Log webhook request regardless of success or failure
+      if (webhook) {
+        try {
+          await storage.createWebhookRequest({
+            webhook_id: webhook.id,
+            status: requestStatus,
+            payload: req.body,
+            response_status: requestStatus === "success" ? 201 : 500,
+            error_message: errorMessage,
+            lead_id: createdLeadId,
+          });
+        } catch (logError: any) {
+          console.error("Failed to log webhook request:", logError);
+        }
+      }
+    }
+  });
+
   // ============================================================================
   // COMPANY MANAGEMENT (Super Admin Only)
   // ============================================================================
@@ -966,6 +1105,240 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Invite deleted" });
     } catch (error: any) {
       console.error("Delete invite error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // WEBHOOK MANAGEMENT (Company Admin)
+  // ============================================================================
+  
+  // Get all webhooks for the company
+  app.get("/api/admin/company/webhooks", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const webhooks = await storage.getCompanyWebhooksByCompanyId(req.companyId);
+      res.json(webhooks);
+    } catch (error: any) {
+      console.error("Get webhooks error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get webhook details with mappings and allocation rules
+  app.get("/api/admin/company/webhooks/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getCompanyWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+
+      // Company admins can only view webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot view webhooks from other companies" });
+      }
+
+      // Get field mappings and allocation rules
+      const fieldMappings = await storage.getWebhookFieldMappings(webhook.id);
+      const allocationRules = await storage.getWebhookAllocationRules(webhook.id);
+
+      res.json({
+        ...webhook,
+        field_mappings: fieldMappings,
+        allocation_rules: allocationRules,
+      });
+    } catch (error: any) {
+      console.error("Get webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new webhook
+  app.post("/api/admin/company/webhooks", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { name, is_active } = req.body;
+
+      if (!name) {
+        return res.status(400).json({ error: "Name is required" });
+      }
+
+      // Generate secure token and secret
+      const crypto = await import("crypto");
+      const token = crypto.randomBytes(32).toString("hex");
+      const secret = crypto.randomBytes(32).toString("hex");
+
+      // Create webhook
+      const webhook = await storage.createCompanyWebhook({
+        company_id: req.companyId,
+        name,
+        token,
+        secret,
+        is_active: is_active ?? true,
+        last_allocated_sheet_id: null,
+        created_by_user_id: req.userId!,
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId,
+        action: "webhook_created",
+        model: "CompanyWebhook",
+        model_id: webhook.id,
+        payload: { name, token_preview: `${token.substring(0, 8)}...` },
+      });
+
+      res.status(201).json(webhook);
+    } catch (error: any) {
+      console.error("Create webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update webhook
+  app.put("/api/admin/company/webhooks/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getCompanyWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+
+      // Company admins can only update webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update webhooks from other companies" });
+      }
+
+      const { name, is_active, field_mappings, allocation_rules } = req.body;
+
+      // Update webhook basic info
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (is_active !== undefined) updates.is_active = is_active;
+
+      const updatedWebhook = await storage.updateCompanyWebhook(req.params.id, updates);
+
+      // Update field mappings if provided
+      if (field_mappings) {
+        // Delete existing mappings
+        await storage.deleteWebhookFieldMappingsByWebhookId(req.params.id);
+        
+        // Create new mappings
+        for (const mapping of field_mappings) {
+          await storage.createWebhookFieldMapping({
+            webhook_id: req.params.id,
+            webhook_field: mapping.webhook_field,
+            sheet_column_key: mapping.sheet_column_key,
+          });
+        }
+      }
+
+      // Update allocation rules if provided
+      if (allocation_rules) {
+        // Delete existing rules
+        await storage.deleteWebhookAllocationRulesByWebhookId(req.params.id);
+        
+        // Create new rules
+        for (const rule of allocation_rules) {
+          await storage.createWebhookAllocationRule({
+            webhook_id: req.params.id,
+            sheet_id: rule.sheet_id,
+            percentage: rule.percentage,
+          });
+        }
+      }
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "webhook_updated",
+        model: "CompanyWebhook",
+        model_id: req.params.id,
+        payload: { name, is_active, has_mappings: !!field_mappings, has_rules: !!allocation_rules },
+      });
+
+      res.json(updatedWebhook);
+    } catch (error: any) {
+      console.error("Update webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete webhook
+  app.delete("/api/admin/company/webhooks/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getCompanyWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+
+      // Company admins can only delete webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete webhooks from other companies" });
+      }
+
+      await storage.deleteCompanyWebhook(req.params.id);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "webhook_deleted",
+        model: "CompanyWebhook",
+        model_id: req.params.id,
+        payload: { name: webhook.name },
+      });
+
+      res.json({ message: "Webhook deleted" });
+    } catch (error: any) {
+      console.error("Delete webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get webhook requests/logs for a specific webhook
+  app.get("/api/admin/company/webhooks/:id/requests", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getCompanyWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+
+      // Company admins can only view webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot view webhooks from other companies" });
+      }
+
+      const requests = await storage.getWebhookRequests(req.params.id);
+      res.json(requests);
+    } catch (error: any) {
+      console.error("Get webhook requests error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all webhook requests for the company
+  app.get("/api/admin/company/webhook-requests", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const requests = await storage.getWebhookRequestsByCompanyId(req.companyId);
+      res.json(requests);
+    } catch (error: any) {
+      console.error("Get webhook requests error:", error);
       res.status(500).json({ error: error.message });
     }
   });
