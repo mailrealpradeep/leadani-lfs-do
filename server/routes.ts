@@ -1220,6 +1220,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Generate sample webhook payload based on company's custom columns
+  // IMPORTANT: This must come BEFORE the /:id route to avoid matching "sample-payload" as an id
+  app.get("/api/admin/company/webhooks/sample-payload", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      // Get company's custom columns
+      const customColumns = await storage.getCompanyColumns(req.companyId);
+      
+      // Build sample payload with fixed fields + custom fields
+      const samplePayload: Record<string, string> = {};
+      
+      // Add fixed CRM fields with labels
+      const fixedFields = [
+        { key: 'name', label: 'Name', type: 'text' },
+        { key: 'mobile_no', label: 'Mobile Number', type: 'text' },
+        { key: 'whatsapp', label: 'WhatsApp', type: 'text' },
+        { key: 'lang', label: 'Language', type: 'text' },
+        { key: 'occupation', label: 'Occupation', type: 'text' },
+        { key: 'qualification', label: 'Qualification', type: 'text' },
+        { key: 'lead_date', label: 'Lead Date', type: 'date' },
+        { key: 'lead_time', label: 'Lead Time', type: 'text' },
+        { key: 'lead_status', label: 'Lead Status', type: 'text' },
+        { key: 'visit_status', label: 'Visit Status', type: 'text' },
+      ];
+      
+      fixedFields.forEach(field => {
+        samplePayload[field.key] = generateMockValue(field.key, field.type);
+      });
+      
+      // Add custom columns from the company
+      const customFieldOptions: Array<{ key: string; label: string }> = [];
+      customColumns.forEach(column => {
+        // Use the column_key for the field key
+        const fieldKey = column.column_key;
+        samplePayload[fieldKey] = generateMockValue(fieldKey, column.type);
+        customFieldOptions.push({ key: fieldKey, label: column.name });
+      });
+      
+      // Return both sample payload and available field options (fixed + custom)
+      res.json({
+        samplePayload,
+        availableFields: [
+          ...fixedFields.map(f => ({ key: f.key, label: f.label })),
+          ...customFieldOptions
+        ]
+      });
+    } catch (error: any) {
+      console.error("Generate sample payload error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get webhook details with mappings and allocation rules
   app.get("/api/admin/company/webhooks/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
@@ -1431,60 +1486,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(requests);
     } catch (error: any) {
       console.error("Get webhook requests error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Generate sample webhook payload based on company's custom columns
-  app.get("/api/admin/company/webhooks/sample-payload", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
-    try {
-      if (!req.companyId) {
-        return res.status(403).json({ error: "Must belong to a company" });
-      }
-
-      // Get company's custom columns
-      const customColumns = await storage.getCompanyColumns(req.companyId);
-      
-      // Build sample payload with fixed fields + custom fields
-      const samplePayload: Record<string, string> = {};
-      
-      // Add fixed CRM fields with labels
-      const fixedFields = [
-        { key: 'name', label: 'Name', type: 'text' },
-        { key: 'mobile_no', label: 'Mobile Number', type: 'text' },
-        { key: 'whatsapp', label: 'WhatsApp', type: 'text' },
-        { key: 'lang', label: 'Language', type: 'text' },
-        { key: 'occupation', label: 'Occupation', type: 'text' },
-        { key: 'qualification', label: 'Qualification', type: 'text' },
-        { key: 'lead_date', label: 'Lead Date', type: 'date' },
-        { key: 'lead_time', label: 'Lead Time', type: 'text' },
-        { key: 'lead_status', label: 'Lead Status', type: 'text' },
-        { key: 'visit_status', label: 'Visit Status', type: 'text' },
-      ];
-      
-      fixedFields.forEach(field => {
-        samplePayload[field.key] = generateMockValue(field.key, field.type);
-      });
-      
-      // Add custom columns from the company
-      const customFieldOptions: Array<{ key: string; label: string }> = [];
-      customColumns.forEach(column => {
-        // Use the column_key for the field key
-        const fieldKey = column.column_key;
-        samplePayload[fieldKey] = generateMockValue(fieldKey, column.type);
-        customFieldOptions.push({ key: fieldKey, label: column.name });
-      });
-      
-      // Return both sample payload and available field options (fixed + custom)
-      res.json({
-        samplePayload,
-        availableFields: [
-          ...fixedFields.map(f => ({ key: f.key, label: f.label })),
-          ...customFieldOptions
-        ]
-      });
-    } catch (error: any) {
-      console.error("Generate sample payload error:", error);
       res.status(500).json({ error: error.message });
     }
   });
