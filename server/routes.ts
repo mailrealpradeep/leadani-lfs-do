@@ -2054,6 +2054,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Get the user who is performing the transfer
+      const transferUser = await storage.getUser(req.userId!);
+      const transferUserName = transferUser?.name || "Unknown User";
+
       // Process each lead
       const results = [];
       const io = app.get("io") as SocketIOServer;
@@ -2093,28 +2097,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
           continue;
         }
 
-        const oldSheetId = lead.sheet_id;
+        // Perform the actual transfer operations
+        try {
+          const oldSheetId = lead.sheet_id;
 
-        // Update lead's sheet_id
-        await storage.updateLead(leadId, { sheet_id: targetSheetId });
+          // Update lead's sheet_id
+          await storage.updateLead(leadId, { sheet_id: targetSheetId });
 
-        // Create audit log
-        await storage.createAuditLog({
-          user_id: req.userId!,
-          company_id: targetSheet.company_id,
-          action: "transfer",
-          model: "lead",
-          model_id: leadId,
-          payload: { from_sheet_id: oldSheetId, to_sheet_id: targetSheetId },
-        });
+          // Create audit log
+          await storage.createAuditLog({
+            user_id: req.userId!,
+            company_id: targetSheet.company_id,
+            action: "transfer",
+            model: "lead",
+            model_id: leadId,
+            payload: { from_sheet_id: oldSheetId, to_sheet_id: targetSheetId },
+          });
 
-        // Emit realtime events to both sheets
-        io.to(`sheet:${oldSheetId}`).emit("lead_deleted", { id: leadId });
-        
-        const updatedLead = await storage.getLead(leadId);
-        io.to(`sheet:${targetSheetId}`).emit("lead_created", updatedLead);
+          // Create lead update record for transfer (only after successful transfer)
+          const today = new Date().toISOString().split('T')[0];
+          await storage.createLeadUpdate({
+            lead_id: leadId,
+            update_via: "transfer",
+            update_on: today,
+            remark: `Transfer from "${sourceSheet.name}" to "${targetSheet.name}" by ${transferUserName}`,
+            created_by_user_id: req.userId!,
+          });
 
-        results.push({ leadId, success: true });
+          // Emit realtime events to both sheets
+          io.to(`sheet:${oldSheetId}`).emit("lead_deleted", { id: leadId });
+          
+          const updatedLead = await storage.getLead(leadId);
+          io.to(`sheet:${targetSheetId}`).emit("lead_created", updatedLead);
+
+          results.push({ leadId, success: true });
+        } catch (transferError: any) {
+          console.error(`Failed to transfer lead ${leadId}:`, transferError);
+          results.push({ leadId, success: false, error: transferError.message || "Transfer operation failed" });
+        }
       }
 
       const successCount = results.filter(r => r.success).length;

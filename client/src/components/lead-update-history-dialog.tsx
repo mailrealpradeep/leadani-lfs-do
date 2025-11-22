@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Trash2, Phone, MessageSquare } from "lucide-react";
+import { Trash2, Phone, MessageSquare, ArrowRightLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -86,8 +86,10 @@ export function LeadUpdateHistoryDialog({
                       <div className="flex items-center gap-2 mb-1">
                         {update.update_via === "call" ? (
                           <Phone className="h-4 w-4 text-blue-500" />
-                        ) : (
+                        ) : update.update_via === "whatsapp" ? (
                           <MessageSquare className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <ArrowRightLeft className="h-4 w-4 text-orange-500" />
                         )}
                         <span className="font-semibold capitalize">
                           {update.update_via}
