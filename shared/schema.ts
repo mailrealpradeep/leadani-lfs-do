@@ -570,3 +570,58 @@ export const lead_updates = pgTable('lead_updates', {
   created_by_user_id: varchar('created_by_user_id').references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const company_webhooks = pgTable('company_webhooks', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  token: varchar('token', { length: 255 }).notNull().unique(),
+  secret: varchar('secret', { length: 255 }).notNull(),
+  is_active: boolean('is_active').notNull().default(true),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const webhook_field_mappings = pgTable('webhook_field_mappings', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  webhook_id: varchar('webhook_id').notNull().references(() => company_webhooks.id, { onDelete: 'cascade' }),
+  webhook_field: varchar('webhook_field', { length: 255 }).notNull(),
+  sheet_column_key: varchar('sheet_column_key', { length: 255 }).notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const webhook_allocation_rules = pgTable('webhook_allocation_rules', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  webhook_id: varchar('webhook_id').notNull().references(() => company_webhooks.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  percentage: integer('percentage').notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const webhook_requests = pgTable('webhook_requests', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  webhook_id: varchar('webhook_id').notNull().references(() => company_webhooks.id, { onDelete: 'cascade' }),
+  payload: json('payload').$type<Record<string, any>>().default({}).notNull(),
+  headers: json('headers').$type<Record<string, any>>().default({}).notNull(),
+  status: varchar('status', { length: 50 }).notNull(),
+  error_message: text('error_message'),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  allocated_sheet_id: varchar('allocated_sheet_id').references(() => sheets.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+// ============================================================================
+// WEBHOOK MANAGEMENT TYPES
+// ============================================================================
+export type CompanyWebhook = typeof company_webhooks.$inferSelect;
+export type InsertCompanyWebhook = typeof company_webhooks.$inferInsert;
+
+export type WebhookFieldMapping = typeof webhook_field_mappings.$inferSelect;
+export type InsertWebhookFieldMapping = typeof webhook_field_mappings.$inferInsert;
+
+export type WebhookAllocationRule = typeof webhook_allocation_rules.$inferSelect;
+export type InsertWebhookAllocationRule = typeof webhook_allocation_rules.$inferInsert;
+
+export type WebhookRequest = typeof webhook_requests.$inferSelect;
+export type InsertWebhookRequest = typeof webhook_requests.$inferInsert;
