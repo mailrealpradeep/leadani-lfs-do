@@ -86,7 +86,11 @@ A comprehensive webhook system allows external systems to automatically create l
 - **Tier 2 (Executive/Percentage-based)**: Within matching sheets, distributes using percentage-based round-robin
 - **Operators**: Supports "equals", "contains", and "starts_with" for flexible matching
 - **Fallback**: Default rules handle unmatched leads when no conditions apply
-- **Validation**: Percentages within each condition group must sum to 100%
+- **Validation**: 
+  - Frontend and backend validation ensure each condition group totals exactly 100%
+  - Incomplete non-default rules (missing condition fields) are rejected
+  - UI displays per-condition breakdowns with visual feedback (green checkmarks for valid, red alerts for invalid)
+  - Clear error messages show unallocated/over-allocated percentages per group
 
 **Lead Attribution:** Webhook-created leads are attributed to the webhook's `created_by_user_id` for proper permissions and audit trails.
 

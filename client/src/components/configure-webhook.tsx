@@ -218,24 +218,63 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   };
 
   const validateAllocationRules = () => {
-    // Filter to only valid rules (both sheet_id and percentage > 0)
-    const validRules = allocationRules.filter((r) => r.sheet_id && r.percentage > 0);
+    // Filter to only valid rules
+    const validRules = allocationRules.filter((r) => {
+      // Must have sheet_id and percentage
+      if (!r.sheet_id || r.percentage <= 0) return false;
+      
+      // If not default, must have complete condition
+      if (!r.is_default) {
+        if (!r.condition_field || !r.condition_operator || !r.condition_value) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
     
     if (validRules.length === 0) {
       toast({
         title: "Validation Error",
-        description: "At least one allocation rule with a sheet and percentage is required",
+        description: "At least one complete allocation rule is required",
         variant: "destructive",
       });
       return false;
     }
 
-    // Validate percentages sum to 100%
-    const totalPercentage = validRules.reduce((sum, rule) => sum + rule.percentage, 0);
-    if (totalPercentage !== 100) {
+    // Group rules by condition and validate each group totals 100%
+    const groups: Record<string, { total: number, label: string }> = {};
+    
+    validRules.forEach(rule => {
+      let groupKey: string;
+      let groupLabel: string;
+      
+      if (rule.is_default) {
+        groupKey = 'default';
+        groupLabel = 'Default/Fallback Rules';
+      } else {
+        groupKey = `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value}`;
+        groupLabel = `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`;
+      }
+      
+      if (!groups[groupKey]) {
+        groups[groupKey] = { total: 0, label: groupLabel };
+      }
+      
+      groups[groupKey].total += rule.percentage || 0;
+    });
+
+    // Check each group totals 100%
+    const invalidGroups = Object.entries(groups).filter(([_, group]) => group.total !== 100);
+    
+    if (invalidGroups.length > 0) {
+      const errorMessages = invalidGroups.map(([_, group]) => 
+        `${group.label}: ${group.total}% (must be 100%)`
+      ).join(', ');
+      
       toast({
-        title: "Validation Error",
-        description: `Allocation percentages must sum to 100% (current: ${totalPercentage}%)`,
+        title: "Invalid Allocation",
+        description: `Each condition group must total exactly 100%. Issues: ${errorMessages}`,
         variant: "destructive",
       });
       return false;
@@ -256,7 +295,21 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const handleSaveAllocation = () => {
     if (!validateAllocationRules()) return;
 
-    const validRules = allocationRules.filter((r) => r.sheet_id && r.percentage > 0);
+    // Use same filtering logic as validation
+    const validRules = allocationRules.filter((r) => {
+      // Must have sheet_id and percentage
+      if (!r.sheet_id || r.percentage <= 0) return false;
+      
+      // If not default, must have complete condition
+      if (!r.is_default) {
+        if (!r.condition_field || !r.condition_operator || !r.condition_value) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+    
     updateMutation.mutate({ allocation_rules: validRules });
   };
 
@@ -573,13 +626,13 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                   </div>
                   {!isValid && !isIncomplete && (
                     <div className="text-xs text-destructive mt-2" data-testid={`allocation-error-${groupKey}`}>
-                      {isUnderAllocated && `⚠️ ${100 - group.total}% unallocated - add more rules or adjust percentages`}
-                      {isOverAllocated && `⚠️ ${group.total - 100}% over-allocated - reduce percentages`}
+                      {isUnderAllocated && `${100 - group.total}% unallocated - add more rules or adjust percentages`}
+                      {isOverAllocated && `${group.total - 100}% over-allocated - reduce percentages`}
                     </div>
                   )}
                   {isIncomplete && (
                     <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
-                      ⚠️ Complete the condition fields or mark as default
+                      Complete the condition fields or mark as default
                     </div>
                   )}
                 </div>

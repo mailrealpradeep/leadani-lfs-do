@@ -1469,15 +1469,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Update allocation rules if provided
       if (allocation_rules) {
+        // Validate allocation rules
+        // Filter out invalid rules
+        const validRules = allocation_rules.filter((r: any) => {
+          // Must have sheet_id and percentage
+          if (!r.sheet_id || r.percentage <= 0) return false;
+          
+          // If not default, must have complete condition
+          if (!r.is_default) {
+            if (!r.condition_field || !r.condition_operator || !r.condition_value) {
+              return false;
+            }
+          }
+          
+          return true;
+        });
+
+        if (validRules.length === 0) {
+          return res.status(400).json({ error: "At least one complete allocation rule is required" });
+        }
+
+        // Group rules by condition and validate each group totals 100%
+        const groups: Record<string, { total: number, label: string }> = {};
+        
+        validRules.forEach((rule: any) => {
+          let groupKey: string;
+          let groupLabel: string;
+          
+          if (rule.is_default) {
+            groupKey = 'default';
+            groupLabel = 'Default/Fallback Rules';
+          } else {
+            groupKey = `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value}`;
+            groupLabel = `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`;
+          }
+          
+          if (!groups[groupKey]) {
+            groups[groupKey] = { total: 0, label: groupLabel };
+          }
+          
+          groups[groupKey].total += rule.percentage || 0;
+        });
+
+        // Check each group totals 100%
+        const invalidGroups = Object.entries(groups).filter(([_, group]) => group.total !== 100);
+        
+        if (invalidGroups.length > 0) {
+          const errorMessages = invalidGroups.map(([_, group]) => 
+            `${group.label}: ${group.total}% (must be 100%)`
+          ).join(', ');
+          
+          return res.status(400).json({ 
+            error: `Each condition group must total exactly 100%. Issues: ${errorMessages}` 
+          });
+        }
+
         // Delete existing rules
         await storage.deleteWebhookAllocationRulesByWebhookId(req.params.id);
         
-        // Create new rules
-        for (const rule of allocation_rules) {
+        // Create new validated rules
+        for (const rule of validRules) {
           await storage.createWebhookAllocationRule({
             webhook_id: req.params.id,
             sheet_id: rule.sheet_id,
             percentage: rule.percentage,
+            condition_field: rule.condition_field || null,
+            condition_operator: rule.condition_operator || null,
+            condition_value: rule.condition_value || null,
+            is_default: rule.is_default || false,
+            priority: rule.priority || 0,
           });
         }
       }
