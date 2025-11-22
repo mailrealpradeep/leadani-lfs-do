@@ -413,7 +413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         company_id: invite.company_id,
         name: validatedData.name,
         email: invite.email,
-        password: passwordHash,
+        password_hash: passwordHash,
         role: invite.role,
         invited_by: invite.inviter_id,
       } as any);
