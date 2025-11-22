@@ -42,6 +42,13 @@ Socket.io enables real-time synchronization by allowing clients to join sheet-sp
 
 The system provides chronological tracking of lead updates, recording the method (WhatsApp/Phone Call), date, and remarks. UI components for recording and viewing updates are integrated into both desktop and mobile views, with real-time synchronization via Socket.io.
 
+**User Attribution**: Each lead update tracks the user who created it via the `created_by_user_id` field. The lead update history dialog displays the first name of the user who added each update.
+
+**Permission Controls**: 
+- Any user with edit access can create and modify lead updates
+- Only admin users (company_admin and super_admin) can delete lead updates
+- Delete button is hidden in the UI for non-admin users
+
 ### Data Export/Import
 
 The application supports exporting lead data to Excel (XLSX library) and CSV formats. The import system includes:
@@ -51,9 +58,15 @@ The application supports exporting lead data to Excel (XLSX library) and CSV for
 - **Dropdown field validation**: When importing dropdown fields, the system validates values against configured CRM dropdown options:
   - **Optional dropdown fields**: Invalid values generate warnings and are converted to empty/null. Warning format: "Field 'X': value 'Y' does not match CRM dropdown options. Valid options are: A, B, C. Value converted to empty."
   - **Required dropdown fields**: Invalid values generate errors and reject the row. Error format: "Field 'X': value 'Y' does not match CRM dropdown options. Valid options are: A, B, C. This field is required and cannot be empty."
+- **Date field parsing**: Date fields support multiple formats during import:
+  - ISO format: YYYY-MM-DD
+  - DD/MM/YYYY (slash-separated)
+  - DD-MM-YYYY (dash-separated)
+  - DD-Mon-YYYY (e.g., "14-May-2026") with three-letter month abbreviations (case-insensitive)
+  - Excel date codes (numeric serial dates)
 - **Bulk lead update history import**: Users can include historical update records during import using a special "_lead_updates" column. The format is multi-line text with 3 lines per update: Method, Date, and Remark (remark can be blank). The parser features:
   - **Strict method validation**: Accepts only Call/Phone/WA/WhatsApp tokens (case-insensitive), rejects unknown methods with clear error messages
-  - **Multi-format date parsing**: Supports DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, and YYYY-MM-DD (ISO) formats
+  - **Multi-format date parsing**: Supports DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD-Mon-YYYY, and YYYY-MM-DD (ISO) formats
   - **2-digit year normalization**: YY → 20YY for years 00-49, YY → 19YY for years 50-99
   - **Strict date validation**: Validates month (1-12) and day (1-31) bounds, rejects invalid calendar dates (e.g., Feb 30, Feb 31)
   - **Blank remark support**: Empty remark lines are preserved while maintaining 3-line grouping
@@ -98,6 +111,12 @@ The dashboard features a clean, full-width spreadsheet interface with controls c
 - CASCADE deletes configured in schema automatically clean up related data (SheetUsers, Leads, LeadUpdates, etc.)
 - Audit logging records all deletion events
 - Real-time synchronization via Socket.io ensures deletion propagates to all connected clients
+
+**Lead Deletion:**
+- DELETE endpoint at `/api/leads/:id` with admin-only permission checks
+- Only company admins and super admins can delete leads
+- Regular users (non-admins) receive a 403 error when attempting to delete
+- This ensures critical lead data is protected from accidental deletion by regular users
 
 ## External Dependencies
 
