@@ -1134,6 +1134,7 @@ export function SpreadsheetGrid({
                   <div
                     key={col.key}
                     className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide relative"
+                    style={{ minWidth: col.width, maxWidth: col.width }}
                   >
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
@@ -1286,6 +1287,7 @@ export function SpreadsheetGrid({
                               ? "bg-red-100 dark:bg-red-950/30 ring-2 ring-inset ring-red-500 cursor-not-allowed" 
                               : ""
                           }`}
+                          style={{ minWidth: col.width, maxWidth: col.width }}
                           data-testid={`cell-${lead.id}-${col.key}`}
                           data-locked-by-other={isLockedByOther ? "true" : "false"}
                           data-locked-by={isLockedByOther ? cellLockStatus.userName : undefined}
