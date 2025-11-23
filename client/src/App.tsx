@@ -11,6 +11,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { QuickFiltersBar } from "@/components/quick-filters-bar";
 import { useQuery } from "@tanstack/react-query";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -90,6 +91,7 @@ function Router() {
 function DashboardHeader() {
   const [location] = useLocation();
   const { selectedSheetId, activeQuickFilter, quickFilterHandlers } = useDashboard();
+  const isMobile = useIsMobile();
   
   // Only show quick filters on dashboard/root routes when sheet is selected
   const showQuickFilters = (location === "/" || location === "/dashboard") && !!selectedSheetId;
@@ -115,7 +117,7 @@ function DashboardHeader() {
               activeQuickFilter={activeQuickFilter}
               onApplyFilter={quickFilterHandlers.onApplyFilter}
               onClearFilters={quickFilterHandlers.onClearAllFilters}
-              isMobile={false}
+              isMobile={isMobile}
             />
           </div>
         </>
