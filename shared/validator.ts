@@ -1,9 +1,49 @@
-import type { ValidationRule, Lead } from "./schema";
+import type { ValidationRule, Lead, CustomColumn } from "./schema";
 
 export interface ValidationResult {
   isValid: boolean;
   missingFields: string[];
   triggeredBy?: string;
+}
+
+export interface FieldValidationResult {
+  isValid: boolean;
+  error?: string;
+}
+
+export function validateMobileNumber(value: any): FieldValidationResult {
+  if (value === null || value === undefined || value === '') {
+    return { isValid: true };
+  }
+
+  const stringValue = String(value).trim();
+  
+  if (!/^\d{10}$/.test(stringValue)) {
+    return {
+      isValid: false,
+      error: "Mobile number must be exactly 10 digits"
+    };
+  }
+
+  return { isValid: true };
+}
+
+export function validateFieldValue(
+  value: any,
+  column: CustomColumn
+): FieldValidationResult {
+  if (column.type === 'mobile') {
+    return validateMobileNumber(value);
+  }
+
+  if (column.config.required && isFieldEmpty(value)) {
+    return {
+      isValid: false,
+      error: `${column.name} is required`
+    };
+  }
+
+  return { isValid: true };
 }
 
 function getLeadFieldValue(lead: Lead, fieldKey: string): any {
