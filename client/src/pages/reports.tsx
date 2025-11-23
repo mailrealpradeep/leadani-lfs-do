@@ -8,6 +8,7 @@ import {
   BarChart,
   LineChart as LineIcon,
   X,
+  Pencil,
 } from "lucide-react";
 import {
   BarChart as RechartsBarChart,
@@ -67,6 +68,7 @@ export default function Reports() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [editingReport, setEditingReport] = useState<Report | null>(null);
   const [reportName, setReportName] = useState("");
   const [visualizationType, setVisualizationType] = useState("chart");
   const [chartType, setChartType] = useState("bar");
@@ -141,6 +143,27 @@ export default function Reports() {
     },
   });
 
+  // Update report mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      return apiRequest<Report>("PATCH", `/api/company/reports/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+      toast({ title: "Report updated successfully" });
+      setBuilderOpen(false);
+      resetBuilder();
+      setEditingReport(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update report",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   // Delete report mutation
   const deleteMutation = useMutation({
     mutationFn: async (reportId: string) => {
@@ -171,9 +194,34 @@ export default function Reports() {
     setValueField("");
     setAggregation("count");
     setSelectedSheetIds([]);
+    setEditingReport(null);
   };
 
-  const handleCreateReport = () => {
+  const handleEditReport = (report: Report) => {
+    setEditingReport(report);
+    setReportName(report.name);
+    setSelectedSheetIds(report.sheet_ids || []);
+
+    if (report.report_type === "pivot_table") {
+      setVisualizationType("pivot_table");
+      const config = report.config || {};
+      setRowFields(config.row_fields || []);
+      setColumnField(config.column_field || "");
+      setAggregation(config.aggregation || "count");
+      setValueField(config.value_field || "");
+    } else {
+      setVisualizationType("chart");
+      const config = report.config || {};
+      setChartType(config.chart_type || "bar");
+      setXAxis(config.x_axis || "");
+      setYAxis(config.y_axis || "count");
+      setYAxisField(config.y_axis_field || "");
+    }
+
+    setBuilderOpen(true);
+  };
+
+  const handleSaveReport = () => {
     if (!reportName || selectedSheetIds.length === 0) {
       toast({
         title: "Validation error",
@@ -228,12 +276,18 @@ export default function Reports() {
       }
     }
 
-    createMutation.mutate({
+    const reportData = {
       name: reportName,
       report_type: reportType,
       sheet_ids: selectedSheetIds,
       config,
-    });
+    };
+
+    if (editingReport) {
+      updateMutation.mutate({ id: editingReport.id, data: reportData });
+    } else {
+      createMutation.mutate(reportData);
+    }
   };
 
   const handleSheetToggle = (sheetId: string) => {
@@ -300,7 +354,9 @@ export default function Reports() {
             <ReportCard
               key={report.id}
               report={report}
+              onEdit={() => handleEditReport(report)}
               onDelete={() => deleteMutation.mutate(report.id)}
+              canEdit={user?.role !== "user"}
               canDelete={user?.role !== "user"}
             />
           ))}
@@ -308,10 +364,15 @@ export default function Reports() {
       )}
 
       {/* Report Builder Dialog */}
-      <Dialog open={builderOpen} onOpenChange={setBuilderOpen}>
+      <Dialog open={builderOpen} onOpenChange={(open) => {
+        setBuilderOpen(open);
+        if (!open) {
+          resetBuilder();
+        }
+      }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Build Custom Report</DialogTitle>
+            <DialogTitle>{editingReport ? "Edit Report" : "Build Custom Report"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             {/* Report Name */}
@@ -563,17 +624,22 @@ export default function Reports() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setBuilderOpen(false)}
+              onClick={() => {
+                setBuilderOpen(false);
+                resetBuilder();
+              }}
               data-testid="button-cancel-report"
             >
               Cancel
             </Button>
             <Button
-              onClick={handleCreateReport}
-              disabled={createMutation.isPending}
+              onClick={handleSaveReport}
+              disabled={createMutation.isPending || updateMutation.isPending}
               data-testid="button-save-report"
             >
-              {createMutation.isPending ? "Creating..." : "Create Report"}
+              {editingReport
+                ? updateMutation.isPending ? "Updating..." : "Update Report"
+                : createMutation.isPending ? "Creating..." : "Create Report"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -585,11 +651,15 @@ export default function Reports() {
 // Report Card Component
 function ReportCard({
   report,
+  onEdit,
   onDelete,
+  canEdit,
   canDelete,
 }: {
   report: Report;
+  onEdit: () => void;
   onDelete: () => void;
+  canEdit: boolean;
   canDelete: boolean;
 }) {
   const { data: reportData, isLoading } = useQuery<ReportDataResponse>({
@@ -758,17 +828,30 @@ function ReportCard({
             </CardDescription>
           )}
         </div>
-        {canDelete && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onDelete}
-            data-testid={`button-delete-report-${report.id}`}
-            className="h-8 w-8 shrink-0"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          {canEdit && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onEdit}
+              data-testid={`button-edit-report-${report.id}`}
+              className="h-8 w-8"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onDelete}
+              data-testid={`button-delete-report-${report.id}`}
+              className="h-8 w-8"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>{renderVisualization()}</CardContent>
     </Card>
