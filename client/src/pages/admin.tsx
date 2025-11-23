@@ -19,6 +19,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { User, Company, GlobalReportSummary, InsertCompany, InsertUser } from "@shared/schema";
 import { insertCompanySchema, insertUserSchema } from "@shared/schema";
 import { CompanyColumnManager } from "@/components/company-column-manager";
+import { QuickFilterManager } from "@/components/quick-filter-manager";
 
 function SuperAdminView() {
   const [createOpen, setCreateOpen] = useState(false);
@@ -434,6 +435,7 @@ function CompanyAdminView() {
 
         <InviteManager />
         <CompanyColumnManager />
+        <QuickFilterManager />
         </div>
       </div>
     </div>

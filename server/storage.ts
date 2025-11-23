@@ -1619,6 +1619,53 @@ export class PgStorage implements IStorage {
     return true;
   }
 
+  // Quick Filters (Company-wide Quick Filters)
+  async getQuickFilters(companyId: string): Promise<QuickFilter[]> {
+    const result = await db.select()
+      .from(dbSchema.quick_filters)
+      .where(eq(dbSchema.quick_filters.company_id, companyId))
+      .orderBy(dbSchema.quick_filters.order_index);
+    return result.map(this.mapQuickFilter);
+  }
+
+  async getQuickFilterById(id: string): Promise<QuickFilter | undefined> {
+    const result = await db.select().from(dbSchema.quick_filters).where(eq(dbSchema.quick_filters.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapQuickFilter(result[0]);
+  }
+
+  async createQuickFilter(filter: InsertQuickFilter): Promise<QuickFilter> {
+    const id = randomUUID();
+    const now = new Date();
+    const newFilter = {
+      id,
+      ...filter,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.quick_filters).values(newFilter);
+    return this.mapQuickFilter(newFilter as any);
+  }
+
+  async updateQuickFilter(id: string, updates: Partial<QuickFilter>): Promise<QuickFilter | undefined> {
+    const updated_at = new Date();
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    convertedUpdates.updated_at = updated_at;
+    await db.update(dbSchema.quick_filters).set(convertedUpdates).where(eq(dbSchema.quick_filters.id, id));
+    return this.getQuickFilterById(id);
+  }
+
+  async deleteQuickFilter(id: string): Promise<boolean> {
+    await db.delete(dbSchema.quick_filters).where(eq(dbSchema.quick_filters.id, id));
+    return true;
+  }
+
   // Audit Logs
   async getAuditLogs(): Promise<Audit[]> {
     const result = await db.select().from(dbSchema.audit_logs).orderBy(desc(dbSchema.audit_logs.created_at));
@@ -1787,6 +1834,14 @@ export class PgStorage implements IStorage {
   }
 
   private mapValidationRule(row: any): ValidationRule {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapQuickFilter(row: any): QuickFilter {
     return {
       ...row,
       created_at: row.created_at?.toISOString() || row.created_at,

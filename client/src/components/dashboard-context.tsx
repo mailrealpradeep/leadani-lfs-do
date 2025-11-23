@@ -10,7 +10,7 @@ interface DashboardContextType {
   activeQuickFilter: string | null;
   setActiveQuickFilter: (filter: string | null) => void;
   quickFilterHandlers: {
-    onApplyFilter?: (filterType: string) => void;
+    onApplyFilter?: (filterId: string, filterConfig: any) => void;
     onClearAllFilters?: () => void;
   };
   setQuickFilterHandlers: (handlers: DashboardContextType["quickFilterHandlers"]) => void;

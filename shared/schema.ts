@@ -313,7 +313,7 @@ export interface QuickFilter {
   color: string | null; // optional color theme
   filter_config: QuickFilterConfig;
   order_index: number;
-  created_by_user_id: string;
+  created_by_user_id: string | null; // null for system-created filters
   created_at: string;
   updated_at: string;
 }
@@ -325,7 +325,7 @@ export const insertQuickFilterSchema = z.object({
   color: z.string().nullable().optional(),
   filter_config: quickFilterConfigSchema,
   order_index: z.number().default(0),
-  created_by_user_id: z.string(),
+  created_by_user_id: z.string().nullable().optional(), // null for system-created filters, required for user-created
 });
 
 export type InsertQuickFilter = z.infer<typeof insertQuickFilterSchema>;
@@ -660,7 +660,7 @@ export const quick_filters = pgTable('quick_filters', {
   color: varchar('color', { length: 50 }),
   filter_config: json('filter_config').$type<QuickFilterConfig>().notNull(),
   order_index: integer('order_index').notNull().default(0),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

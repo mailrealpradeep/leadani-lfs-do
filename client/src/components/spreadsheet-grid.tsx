@@ -489,155 +489,163 @@ export function SpreadsheetGrid({
     });
   };
 
-  // Quick filter handlers
-  const applyQuickFilter = useCallback((filterType: string) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const endOfToday = new Date(today);
-    endOfToday.setHours(23, 59, 59, 999);
-    const endOfTomorrow = new Date(tomorrow);
-    endOfTomorrow.setHours(23, 59, 59, 999);
-
-    setActiveQuickFilter(filterType);
-
-    switch (filterType) {
-      case "hot_cold_warm":
-        // Clear other filters and highlight - users can then select Hot/Cold/Warm from column filter
-        const leadTypeColumn = customColumns.find(col => 
-          col.column_key.toLowerCase().includes("lead_type") || 
-          col.column_key.toLowerCase().includes("type")
-        );
-        if (leadTypeColumn) {
-          // Don't apply empty filter, just clear other filters to help users focus on lead type
-          setColumnFilters({});
-        } else {
-          // Column not found - don't activate the filter
-          setActiveQuickFilter(null);
-          toast({
-            title: "Column not found",
-            description: "Lead Type column not found in this sheet. Please add a Lead Type column first.",
-            variant: "destructive",
-          });
-        }
-        break;
-
-      case "visit_today":
-        // Filter by Visit Date = Today
-        const visitDateColumn = customColumns.find(col => 
-          col.column_key.toLowerCase().includes("visit") && 
-          col.type === "date"
-        );
-        if (visitDateColumn) {
-          setColumnFilters({ 
-            [visitDateColumn.column_key]: { 
-              type: "custom", 
-              from: today, 
-              to: endOfToday 
-            } 
-          });
-        } else {
-          setActiveQuickFilter(null);
-          toast({
-            title: "Column not found",
-            description: "Visit Date column not found. Please add a date column with 'visit' in the name.",
-            variant: "destructive",
-          });
-        }
-        break;
-
-      case "followup_today":
-        // Filter by Follow-up Date = Today
-        const followupColumn = customColumns.find(col => 
-          col.column_key.toLowerCase().includes("follow") && 
-          col.type === "date"
-        );
-        if (followupColumn) {
-          setColumnFilters({ 
-            [followupColumn.column_key]: { 
-              type: "custom", 
-              from: today, 
-              to: endOfToday 
-            } 
-          });
-        } else {
-          setActiveQuickFilter(null);
-          toast({
-            title: "Column not found",
-            description: "Follow-up Date column not found. Please add a date column with 'follow' in the name.",
-            variant: "destructive",
-          });
-        }
-        break;
-
-      case "not_attended":
-        // Filter by Status or Attended field
-        const statusColumn = customColumns.find(col => 
-          col.column_key.toLowerCase().includes("status") ||
-          col.column_key.toLowerCase().includes("attended")
-        );
-        if (statusColumn) {
-          setColumnFilters({ [statusColumn.column_key]: "Not Attended" });
-        } else {
-          setActiveQuickFilter(null);
-          toast({
-            title: "Column not found",
-            description: "Status or Attended column not found. Please add a column with 'status' or 'attended' in the name.",
-            variant: "destructive",
-          });
-        }
-        break;
-
-      case "todays_leads":
-        // Filter by Lead Date = Today
-        const leadDateColumn = customColumns.find(col => 
-          (col.column_key.toLowerCase().includes("lead") && col.column_key.toLowerCase().includes("date")) ||
-          col.column_key.toLowerCase() === "lead_date"
-        );
-        if (leadDateColumn) {
-          setColumnFilters({ 
-            [leadDateColumn.column_key]: { 
-              type: "custom", 
-              from: today, 
-              to: endOfToday 
-            } 
-          });
-        } else {
-          setActiveQuickFilter(null);
-          toast({
-            title: "Column not found",
-            description: "Lead Date column not found. Please add a date column with 'lead' and 'date' in the name.",
-            variant: "destructive",
-          });
-        }
-        break;
-
-      case "visit_tomorrow":
-        // Filter by Visit Date = Tomorrow
-        const visitTomorrowColumn = customColumns.find(col => 
-          col.column_key.toLowerCase().includes("visit") && 
-          col.type === "date"
-        );
-        if (visitTomorrowColumn) {
-          setColumnFilters({ 
-            [visitTomorrowColumn.column_key]: { 
-              type: "custom", 
-              from: tomorrow, 
-              to: endOfTomorrow 
-            } 
-          });
-        } else {
-          setActiveQuickFilter(null);
-          toast({
-            title: "Column not found",
-            description: "Visit Date column not found. Please add a date column with 'visit' in the name.",
-            variant: "destructive",
-          });
-        }
-        break;
+  // Quick filter handlers - now handles dynamic filter configurations
+  const applyQuickFilter = useCallback((filterId: string, filterConfig: any) => {
+    if (!filterConfig || !filterConfig.conditions || filterConfig.conditions.length === 0) {
+      // Empty filter - just clear all filters
+      setColumnFilters({});
+      setActiveQuickFilter(filterId);
+      return;
     }
-  }, [customColumns, setActiveQuickFilter, toast]);
+
+    // Date utilities
+    const getToday = () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return today;
+    };
+
+    const getEndOfDay = (date: Date) => {
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      return endOfDay;
+    };
+
+    const getTomorrow = () => {
+      const today = getToday();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow;
+    };
+
+    const getNextNDays = (n: number) => {
+      const today = getToday();
+      const future = new Date(today);
+      future.setDate(future.getDate() + n);
+      return future;
+    };
+
+    // Process each condition in the filter config
+    const newFilters: any = {};
+    let missingColumns: string[] = [];
+
+    for (const condition of filterConfig.conditions) {
+      const { column, operator, value } = condition;
+
+      // Find the column in customColumns or fixed columns
+      const customColumn = customColumns.find((col) => col.column_key === column);
+      const isFixedColumn = ["name", "email", "phone", "source", "status"].includes(column);
+
+      if (!customColumn && !isFixedColumn) {
+        missingColumns.push(column);
+        continue;
+      }
+
+      // Translate operator and value to column filter format
+      switch (operator) {
+        case "equals":
+          newFilters[column] = value;
+          break;
+
+        case "in":
+          // For multi-select filters (dropdown columns)
+          if (Array.isArray(value)) {
+            newFilters[column] = value;
+          } else {
+            newFilters[column] = [value];
+          }
+          break;
+
+        case "not_equals":
+        case "not_in":
+          // Not directly supported by current column filter system
+          // Skip for now - would require enhancing column filter logic
+          break;
+
+        case "contains":
+        case "starts_with":
+          // Text search operators
+          newFilters[column] = value;
+          break;
+
+        case "greater_than":
+        case "less_than":
+        case "greater_than_or_equals":
+        case "less_than_or_equals":
+          // Numeric/date comparison operators
+          // Would require custom filter format
+          break;
+
+        case "is_true":
+          newFilters[column] = true;
+          break;
+
+        case "is_false":
+          newFilters[column] = false;
+          break;
+
+        case "today":
+          // Date filter: today
+          newFilters[column] = {
+            type: "custom",
+            from: getToday(),
+            to: getEndOfDay(getToday()),
+          };
+          break;
+
+        case "tomorrow":
+          // Date filter: tomorrow
+          const tomorrow = getTomorrow();
+          newFilters[column] = {
+            type: "custom",
+            from: tomorrow,
+            to: getEndOfDay(tomorrow),
+          };
+          break;
+
+        case "next_n_days":
+          // Date filter: next N days from today
+          if (typeof value === "number" && value > 0) {
+            newFilters[column] = {
+              type: "custom",
+              from: getToday(),
+              to: getEndOfDay(getNextNDays(value)),
+            };
+          }
+          break;
+
+        case "date_range":
+          // Date filter: custom range
+          if (value && value.from && value.to) {
+            newFilters[column] = {
+              type: "custom",
+              from: new Date(value.from),
+              to: new Date(value.to),
+            };
+          }
+          break;
+
+        default:
+          // Unknown operator - skip
+          break;
+      }
+    }
+
+    // Check if any required columns were missing
+    if (missingColumns.length > 0) {
+      setActiveQuickFilter(null);
+      toast({
+        title: "Columns not found",
+        description: `The following columns are missing: ${missingColumns.join(", ")}. Please add them to use this filter.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Apply the filters
+    setColumnFilters(newFilters);
+    setActiveQuickFilter(filterId);
+  }, [customColumns, setActiveQuickFilter, setColumnFilters, toast]);
 
   const clearAllFilters = useCallback(() => {
     setColumnFilters({});
