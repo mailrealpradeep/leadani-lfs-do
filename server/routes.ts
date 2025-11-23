@@ -2811,9 +2811,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sheetId = req.params.sheetId;
       
-      // Sheet access already verified by requireSheetAccess middleware
+      // Get sheet to derive company_id
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
       // Get validation rules for this sheet (both company-wide and sheet-specific)
-      const rules = await storage.getValidationRulesBySheetId(sheetId);
+      const rules = await storage.getValidationRules(sheet.company_id, sheetId);
       res.json(rules);
     } catch (error: any) {
       console.error("Get sheet validation rules error:", error);
@@ -3328,7 +3333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const columnMap = new Map(sheetColumns.map(c => [c.column_key, c]));
       
       // Fetch validation rules for non-blocking validation during import
-      const validationRules = await storage.getValidationRulesBySheetId(sheetId);
+      const validationRules = await storage.getValidationRules(sheet.company_id, sheetId);
       
       // Validate fieldMap entries - only process columns that exist in this sheet
       // Filter out empty, skip, and invalid mappings
