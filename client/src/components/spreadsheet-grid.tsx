@@ -127,6 +127,31 @@ export function SpreadsheetGrid({
   const [lockedCells, setLockedCells] = useState<Map<string, { userId: string; userName: string; isOwnLock: boolean }>>(new Map());
   // Track pending lock requests to gate edit mode entry
   const [pendingLockRequest, setPendingLockRequest] = useState<{ leadId: string; field: string } | null>(null);
+  
+  // Column resizing state
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [resizingColumn, setResizingColumn] = useState<{ key: string; startX: number; startWidth: number } | null>(null);
+  
+  // Load column widths from localStorage on mount
+  useEffect(() => {
+    const storageKey = `column-widths-${sheetId}`;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try {
+        setColumnWidths(JSON.parse(stored));
+      } catch (e) {
+        console.error("Failed to parse stored column widths:", e);
+      }
+    }
+  }, [sheetId]);
+  
+  // Save column widths to localStorage when they change
+  useEffect(() => {
+    if (Object.keys(columnWidths).length > 0) {
+      const storageKey = `column-widths-${sheetId}`;
+      localStorage.setItem(storageKey, JSON.stringify(columnWidths));
+    }
+  }, [columnWidths, sheetId]);
 
   const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
@@ -501,25 +526,84 @@ export function SpreadsheetGrid({
       setSortDirection("asc");
     }
   };
+  
+  // Column resize handlers
+  const handleResizeStart = useCallback((e: React.MouseEvent, columnKey: string, currentWidth: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log(`[RESIZE] Start: column=${columnKey}, startX=${e.clientX}, startWidth=${currentWidth}`);
+    setResizingColumn({ key: columnKey, startX: e.clientX, startWidth: currentWidth });
+  }, []);
+  
+  const handleResizeMove = useCallback((e: MouseEvent) => {
+    if (resizingColumn) {
+      e.preventDefault();
+      const delta = e.clientX - resizingColumn.startX;
+      const newWidth = Math.max(60, resizingColumn.startWidth + delta);
+      console.log(`[RESIZE] Move: delta=${delta}, newWidth=${newWidth}`);
+      setColumnWidths(prev => {
+        const updated = { ...prev, [resizingColumn.key]: newWidth };
+        console.log(`[RESIZE] Updated columnWidths:`, updated);
+        return updated;
+      });
+    }
+  }, [resizingColumn]);
+  
+  const handleResizeEnd = useCallback(() => {
+    console.log('[RESIZE] End');
+    setResizingColumn(null);
+  }, []);
+  
+  // Add/remove resize event listeners
+  useEffect(() => {
+    if (resizingColumn) {
+      console.log(`[RESIZE] Adding event listeners for column: ${resizingColumn.key}`);
+      document.addEventListener('mousemove', handleResizeMove);
+      document.addEventListener('mouseup', handleResizeEnd);
+      return () => {
+        console.log(`[RESIZE] Removing event listeners`);
+        document.removeEventListener('mousemove', handleResizeMove);
+        document.removeEventListener('mouseup', handleResizeEnd);
+      };
+    }
+  }, [resizingColumn, handleResizeMove, handleResizeEnd]);
 
   // Get value from lead's custom_fields
   const getLeadValue = (lead: Lead, columnKey: string) => {
     return lead.custom_fields[columnKey];
   };
 
+  // Get column width - use custom width if set, otherwise use default
+  const getColumnWidth = useCallback((columnKey: string, type: string): string => {
+    if (columnWidths[columnKey]) {
+      return `${columnWidths[columnKey]}px`;
+    }
+    // Default widths
+    if (columnKey === "name" || columnKey === "full_name") return "200px";
+    if (type === "text") return "120px";
+    if (type === "number") return "90px";
+    if (type === "date") return "110px";
+    if (type === "boolean") return "90px";
+    if (type === "mobile") return "130px";
+    return "120px";
+  }, [columnWidths]);
+
   // Convert CustomColumn to display columns (must be before filteredAndSortedLeads)
-  const columns = customColumns
-    .sort((a, b) => a.order_index - b.order_index)
-    .map((col) => ({
-      key: col.column_key,
-      label: col.name,
-      // Special width for name column to accommodate longer names with wrapping
-      width: col.column_key === "name" ? "200px" : col.type === "text" ? "120px" : col.type === "number" ? "90px" : col.type === "date" ? "110px" : col.type === "boolean" ? "90px" : col.type === "mobile" ? "130px" : "120px",
-      sortable: true,
-      dropdown: col.type === "dropdown",
-      type: col.type,
-      config: col.config,
-    }));
+  const columns = useMemo(() => {
+    const result = customColumns
+      .sort((a, b) => a.order_index - b.order_index)
+      .map((col) => ({
+        key: col.column_key,
+        label: col.name,
+        width: getColumnWidth(col.column_key, col.type),
+        sortable: true,
+        dropdown: col.type === "dropdown",
+        type: col.type,
+        config: col.config,
+      }));
+    console.log('[RESIZE] Columns recalculated:', result.map(c => ({ key: c.key, width: c.width })));
+    return result;
+  }, [customColumns, getColumnWidth]);
 
   // Set default sort to Lead Date (new to old) on first load
   useEffect(() => {
@@ -1062,7 +1146,7 @@ export function SpreadsheetGrid({
                 {visibleColumns.map((col) => (
                   <div
                     key={col.key}
-                    className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide"
+                    className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide relative"
                   >
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
@@ -1143,6 +1227,13 @@ export function SpreadsheetGrid({
                         )}
                       </div>
                     </div>
+                    {/* Resize Handle */}
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/50"
+                      style={{ zIndex: 50, pointerEvents: 'auto' }}
+                      onMouseDown={(e) => handleResizeStart(e, col.key, parseInt(col.width))}
+                      data-testid={`resize-handle-${col.key}`}
+                    />
                   </div>
                 ))}
                 
@@ -1203,9 +1294,7 @@ export function SpreadsheetGrid({
                         <div
                           key={col.key}
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
-                          className={`border-r px-3 py-2 flex ${
-                            col.key === "name" ? "items-start" : "items-center whitespace-nowrap"
-                          } ${
+                          className={`border-r px-3 py-2 flex items-start overflow-hidden ${
                             isLockedByOther
                               ? "bg-red-100 dark:bg-red-950/30 ring-2 ring-inset ring-red-500 cursor-not-allowed" 
                               : ""
@@ -1402,7 +1491,7 @@ export function SpreadsheetGrid({
                             />
                           )
                         ) : (
-                          <span className={`text-sm ${col.key === "name" ? "break-words line-clamp-3" : ""}`}>
+                          <span className="text-sm break-words">
                             {col.type === "date" && value
                               ? format(new Date(value), "MMM d, yyyy")
                               : value || "-"}
