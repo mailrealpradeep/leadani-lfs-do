@@ -74,35 +74,41 @@ External systems can create leads via HTTP POST requests using a comprehensive w
 
 ### Reports Section
 
-The Reports Section provides comprehensive data visualization and analytics capabilities with permission-based access control.
+The Reports Section provides comprehensive data visualization and analytics capabilities with permission-based access control and a dynamic Report Builder for custom analytics.
 
-**Database Schema**: Reports table stores custom reports with company_id, name, report_type, sheet_ids array, optional config JSON, and created_by_user_id. Reports are company-scoped with multi-sheet support.
+**Database Schema**: Reports table stores custom reports with company_id, name, report_type, sheet_ids array, and config JSON. The config includes `x_axis` (column to group by), `y_axis` (aggregation type: count/sum/avg), `y_axis_field` (field to aggregate for sum/avg), and `chart_type` (bar/line/pie).
 
-**Report Types**: Seven pre-built report types with dynamic data aggregation:
-1. **Lead Status Distribution** - Pie chart showing lead distribution across different statuses
-2. **Leads Over Time** - Line chart displaying lead creation trends with configurable grouping (daily/weekly/monthly)
-3. **Lead Source Analysis** - Bar chart analyzing leads by source
-4. **Conversion Rate** - Funnel visualization showing lead conversion metrics
-5. **User Performance** - Bar chart comparing leads created/updated by each user
-6. **Lead Age Distribution** - Histogram showing distribution of lead ages in buckets
-7. **Custom Field Analysis** - Top 10 values analysis for any custom field
+**Report Types**: 
+1. **Pre-built Reports** - Seven predefined report types: Lead Status Distribution, Leads Over Time, Lead Source Analysis, Conversion Rate, User Performance, Lead Age Distribution, Custom Field Analysis
+2. **Custom Dynamic Reports** - User-defined reports created via the Report Builder with:
+   - X-axis selector: Choose any column (fixed or custom) to group data by
+   - Y-axis aggregation: Count, Sum, or Average
+   - Y-axis field: Select numeric field to aggregate (for sum/avg)
+   - Chart type selector: Bar, Line, or Pie charts
+   - Multi-sheet support: Aggregate data across multiple sheets
 
 **Authorization Model**:
 -   **Company Admins**: Can create, view, and delete all reports in their company; see all company sheets when creating reports
 -   **Regular Users**: Can view reports for sheets they have access to; cannot create or delete reports
 -   **Sheet Visibility**: `/api/sheets` endpoint returns all company sheets for admins, only accessible sheets for regular users
+-   **Field Access**: Custom reports validate that users can only access authorized columns based on their sheet permissions
 
 **API Endpoints**:
 -   `GET /api/company/reports` - Fetch all accessible reports (filtered by user permissions)
--   `POST /api/company/reports` - Create new report (admin only, validates sheet ownership and access)
+-   `POST /api/company/reports` - Create new report (admin only, validates sheet ownership, access, and custom report config)
 -   `GET /api/company/reports/:id/data` - Fetch report with generated visualizations and metadata
 -   `DELETE /api/company/reports/:id` - Delete report (admin only)
 
-**Data Aggregation**: All report queries automatically exclude soft-deleted leads (WHERE deleted_at IS NULL). Report data is generated dynamically on request, aggregating from all selected sheets with support for date range filtering and custom grouping.
+**Data Aggregation**: The `generateDynamicReport()` function handles custom reports by grouping leads by the selected X-axis column and aggregating using the specified Y-axis method (count, sum, average). All queries automatically exclude soft-deleted leads (WHERE deleted_at IS NULL).
 
-**Frontend**: Reports page (`/reports`) features a sidebar with saved reports list, main visualization area with Recharts graphs (pie, line, bar charts), and Create Report dialog with checkbox-based sheet selection. Empty states guide users when no reports exist.
+**Backend Validation**: Custom reports are validated at creation:
+- Required fields: `x_axis`, `y_axis`, `chart_type`
+- Conditional validation: `y_axis_field` required for sum/avg aggregations
+- Enum validation: `y_axis` must be count/sum/avg; `chart_type` must be bar/line/pie
 
-**Real-time Support**: Reports automatically refetch when navigating between saved reports. Sheet selection in Create Report dialog updates reactively based on user permissions.
+**Frontend**: Reports page (`/reports`) features a card-based grid layout displaying all reports as individual cards. Each card shows the report name, lead count, and visualization (Recharts bar/line/pie charts). The Report Builder dialog provides intuitive selectors for X-axis (all available columns), Y-axis (aggregation method), Y-axis field (for sum/avg), chart type, and multi-sheet checkbox selection.
+
+**Real-time Support**: Report cards automatically fetch and render data using React Query. Empty states guide users when no reports exist, with a prominent "Create Report" call-to-action.
 
 ## External Dependencies
 

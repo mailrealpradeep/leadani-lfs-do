@@ -3151,6 +3151,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required fields: name, report_type, sheet_ids" });
       }
 
+      // Additional validation for custom reports
+      if (report_type === "custom") {
+        if (!config || !config.x_axis || !config.y_axis) {
+          return res.status(400).json({ 
+            error: "Custom reports require x_axis and y_axis in config" 
+          });
+        }
+        
+        if ((config.y_axis === "sum" || config.y_axis === "avg") && !config.y_axis_field) {
+          return res.status(400).json({ 
+            error: "y_axis_field is required when using sum or avg aggregation" 
+          });
+        }
+
+        if (!["count", "sum", "avg"].includes(config.y_axis)) {
+          return res.status(400).json({ 
+            error: "y_axis must be one of: count, sum, avg" 
+          });
+        }
+
+        if (!["bar", "line", "pie"].includes(config.chart_type || "bar")) {
+          return res.status(400).json({ 
+            error: "chart_type must be one of: bar, line, pie" 
+          });
+        }
+      }
+
       // Verify all sheets belong to the company AND user has access
       for (const sheetId of sheet_ids) {
         const sheet = await storage.getSheet(sheetId);
@@ -3357,6 +3384,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         case "custom_field_analysis":
           data = generateCustomFieldAnalysis(filteredLeads, report.config);
           break;
+        case "custom":
+          data = generateDynamicReport(filteredLeads, report.config);
+          break;
         default:
           return res.status(400).json({ error: "Unknown report type" });
       }
@@ -3514,6 +3544,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10) // Top 10
       .map(([name, value]) => ({ name, value }));
+  }
+
+  // Dynamic report generation based on X and Y axis configuration
+  function generateDynamicReport(leads: any[], config: any) {
+    const xAxis = config?.x_axis || "lead_status"; // Column to group by
+    const yAxis = config?.y_axis || "count"; // Aggregation type: count, sum, avg
+    const yAxisField = config?.y_axis_field; // Field to aggregate (for sum/avg)
+    
+    const grouped: Record<string, any[]> = {};
+    
+    // Group leads by X-axis value
+    leads.forEach(lead => {
+      let xValue = lead[xAxis] || lead.custom_fields?.[xAxis] || "Unknown";
+      
+      // Handle date fields
+      if (xValue && typeof xValue === 'string' && xValue.match(/^\d{4}-\d{2}-\d{2}/)) {
+        xValue = xValue.split('T')[0]; // Format dates consistently
+      }
+      
+      if (!grouped[xValue]) {
+        grouped[xValue] = [];
+      }
+      grouped[xValue].push(lead);
+    });
+    
+    // Calculate Y-axis values based on aggregation type
+    const result = Object.entries(grouped).map(([name, groupLeads]) => {
+      let value: number;
+      
+      switch (yAxis) {
+        case "count":
+          value = groupLeads.length;
+          break;
+        case "sum":
+          if (!yAxisField) {
+            value = groupLeads.length;
+          } else {
+            value = groupLeads.reduce((sum, lead) => {
+              const fieldValue = parseFloat(lead[yAxisField] || lead.custom_fields?.[yAxisField] || 0);
+              return sum + (isNaN(fieldValue) ? 0 : fieldValue);
+            }, 0);
+          }
+          break;
+        case "avg":
+          if (!yAxisField) {
+            value = groupLeads.length;
+          } else {
+            const sum = groupLeads.reduce((sum, lead) => {
+              const fieldValue = parseFloat(lead[yAxisField] || lead.custom_fields?.[yAxisField] || 0);
+              return sum + (isNaN(fieldValue) ? 0 : fieldValue);
+            }, 0);
+            value = groupLeads.length > 0 ? sum / groupLeads.length : 0;
+          }
+          break;
+        default:
+          value = groupLeads.length;
+      }
+      
+      return { name, value: Math.round(value * 100) / 100 }; // Round to 2 decimals
+    });
+    
+    return result.sort((a, b) => b.value - a.value);
   }
 
   // Sheet-scoped validation rules endpoints (for frontend integration)

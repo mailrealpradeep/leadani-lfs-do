@@ -775,6 +775,9 @@ export const reports = pgTable('reports', {
     filters?: any[];
     chart_type?: string;
     metrics?: string[];
+    x_axis?: string; // Column key for X-axis
+    y_axis?: string; // Aggregation type: count, sum, avg, etc.
+    y_axis_field?: string; // Field to aggregate (for sum/avg)
   }>().default({}).notNull(),
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
