@@ -33,6 +33,15 @@ export function validateFieldValue(
   column: CustomColumn
 ): FieldValidationResult {
   if (column.type === 'mobile') {
+    const isEmpty = value === null || value === undefined || value === '';
+    
+    if (isEmpty && column.config.required) {
+      return {
+        isValid: false,
+        error: `${column.name} is required`
+      };
+    }
+    
     return validateMobileNumber(value);
   }
 
