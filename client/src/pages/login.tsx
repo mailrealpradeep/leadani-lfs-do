@@ -93,15 +93,14 @@ export default function Login() {
             </Button>
             <p className="text-sm text-muted-foreground text-center">
               Don't have an account?{" "}
-              <Button
+              <button
                 type="button"
-                variant="link"
-                className="p-0 h-auto"
+                className="text-primary hover:underline"
                 onClick={() => setLocation("/signup")}
                 data-testid="link-signup"
               >
                 Create account
-              </Button>
+              </button>
             </p>
           </CardFooter>
         </form>
