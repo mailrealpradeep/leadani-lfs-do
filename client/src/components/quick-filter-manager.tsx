@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { QuickFilter } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
+import { FilterConditionBuilder, type FilterCondition } from "@/components/filter-condition-builder";
 
 // Icon options for quick filters
 const ICON_OPTIONS = [
@@ -73,14 +73,14 @@ export function QuickFilterManager() {
   const [newFilterName, setNewFilterName] = useState("");
   const [newFilterIcon, setNewFilterIcon] = useState<string | null>(null);
   const [newFilterColor, setNewFilterColor] = useState<string | null>(null);
-  const [newFilterConfig, setNewFilterConfig] = useState("");
+  const [newFilterConditions, setNewFilterConditions] = useState<FilterCondition[]>([]);
 
   // Edit mode state
   const [editingFilterId, setEditingFilterId] = useState<string | null>(null);
   const [editFilterName, setEditFilterName] = useState("");
   const [editFilterIcon, setEditFilterIcon] = useState<string | null>(null);
   const [editFilterColor, setEditFilterColor] = useState<string | null>(null);
-  const [editFilterConfig, setEditFilterConfig] = useState("");
+  const [editFilterConditions, setEditFilterConditions] = useState<FilterCondition[]>([]);
 
   const { data: quickFilters = [], isLoading } = useQuery<QuickFilter[]>({
     queryKey: ["/api/company/quick-filters"],
@@ -88,13 +88,12 @@ export function QuickFilterManager() {
 
   const addFilterMutation = useMutation({
     mutationFn: async () => {
-      let parsedConfig;
-      try {
-        parsedConfig = newFilterConfig.trim() ? JSON.parse(newFilterConfig) : { conditions: [] };
-        parsedConfig = normalizeFilterConfig(parsedConfig);
-      } catch (error) {
-        throw new Error("Invalid filter configuration JSON");
-      }
+      // Convert conditions array to filter_config object
+      const filterConfig = {
+        conditions: newFilterConditions,
+        logical_operator: "and" as const,
+        version: 1,
+      };
 
       // Get the maximum order_index and add 1
       const maxOrder = quickFilters.reduce((max, f) => Math.max(max, f.order_index), -1);
@@ -103,7 +102,7 @@ export function QuickFilterManager() {
         name: newFilterName,
         icon: newFilterIcon,
         color: newFilterColor,
-        filter_config: parsedConfig,
+        filter_config: filterConfig,
         order_index: maxOrder + 1,
       });
     },
@@ -201,7 +200,7 @@ export function QuickFilterManager() {
     setNewFilterName("");
     setNewFilterIcon(null);
     setNewFilterColor(null);
-    setNewFilterConfig("");
+    setNewFilterConditions([]);
     setIsAdding(false);
   };
 
@@ -210,7 +209,7 @@ export function QuickFilterManager() {
     setEditFilterName("");
     setEditFilterIcon(null);
     setEditFilterColor(null);
-    setEditFilterConfig("");
+    setEditFilterConditions([]);
   };
 
   const startEditing = (filter: QuickFilter) => {
@@ -218,24 +217,29 @@ export function QuickFilterManager() {
     setEditFilterName(filter.name);
     setEditFilterIcon(filter.icon);
     setEditFilterColor(filter.color);
-    setEditFilterConfig(JSON.stringify(filter.filter_config, null, 2));
+    // Convert filter_config to conditions array
+    setEditFilterConditions(filter.filter_config?.conditions || []);
   };
 
   const handleSaveEdit = () => {
     if (!editingFilterId) return;
 
-    let parsedConfig;
-    try {
-      parsedConfig = editFilterConfig.trim() ? JSON.parse(editFilterConfig) : { conditions: [] };
-      parsedConfig = normalizeFilterConfig(parsedConfig);
-    } catch (error) {
+    const validation = validateConditions(editFilterConditions);
+    if (!validation.valid) {
       toast({
         variant: "destructive",
-        title: "Invalid JSON",
-        description: "Filter configuration must be valid JSON",
+        title: "Validation error",
+        description: validation.error,
       });
       return;
     }
+
+    // Convert conditions array to filter_config object
+    const filterConfig = {
+      conditions: editFilterConditions,
+      logical_operator: "and" as const,
+      version: 1,
+    };
 
     updateFilterMutation.mutate({
       filterId: editingFilterId,
@@ -243,9 +247,48 @@ export function QuickFilterManager() {
         name: editFilterName,
         icon: editFilterIcon,
         color: editFilterColor,
-        filter_config: parsedConfig,
+        filter_config: filterConfig,
       },
     });
+  };
+
+  const validateConditions = (conditions: FilterCondition[]): { valid: boolean; error?: string } => {
+    if (conditions.length === 0) {
+      return { valid: false, error: "At least one condition is required" };
+    }
+
+    for (let i = 0; i < conditions.length; i++) {
+      const condition = conditions[i];
+      
+      if (!condition.column_key) {
+        return { valid: false, error: `Condition ${i + 1}: Column is required` };
+      }
+      
+      if (!condition.operator) {
+        return { valid: false, error: `Condition ${i + 1}: Operator is required` };
+      }
+      
+      // Check if value is required for this operator
+      const requiresValue = !["is_empty", "is_not_empty"].includes(condition.operator);
+      const isDateEquals = condition.operator === "date_equals";
+      
+      if (requiresValue) {
+        if (isDateEquals && !condition.relative_date && !condition.value) {
+          return { valid: false, error: `Condition ${i + 1}: Date value is required` };
+        } else if (!isDateEquals) {
+          // Check for missing value
+          if (!condition.value && condition.value !== 0 && condition.value !== false) {
+            return { valid: false, error: `Condition ${i + 1}: Value is required` };
+          }
+          // Check for empty array (for "in" operator)
+          if (Array.isArray(condition.value) && condition.value.length === 0) {
+            return { valid: false, error: `Condition ${i + 1}: At least one value is required for "is one of" operator` };
+          }
+        }
+      }
+    }
+
+    return { valid: true };
   };
 
   const handleAddFilter = () => {
@@ -254,6 +297,16 @@ export function QuickFilterManager() {
         variant: "destructive",
         title: "Validation error",
         description: "Filter name is required",
+      });
+      return;
+    }
+
+    const validation = validateConditions(newFilterConditions);
+    if (!validation.valid) {
+      toast({
+        variant: "destructive",
+        title: "Validation error",
+        description: validation.error,
       });
       return;
     }
@@ -345,21 +398,11 @@ export function QuickFilterManager() {
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="new-filter-config">Filter Configuration (JSON)</Label>
-                <Textarea
-                  id="new-filter-config"
-                  value={newFilterConfig}
-                  onChange={(e) => setNewFilterConfig(e.target.value)}
-                  placeholder='{"conditions": [{"column": "status", "operator": "equals", "value": "Hot"}]}'
-                  className="font-mono text-xs"
-                  rows={4}
-                  data-testid="textarea-new-filter-config"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Example: {"{"}"conditions": [{"{"}"column": "status", "operator": "equals", "value": "Hot"{"}"}]{"}"}
-                </p>
-              </div>
+              {/* Filter Condition Builder */}
+              <FilterConditionBuilder
+                conditions={newFilterConditions}
+                onChange={setNewFilterConditions}
+              />
 
               <div className="flex justify-end gap-2">
                 <Button
@@ -459,17 +502,11 @@ export function QuickFilterManager() {
                       </div>
                     </div>
 
-                    <div>
-                      <Label htmlFor={`edit-filter-config-${filter.id}`}>Filter Configuration (JSON)</Label>
-                      <Textarea
-                        id={`edit-filter-config-${filter.id}`}
-                        value={editFilterConfig}
-                        onChange={(e) => setEditFilterConfig(e.target.value)}
-                        className="font-mono text-xs"
-                        rows={4}
-                        data-testid="textarea-edit-filter-config"
-                      />
-                    </div>
+                    {/* Filter Condition Builder */}
+                    <FilterConditionBuilder
+                      conditions={editFilterConditions}
+                      onChange={setEditFilterConditions}
+                    />
 
                     <div className="flex justify-end gap-2">
                       <Button
