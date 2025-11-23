@@ -137,7 +137,7 @@ export function AppSidebar() {
         <SidebarContent>
           <SidebarGroup>
             <SidebarGroupLabel className="text-lg font-semibold px-4 py-3">
-              Dabluz CRM
+              LeadAni LFS
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>

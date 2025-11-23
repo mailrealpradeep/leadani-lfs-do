@@ -140,7 +140,7 @@ export default function InviteAccept() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
             <BarChart3 className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold">Dabluz CRM</span>
+            <span className="text-xl font-bold">LeadAni LFS</span>
           </div>
           <CardTitle className="text-2xl">Join {inviteDetails.company_name}</CardTitle>
           <CardDescription>
