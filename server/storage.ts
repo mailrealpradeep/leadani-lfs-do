@@ -54,6 +54,7 @@ export interface IStorage {
   getUsersByCompanyId(companyId: string): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
+  updateUserPassword(id: string, passwordHash: string): Promise<boolean>;
   deleteUser(id: string): Promise<boolean>;
 
   // Company Signup (Transactional)
@@ -293,6 +294,14 @@ export class MemStorage implements IStorage {
     const updated = { ...user, ...updates, updated_at: new Date().toISOString() };
     this.users.set(id, updated);
     return updated;
+  }
+
+  async updateUserPassword(id: string, passwordHash: string): Promise<boolean> {
+    const user = this.users.get(id);
+    if (!user) return false;
+    const updated = { ...user, password_hash: passwordHash, updated_at: new Date().toISOString() };
+    this.users.set(id, updated);
+    return true;
   }
 
   async deleteUser(id: string): Promise<boolean> {
@@ -1159,6 +1168,14 @@ export class PgStorage implements IStorage {
     convertedUpdates.updated_at = updated_at;
     await db.update(dbSchema.users).set(convertedUpdates).where(eq(dbSchema.users.id, id));
     return this.getUser(id);
+  }
+
+  async updateUserPassword(id: string, passwordHash: string): Promise<boolean> {
+    const updated_at = new Date();
+    await db.update(dbSchema.users)
+      .set({ password_hash: passwordHash, updated_at })
+      .where(eq(dbSchema.users.id, id));
+    return true;
   }
 
   async deleteUser(id: string): Promise<boolean> {

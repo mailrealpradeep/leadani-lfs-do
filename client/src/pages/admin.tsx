@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -246,6 +246,8 @@ function CompanyAdminView() {
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [userToReset, setUserToReset] = useState<User | null>(null);
   const { toast } = useToast();
 
   const { data: users = [], isLoading } = useQuery<User[]>({
@@ -306,6 +308,42 @@ function CompanyAdminView() {
     },
   });
 
+  const resetPasswordFormSchema = z.object({
+    password: z.string().min(6, "Password must be at least 6 characters"),
+  });
+
+  type ResetPasswordFormData = z.infer<typeof resetPasswordFormSchema>;
+
+  const resetPasswordForm = useForm<ResetPasswordFormData>({
+    resolver: zodResolver(resetPasswordFormSchema),
+    defaultValues: {
+      password: "",
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ userId, password }: { userId: string; password: string }) => {
+      return await apiRequest("POST", `/api/admin/company/users/${userId}/reset-password`, { password });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/users"] });
+      setResetPasswordDialogOpen(false);
+      setUserToReset(null);
+      resetPasswordForm.reset();
+      toast({
+        title: "Password reset",
+        description: "User password has been updated successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reset password",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleDeleteClick = (user: User) => {
     setUserToDelete(user);
     setDeleteDialogOpen(true);
@@ -314,6 +352,21 @@ function CompanyAdminView() {
   const confirmDelete = () => {
     if (userToDelete) {
       deleteMutation.mutate(userToDelete.id);
+    }
+  };
+
+  const handleResetPasswordClick = (user: User) => {
+    setUserToReset(user);
+    setResetPasswordDialogOpen(true);
+    resetPasswordForm.reset();
+  };
+
+  const confirmResetPassword = (data: ResetPasswordFormData) => {
+    if (userToReset) {
+      resetPasswordMutation.mutate({
+        userId: userToReset.id,
+        password: data.password,
+      });
     }
   };
 
@@ -459,14 +512,24 @@ function CompanyAdminView() {
                       {user.role === "company_admin" ? "Admin" : "User"}
                     </Badge>
                     {user.id !== currentUser?.id && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteClick(user)}
-                        data-testid={`button-delete-user-${user.id}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleResetPasswordClick(user)}
+                          data-testid={`button-reset-password-${user.id}`}
+                        >
+                          <Key className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteClick(user)}
+                          data-testid={`button-delete-user-${user.id}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </>
                     )}
                   </div>
                 ))}
@@ -485,6 +548,55 @@ function CompanyAdminView() {
         <SheetAssignmentManager />
         </div>
       </div>
+
+      <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Reset password for {userToReset?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...resetPasswordForm}>
+            <form onSubmit={resetPasswordForm.handleSubmit(confirmResetPassword)} className="space-y-4">
+              <FormField
+                control={resetPasswordForm.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>New Password</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder="Enter new password"
+                        {...field}
+                        data-testid="input-reset-password"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setResetPasswordDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={resetPasswordMutation.isPending}
+                  data-testid="button-confirm-reset-password"
+                >
+                  {resetPasswordMutation.isPending ? "Resetting..." : "Reset Password"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>

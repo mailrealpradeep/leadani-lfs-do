@@ -1031,6 +1031,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/admin/company/users/:userId/reset-password", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const { password } = req.body;
+
+      // Validate password
+      if (!password || password.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+
+      // Verify user belongs to company
+      const userToUpdate = await storage.getUser(userId);
+      if (!userToUpdate) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Company admins can only reset passwords for users in their own company
+      if (req.userRole === "company_admin" && userToUpdate.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot reset password for users from other companies" });
+      }
+
+      // Hash new password
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      // Update password
+      await storage.updateUserPassword(userId, passwordHash);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "update",
+        model: "user",
+        model_id: userId,
+        payload: { action: "password_reset", email: userToUpdate.email },
+      });
+
+      res.json({ message: "Password reset successfully" });
+    } catch (error: any) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       // Company admins can only see users in their company
