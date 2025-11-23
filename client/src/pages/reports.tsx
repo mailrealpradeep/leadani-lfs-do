@@ -115,7 +115,10 @@ export default function Reports() {
     ];
 
     const customColumnKeys = companyColumns?.map((col: any) => col.column_key) || [];
-    setAvailableColumns([...fixedColumns, ...customColumnKeys]);
+    // Deduplicate columns to avoid React key warnings
+    const allColumns = [...fixedColumns, ...customColumnKeys];
+    const uniqueColumns = Array.from(new Set(allColumns));
+    setAvailableColumns(uniqueColumns);
   }, [companyColumns]);
 
   // Create report mutation
@@ -428,24 +431,29 @@ export default function Reports() {
                 <div className="space-y-2">
                   <Label>Row Fields (select multiple)</Label>
                   <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
-                    {availableColumns.map((col) => (
-                      <div key={col} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`row-${col}`}
-                          checked={rowFields.includes(col)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setRowFields([...rowFields, col]);
-                            } else {
-                              setRowFields(rowFields.filter((f) => f !== col));
-                            }
-                          }}
-                        />
-                        <label htmlFor={`row-${col}`} className="text-sm cursor-pointer">
-                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                        </label>
-                      </div>
-                    ))}
+                    {availableColumns.length > 0 ? (
+                      availableColumns.map((col) => (
+                        <div key={col} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`row-${col}`}
+                            checked={rowFields.includes(col)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setRowFields([...rowFields, col]);
+                              } else {
+                                setRowFields(rowFields.filter((f) => f !== col));
+                              }
+                            }}
+                            data-testid={`checkbox-row-${col}`}
+                          />
+                          <label htmlFor={`row-${col}`} className="text-sm cursor-pointer">
+                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          </label>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Loading columns...</p>
+                    )}
                   </div>
                   {rowFields.length > 0 && (
                     <p className="text-xs text-muted-foreground">
@@ -457,12 +465,11 @@ export default function Reports() {
                 {/* Column Field (Optional) */}
                 <div className="space-y-2">
                   <Label htmlFor="column-field">Column Field (optional)</Label>
-                  <Select value={columnField} onValueChange={setColumnField}>
-                    <SelectTrigger id="column-field">
-                      <SelectValue placeholder="Select column pivot field" />
+                  <Select value={columnField || undefined} onValueChange={(val) => setColumnField(val || "")}>
+                    <SelectTrigger id="column-field" data-testid="select-column-field">
+                      <SelectValue placeholder="None (select to add column pivot)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
                       {availableColumns.map((col) => (
                         <SelectItem key={col} value={col}>
                           {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
@@ -470,6 +477,16 @@ export default function Reports() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {columnField && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setColumnField("")}
+                      className="w-full"
+                    >
+                      Clear Column Field
+                    </Button>
+                  )}
                 </div>
 
                 {/* Aggregation */}
