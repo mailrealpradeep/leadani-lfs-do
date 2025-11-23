@@ -3178,6 +3178,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Additional validation for pivot table reports
+      if (report_type === "pivot_table") {
+        if (!config || !Array.isArray(config.row_fields) || config.row_fields.length === 0) {
+          return res.status(400).json({ 
+            error: "Pivot table reports require at least one row field in config" 
+          });
+        }
+
+        if ((config.aggregation === "sum" || config.aggregation === "avg") && !config.value_field) {
+          return res.status(400).json({ 
+            error: "value_field is required when using sum or avg aggregation" 
+          });
+        }
+
+        if (!["count", "sum", "avg"].includes(config.aggregation || "count")) {
+          return res.status(400).json({ 
+            error: "aggregation must be one of: count, sum, avg" 
+          });
+        }
+      }
+
       // Verify all sheets belong to the company AND user has access
       for (const sheetId of sheet_ids) {
         const sheet = await storage.getSheet(sheetId);
@@ -3386,6 +3407,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           break;
         case "custom":
           data = generateDynamicReport(filteredLeads, report.config);
+          break;
+        case "pivot_table":
+          data = generatePivotTable(filteredLeads, report.config);
           break;
         default:
           return res.status(400).json({ error: "Unknown report type" });

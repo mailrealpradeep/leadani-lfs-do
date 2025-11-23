@@ -46,6 +46,11 @@ interface ReportDataResponse {
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
 
+const VISUALIZATION_TYPES = [
+  { value: "chart", label: "Chart", icon: BarChart3 },
+  { value: "pivot_table", label: "Pivot Table", icon: BarChart },
+];
+
 const CHART_TYPES = [
   { value: "bar", label: "Bar Chart", icon: BarChart },
   { value: "line", label: "Line Chart", icon: LineIcon },
@@ -63,10 +68,15 @@ export default function Reports() {
   const { toast } = useToast();
   const [builderOpen, setBuilderOpen] = useState(false);
   const [reportName, setReportName] = useState("");
+  const [visualizationType, setVisualizationType] = useState("chart");
   const [chartType, setChartType] = useState("bar");
   const [xAxis, setXAxis] = useState("");
   const [yAxis, setYAxis] = useState("count");
   const [yAxisField, setYAxisField] = useState("");
+  const [rowFields, setRowFields] = useState<string[]>([]);
+  const [columnField, setColumnField] = useState("");
+  const [valueField, setValueField] = useState("");
+  const [aggregation, setAggregation] = useState("count");
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
 
@@ -148,36 +158,76 @@ export default function Reports() {
 
   const resetBuilder = () => {
     setReportName("");
+    setVisualizationType("chart");
     setChartType("bar");
     setXAxis("");
     setYAxis("count");
     setYAxisField("");
+    setRowFields([]);
+    setColumnField("");
+    setValueField("");
+    setAggregation("count");
     setSelectedSheetIds([]);
   };
 
   const handleCreateReport = () => {
-    if (!reportName || !xAxis || selectedSheetIds.length === 0) {
+    if (!reportName || selectedSheetIds.length === 0) {
       toast({
         title: "Validation error",
-        description: "Please provide report name, X-axis, and select at least one sheet",
+        description: "Please provide report name and select at least one sheet",
         variant: "destructive",
       });
       return;
     }
 
-    const config: any = {
-      chart_type: chartType,
-      x_axis: xAxis,
-      y_axis: yAxis,
-    };
+    let config: any = {};
+    let reportType = "custom";
 
-    if (yAxis !== "count" && yAxisField) {
-      config.y_axis_field = yAxisField;
+    if (visualizationType === "chart") {
+      if (!xAxis) {
+        toast({
+          title: "Validation error",
+          description: "Please select an X-axis for the chart",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      config = {
+        chart_type: chartType,
+        x_axis: xAxis,
+        y_axis: yAxis,
+      };
+
+      if (yAxis !== "count" && yAxisField) {
+        config.y_axis_field = yAxisField;
+      }
+    } else {
+      // Pivot table
+      if (rowFields.length === 0) {
+        toast({
+          title: "Validation error",
+          description: "Please select at least one row field for the pivot table",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      reportType = "pivot_table";
+      config = {
+        row_fields: rowFields,
+        column_field: columnField || undefined,
+        aggregation,
+      };
+
+      if (aggregation !== "count" && valueField) {
+        config.value_field = valueField;
+      }
     }
 
     createMutation.mutate({
       name: reportName,
-      report_type: "custom",
+      report_type: reportType,
       sheet_ids: selectedSheetIds,
       config,
     });
@@ -273,15 +323,15 @@ export default function Reports() {
               />
             </div>
 
-            {/* Chart Type */}
+            {/* Visualization Type */}
             <div className="space-y-2">
-              <Label htmlFor="chart-type">Chart Type</Label>
-              <Select value={chartType} onValueChange={setChartType}>
-                <SelectTrigger id="chart-type" data-testid="select-chart-type">
+              <Label htmlFor="viz-type">Visualization Type</Label>
+              <Select value={visualizationType} onValueChange={setVisualizationType}>
+                <SelectTrigger id="viz-type" data-testid="select-viz-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CHART_TYPES.map((type) => (
+                  {VISUALIZATION_TYPES.map((type) => (
                     <SelectItem key={type.value} value={type.value}>
                       <div className="flex items-center gap-2">
                         <type.icon className="h-4 w-4" />
@@ -293,57 +343,171 @@ export default function Reports() {
               </Select>
             </div>
 
-            {/* X-Axis */}
-            <div className="space-y-2">
-              <Label htmlFor="x-axis">X-Axis (Group By)</Label>
-              <Select value={xAxis} onValueChange={setXAxis}>
-                <SelectTrigger id="x-axis" data-testid="select-x-axis">
-                  <SelectValue placeholder="Select column to group by" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableColumns.map((col) => (
-                    <SelectItem key={col} value={col}>
-                      {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Chart Configuration */}
+            {visualizationType === "chart" && (
+              <>
+                {/* Chart Type */}
+                <div className="space-y-2">
+                  <Label htmlFor="chart-type">Chart Type</Label>
+                  <Select value={chartType} onValueChange={setChartType}>
+                    <SelectTrigger id="chart-type" data-testid="select-chart-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CHART_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          <div className="flex items-center gap-2">
+                            <type.icon className="h-4 w-4" />
+                            {type.label}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            {/* Y-Axis */}
-            <div className="space-y-2">
-              <Label htmlFor="y-axis">Y-Axis (Aggregation)</Label>
-              <Select value={yAxis} onValueChange={setYAxis}>
-                <SelectTrigger id="y-axis" data-testid="select-y-axis">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Y_AXIS_TYPES.map((type) => (
-                    <SelectItem key={type.value} value={type.value}>
-                      {type.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                {/* X-Axis */}
+                <div className="space-y-2">
+                  <Label htmlFor="x-axis">X-Axis (Group By)</Label>
+                  <Select value={xAxis} onValueChange={setXAxis}>
+                    <SelectTrigger id="x-axis" data-testid="select-x-axis">
+                      <SelectValue placeholder="Select column to group by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableColumns.map((col) => (
+                        <SelectItem key={col} value={col}>
+                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            {/* Y-Axis Field (for sum/avg) */}
-            {(yAxis === "sum" || yAxis === "avg") && (
-              <div className="space-y-2">
-                <Label htmlFor="y-axis-field">Field to {yAxis === "sum" ? "Sum" : "Average"}</Label>
-                <Select value={yAxisField} onValueChange={setYAxisField}>
-                  <SelectTrigger id="y-axis-field" data-testid="select-y-axis-field">
-                    <SelectValue placeholder="Select numeric field" />
-                  </SelectTrigger>
-                  <SelectContent>
+                {/* Y-Axis */}
+                <div className="space-y-2">
+                  <Label htmlFor="y-axis">Y-Axis (Aggregation)</Label>
+                  <Select value={yAxis} onValueChange={setYAxis}>
+                    <SelectTrigger id="y-axis" data-testid="select-y-axis">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Y_AXIS_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Y-Axis Field (for sum/avg) */}
+                {(yAxis === "sum" || yAxis === "avg") && (
+                  <div className="space-y-2">
+                    <Label htmlFor="y-axis-field">Field to {yAxis === "sum" ? "Sum" : "Average"}</Label>
+                    <Select value={yAxisField} onValueChange={setYAxisField}>
+                      <SelectTrigger id="y-axis-field" data-testid="select-y-axis-field">
+                        <SelectValue placeholder="Select numeric field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableColumns.map((col) => (
+                          <SelectItem key={col} value={col}>
+                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Pivot Table Configuration */}
+            {visualizationType === "pivot_table" && (
+              <>
+                {/* Row Fields (Multi-select) */}
+                <div className="space-y-2">
+                  <Label>Row Fields (select multiple)</Label>
+                  <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
                     {availableColumns.map((col) => (
-                      <SelectItem key={col} value={col}>
-                        {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                      </SelectItem>
+                      <div key={col} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`row-${col}`}
+                          checked={rowFields.includes(col)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setRowFields([...rowFields, col]);
+                            } else {
+                              setRowFields(rowFields.filter((f) => f !== col));
+                            }
+                          }}
+                        />
+                        <label htmlFor={`row-${col}`} className="text-sm cursor-pointer">
+                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                        </label>
+                      </div>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  </div>
+                  {rowFields.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Selected: {rowFields.map((f) => f.replace(/_/g, " ")).join(", ")}
+                    </p>
+                  )}
+                </div>
+
+                {/* Column Field (Optional) */}
+                <div className="space-y-2">
+                  <Label htmlFor="column-field">Column Field (optional)</Label>
+                  <Select value={columnField} onValueChange={setColumnField}>
+                    <SelectTrigger id="column-field">
+                      <SelectValue placeholder="Select column pivot field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {availableColumns.map((col) => (
+                        <SelectItem key={col} value={col}>
+                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Aggregation */}
+                <div className="space-y-2">
+                  <Label htmlFor="aggregation">Aggregation</Label>
+                  <Select value={aggregation} onValueChange={setAggregation}>
+                    <SelectTrigger id="aggregation">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Y_AXIS_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Value Field (for sum/avg) */}
+                {(aggregation === "sum" || aggregation === "avg") && (
+                  <div className="space-y-2">
+                    <Label htmlFor="value-field">Value Field</Label>
+                    <Select value={valueField} onValueChange={setValueField}>
+                      <SelectTrigger id="value-field">
+                        <SelectValue placeholder="Select field to aggregate" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableColumns.map((col) => (
+                          <SelectItem key={col} value={col}>
+                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Sheet Selection */}
@@ -415,11 +579,11 @@ function ReportCard({
     queryKey: ["/api/company/reports", report.id, "data"],
   });
 
-  const renderChart = () => {
+  const renderVisualization = () => {
     if (isLoading) {
       return (
         <div className="flex items-center justify-center h-64">
-          <div className="text-sm text-muted-foreground">Loading chart data...</div>
+          <div className="text-sm text-muted-foreground">Loading data...</div>
         </div>
       );
     }
@@ -433,6 +597,81 @@ function ReportCard({
     }
 
     const data = reportData.data;
+
+    // Render pivot table
+    if (report.report_type === "pivot_table") {
+      if (!data.rows || data.rows.length === 0) {
+        return <div className="text-sm text-muted-foreground p-4">No data</div>;
+      }
+
+      // Simple table (no column pivot)
+      if (data.type === "simple") {
+        return (
+          <div className="overflow-x-auto max-h-96">
+            <table className="w-full text-sm">
+              <thead className="bg-muted">
+                <tr>
+                  {data.rowFields.map((field: string, i: number) => (
+                    <th key={i} className="px-3 py-2 text-left font-medium">
+                      {field.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 text-right font-medium">
+                    {data.aggregation === "count" ? "Count" : data.aggregation === "sum" ? "Sum" : "Average"}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((row: any, i: number) => (
+                  <tr key={i} className="border-b hover-elevate">
+                    {row.keys.map((key: string, j: number) => (
+                      <td key={j} className="px-3 py-2">{key}</td>
+                    ))}
+                    <td className="px-3 py-2 text-right font-medium">{row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+
+      // Full pivot table (with column pivot)
+      return (
+        <div className="overflow-x-auto max-h-96">
+          <table className="w-full text-sm">
+            <thead className="bg-muted">
+              <tr>
+                {data.rowFields.map((field: string, i: number) => (
+                  <th key={i} className="px-3 py-2 text-left font-medium sticky left-0 bg-muted">
+                    {field.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                  </th>
+                ))}
+                {data.columns.map((col: string) => (
+                  <th key={col} className="px-3 py-2 text-right font-medium">{col}</th>
+                ))}
+                <th className="px-3 py-2 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((row: any, i: number) => (
+                <tr key={i} className="border-b hover-elevate">
+                  {row.keys.map((key: string, j: number) => (
+                    <td key={j} className="px-3 py-2 sticky left-0 bg-background">{key}</td>
+                  ))}
+                  {data.columns.map((col: string) => (
+                    <td key={col} className="px-3 py-2 text-right">{row[col] || 0}</td>
+                  ))}
+                  <td className="px-3 py-2 text-right font-medium">{row.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    // Render charts
     const chartType = report.config?.chart_type || "bar";
 
     switch (chartType) {
@@ -511,7 +750,7 @@ function ReportCard({
           </Button>
         )}
       </CardHeader>
-      <CardContent>{renderChart()}</CardContent>
+      <CardContent>{renderVisualization()}</CardContent>
     </Card>
   );
 }
