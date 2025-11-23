@@ -1,10 +1,10 @@
-# Dabluz CRM Design Guidelines
+# LeadAni LFS Design Guidelines
 
 ## Design Approach
 
 **Selected Approach**: Design System + Industry Reference Hybrid
 
-Drawing inspiration from data-intensive productivity tools (Airtable, Linear, Notion) combined with Material Design principles for information-dense applications. This CRM requires exceptional data readability, efficient workflows, and minimal cognitive load for users managing large datasets.
+Drawing inspiration from data-intensive productivity tools (Airtable, Linear, Notion) combined with Material Design principles for information-dense applications. This lead management system requires exceptional data readability, efficient workflows, and minimal cognitive load for users managing large datasets.
 
 ## Core Design Elements
 

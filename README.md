@@ -1,6 +1,6 @@
-# Dabluz CRM
+# LeadAni LFS
 
-A production-ready multi-user spreadsheet-like CRM with customizable workspaces, dynamic columns, webhook ingestion, realtime collaboration, and comprehensive reporting.
+A production-ready multi-user spreadsheet-like lead management system with customizable workspaces, dynamic columns, webhook ingestion, realtime collaboration, and comprehensive reporting.
 
 ## 🚀 Features
 

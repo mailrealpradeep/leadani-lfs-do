@@ -1,8 +1,8 @@
-# Dabluz CRM
+# LeadAni LFS
 
 ## Overview
 
-Dabluz CRM is a multi-tenant, spreadsheet-like CRM designed for lead management and collaboration. It offers an Excel-like grid interface, customizable workspaces, dynamic column management, and webhook integration for automated lead creation. Key features include comprehensive reporting, chronological lead update tracking, three-tier role-based access control, data isolation per company, audit logging, and mobile-responsive design. The system supports self-service company signup with admin invitation flows for staff. The business vision is to provide an intuitive and powerful CRM for enhancing lead management efficiency and team collaboration for businesses of all sizes.
+LeadAni LFS is a multi-tenant, spreadsheet-like lead management system designed for lead management and collaboration. It offers an Excel-like grid interface, customizable workspaces, dynamic column management, and webhook integration for automated lead creation. Key features include comprehensive reporting, chronological lead update tracking, three-tier role-based access control, data isolation per company, audit logging, and mobile-responsive design. The system supports self-service company signup with admin invitation flows for staff. The business vision is to provide an intuitive and powerful CRM for enhancing lead management efficiency and team collaboration for businesses of all sizes.
 
 ## User Preferences
 
