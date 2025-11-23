@@ -2,7 +2,7 @@
 
 ## Overview
 
-Dabluz CRM is a multi-tenant, spreadsheet-like CRM designed for lead management and collaboration across multiple companies. It features an Excel-like grid interface, customizable workspaces, dynamic column management, webhook integration for automated lead creation, comprehensive reporting, and chronological lead update tracking. The system includes three-tier role-based access control, data isolation per company, audit logging, data export/import, and a mobile-responsive design. A self-service signup flow allows companies to register independently, with the first user becoming a company admin who can then invite staff via time-limited codes. The business vision is to provide an intuitive and powerful CRM solution for businesses of all sizes, enhancing lead management efficiency and team collaboration.
+Dabluz CRM is a multi-tenant, spreadsheet-like CRM designed for lead management and collaboration. It offers an Excel-like grid interface, customizable workspaces, dynamic column management, and webhook integration for automated lead creation. Key features include comprehensive reporting, chronological lead update tracking, three-tier role-based access control, data isolation per company, audit logging, and mobile-responsive design. The system supports self-service company signup with admin invitation flows for staff. The business vision is to provide an intuitive and powerful CRM for enhancing lead management efficiency and team collaboration for businesses of all sizes.
 
 ## User Preferences
 
@@ -12,142 +12,65 @@ Preferred communication style: Simple, everyday language.
 
 ### Application Structure
 
-The application uses a monorepo with a React/Vite frontend (`client/`), a Node.js/Express backend (`server/`), and shared TypeScript types/schemas (`shared/`).
+The application is a monorepo comprising a React/Vite frontend (`client/`), a Node.js/Express backend (`server/`), and shared TypeScript types/schemas (`shared/`).
 
 ### Frontend Architecture
 
-Built with React and Vite, the frontend uses Wouter for routing, `@tanstack/react-query` for server state, and Shadcn UI (Radix UI + Tailwind CSS) for themed components. Real-time updates are handled via Socket.io. The design is mobile-responsive, with specific layouts for mobile and desktop (CSS Grid for sticky headers and horizontal scrolling).
+The frontend is built with React and Vite, utilizing Wouter for routing, `@tanstack/react-query` for server state management, and Shadcn UI (Radix UI + Tailwind CSS) for themed components. Real-time updates are powered by Socket.io, and the design is mobile-responsive with specific layouts for different screen sizes.
 
 ### Backend Architecture
 
-The Express.js backend provides RESTful API endpoints. Authentication is JWT-based with bcrypt for password hashing, token-based sessions, and rate limiting. Data is stored in PostgreSQL using Drizzle ORM. Socket.io facilitates real-time bidirectional communication for CRUD events.
+The backend is an Express.js application providing RESTful API endpoints. Authentication is JWT-based with bcrypt for hashing, and it includes token-based sessions and rate limiting. Data persistence is handled by PostgreSQL with Drizzle ORM. Socket.io enables real-time bidirectional communication for CRUD operations and UI synchronization.
 
 ### Data Model
 
-Core entities include Users, Companies, Invites, Sheets, SheetUsers, Leads (fixed and custom fields), LeadUpdates, DropdownOptions, CustomColumns, Audit logs, and WebhookLogs. All tables use UUIDs, and lead custom fields are stored as JSON. Leads support a soft-delete mechanism with a 30-day retention period, recoverable by admins.
+Core entities include Users, Companies, Invites, Sheets, Leads (with fixed and custom fields), LeadUpdates, DropdownOptions, CustomColumns, Audit logs, and WebhookLogs. UUIDs are used for all tables, and lead custom fields are stored as JSON. Leads support soft deletion with a 30-day recovery period and automatic exclusion from queries.
 
 ### API and Security
 
-RESTful APIs manage authentication, signup, invites, sheet operations, lead updates, and webhooks. Security features include JWT-based authentication with role and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit for public endpoints, and comprehensive audit trails. Public endpoints are rate-limited and handle unauthenticated signup and invite acceptance.
+The system implements RESTful APIs for authentication, signup, invites, sheet operations, lead updates, and webhooks. Security features include JWT-based authentication with role and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit for public endpoints, and comprehensive audit trails.
 
 ### Real-time Synchronization
 
-Socket.io enables real-time synchronization by allowing clients to join sheet-specific rooms. The server emits events for data changes (e.g., `lead_created`, `lead_updated`) to trigger client-side React Query cache invalidation and refetching, supporting optimistic UI updates.
+Socket.io facilitates real-time synchronization by allowing clients to subscribe to sheet-specific rooms. Server-emitted events for data changes trigger client-side React Query cache invalidation and refetching, enabling optimistic UI updates.
 
-### Lead Management Features
+### Key Features
 
-The system includes chronological tracking of lead updates (method, date, remarks, user attribution). It supports exporting lead data to Excel/CSV and importing leads from Excel/CSV with intelligent column mapping, field-level validation, and handling of various date formats. Bulk lead transfer between sheets is supported with permission checks, company isolation, audit logging, and real-time updates.
-
-**Soft Delete and Recovery**: Leads support soft deletion with a 30-day retention period. Company admins and super admins can delete leads (which sets `deleted_at` timestamp and `deleted_by_user_id`), view deleted leads through a dedicated UI in the dashboard sidebar, and restore them within 30 days. A scheduled cleanup job runs daily on server startup and every 24 hours thereafter to permanently remove leads deleted more than 30 days ago. All lead queries automatically exclude soft-deleted records. Real-time Socket.io events synchronize deletions and restorations across connected clients.
-
-**Conditional Validation Rules**: The system supports creating conditional validation rules that make certain fields required when trigger conditions are met. Rules are company-scoped with optional sheet-level specificity. When a lead matches a rule's trigger condition (e.g., status equals "Hot"), specified fields become required. Invalid leads are highlighted in red in the spreadsheet grid. During import, validation is non-blocking - all leads are imported but validation warnings are logged for invalid entries. Company admins can manage validation rules via the sidebar UI, creating rules with trigger columns, operators (equals, in, not_equals, not_in), trigger values, and required field lists. The validator evaluates both fixed and custom fields.
-
-### Design System
-
-Styling uses Tailwind CSS with custom design tokens, supporting light/dark themes. Shadcn UI provides accessible, customizable components, prioritizing a mobile-first approach.
-
-### Self-Service Signup System
-
-A comprehensive onboarding flow includes:
-1.  **Landing Page**: Public "Get Started" call-to-action.
-2.  **Company Signup**: Transactional creation of new company and admin user.
-3.  **Onboarding**: Post-signup setup for company admin.
-4.  **Invite Management**: Admins create time-limited invite codes for staff.
-5.  **Invite Acceptance**: Public page for invitees to create accounts.
-6.  **Staff Onboarding**: New staff are automatically associated with the company and gain sheet access.
-
-### Dashboard Architecture
-
-The dashboard features a full-width spreadsheet interface with controls in a sidebar. A central `DashboardContext` manages state for sheet selection, search, filtering, and actions. The `SpreadsheetGrid` dynamically displays filtered data with sticky headers and horizontal scrolling.
-
-**Quick Filter Integration**: Quick filter buttons are displayed in the main application header (next to the sidebar toggle) to save vertical space. The filter logic is managed through `DashboardContext` with handlers registered from `SpreadsheetGrid` using `useCallback` to prevent stale closures. The system provides 7 pre-configured filters: Lead Type, Visit Today, Follow Up Today, Not Attended, Today's Leads, Visit Tomorrow, and Clear All. Filters only activate when target columns exist, providing user feedback via toast notifications when columns are missing. The header conditionally renders the quick filter bar only when on the dashboard route with a selected sheet.
-
-### Webhook Integration System
-
-External systems can create leads via HTTP POST requests using a comprehensive webhook system.
--   **Database Schema**: Stores webhook configurations, field mappings, allocation rules, and request logs.
--   **API Endpoints**: Admin endpoints for CRUD operations and a public endpoint (`POST /api/public/webhooks/:token`) for lead ingestion.
--   **Field Mapping**: Transforms incoming JSON payloads to CRM lead structures, mapping to fixed and custom fields.
--   **Allocation Logic**: Supports conditional two-tier allocation (team/condition-based then percentage-based round-robin) with operators like "equals," "contains," and "starts_with." Includes percentage validation and fallback rules.
--   **Lead Attribution**: Webhook-created leads are attributed to the webhook's `created_by_user_id`.
--   **Security**: Unique, hashed webhook tokens and rate-limited public endpoint.
-
-### Reports Section
-
-The Reports Section provides comprehensive data visualization and analytics capabilities with permission-based access control and a dynamic Report Builder for custom analytics.
-
-**Database Schema**: Reports table stores custom reports with company_id, name, report_type, sheet_ids array, and config JSON. The config includes `x_axis` (column to group by), `y_axis` (aggregation type: count/sum/avg), `y_axis_field` (field to aggregate for sum/avg), and `chart_type` (bar/line/pie).
-
-**Report Types**: 
-1. **Pre-built Reports** - Seven predefined report types: Lead Status Distribution, Leads Over Time, Lead Source Analysis, Conversion Rate, User Performance, Lead Age Distribution, Custom Field Analysis
-2. **Custom Dynamic Reports** - User-defined reports created via the Report Builder with:
-   - X-axis selector: Choose any column (fixed or custom) to group data by
-   - Y-axis aggregation: Count, Sum, or Average
-   - Y-axis field: Select numeric field to aggregate (for sum/avg)
-   - Chart type selector: Bar, Line, or Pie charts
-   - Multi-sheet support: Aggregate data across multiple sheets
-
-**Authorization Model**:
--   **Company Admins**: Can create, view, and delete all reports in their company; see all company sheets when creating reports
--   **Regular Users**: Can view reports for sheets they have access to; cannot create or delete reports
--   **Sheet Visibility**: `/api/sheets` endpoint returns all company sheets for admins, only accessible sheets for regular users
--   **Field Access**: Custom reports validate that users can only access authorized columns based on their sheet permissions
-
-**API Endpoints**:
--   `GET /api/company/reports` - Fetch all accessible reports (filtered by user permissions)
--   `POST /api/company/reports` - Create new report (admin only, validates sheet ownership, access, and custom report config)
--   `PATCH /api/company/reports/:id` - Update existing report (admin only, validates all fields and normalizes config)
--   `GET /api/company/reports/:id/data` - Fetch report with generated visualizations and metadata
--   `DELETE /api/company/reports/:id` - Delete report (admin only)
-
-**Data Aggregation**: The `generateDynamicReport()` function handles custom reports by grouping leads by the selected X-axis column and aggregating using the specified Y-axis method (count, sum, average). All queries automatically exclude soft-deleted leads (WHERE deleted_at IS NULL).
-
-**Backend Validation**: Custom reports are validated at creation:
-- Required fields: `x_axis`, `y_axis`, `chart_type`
-- Conditional validation: `y_axis_field` required for sum/avg aggregations
-- Enum validation: `y_axis` must be count/sum/avg; `chart_type` must be bar/line/pie
-
-**Frontend**: Reports page (`/reports`) features a card-based grid layout displaying all reports as individual cards. Each card shows the report name, lead count, and visualization (Recharts bar/line/pie charts). The Report Builder dialog provides intuitive selectors for X-axis (all available columns), Y-axis (aggregation method), Y-axis field (for sum/avg), chart type, and multi-sheet checkbox selection. The page implements its own scroll container (`h-full overflow-y-auto`) to ensure all report cards are accessible when content exceeds viewport height, while preserving the Dashboard's fixed-header layout.
-
-**Report Editing**: Company admins can edit existing reports via an Edit button (pencil icon) on each report card. The Report Builder dialog supports both create and edit modes, pre-populating all fields when editing. The implementation includes:
--   **State Management**: `resetBuilder()` clears all state before loading edit values to prevent stale data when switching between chart and pivot table reports
--   **Enhanced Validation**: Required field validation enforces `y_axis_field` for chart sum/avg aggregations and `value_field` for pivot sum/avg aggregations
--   **Config Normalization**: Only includes necessary fields in the config payload (e.g., omits `column_field` if empty, `y_axis_field` for count aggregations)
--   **Dual Mode Dialog**: Title and button text change based on mode ("Build Custom Report" / "Create Report" vs "Edit Report" / "Update Report")
-
-**Sheet Selection and Filtering**: Each report card includes a sheet selector dropdown allowing users to filter report data by specific sheets. The selector offers "All Sheets" (default) or individual sheet options. Selection state is tracked per-report using `selectedSheetFilter` state. The implementation includes:
--   **Frontend**: Custom queryFn with proper authentication (Bearer token from localStorage) to fetch filtered report data. Query key includes `filteredSheetIds` to trigger cache invalidation on selection changes.
--   **Backend**: `GET /api/company/reports/:id/data` accepts optional `sheet_ids` query parameter. For admins, filters to specified sheets or uses report's configured sheets; for regular users, intersects with accessible sheets. Super admin access is supported via `req.companyId || report.company_id` fallback.
--   **UI/UX**: Sheet selector appears below report name with "View:" label. Dropdown shows all accessible sheets based on user role and permissions.
--   **Permission Model**: Company admins see all company sheets; regular users only see sheets they have access to; super admins use the report's company context.
-
-**Real-time Support**: Report cards automatically fetch and render data using React Query. Empty states guide users when no reports exist, with a prominent "Create Report" call-to-action.
+*   **Lead Management**: Chronological tracking of lead updates, export/import of leads (Excel/CSV) with intelligent column mapping, field validation, and bulk lead transfer.
+*   **Soft Delete & Recovery**: Leads can be soft-deleted and recovered by admins within 30 days, with a scheduled job for permanent removal.
+*   **Conditional Validation**: Supports creation of company-scoped, sheet-specific rules to make fields required based on trigger conditions, with visual highlighting of invalid leads in the grid and non-blocking import validation.
+*   **Design System**: Tailwind CSS with custom design tokens, Shadcn UI components, and support for light/dark themes, built with a mobile-first approach.
+*   **Self-Service Signup**: A multi-step onboarding flow for company registration, admin setup, invite management, and staff onboarding.
+*   **User Management**: Company admins can manage users, including deletion (with safeguards like preventing self-deletion and ensuring admin presence) and sheet-level access control (viewer/editor roles), with real-time updates and audit logging.
+*   **Dashboard**: Features a full-width spreadsheet interface with a sidebar for controls. `DashboardContext` manages state, and `SpreadsheetGrid` dynamically displays filtered data. Quick filters are integrated into the header.
+*   **Webhook Integration**: Allows external systems to create leads via HTTP POST requests. Includes configurable field mapping, two-tier conditional allocation logic (team/condition-based and percentage-based round-robin), lead attribution, and security measures like unique tokens and rate limiting.
+*   **Reports Section**: Provides comprehensive data visualization and analytics with permission-based access. Includes seven pre-built reports and a dynamic Report Builder for custom reports (X-axis, Y-axis aggregation, chart type, multi-sheet support). Admins can create and edit all reports; regular users can view reports for accessible sheets. Data aggregation excludes soft-deleted leads.
 
 ## External Dependencies
 
 ### Required Services
 
--   **Database**: PostgreSQL (Neon-backed) via `DATABASE_URL` using Drizzle ORM.
+*   **Database**: PostgreSQL (Neon-backed) accessed via Drizzle ORM.
 
 ### Third-Party Libraries
 
--   **Frontend**: React Query, Socket.io Client, Wouter, Radix UI, Tailwind CSS, date-fns, XLSX.
--   **Backend**: Express, Socket.io, bcryptjs, jsonwebtoken, Express Rate Limit, XLSX.
--   **Development**: Vite, TypeScript, Drizzle Kit.
+*   **Frontend**: React Query, Socket.io Client, Wouter, Radix UI, Tailwind CSS, date-fns, XLSX.
+*   **Backend**: Express, Socket.io, bcryptjs, jsonwebtoken, Express Rate Limit, XLSX.
+*   **Development**: Vite, TypeScript, Drizzle Kit.
 
 ### Environment Variables
 
--   `DATABASE_URL`
--   `JWT_SECRET`
--   `HMAC_SECRET`
--   `NODE_ENV`
--   `PORT`
--   `FRONTEND_URL`
+*   `DATABASE_URL`
+*   `JWT_SECRET`
+*   `HMAC_SECRET`
+*   `NODE_ENV`
+*   `PORT`
+*   `FRONTEND_URL`
 
 ### Integration Points
 
--   **Self-Service Signup**: `POST /api/public/signup`
--   **Invite System**: `GET /api/public/invites/:code`, `POST /api/public/invites/:code/accept`
--   **Webhook API**: External systems integrate via `POST /api/public/webhooks/:token`
--   **Export Functionality**: Exports lead data to Excel or CSV.
--   **Import Functionality**: Bulk import from Excel/CSV.
+*   **Self-Service Signup**: `/api/public/signup`
+*   **Invite System**: `/api/public/invites/:code`, `/api/public/invites/:code/accept`
+*   **Webhook API**: `/api/public/webhooks/:token`
+*   **Export Functionality**: Exports lead data to Excel or CSV.
+*   **Import Functionality**: Bulk import from Excel/CSV.
