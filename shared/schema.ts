@@ -271,6 +271,42 @@ export const insertValidationRuleSchema = z.object({
 export type InsertValidationRule = z.infer<typeof insertValidationRuleSchema>;
 
 // ============================================================================
+// QUICK FILTERS (Company-wide Quick Filters)
+// ============================================================================
+export interface QuickFilter {
+  id: string;
+  company_id: string; // company-scoped
+  name: string; // display name like "Today's Leads"
+  filter_config: {
+    type: "column_filter" | "date_range" | "date_today" | "date_tomorrow";
+    column_key?: string; // target column (e.g., "lead_date", "lead_type")
+    operator?: "equals" | "contains" | "in" | "not_equals" | "not_in" | "date_equals" | "date_between";
+    value?: string | string[]; // filter value(s)
+    date_field?: string; // for date filters
+  };
+  order_index: number; // display order
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const insertQuickFilterSchema = z.object({
+  company_id: z.string(),
+  name: z.string().min(1, "Filter name is required"),
+  filter_config: z.object({
+    type: z.enum(["column_filter", "date_range", "date_today", "date_tomorrow"]),
+    column_key: z.string().optional(),
+    operator: z.enum(["equals", "contains", "in", "not_equals", "not_in", "date_equals", "date_between"]).optional(),
+    value: z.union([z.string(), z.array(z.string())]).optional(),
+    date_field: z.string().optional(),
+  }),
+  order_index: z.number().default(0),
+  created_by_user_id: z.string(),
+});
+
+export type InsertQuickFilter = z.infer<typeof insertQuickFilterSchema>;
+
+// ============================================================================
 // AUDIT LOGS
 // ============================================================================
 export interface Audit {
@@ -588,6 +624,23 @@ export const validation_rules = pgTable('validation_rules', {
   operator: varchar('operator', { length: 50 }).notNull(),
   trigger_value: json('trigger_value').$type<string | string[]>().notNull(),
   required_fields: json('required_fields').$type<string[]>().notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const quick_filters = pgTable('quick_filters', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  filter_config: json('filter_config').$type<{
+    type: "column_filter" | "date_range" | "date_today" | "date_tomorrow";
+    column_key?: string;
+    operator?: "equals" | "contains" | "in" | "not_equals" | "not_in" | "date_equals" | "date_between";
+    value?: string | string[];
+    date_field?: string;
+  }>().notNull(),
+  order_index: integer('order_index').notNull().default(0),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
