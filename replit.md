@@ -115,6 +115,12 @@ The Reports Section provides comprehensive data visualization and analytics capa
 -   **Config Normalization**: Only includes necessary fields in the config payload (e.g., omits `column_field` if empty, `y_axis_field` for count aggregations)
 -   **Dual Mode Dialog**: Title and button text change based on mode ("Build Custom Report" / "Create Report" vs "Edit Report" / "Update Report")
 
+**Sheet Selection and Filtering**: Each report card includes a sheet selector dropdown allowing users to filter report data by specific sheets. The selector offers "All Sheets" (default) or individual sheet options. Selection state is tracked per-report using `selectedSheetFilter` state. The implementation includes:
+-   **Frontend**: Custom queryFn with proper authentication (Bearer token from localStorage) to fetch filtered report data. Query key includes `filteredSheetIds` to trigger cache invalidation on selection changes.
+-   **Backend**: `GET /api/company/reports/:id/data` accepts optional `sheet_ids` query parameter. For admins, filters to specified sheets or uses report's configured sheets; for regular users, intersects with accessible sheets. Super admin access is supported via `req.companyId || report.company_id` fallback.
+-   **UI/UX**: Sheet selector appears below report name with "View:" label. Dropdown shows all accessible sheets based on user role and permissions.
+-   **Permission Model**: Company admins see all company sheets; regular users only see sheets they have access to; super admins use the report's company context.
+
 **Real-time Support**: Report cards automatically fetch and render data using React Query. Empty states guide users when no reports exist, with a prominent "Create Report" call-to-action.
 
 ## External Dependencies
