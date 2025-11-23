@@ -1293,22 +1293,39 @@ export class PgStorage implements IStorage {
   }
 
   async getSheetsByCompanyId(companyId: string): Promise<Sheet[]> {
-    const result = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.company_id, companyId));
+    const result = await db.select().from(dbSchema.sheets).where(
+      and(
+        eq(dbSchema.sheets.company_id, companyId),
+        isNull(dbSchema.sheets.deleted_at)
+      )
+    );
     return result.map(this.mapSheet);
   }
 
   async getPersonalSheets(userId: string): Promise<Sheet[]> {
-    const result = await db.select().from(dbSchema.sheets).where(and(eq(dbSchema.sheets.owner_id, userId), eq(dbSchema.sheets.is_personal, true)));
+    const result = await db.select().from(dbSchema.sheets).where(
+      and(
+        eq(dbSchema.sheets.owner_id, userId),
+        eq(dbSchema.sheets.is_personal, true),
+        isNull(dbSchema.sheets.deleted_at)
+      )
+    );
     return result.map(this.mapSheet);
   }
 
   async getCompanySheets(companyId: string): Promise<Sheet[]> {
-    const result = await db.select().from(dbSchema.sheets).where(and(eq(dbSchema.sheets.company_id, companyId), eq(dbSchema.sheets.is_personal, false)));
+    const result = await db.select().from(dbSchema.sheets).where(
+      and(
+        eq(dbSchema.sheets.company_id, companyId),
+        eq(dbSchema.sheets.is_personal, false),
+        isNull(dbSchema.sheets.deleted_at)
+      )
+    );
     return result.map(this.mapSheet);
   }
 
   async getAllSheets(): Promise<Sheet[]> {
-    const result = await db.select().from(dbSchema.sheets);
+    const result = await db.select().from(dbSchema.sheets).where(isNull(dbSchema.sheets.deleted_at));
     return result.map(this.mapSheet);
   }
 
