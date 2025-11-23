@@ -700,8 +700,45 @@ function ReportCard({
   canEdit: boolean;
   canDelete: boolean;
 }) {
+  const [selectedSheetFilter, setSelectedSheetFilter] = useState<string>("all");
+  
+  // Fetch available sheets
+  const { data: sheets } = useQuery<any[]>({
+    queryKey: ["/api/sheets"],
+  });
+
+  // Build query parameters based on sheet selection
+  const getFilteredSheetIds = () => {
+    if (selectedSheetFilter === "all") {
+      return null; // null means all sheets
+    }
+    return [selectedSheetFilter]; // Single sheet ID
+  };
+
+  const filteredSheetIds = getFilteredSheetIds();
+  
   const { data: reportData, isLoading } = useQuery<ReportDataResponse>({
-    queryKey: ["/api/company/reports", report.id, "data"],
+    queryKey: ["/api/company/reports", report.id, "data", filteredSheetIds],
+    queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
+      let url = `/api/company/reports/${report.id}/data`;
+      if (filteredSheetIds) {
+        const params = new URLSearchParams();
+        filteredSheetIds.forEach(id => params.append("sheet_ids", id));
+        url += `?${params.toString()}`;
+      }
+      const response = await fetch(url, {
+        credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`${response.status}: ${errorText || response.statusText}`);
+      }
+      return response.json();
+    },
   });
 
   const renderVisualization = () => {
@@ -891,7 +928,40 @@ function ReportCard({
           )}
         </div>
       </CardHeader>
-      <CardContent>{renderVisualization()}</CardContent>
+      <CardContent className="space-y-3">
+        {/* Sheet Filter Selector */}
+        {sheets && sheets.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Label className="text-xs font-medium shrink-0">View:</Label>
+            <Select
+              value={selectedSheetFilter}
+              onValueChange={setSelectedSheetFilter}
+            >
+              <SelectTrigger 
+                className="h-8 text-xs w-auto min-w-[150px]"
+                data-testid={`select-sheet-filter-${report.id}`}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" data-testid={`select-option-all-${report.id}`}>
+                  All Sheets
+                </SelectItem>
+                {sheets.map((sheet) => (
+                  <SelectItem 
+                    key={sheet.id} 
+                    value={sheet.id}
+                    data-testid={`select-option-sheet-${sheet.id}`}
+                  >
+                    {sheet.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {renderVisualization()}
+      </CardContent>
     </Card>
   );
 }

@@ -3347,17 +3347,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Cannot access reports from other companies" });
       }
 
+      // Get filter sheet IDs from query parameters (if provided)
+      let filterSheetIds: string[] | null = null;
+      if (req.query.sheet_ids) {
+        const rawSheetIds = req.query.sheet_ids;
+        if (Array.isArray(rawSheetIds)) {
+          filterSheetIds = rawSheetIds.filter((id): id is string => typeof id === 'string');
+        } else if (typeof rawSheetIds === 'string') {
+          filterSheetIds = [rawSheetIds];
+        }
+      }
+
       // Get accessible sheet IDs for the user
       let accessibleSheetIds: string[] = [];
       if (req.userRole === "company_admin" || req.userRole === "super_admin") {
-        // Admins can access all sheets in the report
-        accessibleSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+        // Admins can access all sheets (or filter by specific sheets if provided)
+        // Super admins don't have companyId, so use report's company_id
+        const companyId = req.companyId || report.company_id;
+        
+        if (filterSheetIds) {
+          // Get all company sheets
+          const companySheets = await storage.getSheetsByCompanyId(companyId);
+          const companySheetIds = companySheets.map(s => s.id);
+          // Only include requested sheets that exist in the company
+          accessibleSheetIds = filterSheetIds.filter(sheetId => companySheetIds.includes(sheetId));
+        } else {
+          // No filter - use report's configured sheets or all company sheets
+          accessibleSheetIds = Array.isArray(report.sheet_ids) && report.sheet_ids.length > 0
+            ? report.sheet_ids
+            : (await storage.getSheetsByCompanyId(companyId)).map(s => s.id);
+        }
       } else {
         // Regular users can only access sheets they have permissions for
         const userSheets = await storage.getSheetsByUserId(req.userId!);
         const userSheetIds = userSheets.map(s => s.id);
-        const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
-        accessibleSheetIds = reportSheetIds.filter(sheetId => userSheetIds.includes(sheetId));
+        
+        if (filterSheetIds) {
+          // Filter to only include requested sheets that the user has access to
+          accessibleSheetIds = filterSheetIds.filter(sheetId => userSheetIds.includes(sheetId));
+        } else {
+          // No filter - use report's configured sheets intersected with user's sheets
+          const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+          accessibleSheetIds = reportSheetIds.filter(sheetId => userSheetIds.includes(sheetId));
+        }
         
         if (accessibleSheetIds.length === 0) {
           return res.status(403).json({ error: "No access to sheets in this report" });
