@@ -63,12 +63,9 @@ export function QuickFiltersBar({
   onClearFilters,
   isMobile = false,
 }: QuickFiltersBarProps) {
-  const { company } = useAuth();
-
   // Fetch quick filters for the company
   const { data: quickFilters = [], isLoading } = useQuery<QuickFilter[]>({
-    queryKey: ["/api/company/quick-filters", company?.id],
-    enabled: !!company,
+    queryKey: ["/api/company/quick-filters"],
   });
 
   if (isLoading) {
