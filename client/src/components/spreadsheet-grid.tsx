@@ -288,10 +288,15 @@ export function SpreadsheetGrid({
   useEffect(() => {
     if (!sheetId) return;
     
+    console.log(`[CLIENT LOCK] Joining sheet ${sheetId}, clearing existing lock state`);
+    setLockedCells(new Map());
+    setPendingLockRequest(null);
+    
     const socket = getSocket();
     
     // Join the sheet room
     socket.emit("join_sheet", sheetId);
+    console.log(`[CLIENT LOCK] Emitted join_sheet for ${sheetId}`);
 
     // Listen for realtime events
     const handleLeadCreated = () => {
@@ -345,14 +350,16 @@ export function SpreadsheetGrid({
     };
 
     const handleExistingLocks = (data: { locks: Array<{ leadId: string; field: string; userId: string; userName: string }> }) => {
-      console.log(`[CLIENT] Received ${data.locks.length} existing locks from server`);
+      console.log(`[CLIENT LOCK] Received ${data.locks.length} existing locks from server:`, data.locks);
       setLockedCells((prev) => {
         const newMap = new Map(prev);
         data.locks.forEach((lock) => {
           const lockKey = `${lock.leadId}:${lock.field}`;
+          console.log(`[CLIENT LOCK] Adding existing lock: ${lockKey} by ${lock.userName}`);
           // Mark as not own lock - these are locks from other users
           newMap.set(lockKey, { userId: lock.userId, userName: lock.userName, isOwnLock: false });
         });
+        console.log(`[CLIENT LOCK] Total locked cells now: ${newMap.size}`);
         return newMap;
       });
     };
