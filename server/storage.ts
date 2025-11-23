@@ -16,6 +16,8 @@ import type {
   InsertCustomColumn,
   ValidationRule,
   InsertValidationRule,
+  QuickFilter,
+  InsertQuickFilter,
   Audit,
   InsertAudit,
   WebhookLog,
@@ -118,6 +120,13 @@ export interface IStorage {
   updateValidationRule(id: string, updates: Partial<ValidationRule>): Promise<ValidationRule | undefined>;
   deleteValidationRule(id: string): Promise<boolean>;
 
+  // Quick Filters (Company-wide Quick Filters)
+  getQuickFilters(companyId: string): Promise<QuickFilter[]>;
+  getQuickFilterById(id: string): Promise<QuickFilter | undefined>;
+  createQuickFilter(filter: InsertQuickFilter): Promise<QuickFilter>;
+  updateQuickFilter(id: string, updates: Partial<QuickFilter>): Promise<QuickFilter | undefined>;
+  deleteQuickFilter(id: string): Promise<boolean>;
+
   // Audit Logs
   getAuditLogs(): Promise<Audit[]>;
   getAuditLogsByCompany(companyId: string): Promise<Audit[]>;
@@ -168,6 +177,7 @@ export class MemStorage implements IStorage {
   private dropdownOptions: Map<string, DropdownOption>;
   private customColumns: Map<string, CustomColumn>;
   private validationRules: Map<string, ValidationRule>;
+  private quickFilters: Map<string, QuickFilter>;
   private auditLogs: Map<string, Audit>;
   private webhookLogs: Map<string, WebhookLog>;
   private leadUpdates: Map<string, LeadUpdate>;
@@ -182,6 +192,7 @@ export class MemStorage implements IStorage {
     this.dropdownOptions = new Map();
     this.customColumns = new Map();
     this.validationRules = new Map();
+    this.quickFilters = new Map();
     this.auditLogs = new Map();
     this.webhookLogs = new Map();
     this.leadUpdates = new Map();
@@ -780,6 +791,47 @@ export class MemStorage implements IStorage {
 
   async deleteValidationRule(id: string): Promise<boolean> {
     return this.validationRules.delete(id);
+  }
+
+  // Quick Filters (Company-wide Quick Filters)
+  async getQuickFilters(companyId: string): Promise<QuickFilter[]> {
+    return Array.from(this.quickFilters.values())
+      .filter((filter) => filter.company_id === companyId)
+      .sort((a, b) => a.order_index - b.order_index);
+  }
+
+  async getQuickFilterById(id: string): Promise<QuickFilter | undefined> {
+    return this.quickFilters.get(id);
+  }
+
+  async createQuickFilter(insertFilter: InsertQuickFilter): Promise<QuickFilter> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const filter: QuickFilter = {
+      ...insertFilter,
+      icon: insertFilter.icon ?? null,
+      color: insertFilter.color ?? null,
+      id,
+      created_at: now,
+      updated_at: now,
+    };
+    this.quickFilters.set(id, filter);
+    return filter;
+  }
+
+  async updateQuickFilter(
+    id: string,
+    updates: Partial<QuickFilter>
+  ): Promise<QuickFilter | undefined> {
+    const filter = this.quickFilters.get(id);
+    if (!filter) return undefined;
+    const updated = { ...filter, ...updates, updated_at: new Date().toISOString() };
+    this.quickFilters.set(id, updated);
+    return updated;
+  }
+
+  async deleteQuickFilter(id: string): Promise<boolean> {
+    return this.quickFilters.delete(id);
   }
 
   // Audit Logs

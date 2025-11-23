@@ -10,6 +10,7 @@ import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { seedData } from "./seed";
 import { validateLeadAgainstRules } from "@shared/validator";
+import { insertQuickFilterSchema, quickFilterConfigSchema } from "@shared/schema";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -2848,6 +2849,195 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Validation rule deleted" });
     } catch (error: any) {
       console.error("Delete validation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // QUICK FILTERS (Company-wide Quick Filters)
+  // ============================================================================
+  
+  // Get all quick filters for a company
+  app.get("/api/company/quick-filters", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id 
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      const filters = await storage.getQuickFilters(companyId);
+      res.json(filters);
+    } catch (error: any) {
+      console.error("Get quick filters error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create quick filter (Company Admin only)
+  app.post("/api/company/quick-filters", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Validate request body against schema
+      const validation = insertQuickFilterSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validation.error.errors 
+        });
+      }
+
+      // Determine company_id
+      let companyId: string;
+      if (req.userRole === "super_admin") {
+        if (!req.body.company_id) {
+          return res.status(400).json({ error: "Super admins must provide company_id" });
+        }
+        companyId = req.body.company_id;
+      } else {
+        if (!req.companyId) {
+          return res.status(403).json({ error: "Must belong to a company" });
+        }
+        companyId = req.companyId;
+      }
+
+      const filter = await storage.createQuickFilter({
+        ...validation.data,
+        company_id: companyId,
+        created_by_user_id: req.userId!,
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: companyId,
+        action: "create",
+        model: "quick_filter",
+        model_id: filter.id,
+        payload: { name: filter.name },
+      });
+
+      res.status(201).json(filter);
+    } catch (error: any) {
+      console.error("Create quick filter error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update quick filter (Company Admin only)
+  app.patch("/api/company/quick-filters/:filterId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const filter = await storage.getQuickFilterById(req.params.filterId);
+      if (!filter) {
+        return res.status(404).json({ error: "Quick filter not found" });
+      }
+
+      // Company admins can only update filters in their company
+      if (req.userRole === "company_admin" && filter.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update filters from other companies" });
+      }
+
+      const { name, icon, color, filter_config, order_index } = req.body;
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (icon !== undefined) updates.icon = icon;
+      if (color !== undefined) updates.color = color;
+      if (filter_config !== undefined) {
+        // Validate filter_config against schema
+        const configValidation = quickFilterConfigSchema.safeParse(filter_config);
+        if (!configValidation.success) {
+          return res.status(400).json({ 
+            error: "Invalid filter configuration", 
+            details: configValidation.error.errors 
+          });
+        }
+        updates.filter_config = filter_config;
+      }
+      if (order_index !== undefined) updates.order_index = order_index;
+
+      const updated = await storage.updateQuickFilter(req.params.filterId, updates);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: filter.company_id,
+        action: "update",
+        model: "quick_filter",
+        model_id: req.params.filterId,
+        payload: updates,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update quick filter error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete quick filter (Company Admin only)
+  app.delete("/api/company/quick-filters/:filterId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const filter = await storage.getQuickFilterById(req.params.filterId);
+      if (!filter) {
+        return res.status(404).json({ error: "Quick filter not found" });
+      }
+
+      // Company admins can only delete filters in their company
+      if (req.userRole === "company_admin" && filter.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete filters from other companies" });
+      }
+
+      await storage.deleteQuickFilter(req.params.filterId);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: filter.company_id,
+        action: "delete",
+        model: "quick_filter",
+        model_id: req.params.filterId,
+        payload: {},
+      });
+
+      res.json({ success: true, message: "Quick filter deleted" });
+    } catch (error: any) {
+      console.error("Delete quick filter error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Reorder quick filters (Company Admin only)
+  app.patch("/api/company/quick-filters/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { filter_orders } = req.body;
+      
+      if (!Array.isArray(filter_orders)) {
+        return res.status(400).json({ error: "filter_orders must be an array" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.body.company_id
+        ? req.body.company_id
+        : req.companyId!;
+
+      // Validate all filters belong to the company
+      for (const item of filter_orders) {
+        const filter = await storage.getQuickFilterById(item.id);
+        if (!filter || filter.company_id !== companyId) {
+          return res.status(403).json({ error: "Invalid filter ID or access denied" });
+        }
+      }
+
+      // Update order_index for each filter
+      await Promise.all(
+        filter_orders.map((item: { id: string; order_index: number }) =>
+          storage.updateQuickFilter(item.id, { order_index: item.order_index })
+        )
+      );
+
+      res.json({ success: true, message: "Quick filters reordered" });
+    } catch (error: any) {
+      console.error("Reorder quick filters error:", error);
       res.status(500).json({ error: error.message });
     }
   });

@@ -273,18 +273,46 @@ export type InsertValidationRule = z.infer<typeof insertValidationRuleSchema>;
 // ============================================================================
 // QUICK FILTERS (Company-wide Quick Filters)
 // ============================================================================
+
+// Individual filter condition schema
+export const filterConditionSchema = z.object({
+  column_key: z.string().min(1, "Column key is required"),
+  operator: z.enum([
+    "equals", "not_equals", "contains", "not_contains",
+    "in", "not_in", "is_empty", "is_not_empty",
+    "greater_than", "less_than", "greater_equal", "less_equal",
+    "date_equals", "date_before", "date_after", "date_between"
+  ]),
+  value: z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.array(z.string()),
+    z.null()
+  ]).optional(),
+  value_type: z.enum(["text", "number", "date", "boolean", "array"]).optional(),
+  relative_date: z.enum(["today", "tomorrow", "yesterday", "this_week", "next_week", "this_month", "next_month"]).optional(),
+});
+
+export type FilterCondition = z.infer<typeof filterConditionSchema>;
+
+// Quick filter configuration schema
+export const quickFilterConfigSchema = z.object({
+  conditions: z.array(filterConditionSchema).min(1, "At least one condition is required"),
+  logical_operator: z.enum(["and", "or"]).default("and"),
+  version: z.number().default(1), // for future schema evolution
+});
+
+export type QuickFilterConfig = z.infer<typeof quickFilterConfigSchema>;
+
 export interface QuickFilter {
   id: string;
-  company_id: string; // company-scoped
-  name: string; // display name like "Today's Leads"
-  filter_config: {
-    type: "column_filter" | "date_range" | "date_today" | "date_tomorrow";
-    column_key?: string; // target column (e.g., "lead_date", "lead_type")
-    operator?: "equals" | "contains" | "in" | "not_equals" | "not_in" | "date_equals" | "date_between";
-    value?: string | string[]; // filter value(s)
-    date_field?: string; // for date filters
-  };
-  order_index: number; // display order
+  company_id: string;
+  name: string; // display name like "Hot Leads" or "Visit Today"
+  icon: string | null; // optional icon name from lucide-react
+  color: string | null; // optional color theme
+  filter_config: QuickFilterConfig;
+  order_index: number;
   created_by_user_id: string;
   created_at: string;
   updated_at: string;
@@ -292,14 +320,10 @@ export interface QuickFilter {
 
 export const insertQuickFilterSchema = z.object({
   company_id: z.string(),
-  name: z.string().min(1, "Filter name is required"),
-  filter_config: z.object({
-    type: z.enum(["column_filter", "date_range", "date_today", "date_tomorrow"]),
-    column_key: z.string().optional(),
-    operator: z.enum(["equals", "contains", "in", "not_equals", "not_in", "date_equals", "date_between"]).optional(),
-    value: z.union([z.string(), z.array(z.string())]).optional(),
-    date_field: z.string().optional(),
-  }),
+  name: z.string().min(1, "Filter name is required").max(50, "Name must be 50 characters or less"),
+  icon: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  filter_config: quickFilterConfigSchema,
   order_index: z.number().default(0),
   created_by_user_id: z.string(),
 });
@@ -632,13 +656,9 @@ export const quick_filters = pgTable('quick_filters', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 255 }).notNull(),
-  filter_config: json('filter_config').$type<{
-    type: "column_filter" | "date_range" | "date_today" | "date_tomorrow";
-    column_key?: string;
-    operator?: "equals" | "contains" | "in" | "not_equals" | "not_in" | "date_equals" | "date_between";
-    value?: string | string[];
-    date_field?: string;
-  }>().notNull(),
+  icon: varchar('icon', { length: 50 }),
+  color: varchar('color', { length: 50 }),
+  filter_config: json('filter_config').$type<QuickFilterConfig>().notNull(),
   order_index: integer('order_index').notNull().default(0),
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
