@@ -922,8 +922,8 @@ export function SpreadsheetGrid({
                                 col.key.toLowerCase().includes("whatsapp") ||
                                 col.key.toLowerCase().includes("phone") ||
                                 col.key.toLowerCase().includes("mobile")
-                                  ? "h-8 min-w-[140px]" 
-                                  : "h-8"
+                                  ? "h-8 min-w-[160px]" 
+                                  : "h-8 min-w-[150px]"
                               }
                               autoFocus
                               data-testid={`input-edit-${col.key}`}
