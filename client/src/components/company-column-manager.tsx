@@ -74,13 +74,15 @@ export function CompanyColumnManager() {
       return await apiRequest("PATCH", "/api/company/columns/reorder", { columnOrders });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/company/columns"] });
+      // Don't invalidate - we already optimistically updated the cache
       toast({
         title: "Columns reordered",
         description: "Column order has been updated successfully",
       });
     },
     onError: (error: any) => {
+      // Rollback optimistic update on error
+      queryClient.invalidateQueries({ queryKey: ["/api/company/columns"] });
       toast({
         variant: "destructive",
         title: "Failed to reorder columns",
@@ -98,12 +100,21 @@ export function CompanyColumnManager() {
 
       const reorderedColumns = arrayMove(sortedColumns, oldIndex, newIndex);
       
-      // Update order_index for all columns
-      const columnOrders = reorderedColumns.map((col, index) => ({
-        id: col.id,
+      // Update order_index for all columns with new values
+      const updatedColumns = reorderedColumns.map((col, index) => ({
+        ...col,
         order_index: index,
       }));
 
+      const columnOrders = updatedColumns.map((col) => ({
+        id: col.id,
+        order_index: col.order_index,
+      }));
+
+      // Optimistically update the query cache with updated order_index values
+      queryClient.setQueryData(["/api/company/columns"], updatedColumns);
+
+      // Send update to server (error rollback handled in mutation)
       reorderColumnsMutation.mutate(columnOrders);
     }
   };
