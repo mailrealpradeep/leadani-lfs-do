@@ -370,7 +370,8 @@ export function SpreadsheetGrid({
     .map((col) => ({
       key: col.column_key,
       label: col.name,
-      width: col.type === "text" ? "120px" : col.type === "number" ? "90px" : col.type === "date" ? "110px" : col.type === "boolean" ? "90px" : col.type === "mobile" ? "130px" : "120px",
+      // Special width for name column to accommodate longer names with wrapping
+      width: col.column_key === "name" ? "200px" : col.type === "text" ? "120px" : col.type === "number" ? "90px" : col.type === "date" ? "110px" : col.type === "boolean" ? "90px" : col.type === "mobile" ? "130px" : "120px",
       sortable: true,
       dropdown: col.type === "dropdown",
       type: col.type,
@@ -1057,7 +1058,9 @@ export function SpreadsheetGrid({
                         <div
                           key={col.key}
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
-                          className="border-r px-3 py-2 whitespace-nowrap flex items-center"
+                          className={`border-r px-3 py-2 flex ${
+                            col.key === "name" ? "items-start" : "items-center whitespace-nowrap"
+                          }`}
                           data-testid={`cell-${lead.id}-${col.key}`}
                         >
                         {isEditing ? (
@@ -1191,7 +1194,7 @@ export function SpreadsheetGrid({
                             />
                           )
                         ) : (
-                          <span className="text-sm">
+                          <span className={`text-sm ${col.key === "name" ? "break-words line-clamp-3" : ""}`}>
                             {col.type === "date" && value
                               ? format(new Date(value), "MMM d, yyyy")
                               : value || "-"}
