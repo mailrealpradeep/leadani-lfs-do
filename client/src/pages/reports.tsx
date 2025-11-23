@@ -295,7 +295,7 @@ export default function Reports() {
           </div>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="flex flex-wrap gap-6">
           {reports.map((report) => (
             <ReportCard
               key={report.id}
@@ -625,15 +625,15 @@ function ReportCard({
       if (data.type === "simple") {
         return (
           <div className="overflow-x-auto max-h-96">
-            <table className="w-full text-sm">
+            <table className="text-sm" style={{ width: "auto", minWidth: "100%" }}>
               <thead className="bg-muted">
                 <tr>
                   {data.rowFields.map((field: string, i: number) => (
-                    <th key={i} className="px-3 py-2 text-left font-medium">
+                    <th key={i} className="px-3 py-2 text-left font-medium whitespace-nowrap">
                       {field.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
                     </th>
                   ))}
-                  <th className="px-3 py-2 text-right font-medium">
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">
                     {data.aggregation === "count" ? "Count" : data.aggregation === "sum" ? "Sum" : "Average"}
                   </th>
                 </tr>
@@ -642,9 +642,9 @@ function ReportCard({
                 {data.rows.map((row: any, i: number) => (
                   <tr key={i} className="border-b hover-elevate">
                     {row.keys.map((key: string, j: number) => (
-                      <td key={j} className="px-3 py-2">{key}</td>
+                      <td key={j} className="px-3 py-2 whitespace-nowrap">{key}</td>
                     ))}
-                    <td className="px-3 py-2 text-right font-medium">{row.value}</td>
+                    <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{row.value}</td>
                   </tr>
                 ))}
               </tbody>
@@ -656,30 +656,30 @@ function ReportCard({
       // Full pivot table (with column pivot)
       return (
         <div className="overflow-x-auto max-h-96">
-          <table className="w-full text-sm">
+          <table className="text-sm" style={{ width: "auto", minWidth: "100%" }}>
             <thead className="bg-muted">
               <tr>
                 {data.rowFields.map((field: string, i: number) => (
-                  <th key={i} className="px-3 py-2 text-left font-medium sticky left-0 bg-muted">
+                  <th key={i} className="px-3 py-2 text-left font-medium sticky left-0 bg-muted whitespace-nowrap z-10">
                     {field.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
                   </th>
                 ))}
                 {data.columns.map((col: string) => (
-                  <th key={col} className="px-3 py-2 text-right font-medium">{col}</th>
+                  <th key={col} className="px-3 py-2 text-right font-medium whitespace-nowrap">{col}</th>
                 ))}
-                <th className="px-3 py-2 text-right font-medium">Total</th>
+                <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Total</th>
               </tr>
             </thead>
             <tbody>
               {data.rows.map((row: any, i: number) => (
                 <tr key={i} className="border-b hover-elevate">
                   {row.keys.map((key: string, j: number) => (
-                    <td key={j} className="px-3 py-2 sticky left-0 bg-background">{key}</td>
+                    <td key={j} className="px-3 py-2 sticky left-0 bg-background whitespace-nowrap z-10">{key}</td>
                   ))}
                   {data.columns.map((col: string) => (
-                    <td key={col} className="px-3 py-2 text-right">{row[col] || 0}</td>
+                    <td key={col} className="px-3 py-2 text-right whitespace-nowrap">{row[col] || 0}</td>
                   ))}
-                  <td className="px-3 py-2 text-right font-medium">{row.total}</td>
+                  <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{row.total}</td>
                 </tr>
               ))}
             </tbody>
@@ -745,9 +745,12 @@ function ReportCard({
   };
 
   return (
-    <Card data-testid={`card-report-${report.id}`}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <div className="flex-1">
+    <Card 
+      data-testid={`card-report-${report.id}`}
+      className="w-fit min-w-[300px] max-w-full"
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+        <div className="flex-1 min-w-0">
           <CardTitle className="text-lg">{report.name}</CardTitle>
           {reportData && (
             <CardDescription className="text-xs mt-1">
@@ -761,7 +764,7 @@ function ReportCard({
             size="icon"
             onClick={onDelete}
             data-testid={`button-delete-report-${report.id}`}
-            className="h-8 w-8"
+            className="h-8 w-8 shrink-0"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
