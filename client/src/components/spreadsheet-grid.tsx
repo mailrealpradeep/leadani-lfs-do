@@ -58,6 +58,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -174,22 +179,27 @@ export function SpreadsheetGrid({
   });
 
   // Compute which leads are invalid based on validation rules
-  const invalidLeadIds = useMemo(() => {
-    const invalid = new Set<string>();
+  // Store validation results with details for each invalid lead
+  const leadValidationResults = useMemo(() => {
+    const results = new Map<string, { isValid: boolean; missingFields: string[]; triggeredBy?: string }>();
     
     if (validationRules.length === 0) {
-      return invalid;
+      return results;
     }
     
     for (const lead of leads) {
       const result = validateLeadAgainstRules(lead, validationRules);
       if (!result.isValid) {
-        invalid.add(lead.id);
+        results.set(lead.id, result);
       }
     }
     
-    return invalid;
+    return results;
   }, [leads, validationRules]);
+  
+  const invalidLeadIds = useMemo(() => {
+    return new Set(leadValidationResults.keys());
+  }, [leadValidationResults]);
 
   // Load hidden columns for current sheet and reset column filters on sheet change  
   useEffect(() => {
@@ -529,6 +539,10 @@ export function SpreadsheetGrid({
                     }`}
                     data-testid={`card-lead-${lead.id}`}
                     onClick={() => onOpenLeadDetail(lead.id)}
+                    title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                      ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
+                      : undefined
+                    }
                   >
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div className="flex-1 min-w-0">
@@ -744,6 +758,10 @@ export function SpreadsheetGrid({
                       gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
                     }}
                     data-testid={`row-lead-${lead.id}`}
+                    title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                      ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
+                      : undefined
+                    }
                   >
                     {/* Checkbox Cell */}
                     <div className="border-r px-3 py-2 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
