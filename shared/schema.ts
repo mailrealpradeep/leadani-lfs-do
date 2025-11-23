@@ -215,7 +215,7 @@ export interface CustomColumn {
   sheet_id: string | null; // optional: if specified, column is sheet-specific override
   name: string;
   column_key: string; // unique key for this column within the company
-  type: "text" | "number" | "date" | "dropdown" | "boolean";
+  type: "text" | "number" | "date" | "dropdown" | "boolean" | "mobile";
   config: {
     default_value?: any;
     dropdown_options?: string[];
@@ -231,7 +231,7 @@ export const insertCustomColumnSchema = z.object({
   sheet_id: z.string().nullable().optional(),
   name: z.string().min(1, "Column name is required"),
   column_key: z.string().min(1, "Column key is required"),
-  type: z.enum(["text", "number", "date", "dropdown", "boolean"]),
+  type: z.enum(["text", "number", "date", "dropdown", "boolean", "mobile"]),
   config: z.object({
     default_value: z.any().optional(),
     dropdown_options: z.array(z.string()).optional(),
@@ -410,11 +410,20 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
     {
       company_id: companyId,
       sheet_id: null,
+      name: "Mobile No",
+      column_key: "mobile_no",
+      type: "mobile" as const,
+      config: { required: true },
+      order_index: 1,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
       name: "Phone",
       column_key: "phone",
       type: "text" as const,
       config: {},
-      order_index: 1,
+      order_index: 2,
     },
     {
       company_id: companyId,
@@ -423,7 +432,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "email",
       type: "text" as const,
       config: {},
-      order_index: 2,
+      order_index: 3,
     },
     {
       company_id: companyId,
@@ -434,7 +443,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       config: {
         dropdown_options: ["New", "Contacted", "Qualified", "Closed", "Lost"],
       },
-      order_index: 3,
+      order_index: 4,
     },
     {
       company_id: companyId,
@@ -445,7 +454,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       config: {
         dropdown_options: ["High", "Medium", "Low"],
       },
-      order_index: 4,
+      order_index: 5,
     },
     {
       company_id: companyId,
@@ -454,7 +463,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "notes",
       type: "text" as const,
       config: {},
-      order_index: 5,
+      order_index: 6,
     },
   ];
 }
