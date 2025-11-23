@@ -156,8 +156,10 @@ async function seedQuickFilters() {
   }
 }
 
-// Run the seed if this file is executed directly
-if (require.main === module) {
+// Only run if executed directly (check via import.meta.url)
+const isMainModule = import.meta.url.endsWith(process.argv[1]);
+
+if (isMainModule) {
   seedQuickFilters()
     .then(() => {
       console.log("Done!");

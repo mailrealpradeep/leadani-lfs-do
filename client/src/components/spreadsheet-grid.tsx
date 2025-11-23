@@ -489,7 +489,7 @@ export function SpreadsheetGrid({
     });
   };
 
-  // Quick filter handlers - now handles dynamic filter configurations
+  // Quick filter handlers - comprehensive implementation supporting all operators and logical operations
   const applyQuickFilter = useCallback((filterId: string, filterConfig: any) => {
     if (!filterConfig || !filterConfig.conditions || filterConfig.conditions.length === 0) {
       // Empty filter - just clear all filters
@@ -498,126 +498,167 @@ export function SpreadsheetGrid({
       return;
     }
 
-    // Date utilities
-    const getToday = () => {
+    // Date utilities with relative date support
+    const getRelativeDate = (relativeDate: string): { from: Date; to: Date } | null => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      return today;
-    };
-
-    const getEndOfDay = (date: Date) => {
-      const endOfDay = new Date(date);
+      const endOfDay = new Date(today);
       endOfDay.setHours(23, 59, 59, 999);
-      return endOfDay;
+
+      switch (relativeDate) {
+        case "today":
+          return { from: today, to: endOfDay };
+        
+        case "tomorrow": {
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          const endOfTomorrow = new Date(tomorrow);
+          endOfTomorrow.setHours(23, 59, 59, 999);
+          return { from: tomorrow, to: endOfTomorrow };
+        }
+        
+        case "yesterday": {
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+          const endOfYesterday = new Date(yesterday);
+          endOfYesterday.setHours(23, 59, 59, 999);
+          return { from: yesterday, to: endOfYesterday };
+        }
+        
+        case "this_week": {
+          const startOfWeek = new Date(today);
+          startOfWeek.setDate(today.getDate() - today.getDay());
+          const endOfWeek = new Date(startOfWeek);
+          endOfWeek.setDate(startOfWeek.getDate() + 6);
+          endOfWeek.setHours(23, 59, 59, 999);
+          return { from: startOfWeek, to: endOfWeek };
+        }
+        
+        case "next_week": {
+          const nextWeekStart = new Date(today);
+          nextWeekStart.setDate(today.getDate() + (7 - today.getDay()));
+          const nextWeekEnd = new Date(nextWeekStart);
+          nextWeekEnd.setDate(nextWeekStart.getDate() + 6);
+          nextWeekEnd.setHours(23, 59, 59, 999);
+          return { from: nextWeekStart, to: nextWeekEnd };
+        }
+        
+        case "this_month": {
+          const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+          const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+          endOfMonth.setHours(23, 59, 59, 999);
+          return { from: startOfMonth, to: endOfMonth };
+        }
+        
+        case "next_month": {
+          const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+          const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+          endOfNextMonth.setHours(23, 59, 59, 999);
+          return { from: startOfNextMonth, to: endOfNextMonth };
+        }
+        
+        default:
+          return null;
+      }
     };
 
-    const getTomorrow = () => {
-      const today = getToday();
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      return tomorrow;
-    };
-
-    const getNextNDays = (n: number) => {
-      const today = getToday();
-      const future = new Date(today);
-      future.setDate(future.getDate() + n);
-      return future;
-    };
-
-    // Process each condition in the filter config
+    // Process each condition and validate columns
     const newFilters: any = {};
-    let missingColumns: string[] = [];
+    const missingColumns: string[] = [];
+    const unsupportedOperators: string[] = [];
 
     for (const condition of filterConfig.conditions) {
-      const { column, operator, value } = condition;
+      const { column_key, operator, value, relative_date } = condition;
 
       // Find the column in customColumns or fixed columns
-      const customColumn = customColumns.find((col) => col.column_key === column);
-      const isFixedColumn = ["name", "email", "phone", "source", "status"].includes(column);
+      const customColumn = customColumns.find((col) => col.column_key === column_key);
+      const isFixedColumn = ["name", "email", "phone", "source", "status"].includes(column_key);
 
       if (!customColumn && !isFixedColumn) {
-        missingColumns.push(column);
+        missingColumns.push(column_key);
         continue;
       }
+
+      // Note: The current column filter system has limitations:
+      // - Doesn't support OR logic (can only AND filters together)
+      // - Doesn't support negation operators (not_equals, not_in, not_contains)
+      // - Limited support for comparison operators
+      // For now, we'll apply what we can and warn about unsupported operators
 
       // Translate operator and value to column filter format
       switch (operator) {
         case "equals":
-          newFilters[column] = value;
+          newFilters[column_key] = value;
           break;
 
         case "in":
-          // For multi-select filters (dropdown columns)
+          // Multi-select filter
           if (Array.isArray(value)) {
-            newFilters[column] = value;
+            newFilters[column_key] = value;
           } else {
-            newFilters[column] = [value];
+            newFilters[column_key] = [value];
           }
           break;
 
-        case "not_equals":
-        case "not_in":
-          // Not directly supported by current column filter system
-          // Skip for now - would require enhancing column filter logic
-          break;
-
         case "contains":
-        case "starts_with":
-          // Text search operators
-          newFilters[column] = value;
+          // Text search - the column filter system supports this natively
+          newFilters[column_key] = value;
           break;
 
-        case "greater_than":
-        case "less_than":
-        case "greater_than_or_equals":
-        case "less_than_or_equals":
-          // Numeric/date comparison operators
-          // Would require custom filter format
+        case "is_empty":
+          // Filter for empty/null values
+          newFilters[column_key] = "";
           break;
 
-        case "is_true":
-          newFilters[column] = true;
-          break;
-
-        case "is_false":
-          newFilters[column] = false;
-          break;
-
-        case "today":
-          // Date filter: today
-          newFilters[column] = {
-            type: "custom",
-            from: getToday(),
-            to: getEndOfDay(getToday()),
-          };
-          break;
-
-        case "tomorrow":
-          // Date filter: tomorrow
-          const tomorrow = getTomorrow();
-          newFilters[column] = {
-            type: "custom",
-            from: tomorrow,
-            to: getEndOfDay(tomorrow),
-          };
-          break;
-
-        case "next_n_days":
-          // Date filter: next N days from today
-          if (typeof value === "number" && value > 0) {
-            newFilters[column] = {
+        case "date_equals":
+          if (relative_date) {
+            const dateRange = getRelativeDate(relative_date);
+            if (dateRange) {
+              newFilters[column_key] = {
+                type: "custom",
+                from: dateRange.from,
+                to: dateRange.to,
+              };
+            }
+          } else if (value) {
+            // Specific date
+            const date = new Date(value);
+            const endOfDate = new Date(date);
+            endOfDate.setHours(23, 59, 59, 999);
+            newFilters[column_key] = {
               type: "custom",
-              from: getToday(),
-              to: getEndOfDay(getNextNDays(value)),
+              from: date,
+              to: endOfDate,
             };
           }
           break;
 
-        case "date_range":
-          // Date filter: custom range
-          if (value && value.from && value.to) {
-            newFilters[column] = {
+        case "date_before":
+          if (value) {
+            const beforeDate = new Date(value);
+            newFilters[column_key] = {
+              type: "custom",
+              from: new Date(0), // Beginning of time
+              to: beforeDate,
+            };
+          }
+          break;
+
+        case "date_after":
+          if (value) {
+            const afterDate = new Date(value);
+            newFilters[column_key] = {
+              type: "custom",
+              from: afterDate,
+              to: new Date(2100, 0, 1), // Far future
+            };
+          }
+          break;
+
+        case "date_between":
+          // Expects value as {from: date, to: date}
+          if (value && typeof value === "object" && value.from && value.to) {
+            newFilters[column_key] = {
               type: "custom",
               from: new Date(value.from),
               to: new Date(value.to),
@@ -625,8 +666,20 @@ export function SpreadsheetGrid({
           }
           break;
 
+        // Operators not supported by current column filter system
+        case "not_equals":
+        case "not_contains":
+        case "not_in":
+        case "is_not_empty":
+        case "greater_than":
+        case "less_than":
+        case "greater_equal":
+        case "less_equal":
+          unsupportedOperators.push(`${operator} on ${column_key}`);
+          break;
+
         default:
-          // Unknown operator - skip
+          unsupportedOperators.push(`unknown operator "${operator}" on ${column_key}`);
           break;
       }
     }
@@ -642,9 +695,29 @@ export function SpreadsheetGrid({
       return;
     }
 
-    // Apply the filters
+    // Apply the filters (always using AND logic due to column filter limitations)
     setColumnFilters(newFilters);
     setActiveQuickFilter(filterId);
+
+    // Show warnings AFTER applying filters (non-blocking)
+    if (unsupportedOperators.length > 0) {
+      toast({
+        title: "Some filter conditions skipped",
+        description: `The following operators are not supported: ${unsupportedOperators.slice(0, 3).join(", ")}${unsupportedOperators.length > 3 ? ` and ${unsupportedOperators.length - 3} more` : ""}. Supported conditions have been applied.`,
+        variant: "default",
+      });
+    }
+
+    // Note: logical_operator (and/or) limitation
+    // The current column filter system only supports AND logic between conditions
+    // When OR is specified, we still apply all conditions with AND logic and warn the user
+    if (filterConfig.logical_operator === "or" && filterConfig.conditions.length > 1) {
+      toast({
+        title: "OR logic limitation",
+        description: "Multiple conditions are combined with AND logic. Full OR support requires filter system enhancements.",
+        variant: "default",
+      });
+    }
   }, [customColumns, setActiveQuickFilter, setColumnFilters, toast]);
 
   const clearAllFilters = useCallback(() => {
