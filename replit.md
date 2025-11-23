@@ -50,16 +50,9 @@ A comprehensive onboarding flow includes company signup, invite management for s
 
 The dashboard features a full-width spreadsheet interface with sidebar controls. A `DashboardContext` manages state for sheet selection, search, and filtering. The `SpreadsheetGrid` dynamically displays filtered data with sticky headers and horizontal scrolling. Quick filter buttons are integrated into the header for common lead filtering scenarios.
 
-#### Column Resizing
+#### Cell Text Wrapping
 
-Users can adjust column widths by dragging resize handles at the right edge of column headers. Features include:
-- Drag handles with hover feedback (8px wide, cursor changes to col-resize)
-- Minimum column width enforced at 60px to prevent over-shrinking
-- Real-time width updates during drag using React state management
-- Width persistence in localStorage per sheet (key: `column-widths-${sheetId}`)
-- Automatic width restoration on page reload
-- Text wrapping in all cells prevents overflow into adjacent columns
-- Default widths: Full Name (200px), text fields (120px), dates (110px), numbers/booleans (90px)
+All cells in the spreadsheet grid use text wrapping to prevent content overflow. Long text automatically wraps to multiple lines within cell boundaries, ensuring all content remains visible without extending into adjacent columns. This applies to all column types including Full Name, Address, and other text fields.
 
 ### Webhook Integration System
 
