@@ -97,7 +97,12 @@ export function SpreadsheetGrid({
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
-  const { searchQuery, categoryFilter } = useDashboard();
+  const { 
+    searchQuery, 
+    categoryFilter,
+    setActiveQuickFilter,
+    setQuickFilterHandlers,
+  } = useDashboard();
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [sortColumn, setSortColumn] = useState<string | null>(null);
@@ -115,7 +120,6 @@ export function SpreadsheetGrid({
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
-  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
 
   const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
@@ -486,7 +490,7 @@ export function SpreadsheetGrid({
   };
 
   // Quick filter handlers
-  const applyQuickFilter = (filterType: string) => {
+  const applyQuickFilter = useCallback((filterType: string) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -633,12 +637,26 @@ export function SpreadsheetGrid({
         }
         break;
     }
-  };
+  }, [customColumns, setActiveQuickFilter, toast]);
 
-  const clearAllFilters = () => {
+  const clearAllFilters = useCallback(() => {
     setColumnFilters({});
     setActiveQuickFilter(null);
-  };
+  }, [setActiveQuickFilter]);
+
+  // Register quick filter handlers with dashboard context
+  useEffect(() => {
+    setQuickFilterHandlers({
+      onApplyFilter: applyQuickFilter,
+      onClearAllFilters: clearAllFilters,
+    });
+    
+    // Cleanup on unmount
+    return () => {
+      setQuickFilterHandlers({});
+      setActiveQuickFilter(null);
+    };
+  }, [applyQuickFilter, clearAllFilters, setQuickFilterHandlers, setActiveQuickFilter]);
 
   if (isLoading) {
     return (
@@ -694,95 +712,6 @@ export function SpreadsheetGrid({
           </Button>
         </div>
       )}
-
-      {/* Quick Filter Buttons */}
-      <div className="flex flex-wrap items-center gap-2 mb-4 p-2 bg-muted/30 rounded-lg border">
-        <Button
-          variant={activeQuickFilter === "hot_cold_warm" ? "default" : "outline"}
-          size={isMobile ? "icon" : "sm"}
-          onClick={() => applyQuickFilter("hot_cold_warm")}
-          data-testid="button-filter-lead-type"
-          title="Lead Type (Hot/Cold/Warm)"
-          className="min-h-[36px]"
-        >
-          <Flame className="h-4 w-4" />
-          {!isMobile && <span className="ml-2">Lead Type</span>}
-        </Button>
-
-        <Button
-          variant={activeQuickFilter === "visit_today" ? "default" : "outline"}
-          size={isMobile ? "icon" : "sm"}
-          onClick={() => applyQuickFilter("visit_today")}
-          data-testid="button-filter-visit-today"
-          title="Visit Scheduled Today"
-          className="min-h-[36px]"
-        >
-          <CalendarIcon className="h-4 w-4" />
-          {!isMobile && <span className="ml-2">Visit Today</span>}
-        </Button>
-
-        <Button
-          variant={activeQuickFilter === "followup_today" ? "default" : "outline"}
-          size={isMobile ? "icon" : "sm"}
-          onClick={() => applyQuickFilter("followup_today")}
-          data-testid="button-filter-followup-today"
-          title="Follow-up Today"
-          className="min-h-[36px]"
-        >
-          <Phone className="h-4 w-4" />
-          {!isMobile && <span className="ml-2">Follow-up Today</span>}
-        </Button>
-
-        <Button
-          variant={activeQuickFilter === "not_attended" ? "default" : "outline"}
-          size={isMobile ? "icon" : "sm"}
-          onClick={() => applyQuickFilter("not_attended")}
-          data-testid="button-filter-not-attended"
-          title="Not Attended Leads"
-          className="min-h-[36px]"
-        >
-          <AlertCircle className="h-4 w-4" />
-          {!isMobile && <span className="ml-2">Not Attended</span>}
-        </Button>
-
-        <Button
-          variant={activeQuickFilter === "todays_leads" ? "default" : "outline"}
-          size={isMobile ? "icon" : "sm"}
-          onClick={() => applyQuickFilter("todays_leads")}
-          data-testid="button-filter-todays-leads"
-          title="Today's Leads"
-          className="min-h-[36px]"
-        >
-          <Zap className="h-4 w-4" />
-          {!isMobile && <span className="ml-2">Today's Leads</span>}
-        </Button>
-
-        <Button
-          variant={activeQuickFilter === "visit_tomorrow" ? "default" : "outline"}
-          size={isMobile ? "icon" : "sm"}
-          onClick={() => applyQuickFilter("visit_tomorrow")}
-          data-testid="button-filter-visit-tomorrow"
-          title="Visit Scheduled Tomorrow"
-          className="min-h-[36px]"
-        >
-          <UserCheck className="h-4 w-4" />
-          {!isMobile && <span className="ml-2">Visit Tomorrow</span>}
-        </Button>
-
-        <div className="ml-auto">
-          <Button
-            variant="ghost"
-            size={isMobile ? "icon" : "sm"}
-            onClick={clearAllFilters}
-            data-testid="button-clear-filters"
-            title="Clear All Filters"
-            className="min-h-[36px]"
-          >
-            <FilterX className="h-4 w-4" />
-            {!isMobile && <span className="ml-2">Clear All</span>}
-          </Button>
-        </div>
-      </div>
 
       {/* Conditionally render mobile or desktop view based on viewport */}
       {isMobile ? (

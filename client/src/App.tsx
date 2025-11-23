@@ -1,14 +1,17 @@
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ThemeProvider } from "@/components/theme-provider";
-import { DashboardProvider } from "@/components/dashboard-context";
+import { DashboardProvider, useDashboard } from "@/components/dashboard-context";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { QuickFiltersBar } from "@/components/quick-filters-bar";
+import { useQuery } from "@tanstack/react-query";
+import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
@@ -84,6 +87,45 @@ function Router() {
   );
 }
 
+function DashboardHeader() {
+  const [location] = useLocation();
+  const { selectedSheetId, activeQuickFilter, quickFilterHandlers } = useDashboard();
+  
+  // Only show quick filters on dashboard/root routes when sheet is selected
+  const showQuickFilters = (location === "/" || location === "/dashboard") && !!selectedSheetId;
+  
+  const { data: customColumns = [] } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/company/columns"],
+    enabled: showQuickFilters,
+  });
+
+  return (
+    <header 
+      className="flex items-center gap-3 px-3 sm:px-4 py-2 border-b transition-all duration-300 shrink-0"
+      data-app-header
+    >
+      <SidebarTrigger data-testid="button-sidebar-toggle" />
+      
+      {showQuickFilters && quickFilterHandlers.onApplyFilter && quickFilterHandlers.onClearAllFilters && (
+        <>
+          <div className="hidden md:block h-6 w-px bg-border mx-1" />
+          <div className="flex-1 min-w-0">
+            <QuickFiltersBar
+              customColumns={customColumns as CustomColumn[]}
+              activeQuickFilter={activeQuickFilter}
+              onApplyFilter={quickFilterHandlers.onApplyFilter}
+              onClearFilters={quickFilterHandlers.onClearAllFilters}
+              isMobile={false}
+            />
+          </div>
+        </>
+      )}
+      
+      <ThemeToggle />
+    </header>
+  );
+}
+
 function AppLayout() {
   const { isAuthenticated, isLoading } = useAuth();
   
@@ -110,13 +152,7 @@ function AppLayout() {
         <div className="flex h-screen w-full">
           <AppSidebar />
           <div className="flex flex-col flex-1 min-w-0">
-            <header 
-              className="flex items-center justify-between px-3 sm:px-4 py-2 border-b transition-all duration-300 shrink-0"
-              data-app-header
-            >
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
-              <ThemeToggle />
-            </header>
+            <DashboardHeader />
             <main className="flex-1 overflow-hidden">
               <Router />
             </main>
