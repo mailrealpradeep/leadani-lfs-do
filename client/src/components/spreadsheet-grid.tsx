@@ -18,6 +18,12 @@ import {
   Edit2,
   History,
   ArrowRightLeft,
+  Calendar as CalendarIcon,
+  Phone,
+  UserCheck,
+  AlertCircle,
+  FilterX,
+  Zap,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -109,6 +115,7 @@ export function SpreadsheetGrid({
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
+  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
 
   const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
@@ -478,6 +485,161 @@ export function SpreadsheetGrid({
     });
   };
 
+  // Quick filter handlers
+  const applyQuickFilter = (filterType: string) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const endOfToday = new Date(today);
+    endOfToday.setHours(23, 59, 59, 999);
+    const endOfTomorrow = new Date(tomorrow);
+    endOfTomorrow.setHours(23, 59, 59, 999);
+
+    setActiveQuickFilter(filterType);
+
+    switch (filterType) {
+      case "hot_cold_warm":
+        // Clear other filters and highlight - users can then select Hot/Cold/Warm from column filter
+        const leadTypeColumn = customColumns.find(col => 
+          col.column_key.toLowerCase().includes("lead_type") || 
+          col.column_key.toLowerCase().includes("type")
+        );
+        if (leadTypeColumn) {
+          // Don't apply empty filter, just clear other filters to help users focus on lead type
+          setColumnFilters({});
+        } else {
+          // Column not found - don't activate the filter
+          setActiveQuickFilter(null);
+          toast({
+            title: "Column not found",
+            description: "Lead Type column not found in this sheet. Please add a Lead Type column first.",
+            variant: "destructive",
+          });
+        }
+        break;
+
+      case "visit_today":
+        // Filter by Visit Date = Today
+        const visitDateColumn = customColumns.find(col => 
+          col.column_key.toLowerCase().includes("visit") && 
+          col.type === "date"
+        );
+        if (visitDateColumn) {
+          setColumnFilters({ 
+            [visitDateColumn.column_key]: { 
+              type: "custom", 
+              from: today, 
+              to: endOfToday 
+            } 
+          });
+        } else {
+          setActiveQuickFilter(null);
+          toast({
+            title: "Column not found",
+            description: "Visit Date column not found. Please add a date column with 'visit' in the name.",
+            variant: "destructive",
+          });
+        }
+        break;
+
+      case "followup_today":
+        // Filter by Follow-up Date = Today
+        const followupColumn = customColumns.find(col => 
+          col.column_key.toLowerCase().includes("follow") && 
+          col.type === "date"
+        );
+        if (followupColumn) {
+          setColumnFilters({ 
+            [followupColumn.column_key]: { 
+              type: "custom", 
+              from: today, 
+              to: endOfToday 
+            } 
+          });
+        } else {
+          setActiveQuickFilter(null);
+          toast({
+            title: "Column not found",
+            description: "Follow-up Date column not found. Please add a date column with 'follow' in the name.",
+            variant: "destructive",
+          });
+        }
+        break;
+
+      case "not_attended":
+        // Filter by Status or Attended field
+        const statusColumn = customColumns.find(col => 
+          col.column_key.toLowerCase().includes("status") ||
+          col.column_key.toLowerCase().includes("attended")
+        );
+        if (statusColumn) {
+          setColumnFilters({ [statusColumn.column_key]: "Not Attended" });
+        } else {
+          setActiveQuickFilter(null);
+          toast({
+            title: "Column not found",
+            description: "Status or Attended column not found. Please add a column with 'status' or 'attended' in the name.",
+            variant: "destructive",
+          });
+        }
+        break;
+
+      case "todays_leads":
+        // Filter by Lead Date = Today
+        const leadDateColumn = customColumns.find(col => 
+          (col.column_key.toLowerCase().includes("lead") && col.column_key.toLowerCase().includes("date")) ||
+          col.column_key.toLowerCase() === "lead_date"
+        );
+        if (leadDateColumn) {
+          setColumnFilters({ 
+            [leadDateColumn.column_key]: { 
+              type: "custom", 
+              from: today, 
+              to: endOfToday 
+            } 
+          });
+        } else {
+          setActiveQuickFilter(null);
+          toast({
+            title: "Column not found",
+            description: "Lead Date column not found. Please add a date column with 'lead' and 'date' in the name.",
+            variant: "destructive",
+          });
+        }
+        break;
+
+      case "visit_tomorrow":
+        // Filter by Visit Date = Tomorrow
+        const visitTomorrowColumn = customColumns.find(col => 
+          col.column_key.toLowerCase().includes("visit") && 
+          col.type === "date"
+        );
+        if (visitTomorrowColumn) {
+          setColumnFilters({ 
+            [visitTomorrowColumn.column_key]: { 
+              type: "custom", 
+              from: tomorrow, 
+              to: endOfTomorrow 
+            } 
+          });
+        } else {
+          setActiveQuickFilter(null);
+          toast({
+            title: "Column not found",
+            description: "Visit Date column not found. Please add a date column with 'visit' in the name.",
+            variant: "destructive",
+          });
+        }
+        break;
+    }
+  };
+
+  const clearAllFilters = () => {
+    setColumnFilters({});
+    setActiveQuickFilter(null);
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -532,6 +694,95 @@ export function SpreadsheetGrid({
           </Button>
         </div>
       )}
+
+      {/* Quick Filter Buttons */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 p-2 bg-muted/30 rounded-lg border">
+        <Button
+          variant={activeQuickFilter === "hot_cold_warm" ? "default" : "outline"}
+          size={isMobile ? "icon" : "sm"}
+          onClick={() => applyQuickFilter("hot_cold_warm")}
+          data-testid="button-filter-lead-type"
+          title="Lead Type (Hot/Cold/Warm)"
+          className="min-h-[36px]"
+        >
+          <Flame className="h-4 w-4" />
+          {!isMobile && <span className="ml-2">Lead Type</span>}
+        </Button>
+
+        <Button
+          variant={activeQuickFilter === "visit_today" ? "default" : "outline"}
+          size={isMobile ? "icon" : "sm"}
+          onClick={() => applyQuickFilter("visit_today")}
+          data-testid="button-filter-visit-today"
+          title="Visit Scheduled Today"
+          className="min-h-[36px]"
+        >
+          <CalendarIcon className="h-4 w-4" />
+          {!isMobile && <span className="ml-2">Visit Today</span>}
+        </Button>
+
+        <Button
+          variant={activeQuickFilter === "followup_today" ? "default" : "outline"}
+          size={isMobile ? "icon" : "sm"}
+          onClick={() => applyQuickFilter("followup_today")}
+          data-testid="button-filter-followup-today"
+          title="Follow-up Today"
+          className="min-h-[36px]"
+        >
+          <Phone className="h-4 w-4" />
+          {!isMobile && <span className="ml-2">Follow-up Today</span>}
+        </Button>
+
+        <Button
+          variant={activeQuickFilter === "not_attended" ? "default" : "outline"}
+          size={isMobile ? "icon" : "sm"}
+          onClick={() => applyQuickFilter("not_attended")}
+          data-testid="button-filter-not-attended"
+          title="Not Attended Leads"
+          className="min-h-[36px]"
+        >
+          <AlertCircle className="h-4 w-4" />
+          {!isMobile && <span className="ml-2">Not Attended</span>}
+        </Button>
+
+        <Button
+          variant={activeQuickFilter === "todays_leads" ? "default" : "outline"}
+          size={isMobile ? "icon" : "sm"}
+          onClick={() => applyQuickFilter("todays_leads")}
+          data-testid="button-filter-todays-leads"
+          title="Today's Leads"
+          className="min-h-[36px]"
+        >
+          <Zap className="h-4 w-4" />
+          {!isMobile && <span className="ml-2">Today's Leads</span>}
+        </Button>
+
+        <Button
+          variant={activeQuickFilter === "visit_tomorrow" ? "default" : "outline"}
+          size={isMobile ? "icon" : "sm"}
+          onClick={() => applyQuickFilter("visit_tomorrow")}
+          data-testid="button-filter-visit-tomorrow"
+          title="Visit Scheduled Tomorrow"
+          className="min-h-[36px]"
+        >
+          <UserCheck className="h-4 w-4" />
+          {!isMobile && <span className="ml-2">Visit Tomorrow</span>}
+        </Button>
+
+        <div className="ml-auto">
+          <Button
+            variant="ghost"
+            size={isMobile ? "icon" : "sm"}
+            onClick={clearAllFilters}
+            data-testid="button-clear-filters"
+            title="Clear All Filters"
+            className="min-h-[36px]"
+          >
+            <FilterX className="h-4 w-4" />
+            {!isMobile && <span className="ml-2">Clear All</span>}
+          </Button>
+        </div>
+      </div>
 
       {/* Conditionally render mobile or desktop view based on viewport */}
       {isMobile ? (
