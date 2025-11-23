@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
+import { useAuth } from "@/lib/auth";
 import {
   Plus,
   Trash2,
@@ -97,6 +98,7 @@ export function SpreadsheetGrid({
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
   const { 
     searchQuery, 
     categoryFilter,
@@ -120,6 +122,11 @@ export function SpreadsheetGrid({
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
+  
+  // Cell locking state: Track cells locked by any user (including self)
+  const [lockedCells, setLockedCells] = useState<Map<string, { userId: string; userName: string; isOwnLock: boolean }>>(new Map());
+  // Track pending lock requests to gate edit mode entry
+  const [pendingLockRequest, setPendingLockRequest] = useState<{ leadId: string; field: string } | null>(null);
 
   const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
@@ -295,22 +302,123 @@ export function SpreadsheetGrid({
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
     };
 
+    // Cell locking events
+    const handleCellLockAcquired = (data: { leadId: string; field: string }) => {
+      // Lock acquired successfully, now enter edit mode
+      if (pendingLockRequest && 
+          pendingLockRequest.leadId === data.leadId && 
+          pendingLockRequest.field === data.field) {
+        // Find the lead and get current value
+        const lead = leads.find(l => l.id === data.leadId);
+        if (lead) {
+          const currentValue = getLeadValue(lead, data.field);
+          setEditingCell({ leadId: data.leadId, field: data.field, originalValue: currentValue });
+          setEditValue(currentValue || "");
+          
+          // Check if this is a date field and open date picker
+          const column = customColumns.find(col => col.column_key === data.field);
+          if (column && column.type === "date") {
+            setDatePickerOpen({ leadId: data.leadId, field: data.field });
+          }
+          
+          // Add to lockedCells as own lock
+          if (user) {
+            setLockedCells((prev) => {
+              const newMap = new Map(prev);
+              const lockKey = `${data.leadId}:${data.field}`;
+              newMap.set(lockKey, { userId: user.id, userName: user.name, isOwnLock: true });
+              return newMap;
+            });
+          }
+        }
+        setPendingLockRequest(null);
+      }
+    };
+
+    const handleCellLockedByOther = (data: { leadId: string; field: string; userId: string; userName: string }) => {
+      setLockedCells((prev) => {
+        const newMap = new Map(prev);
+        const lockKey = `${data.leadId}:${data.field}`;
+        newMap.set(lockKey, { userId: data.userId, userName: data.userName, isOwnLock: false });
+        return newMap;
+      });
+    };
+
+    const handleExistingLocks = (data: { locks: Array<{ leadId: string; field: string; userId: string; userName: string }> }) => {
+      console.log(`[CLIENT] Received ${data.locks.length} existing locks from server`);
+      setLockedCells((prev) => {
+        const newMap = new Map(prev);
+        data.locks.forEach((lock) => {
+          const lockKey = `${lock.leadId}:${lock.field}`;
+          // Mark as not own lock - these are locks from other users
+          newMap.set(lockKey, { userId: lock.userId, userName: lock.userName, isOwnLock: false });
+        });
+        return newMap;
+      });
+    };
+
+    const handleCellLockReleased = (data: { leadId: string; field: string }) => {
+      setLockedCells((prev) => {
+        const newMap = new Map(prev);
+        const lockKey = `${data.leadId}:${data.field}`;
+        newMap.delete(lockKey);
+        return newMap;
+      });
+    };
+
+    const handleCellLockRejected = (data: { leadId: string; field: string; lockedBy: string }) => {
+      toast({
+        title: "Cell locked",
+        description: `This cell is currently being edited by ${data.lockedBy}`,
+        variant: "destructive",
+      });
+      setPendingLockRequest(null);
+    };
+
     socket.on("lead_created", handleLeadCreated);
     socket.on("lead_updated", handleLeadUpdated);
+    socket.on("cell_lock_acquired", handleCellLockAcquired);
+    socket.on("cell_locked_by_other", handleCellLockedByOther);
+    socket.on("existing_locks", handleExistingLocks);
+    socket.on("cell_lock_released", handleCellLockReleased);
+    socket.on("cell_lock_rejected", handleCellLockRejected);
 
     return () => {
       socket.emit("leave_sheet", sheetId);
       socket.off("lead_created", handleLeadCreated);
       socket.off("lead_updated", handleLeadUpdated);
+      socket.off("cell_lock_acquired", handleCellLockAcquired);
+      socket.off("cell_locked_by_other", handleCellLockedByOther);
+      socket.off("existing_locks", handleExistingLocks);
+      socket.off("cell_lock_released", handleCellLockReleased);
+      socket.off("cell_lock_rejected", handleCellLockRejected);
     };
-  }, [sheetId]);
+  }, [sheetId, toast, pendingLockRequest, leads, user]);
 
   const handleCellClick = (lead: Lead, columnKey: string, currentValue: any, columnType?: string) => {
-    setEditingCell({ leadId: lead.id, field: columnKey, originalValue: currentValue });
-    setEditValue(currentValue || "");
-    // Automatically open date picker for date fields
-    if (columnType === "date") {
-      setDatePickerOpen({ leadId: lead.id, field: columnKey });
+    // Check if cell is locked by another user
+    const lockKey = `${lead.id}:${columnKey}`;
+    const lock = lockedCells.get(lockKey);
+    if (lock && !lock.isOwnLock) {
+      toast({
+        title: "Cell locked",
+        description: `This cell is currently being edited by ${lock.userName}`,
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Request lock for this cell (don't enter edit mode yet)
+    if (user && sheetId) {
+      setPendingLockRequest({ leadId: lead.id, field: columnKey });
+      const socket = getSocket();
+      socket.emit("acquire_cell_lock", {
+        sheetId,
+        leadId: lead.id,
+        field: columnKey,
+        userId: user.id,
+        userName: user.name,
+      });
     }
   };
 
@@ -328,6 +436,16 @@ export function SpreadsheetGrid({
           customFields: updatedFields,
         });
       }
+      
+      // Release the cell lock
+      if (sheetId) {
+        const socket = getSocket();
+        socket.emit("release_cell_lock", {
+          sheetId,
+          leadId: editingCell.leadId,
+          field: editingCell.field,
+        });
+      }
     }
     setEditingCell(null);
     setEditValue("");
@@ -337,8 +455,26 @@ export function SpreadsheetGrid({
     if (e.key === "Enter") {
       handleCellSave(lead);
     } else if (e.key === "Escape") {
+      // Release lock on cancel
+      if (editingCell && sheetId) {
+        const socket = getSocket();
+        socket.emit("release_cell_lock", {
+          sheetId,
+          leadId: editingCell.leadId,
+          field: editingCell.field,
+        });
+      }
       setEditingCell(null);
     }
+  };
+
+  const isCellLocked = (leadId: string, field: string): { isLocked: boolean; userName?: string; isOwnLock?: boolean } => {
+    const lockKey = `${leadId}:${field}`;
+    const lock = lockedCells.get(lockKey);
+    if (lock) {
+      return { isLocked: true, userName: lock.userName, isOwnLock: lock.isOwnLock };
+    }
+    return { isLocked: false };
   };
 
   const getDropdownOptionsForColumn = (columnKey: string): string[] => {
@@ -1053,6 +1189,8 @@ export function SpreadsheetGrid({
                         editingCell?.leadId === lead.id && editingCell?.field === col.key;
                       const value = getLeadValue(lead, col.key);
                       const isDropdown = col.dropdown;
+                      const cellLockStatus = isCellLocked(lead.id, col.key);
+                      const isLockedByOther = cellLockStatus.isLocked && !cellLockStatus.isOwnLock;
 
                       return (
                         <div
@@ -1060,8 +1198,15 @@ export function SpreadsheetGrid({
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
                           className={`border-r px-3 py-2 flex ${
                             col.key === "name" ? "items-start" : "items-center whitespace-nowrap"
+                          } ${
+                            isLockedByOther
+                              ? "bg-red-100 dark:bg-red-950/30 ring-2 ring-inset ring-red-500 cursor-not-allowed" 
+                              : ""
                           }`}
                           data-testid={`cell-${lead.id}-${col.key}`}
+                          data-locked-by-other={isLockedByOther ? "true" : "false"}
+                          data-locked-by={isLockedByOther ? cellLockStatus.userName : undefined}
+                          title={isLockedByOther ? `Locked by ${cellLockStatus.userName}` : undefined}
                         >
                         {isEditing ? (
                           isDropdown ? (
@@ -1077,11 +1222,31 @@ export function SpreadsheetGrid({
                                   leadId: lead.id,
                                   customFields: updatedFields,
                                 });
+                                // Release lock after saving
+                                if (sheetId && editingCell) {
+                                  const socket = getSocket();
+                                  socket.emit("release_cell_lock", {
+                                    sheetId,
+                                    leadId: editingCell.leadId,
+                                    field: editingCell.field,
+                                  });
+                                }
                                 setEditingCell(null);
                               }}
                               open
                               onOpenChange={(open) => {
-                                if (!open) setEditingCell(null);
+                                if (!open) {
+                                  // Release lock if closing without selecting
+                                  if (sheetId && editingCell) {
+                                    const socket = getSocket();
+                                    socket.emit("release_cell_lock", {
+                                      sheetId,
+                                      leadId: editingCell.leadId,
+                                      field: editingCell.field,
+                                    });
+                                  }
+                                  setEditingCell(null);
+                                }
                               }}
                             >
                               <SelectTrigger className="h-8">
@@ -1122,10 +1287,28 @@ export function SpreadsheetGrid({
                                 align="start"
                                 onEscapeKeyDown={(e) => {
                                   e.preventDefault();
+                                  // Release lock on escape
+                                  if (sheetId && editingCell) {
+                                    const socket = getSocket();
+                                    socket.emit("release_cell_lock", {
+                                      sheetId,
+                                      leadId: editingCell.leadId,
+                                      field: editingCell.field,
+                                    });
+                                  }
                                   setDatePickerOpen(null);
                                   setEditingCell(null);
                                 }}
                                 onInteractOutside={() => {
+                                  // Release lock when clicking outside
+                                  if (sheetId && editingCell) {
+                                    const socket = getSocket();
+                                    socket.emit("release_cell_lock", {
+                                      sheetId,
+                                      leadId: editingCell.leadId,
+                                      field: editingCell.field,
+                                    });
+                                  }
                                   setDatePickerOpen(null);
                                   setEditingCell(null);
                                 }}
@@ -1144,6 +1327,15 @@ export function SpreadsheetGrid({
                                         leadId: lead.id,
                                         customFields: updatedFields,
                                       });
+                                      // Release lock after date selection
+                                      if (sheetId && editingCell) {
+                                        const socket = getSocket();
+                                        socket.emit("release_cell_lock", {
+                                          sheetId,
+                                          leadId: editingCell.leadId,
+                                          field: editingCell.field,
+                                        });
+                                      }
                                       setDatePickerOpen(null);
                                       setEditingCell(null);
                                     }
@@ -1162,6 +1354,15 @@ export function SpreadsheetGrid({
                                         leadId: lead.id,
                                         customFields: updatedFields,
                                       });
+                                      // Release lock after clearing date
+                                      if (sheetId && editingCell) {
+                                        const socket = getSocket();
+                                        socket.emit("release_cell_lock", {
+                                          sheetId,
+                                          leadId: editingCell.leadId,
+                                          field: editingCell.field,
+                                        });
+                                      }
                                       setDatePickerOpen(null);
                                       setEditingCell(null);
                                     }}

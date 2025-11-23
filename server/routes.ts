@@ -127,6 +127,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   });
 
+  // Track active cell locks: Map<"sheetId:leadId:field", {socketId, userId, userName}>
+  const cellLocks = new Map<string, { socketId: string; userId: string; userName: string }>();
+
+  // Helper function to send existing locks to a socket
+  const sendExistingLocks = (socket: any, sheetId: string) => {
+    const existingLocks: Array<{ leadId: string; field: string; userId: string; userName: string }> = [];
+    cellLocks.forEach((lock, lockKey) => {
+      // lockKey format: sheetId:leadId:field
+      const [lockSheetId, leadId, field] = lockKey.split(":");
+      if (lockSheetId === sheetId) {
+        existingLocks.push({
+          leadId,
+          field,
+          userId: lock.userId,
+          userName: lock.userName,
+        });
+      }
+    });
+    
+    if (existingLocks.length > 0) {
+      console.log(`[LOCK] Sending ${existingLocks.length} existing locks to socket ${socket.id}`);
+      socket.emit("existing_locks", { locks: existingLocks });
+    }
+  };
+
   // Socket.io connection handling with company isolation
   io.on("connection", (socket) => {
     console.log("Socket connected:", socket.id);
@@ -166,6 +191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (userRole === "super_admin") {
           socket.join(`sheet:${sheetId}`);
           console.log(`Socket ${socket.id} (super admin) joined sheet:${sheetId}`);
+          sendExistingLocks(socket, sheetId);
           return;
         }
 
@@ -181,6 +207,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (sheet.owner_id === userId || sheetUser) {
             socket.join(`sheet:${sheetId}`);
             console.log(`Socket ${socket.id} joined personal sheet:${sheetId}`);
+            sendExistingLocks(socket, sheetId);
             return;
           }
           console.warn(`Socket ${socket.id} no permission for personal sheet ${sheetId} - REJECTED`);
@@ -196,6 +223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (sheetUser) {
             socket.join(`sheet:${sheetId}`);
             console.log(`Socket ${socket.id} joined restricted sheet:${sheetId}`);
+            sendExistingLocks(socket, sheetId);
             return;
           }
           console.warn(`Socket ${socket.id} no permission for restricted sheet ${sheetId} - REJECTED`);
@@ -206,6 +234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (sheet.visibility === "company" && sheet.company_id === userCompanyId) {
           socket.join(`sheet:${sheetId}`);
           console.log(`Socket ${socket.id} joined company sheet:${sheetId}`);
+          sendExistingLocks(socket, sheetId);
           return;
         }
 
@@ -218,10 +247,139 @@ export async function registerRoutes(app: Express): Promise<Server> {
     socket.on("leave_sheet", (sheetId: string) => {
       socket.leave(`sheet:${sheetId}`);
       console.log(`Socket ${socket.id} left sheet:${sheetId}`);
+      
+      // Release all cell locks for this socket in this sheet
+      const locksToRelease: string[] = [];
+      cellLocks.forEach((lock, key) => {
+        if (lock.socketId === socket.id && key.startsWith(`${sheetId}:`)) {
+          locksToRelease.push(key);
+        }
+      });
+      
+      locksToRelease.forEach((key) => {
+        const parts = key.split(":");
+        const leadId = parts[1];
+        const field = parts[2];
+        cellLocks.delete(key);
+        socket.to(`sheet:${sheetId}`).emit("cell_lock_released", {
+          leadId,
+          field,
+        });
+      });
+    });
+
+    // Cell locking events
+    socket.on("acquire_cell_lock", async (data: { sheetId: string; leadId: string; field: string; userId: string; userName: string }) => {
+      try {
+        const { sheetId, leadId, field, userId, userName } = data;
+        const lockKey = `${sheetId}:${leadId}:${field}`;
+        
+        console.log(`[LOCK] Acquire request: ${lockKey} by ${userName} (socket: ${socket.id})`);
+        
+        // Check if cell is already locked by someone else
+        const existingLock = cellLocks.get(lockKey);
+        if (existingLock) {
+          console.log(`[LOCK] Existing lock found: ${lockKey} held by ${existingLock.userName} (socket: ${existingLock.socketId})`);
+        }
+        
+        if (existingLock && existingLock.socketId !== socket.id) {
+          // Cell is locked by another socket, reject
+          console.log(`[LOCK] REJECTED: ${lockKey} already locked by ${existingLock.userName} (socket: ${existingLock.socketId})`);
+          socket.emit("cell_lock_rejected", {
+            leadId,
+            field,
+            lockedBy: existingLock.userName,
+          });
+          return;
+        }
+        
+        // Acquire the lock
+        cellLocks.set(lockKey, {
+          socketId: socket.id,
+          userId,
+          userName,
+        });
+        
+        console.log(`[LOCK] ACQUIRED: ${lockKey} by ${userName} (socket: ${socket.id}). Total locks: ${cellLocks.size}`);
+        
+        // Notify this user that lock was acquired
+        socket.emit("cell_lock_acquired", {
+          leadId,
+          field,
+        });
+        
+        // Notify other users in the sheet that this cell is now locked
+        socket.to(`sheet:${sheetId}`).emit("cell_locked_by_other", {
+          leadId,
+          field,
+          userId,
+          userName,
+        });
+      } catch (error) {
+        console.error("Error acquiring cell lock:", error);
+      }
+    });
+
+    socket.on("release_cell_lock", (data: { sheetId: string; leadId: string; field: string }) => {
+      try {
+        const { sheetId, leadId, field } = data;
+        const lockKey = `${sheetId}:${leadId}:${field}`;
+        
+        console.log(`[LOCK] Release request: ${lockKey} by socket ${socket.id}`);
+        
+        // Only the owner can release the lock
+        const lock = cellLocks.get(lockKey);
+        if (!lock) {
+          console.log(`[LOCK] Release ignored: ${lockKey} not found in locks`);
+          return;
+        }
+        
+        if (lock.socketId !== socket.id) {
+          console.log(`[LOCK] Release rejected: ${lockKey} owned by socket ${lock.socketId}, not ${socket.id}`);
+          return;
+        }
+        
+        // Release the lock
+        cellLocks.delete(lockKey);
+        
+        console.log(`[LOCK] RELEASED: ${lockKey} by ${lock.userName}. Total locks: ${cellLocks.size}`);
+        
+        // Notify all users in the sheet that the cell is now unlocked
+        io.to(`sheet:${sheetId}`).emit("cell_lock_released", {
+          leadId,
+          field,
+        });
+      } catch (error) {
+        console.error("Error releasing cell lock:", error);
+      }
     });
 
     socket.on("disconnect", () => {
       console.log("Socket disconnected:", socket.id);
+      
+      // Auto-release all locks held by this socket
+      const locksToRelease: Array<{ sheetId: string; leadId: string; field: string }> = [];
+      
+      cellLocks.forEach((lock, key) => {
+        if (lock.socketId === socket.id) {
+          const parts = key.split(":");
+          locksToRelease.push({
+            sheetId: parts[0],
+            leadId: parts[1],
+            field: parts[2],
+          });
+          cellLocks.delete(key);
+        }
+      });
+      
+      // Notify all users in affected sheets
+      locksToRelease.forEach(({ sheetId, leadId, field }) => {
+        io.to(`sheet:${sheetId}`).emit("cell_lock_released", {
+          leadId,
+          field,
+        });
+        console.log(`Auto-released lock on disconnect: ${sheetId}:${leadId}:${field}`);
+      });
     });
   });
 
