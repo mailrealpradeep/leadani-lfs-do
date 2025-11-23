@@ -307,6 +307,7 @@ export function SpreadsheetGrid({
 
   const handleCellClick = (lead: Lead, columnKey: string, currentValue: any, columnType?: string) => {
     setEditingCell({ leadId: lead.id, field: columnKey, originalValue: currentValue });
+    // For percentage fields, show the raw number without % symbol
     setEditValue(currentValue || "");
     // Automatically open date picker for date fields
     if (columnType === "date") {
@@ -318,10 +319,21 @@ export function SpreadsheetGrid({
     if (editingCell && editValue !== undefined) {
       // Only save if value has changed
       const originalValue = editingCell.originalValue ?? "";
-      if (editValue !== originalValue) {
+      
+      // Get the column type
+      const column = customColumns.find(col => col.column_key === editingCell.field);
+      let valueToSave = editValue;
+      
+      // For percentage fields, strip % symbol and validate
+      if (column?.type === "percentage" && editValue) {
+        const cleanedValue = String(editValue).replace(/%/g, '').trim();
+        valueToSave = cleanedValue;
+      }
+      
+      if (valueToSave !== originalValue) {
         const updatedFields = {
           ...lead.custom_fields,
-          [editingCell.field]: editValue,
+          [editingCell.field]: valueToSave,
         };
         updateLeadMutation.mutate({
           leadId: editingCell.leadId,
@@ -371,7 +383,7 @@ export function SpreadsheetGrid({
       key: col.column_key,
       label: col.name,
       // Special width for name column to accommodate longer names with wrapping
-      width: col.column_key === "name" ? "260px" : col.type === "text" ? "120px" : col.type === "number" ? "90px" : col.type === "date" ? "110px" : col.type === "boolean" ? "90px" : col.type === "mobile" ? "130px" : "120px",
+      width: col.column_key === "name" ? "260px" : col.type === "text" ? "120px" : col.type === "number" ? "90px" : col.type === "date" ? "110px" : col.type === "boolean" ? "90px" : col.type === "mobile" ? "130px" : col.type === "percentage" ? "100px" : "120px",
       sortable: true,
       dropdown: col.type === "dropdown",
       type: col.type,
@@ -460,9 +472,33 @@ export function SpreadsheetGrid({
     })
     .sort((a, b) => {
       if (!sortColumn) return 0;
-      const aVal = getLeadValue(a, sortColumn) || "";
-      const bVal = getLeadValue(b, sortColumn) || "";
-      const comparison = aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+      const aVal = getLeadValue(a, sortColumn);
+      const bVal = getLeadValue(b, sortColumn);
+      
+      // Get the column to check its type
+      const column = customColumns.find(col => col.column_key === sortColumn);
+      const columnType = column?.type;
+      
+      // Handle numeric types (number and percentage)
+      if (columnType === "number" || columnType === "percentage") {
+        const aNum = aVal != null && aVal !== "" ? parseFloat(String(aVal)) : -Infinity;
+        const bNum = bVal != null && bVal !== "" ? parseFloat(String(bVal)) : -Infinity;
+        const comparison = aNum > bNum ? 1 : aNum < bNum ? -1 : 0;
+        return sortDirection === "asc" ? comparison : -comparison;
+      }
+      
+      // Handle date types
+      if (columnType === "date") {
+        const aDate = aVal ? new Date(aVal).getTime() : -Infinity;
+        const bDate = bVal ? new Date(bVal).getTime() : -Infinity;
+        const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
+        return sortDirection === "asc" ? comparison : -comparison;
+      }
+      
+      // Handle other types as strings
+      const aStr = String(aVal || "");
+      const bStr = String(bVal || "");
+      const comparison = aStr > bStr ? 1 : aStr < bStr ? -1 : 0;
       return sortDirection === "asc" ? comparison : -comparison;
     });
 
@@ -1201,6 +1237,8 @@ export function SpreadsheetGrid({
                           <span className={`text-sm ${col.width === "260px" || col.key === "name" ? "break-words w-full" : ""}`}>
                             {col.type === "date" && value
                               ? format(new Date(value), "dd/MM/yy")
+                              : col.type === "percentage" && value != null && value !== ""
+                              ? `${value}%`
                               : value || "-"}
                           </span>
                         )}

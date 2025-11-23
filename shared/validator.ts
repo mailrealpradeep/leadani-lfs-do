@@ -28,6 +28,30 @@ export function validateMobileNumber(value: any): FieldValidationResult {
   return { isValid: true };
 }
 
+export function validatePercentage(value: any): FieldValidationResult {
+  if (value === null || value === undefined || value === '') {
+    return { isValid: true };
+  }
+
+  const numValue = typeof value === 'number' ? value : parseFloat(String(value));
+  
+  if (isNaN(numValue)) {
+    return {
+      isValid: false,
+      error: "Percentage must be a valid number"
+    };
+  }
+
+  if (numValue < 0 || numValue > 100) {
+    return {
+      isValid: false,
+      error: "Percentage must be between 0 and 100"
+    };
+  }
+
+  return { isValid: true };
+}
+
 export function validateFieldValue(
   value: any,
   column: CustomColumn
@@ -43,6 +67,19 @@ export function validateFieldValue(
     }
     
     return validateMobileNumber(value);
+  }
+
+  if (column.type === 'percentage') {
+    const isEmpty = value === null || value === undefined || value === '';
+    
+    if (isEmpty && column.config.required) {
+      return {
+        isValid: false,
+        error: `${column.name} is required`
+      };
+    }
+    
+    return validatePercentage(value);
   }
 
   if (column.config.required && isFieldEmpty(value)) {

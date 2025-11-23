@@ -24,7 +24,7 @@ export function CompanyColumnManager() {
   const [isAdding, setIsAdding] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");
   const [newColumnKey, setNewColumnKey] = useState("");
-  const [newColumnType, setNewColumnType] = useState<"text" | "number" | "date" | "dropdown" | "boolean" | "mobile">("text");
+  const [newColumnType, setNewColumnType] = useState<"text" | "number" | "date" | "dropdown" | "boolean" | "mobile" | "percentage">("text");
   const [newDropdownOptions, setNewDropdownOptions] = useState<string[]>([]);
   const [newDropdownInput, setNewDropdownInput] = useState("");
 
@@ -32,7 +32,7 @@ export function CompanyColumnManager() {
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [editColumnName, setEditColumnName] = useState("");
   const [editColumnKey, setEditColumnKey] = useState(""); // Read-only, for display
-  const [editColumnType, setEditColumnType] = useState<"text" | "number" | "date" | "dropdown" | "boolean" | "mobile">("text");
+  const [editColumnType, setEditColumnType] = useState<"text" | "number" | "date" | "dropdown" | "boolean" | "mobile" | "percentage">("text");
   const [editDropdownOptions, setEditDropdownOptions] = useState<string[]>([]);
   const [editDropdownInput, setEditDropdownInput] = useState("");
   const [editColumnConfig, setEditColumnConfig] = useState<any>({}); // Store full config
@@ -215,6 +215,7 @@ export function CompanyColumnManager() {
     dropdown: "Dropdown",
     boolean: "Yes/No",
     mobile: "Mobile No",
+    percentage: "Percentage (%)",
   };
 
   return (
@@ -285,6 +286,7 @@ export function CompanyColumnManager() {
                     <SelectItem value="dropdown">Dropdown</SelectItem>
                     <SelectItem value="boolean">Yes/No</SelectItem>
                     <SelectItem value="mobile">Mobile No</SelectItem>
+                    <SelectItem value="percentage">Percentage (%)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -425,6 +427,7 @@ export function CompanyColumnManager() {
                             <SelectItem value="dropdown">Dropdown</SelectItem>
                             <SelectItem value="boolean">Yes/No</SelectItem>
                             <SelectItem value="mobile">Mobile No</SelectItem>
+                            <SelectItem value="percentage">Percentage (%)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

@@ -215,7 +215,7 @@ export interface CustomColumn {
   sheet_id: string | null; // optional: if specified, column is sheet-specific override
   name: string;
   column_key: string; // unique key for this column within the company
-  type: "text" | "number" | "date" | "dropdown" | "boolean" | "mobile";
+  type: "text" | "number" | "date" | "dropdown" | "boolean" | "mobile" | "percentage";
   config: {
     default_value?: any;
     dropdown_options?: string[];
@@ -231,7 +231,7 @@ export const insertCustomColumnSchema = z.object({
   sheet_id: z.string().nullable().optional(),
   name: z.string().min(1, "Column name is required"),
   column_key: z.string().min(1, "Column key is required"),
-  type: z.enum(["text", "number", "date", "dropdown", "boolean", "mobile"]),
+  type: z.enum(["text", "number", "date", "dropdown", "boolean", "mobile", "percentage"]),
   config: z.object({
     default_value: z.any().optional(),
     dropdown_options: z.array(z.string()).optional(),

@@ -57,6 +57,9 @@ export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawe
     if (type === "boolean") {
       return value === true || value === "true" ? "Yes" : "No";
     }
+    if (type === "percentage") {
+      return `${value}%`;
+    }
     // For numbers and other values, convert to string but preserve 0 and false
     return String(value);
   };
