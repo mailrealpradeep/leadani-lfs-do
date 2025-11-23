@@ -15,7 +15,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
-import Register from "@/pages/register";
 import Landing from "@/pages/landing";
 import Signup from "@/pages/signup";
 import Onboarding from "@/pages/onboarding";
@@ -55,7 +54,6 @@ function Router() {
     <Switch>
       {/* Public routes */}
       <Route path="/login" component={Login} />
-      <Route path="/register" component={Register} />
       <Route path="/signup" component={Signup} />
       <Route path="/invite/:code" component={InviteAccept} />
       

@@ -97,8 +97,8 @@ export default function Login() {
                 type="button"
                 variant="link"
                 className="p-0 h-auto"
-                onClick={() => setLocation("/register")}
-                data-testid="link-register"
+                onClick={() => setLocation("/signup")}
+                data-testid="link-signup"
               >
                 Create account
               </Button>
