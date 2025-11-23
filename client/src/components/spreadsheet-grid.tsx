@@ -359,7 +359,7 @@ export function SpreadsheetGrid({
     .map((col) => ({
       key: col.column_key,
       label: col.name,
-      width: col.type === "text" ? "150px" : col.type === "number" ? "100px" : col.type === "date" ? "120px" : col.type === "boolean" ? "100px" : col.type === "mobile" ? "120px" : "140px",
+      width: col.type === "text" ? "120px" : col.type === "number" ? "90px" : col.type === "date" ? "110px" : col.type === "boolean" ? "90px" : col.type === "mobile" ? "130px" : "120px",
       sortable: true,
       dropdown: col.type === "dropdown",
       type: col.type,
@@ -646,17 +646,6 @@ export function SpreadsheetGrid({
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
                         <span>{col.label}</span>
-                        {col.dropdown && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5"
-                            onClick={() => onOpenDropdownManager(col.key)}
-                            data-testid={`button-manage-dropdown-${col.key}`}
-                          >
-                            <Settings2 className="h-3 w-3" />
-                          </Button>
-                        )}
                         {col.sortable && (
                           <Button
                             variant="ghost"
@@ -909,7 +898,17 @@ export function SpreadsheetGrid({
                               onChange={(e) => setEditValue(e.target.value)}
                               onBlur={() => handleCellSave(lead)}
                               onKeyDown={(e) => handleCellKeyDown(e, lead)}
-                              className="h-8"
+                              className={
+                                col.type === "mobile" || 
+                                col.label.toLowerCase().includes("whatsapp") || 
+                                col.label.toLowerCase().includes("phone") ||
+                                col.label.toLowerCase().includes("mobile") ||
+                                col.key.toLowerCase().includes("whatsapp") ||
+                                col.key.toLowerCase().includes("phone") ||
+                                col.key.toLowerCase().includes("mobile")
+                                  ? "h-8 min-w-[140px]" 
+                                  : "h-8"
+                              }
                               autoFocus
                               data-testid={`input-edit-${col.key}`}
                             />
