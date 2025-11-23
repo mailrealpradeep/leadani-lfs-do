@@ -3608,6 +3608,139 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return result.sort((a, b) => b.value - a.value);
   }
 
+  // Generate pivot table with multi-dimensional grouping
+  function generatePivotTable(leads: any[], config: any) {
+    const rowFields = config?.row_fields || []; // Array of columns for row grouping
+    const columnField = config?.column_field; // Optional column pivot field
+    const valueField = config?.value_field; // Field to aggregate
+    const aggregation = config?.aggregation || "count"; // count, sum, avg
+
+    if (rowFields.length === 0) {
+      return { rows: [], columns: [], data: [] };
+    }
+
+    // Helper function to get field value from lead
+    const getFieldValue = (lead: any, field: string) => {
+      return lead[field] || lead.custom_fields?.[field] || "Unknown";
+    };
+
+    // Helper function to calculate aggregation
+    const calculateAggregation = (leadsSubset: any[]) => {
+      if (aggregation === "count") {
+        return leadsSubset.length;
+      }
+      
+      if (!valueField) return leadsSubset.length;
+      
+      const values = leadsSubset.map(l => parseFloat(getFieldValue(l, valueField) || 0)).filter(v => !isNaN(v));
+      
+      if (aggregation === "sum") {
+        return values.reduce((sum, v) => sum + v, 0);
+      }
+      
+      if (aggregation === "avg") {
+        return values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
+      }
+      
+      return leadsSubset.length;
+    };
+
+    // Build row hierarchy
+    const buildRowHierarchy = (leadsSubset: any[], fieldIndex: number): any => {
+      if (fieldIndex >= rowFields.length) {
+        return leadsSubset;
+      }
+
+      const field = rowFields[fieldIndex];
+      const grouped: Record<string, any[]> = {};
+
+      leadsSubset.forEach(lead => {
+        const value = getFieldValue(lead, field);
+        if (!grouped[value]) grouped[value] = [];
+        grouped[value].push(lead);
+      });
+
+      const result: any = {};
+      Object.entries(grouped).forEach(([key, groupLeads]) => {
+        result[key] = buildRowHierarchy(groupLeads, fieldIndex + 1);
+      });
+
+      return result;
+    };
+
+    // If no column field, create simple row-grouped table
+    if (!columnField) {
+      const hierarchy = buildRowHierarchy(leads, 0);
+      
+      const flattenRows = (node: any, parentKeys: string[] = []): any[] => {
+        if (Array.isArray(node)) {
+          return [{
+            keys: parentKeys,
+            value: calculateAggregation(node),
+            count: node.length
+          }];
+        }
+
+        const rows: any[] = [];
+        Object.entries(node).forEach(([key, child]) => {
+          rows.push(...flattenRows(child, [...parentKeys, key]));
+        });
+        return rows;
+      };
+
+      const flatRows = flattenRows(hierarchy);
+      
+      return {
+        type: "simple",
+        rowFields,
+        aggregation,
+        valueField,
+        rows: flatRows
+      };
+    }
+
+    // With column field - create full pivot table
+    const columnValues = new Set<string>();
+    leads.forEach(lead => {
+      columnValues.add(getFieldValue(lead, columnField));
+    });
+
+    const columns = Array.from(columnValues).sort();
+    const hierarchy = buildRowHierarchy(leads, 0);
+
+    const flattenRowsWithColumns = (node: any, parentKeys: string[] = []): any[] => {
+      if (Array.isArray(node)) {
+        const row: any = { keys: parentKeys };
+        
+        columns.forEach(col => {
+          const filtered = node.filter(l => getFieldValue(l, columnField) === col);
+          row[col] = calculateAggregation(filtered);
+        });
+        
+        row.total = calculateAggregation(node);
+        return [row];
+      }
+
+      const rows: any[] = [];
+      Object.entries(node).forEach(([key, child]) => {
+        rows.push(...flattenRowsWithColumns(child, [...parentKeys, key]));
+      });
+      return rows;
+    };
+
+    const dataRows = flattenRowsWithColumns(hierarchy);
+
+    return {
+      type: "pivot",
+      rowFields,
+      columnField,
+      columns,
+      aggregation,
+      valueField,
+      rows: dataRows
+    };
+  }
+
   // Sheet-scoped validation rules endpoints (for frontend integration)
   // GET /api/sheets/:sheetId/validation-rules - Fetch rules for a sheet (company-wide + sheet-specific)
   app.get("/api/sheets/:sheetId/validation-rules", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {

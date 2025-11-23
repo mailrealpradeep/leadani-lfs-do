@@ -775,9 +775,13 @@ export const reports = pgTable('reports', {
     filters?: any[];
     chart_type?: string;
     metrics?: string[];
-    x_axis?: string; // Column key for X-axis
-    y_axis?: string; // Aggregation type: count, sum, avg, etc.
-    y_axis_field?: string; // Field to aggregate (for sum/avg)
+    x_axis?: string; // Column key for X-axis (for charts)
+    y_axis?: string; // Aggregation type: count, sum, avg, etc. (for charts)
+    y_axis_field?: string; // Field to aggregate (for sum/avg) (for charts)
+    row_fields?: string[]; // Row grouping columns (for pivot tables)
+    column_field?: string; // Column pivot field (for pivot tables)
+    value_field?: string; // Field to aggregate (for pivot tables)
+    aggregation?: string; // Aggregation type for pivot tables
   }>().default({}).notNull(),
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
