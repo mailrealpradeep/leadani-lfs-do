@@ -1882,6 +1882,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Validate mobile number fields (10 digits)
+      const { validateMobileNumber } = await import("@shared/validator");
+      const mobileColumns = customColumns.filter(col => col.type === "mobile");
+      const invalidMobileFields: { name: string; error: string }[] = [];
+      
+      for (const col of mobileColumns) {
+        const value = leadData.custom_fields?.[col.column_key];
+        if (value !== null && value !== undefined && value !== '') {
+          const validationResult = validateMobileNumber(value);
+          if (!validationResult.isValid) {
+            invalidMobileFields.push({ name: col.name, error: validationResult.error || "Invalid" });
+          }
+        }
+      }
+      
+      if (invalidMobileFields.length > 0) {
+        return res.status(400).json({
+          error: "Invalid mobile number format",
+          invalidFields: invalidMobileFields.map(f => `${f.name}: ${f.error}`)
+        });
+      }
+      
       const lead = await storage.createLead({
         ...leadData,
         sheet_id: req.params.id,
@@ -1953,6 +1975,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
         if (sheetUser && sheetUser.role === "viewer") {
           return res.status(403).json({ error: "Viewers cannot edit leads" });
+        }
+      }
+
+      // Validate mobile number fields if present in update (10 digits)
+      if (req.body.custom_fields) {
+        const { validateMobileNumber } = await import("@shared/validator");
+        const customColumns = await storage.getCustomColumns(lead.sheet_id);
+        const mobileColumns = customColumns.filter(col => col.type === "mobile");
+        const invalidMobileFields: { name: string; error: string }[] = [];
+        
+        for (const col of mobileColumns) {
+          const value = req.body.custom_fields[col.column_key];
+          if (value !== null && value !== undefined && value !== '') {
+            const validationResult = validateMobileNumber(value);
+            if (!validationResult.isValid) {
+              invalidMobileFields.push({ name: col.name, error: validationResult.error || "Invalid" });
+            }
+          }
+        }
+        
+        if (invalidMobileFields.length > 0) {
+          return res.status(400).json({
+            error: "Invalid mobile number format",
+            invalidFields: invalidMobileFields.map(f => `${f.name}: ${f.error}`)
+          });
         }
       }
 
