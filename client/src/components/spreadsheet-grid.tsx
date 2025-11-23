@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
-import { useAuth } from "@/lib/auth";
 import {
   Plus,
   Trash2,
@@ -98,7 +97,6 @@ export function SpreadsheetGrid({
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
-  const { user } = useAuth();
   const { 
     searchQuery, 
     categoryFilter,
@@ -122,36 +120,6 @@ export function SpreadsheetGrid({
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
-  
-  // Cell locking state: Track cells locked by any user (including self)
-  const [lockedCells, setLockedCells] = useState<Map<string, { userId: string; userName: string; isOwnLock: boolean }>>(new Map());
-  // Track pending lock requests to gate edit mode entry
-  const [pendingLockRequest, setPendingLockRequest] = useState<{ leadId: string; field: string } | null>(null);
-  
-  // Column resizing state
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  const [resizingColumn, setResizingColumn] = useState<{ key: string; startX: number; startWidth: number } | null>(null);
-  
-  // Load column widths from localStorage on mount
-  useEffect(() => {
-    const storageKey = `column-widths-${sheetId}`;
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        setColumnWidths(JSON.parse(stored));
-      } catch (e) {
-        console.error("Failed to parse stored column widths:", e);
-      }
-    }
-  }, [sheetId]);
-  
-  // Save column widths to localStorage when they change
-  useEffect(() => {
-    if (Object.keys(columnWidths).length > 0) {
-      const storageKey = `column-widths-${sheetId}`;
-      localStorage.setItem(storageKey, JSON.stringify(columnWidths));
-    }
-  }, [columnWidths, sheetId]);
 
   const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
@@ -313,15 +281,10 @@ export function SpreadsheetGrid({
   useEffect(() => {
     if (!sheetId) return;
     
-    console.log(`[CLIENT LOCK] Joining sheet ${sheetId}, clearing existing lock state`);
-    setLockedCells(new Map());
-    setPendingLockRequest(null);
-    
     const socket = getSocket();
     
     // Join the sheet room
     socket.emit("join_sheet", sheetId);
-    console.log(`[CLIENT LOCK] Emitted join_sheet for ${sheetId}`);
 
     // Listen for realtime events
     const handleLeadCreated = () => {
@@ -332,125 +295,22 @@ export function SpreadsheetGrid({
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
     };
 
-    // Cell locking events
-    const handleCellLockAcquired = (data: { leadId: string; field: string }) => {
-      // Lock acquired successfully, now enter edit mode
-      if (pendingLockRequest && 
-          pendingLockRequest.leadId === data.leadId && 
-          pendingLockRequest.field === data.field) {
-        // Find the lead and get current value
-        const lead = leads.find(l => l.id === data.leadId);
-        if (lead) {
-          const currentValue = getLeadValue(lead, data.field);
-          setEditingCell({ leadId: data.leadId, field: data.field, originalValue: currentValue });
-          setEditValue(currentValue || "");
-          
-          // Check if this is a date field and open date picker
-          const column = customColumns.find(col => col.column_key === data.field);
-          if (column && column.type === "date") {
-            setDatePickerOpen({ leadId: data.leadId, field: data.field });
-          }
-          
-          // Add to lockedCells as own lock
-          if (user) {
-            setLockedCells((prev) => {
-              const newMap = new Map(prev);
-              const lockKey = `${data.leadId}:${data.field}`;
-              newMap.set(lockKey, { userId: user.id, userName: user.name, isOwnLock: true });
-              return newMap;
-            });
-          }
-        }
-        setPendingLockRequest(null);
-      }
-    };
-
-    const handleCellLockedByOther = (data: { leadId: string; field: string; userId: string; userName: string }) => {
-      setLockedCells((prev) => {
-        const newMap = new Map(prev);
-        const lockKey = `${data.leadId}:${data.field}`;
-        newMap.set(lockKey, { userId: data.userId, userName: data.userName, isOwnLock: false });
-        return newMap;
-      });
-    };
-
-    const handleExistingLocks = (data: { locks: Array<{ leadId: string; field: string; userId: string; userName: string }> }) => {
-      console.log(`[CLIENT LOCK] Received ${data.locks.length} existing locks from server:`, data.locks);
-      setLockedCells((prev) => {
-        const newMap = new Map(prev);
-        data.locks.forEach((lock) => {
-          const lockKey = `${lock.leadId}:${lock.field}`;
-          console.log(`[CLIENT LOCK] Adding existing lock: ${lockKey} by ${lock.userName}`);
-          // Mark as not own lock - these are locks from other users
-          newMap.set(lockKey, { userId: lock.userId, userName: lock.userName, isOwnLock: false });
-        });
-        console.log(`[CLIENT LOCK] Total locked cells now: ${newMap.size}`);
-        return newMap;
-      });
-    };
-
-    const handleCellLockReleased = (data: { leadId: string; field: string }) => {
-      setLockedCells((prev) => {
-        const newMap = new Map(prev);
-        const lockKey = `${data.leadId}:${data.field}`;
-        newMap.delete(lockKey);
-        return newMap;
-      });
-    };
-
-    const handleCellLockRejected = (data: { leadId: string; field: string; lockedBy: string }) => {
-      toast({
-        title: "Cell locked",
-        description: `This cell is currently being edited by ${data.lockedBy}`,
-        variant: "destructive",
-      });
-      setPendingLockRequest(null);
-    };
-
     socket.on("lead_created", handleLeadCreated);
     socket.on("lead_updated", handleLeadUpdated);
-    socket.on("cell_lock_acquired", handleCellLockAcquired);
-    socket.on("cell_locked_by_other", handleCellLockedByOther);
-    socket.on("existing_locks", handleExistingLocks);
-    socket.on("cell_lock_released", handleCellLockReleased);
-    socket.on("cell_lock_rejected", handleCellLockRejected);
 
     return () => {
       socket.emit("leave_sheet", sheetId);
       socket.off("lead_created", handleLeadCreated);
       socket.off("lead_updated", handleLeadUpdated);
-      socket.off("cell_lock_acquired", handleCellLockAcquired);
-      socket.off("cell_locked_by_other", handleCellLockedByOther);
-      socket.off("existing_locks", handleExistingLocks);
-      socket.off("cell_lock_released", handleCellLockReleased);
-      socket.off("cell_lock_rejected", handleCellLockRejected);
     };
-  }, [sheetId, toast, pendingLockRequest, leads, user]);
+  }, [sheetId]);
 
   const handleCellClick = (lead: Lead, columnKey: string, currentValue: any, columnType?: string) => {
-    // Check if cell is locked by another user
-    const lockKey = `${lead.id}:${columnKey}`;
-    const lock = lockedCells.get(lockKey);
-    if (lock && !lock.isOwnLock) {
-      toast({
-        title: "Cell locked",
-        description: `This cell is currently being edited by ${lock.userName}`,
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Request lock for this cell (don't enter edit mode yet)
-    if (user && sheetId) {
-      setPendingLockRequest({ leadId: lead.id, field: columnKey });
-      const socket = getSocket();
-      socket.emit("acquire_cell_lock", {
-        sheetId,
-        leadId: lead.id,
-        field: columnKey,
-        userId: user.id,
-        userName: user.name,
-      });
+    setEditingCell({ leadId: lead.id, field: columnKey, originalValue: currentValue });
+    setEditValue(currentValue || "");
+    // Automatically open date picker for date fields
+    if (columnType === "date") {
+      setDatePickerOpen({ leadId: lead.id, field: columnKey });
     }
   };
 
@@ -468,16 +328,6 @@ export function SpreadsheetGrid({
           customFields: updatedFields,
         });
       }
-      
-      // Release the cell lock
-      if (sheetId) {
-        const socket = getSocket();
-        socket.emit("release_cell_lock", {
-          sheetId,
-          leadId: editingCell.leadId,
-          field: editingCell.field,
-        });
-      }
     }
     setEditingCell(null);
     setEditValue("");
@@ -487,26 +337,8 @@ export function SpreadsheetGrid({
     if (e.key === "Enter") {
       handleCellSave(lead);
     } else if (e.key === "Escape") {
-      // Release lock on cancel
-      if (editingCell && sheetId) {
-        const socket = getSocket();
-        socket.emit("release_cell_lock", {
-          sheetId,
-          leadId: editingCell.leadId,
-          field: editingCell.field,
-        });
-      }
       setEditingCell(null);
     }
-  };
-
-  const isCellLocked = (leadId: string, field: string): { isLocked: boolean; userName?: string; isOwnLock?: boolean } => {
-    const lockKey = `${leadId}:${field}`;
-    const lock = lockedCells.get(lockKey);
-    if (lock) {
-      return { isLocked: true, userName: lock.userName, isOwnLock: lock.isOwnLock };
-    }
-    return { isLocked: false };
   };
 
   const getDropdownOptionsForColumn = (columnKey: string): string[] => {
@@ -526,71 +358,25 @@ export function SpreadsheetGrid({
       setSortDirection("asc");
     }
   };
-  
-  // Column resize handlers
-  const handleResizeStart = useCallback((e: React.MouseEvent, columnKey: string, currentWidth: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setResizingColumn({ key: columnKey, startX: e.clientX, startWidth: currentWidth });
-  }, []);
-  
-  const handleResizeMove = useCallback((e: MouseEvent) => {
-    if (resizingColumn) {
-      e.preventDefault();
-      const delta = e.clientX - resizingColumn.startX;
-      const newWidth = Math.max(60, resizingColumn.startWidth + delta);
-      setColumnWidths(prev => ({ ...prev, [resizingColumn.key]: newWidth }));
-    }
-  }, [resizingColumn]);
-  
-  const handleResizeEnd = useCallback(() => {
-    setResizingColumn(null);
-  }, []);
-  
-  // Add/remove resize event listeners
-  useEffect(() => {
-    if (resizingColumn) {
-      document.addEventListener('mousemove', handleResizeMove);
-      document.addEventListener('mouseup', handleResizeEnd);
-      return () => {
-        document.removeEventListener('mousemove', handleResizeMove);
-        document.removeEventListener('mouseup', handleResizeEnd);
-      };
-    }
-  }, [resizingColumn, handleResizeMove, handleResizeEnd]);
 
   // Get value from lead's custom_fields
   const getLeadValue = (lead: Lead, columnKey: string) => {
     return lead.custom_fields[columnKey];
   };
 
-  // Get column width - use custom width if set, otherwise use default
-  const getColumnWidth = useCallback((columnKey: string, type: string): string => {
-    if (columnWidths[columnKey]) {
-      return `${columnWidths[columnKey]}px`;
-    }
-    // Default widths
-    if (columnKey === "name" || columnKey === "full_name") return "200px";
-    if (type === "text") return "120px";
-    if (type === "number") return "90px";
-    if (type === "date") return "110px";
-    if (type === "boolean") return "90px";
-    if (type === "mobile") return "130px";
-    return "120px";
-  }, [columnWidths]);
-
   // Convert CustomColumn to display columns (must be before filteredAndSortedLeads)
-  const columns = useMemo(() => customColumns
+  const columns = customColumns
     .sort((a, b) => a.order_index - b.order_index)
     .map((col) => ({
       key: col.column_key,
       label: col.name,
-      width: getColumnWidth(col.column_key, col.type),
+      // Special width for name column to accommodate longer names with wrapping
+      width: col.column_key === "name" ? "200px" : col.type === "text" ? "120px" : col.type === "number" ? "90px" : col.type === "date" ? "110px" : col.type === "boolean" ? "90px" : col.type === "mobile" ? "130px" : "120px",
       sortable: true,
       dropdown: col.type === "dropdown",
       type: col.type,
       config: col.config,
-    })), [customColumns, columnWidths, getColumnWidth]);
+    }));
 
   // Set default sort to Lead Date (new to old) on first load
   useEffect(() => {
@@ -1133,8 +919,7 @@ export function SpreadsheetGrid({
                 {visibleColumns.map((col) => (
                   <div
                     key={col.key}
-                    className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide relative"
-                    style={{ minWidth: col.width, maxWidth: col.width }}
+                    className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide"
                   >
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
@@ -1215,13 +1000,6 @@ export function SpreadsheetGrid({
                         )}
                       </div>
                     </div>
-                    {/* Resize Handle */}
-                    <div
-                      className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/50"
-                      style={{ zIndex: 50, pointerEvents: 'auto' }}
-                      onMouseDown={(e) => handleResizeStart(e, col.key, parseInt(col.width))}
-                      data-testid={`resize-handle-${col.key}`}
-                    />
                   </div>
                 ))}
                 
@@ -1275,23 +1053,15 @@ export function SpreadsheetGrid({
                         editingCell?.leadId === lead.id && editingCell?.field === col.key;
                       const value = getLeadValue(lead, col.key);
                       const isDropdown = col.dropdown;
-                      const cellLockStatus = isCellLocked(lead.id, col.key);
-                      const isLockedByOther = cellLockStatus.isLocked && !cellLockStatus.isOwnLock;
 
                       return (
                         <div
                           key={col.key}
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
-                          className={`border-r px-3 py-2 flex items-start overflow-hidden ${
-                            isLockedByOther
-                              ? "bg-red-100 dark:bg-red-950/30 ring-2 ring-inset ring-red-500 cursor-not-allowed" 
-                              : ""
+                          className={`border-r px-3 py-2 flex ${
+                            col.key === "name" ? "items-start" : "items-center whitespace-nowrap"
                           }`}
-                          style={{ minWidth: col.width, maxWidth: col.width }}
                           data-testid={`cell-${lead.id}-${col.key}`}
-                          data-locked-by-other={isLockedByOther ? "true" : "false"}
-                          data-locked-by={isLockedByOther ? cellLockStatus.userName : undefined}
-                          title={isLockedByOther ? `Locked by ${cellLockStatus.userName}` : undefined}
                         >
                         {isEditing ? (
                           isDropdown ? (
@@ -1307,31 +1077,11 @@ export function SpreadsheetGrid({
                                   leadId: lead.id,
                                   customFields: updatedFields,
                                 });
-                                // Release lock after saving
-                                if (sheetId && editingCell) {
-                                  const socket = getSocket();
-                                  socket.emit("release_cell_lock", {
-                                    sheetId,
-                                    leadId: editingCell.leadId,
-                                    field: editingCell.field,
-                                  });
-                                }
                                 setEditingCell(null);
                               }}
                               open
                               onOpenChange={(open) => {
-                                if (!open) {
-                                  // Release lock if closing without selecting
-                                  if (sheetId && editingCell) {
-                                    const socket = getSocket();
-                                    socket.emit("release_cell_lock", {
-                                      sheetId,
-                                      leadId: editingCell.leadId,
-                                      field: editingCell.field,
-                                    });
-                                  }
-                                  setEditingCell(null);
-                                }
+                                if (!open) setEditingCell(null);
                               }}
                             >
                               <SelectTrigger className="h-8">
@@ -1372,28 +1122,10 @@ export function SpreadsheetGrid({
                                 align="start"
                                 onEscapeKeyDown={(e) => {
                                   e.preventDefault();
-                                  // Release lock on escape
-                                  if (sheetId && editingCell) {
-                                    const socket = getSocket();
-                                    socket.emit("release_cell_lock", {
-                                      sheetId,
-                                      leadId: editingCell.leadId,
-                                      field: editingCell.field,
-                                    });
-                                  }
                                   setDatePickerOpen(null);
                                   setEditingCell(null);
                                 }}
                                 onInteractOutside={() => {
-                                  // Release lock when clicking outside
-                                  if (sheetId && editingCell) {
-                                    const socket = getSocket();
-                                    socket.emit("release_cell_lock", {
-                                      sheetId,
-                                      leadId: editingCell.leadId,
-                                      field: editingCell.field,
-                                    });
-                                  }
                                   setDatePickerOpen(null);
                                   setEditingCell(null);
                                 }}
@@ -1412,15 +1144,6 @@ export function SpreadsheetGrid({
                                         leadId: lead.id,
                                         customFields: updatedFields,
                                       });
-                                      // Release lock after date selection
-                                      if (sheetId && editingCell) {
-                                        const socket = getSocket();
-                                        socket.emit("release_cell_lock", {
-                                          sheetId,
-                                          leadId: editingCell.leadId,
-                                          field: editingCell.field,
-                                        });
-                                      }
                                       setDatePickerOpen(null);
                                       setEditingCell(null);
                                     }
@@ -1439,15 +1162,6 @@ export function SpreadsheetGrid({
                                         leadId: lead.id,
                                         customFields: updatedFields,
                                       });
-                                      // Release lock after clearing date
-                                      if (sheetId && editingCell) {
-                                        const socket = getSocket();
-                                        socket.emit("release_cell_lock", {
-                                          sheetId,
-                                          leadId: editingCell.leadId,
-                                          field: editingCell.field,
-                                        });
-                                      }
                                       setDatePickerOpen(null);
                                       setEditingCell(null);
                                     }}
@@ -1480,7 +1194,7 @@ export function SpreadsheetGrid({
                             />
                           )
                         ) : (
-                          <span className="text-sm break-words">
+                          <span className={`text-sm ${col.key === "name" ? "break-words line-clamp-3" : ""}`}>
                             {col.type === "date" && value
                               ? format(new Date(value), "MMM d, yyyy")
                               : value || "-"}
