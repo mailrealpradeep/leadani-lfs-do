@@ -96,6 +96,7 @@ The Reports Section provides comprehensive data visualization and analytics capa
 **API Endpoints**:
 -   `GET /api/company/reports` - Fetch all accessible reports (filtered by user permissions)
 -   `POST /api/company/reports` - Create new report (admin only, validates sheet ownership, access, and custom report config)
+-   `PATCH /api/company/reports/:id` - Update existing report (admin only, validates all fields and normalizes config)
 -   `GET /api/company/reports/:id/data` - Fetch report with generated visualizations and metadata
 -   `DELETE /api/company/reports/:id` - Delete report (admin only)
 
@@ -107,6 +108,12 @@ The Reports Section provides comprehensive data visualization and analytics capa
 - Enum validation: `y_axis` must be count/sum/avg; `chart_type` must be bar/line/pie
 
 **Frontend**: Reports page (`/reports`) features a card-based grid layout displaying all reports as individual cards. Each card shows the report name, lead count, and visualization (Recharts bar/line/pie charts). The Report Builder dialog provides intuitive selectors for X-axis (all available columns), Y-axis (aggregation method), Y-axis field (for sum/avg), chart type, and multi-sheet checkbox selection.
+
+**Report Editing**: Company admins can edit existing reports via an Edit button (pencil icon) on each report card. The Report Builder dialog supports both create and edit modes, pre-populating all fields when editing. The implementation includes:
+-   **State Management**: `resetBuilder()` clears all state before loading edit values to prevent stale data when switching between chart and pivot table reports
+-   **Enhanced Validation**: Required field validation enforces `y_axis_field` for chart sum/avg aggregations and `value_field` for pivot sum/avg aggregations
+-   **Config Normalization**: Only includes necessary fields in the config payload (e.g., omits `column_field` if empty, `y_axis_field` for count aggregations)
+-   **Dual Mode Dialog**: Title and button text change based on mode ("Build Custom Report" / "Create Report" vs "Edit Report" / "Update Report")
 
 **Real-time Support**: Report cards automatically fetch and render data using React Query. Empty states guide users when no reports exist, with a prominent "Create Report" call-to-action.
 
