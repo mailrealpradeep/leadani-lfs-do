@@ -98,6 +98,11 @@ export function CompanyColumnManager() {
       const oldIndex = sortedColumns.findIndex((col) => col.id === active.id);
       const newIndex = sortedColumns.findIndex((col) => col.id === over.id);
 
+      if (oldIndex === -1 || newIndex === -1) {
+        console.error("Invalid drag indices", { oldIndex, newIndex, active: active.id, over: over.id });
+        return;
+      }
+
       const reorderedColumns = arrayMove(sortedColumns, oldIndex, newIndex);
       
       // Update order_index for all columns with new values
@@ -106,10 +111,18 @@ export function CompanyColumnManager() {
         order_index: index,
       }));
 
-      const columnOrders = updatedColumns.map((col) => ({
-        id: col.id,
-        order_index: col.order_index,
-      }));
+      // Filter out any columns without valid IDs
+      const columnOrders = updatedColumns
+        .filter((col) => col.id && typeof col.id === 'string')
+        .map((col) => ({
+          id: col.id,
+          order_index: col.order_index,
+        }));
+
+      if (columnOrders.length === 0) {
+        console.error("No valid columns to reorder");
+        return;
+      }
 
       // Optimistically update the query cache with updated order_index values
       queryClient.setQueryData(["/api/company/columns"], updatedColumns);

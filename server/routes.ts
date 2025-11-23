@@ -2882,25 +2882,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { columnOrders } = req.body; // Array of { id: string, order_index: number }
       
+      console.log("[Reorder] Received request:", { 
+        columnCount: columnOrders?.length, 
+        companyId: req.companyId,
+        columnIds: columnOrders?.map((c: any) => c.id) 
+      });
+      
       if (!Array.isArray(columnOrders) || columnOrders.length === 0) {
         return res.status(400).json({ error: "Invalid column orders" });
       }
 
       // Validate all columns belong to the company
+      const validColumns = [];
       for (const item of columnOrders) {
+        if (!item.id || typeof item.order_index !== 'number') {
+          console.warn("[Reorder] Invalid item format:", item);
+          continue;
+        }
+
         const column = await storage.getCustomColumnById(item.id);
         if (!column) {
-          return res.status(404).json({ error: `Column ${item.id} not found` });
+          console.error("[Reorder] Column not found:", item.id);
+          return res.status(404).json({ error: `Column not found` });
         }
         if (req.userRole === "company_admin" && column.company_id !== req.companyId) {
+          console.error("[Reorder] Company mismatch:", { columnId: item.id, columnCompany: column.company_id, userCompany: req.companyId });
           return res.status(403).json({ error: "Cannot reorder columns from other companies" });
         }
+        validColumns.push(item);
+      }
+
+      if (validColumns.length === 0) {
+        return res.status(400).json({ error: "No valid columns to reorder" });
       }
 
       // Update order_index for each column
-      for (const item of columnOrders) {
+      for (const item of validColumns) {
         await storage.updateCustomColumn(item.id, { order_index: item.order_index });
       }
+
+      console.log("[Reorder] Successfully reordered", validColumns.length, "columns");
 
       // Audit log
       await storage.createAuditLog({
@@ -2909,7 +2930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         action: "update",
         model: "custom_column",
         model_id: "bulk_reorder",
-        payload: { column_count: columnOrders.length },
+        payload: { column_count: validColumns.length },
       });
 
       res.json({ success: true, message: "Columns reordered successfully" });
