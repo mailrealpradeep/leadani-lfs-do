@@ -114,11 +114,6 @@ export function SpreadsheetGrid({
     enabled: !!sheetId,
   });
 
-  const { data: dropdownOptions = [] } = useQuery<DropdownOption[]>({
-    queryKey: ["/api/sheets", sheetId, "dropdowns"],
-    enabled: !!sheetId,
-  });
-
   const { data: allSheets = [] } = useQuery<any[]>({
     queryKey: ["/api/sheets"],
   });
@@ -301,10 +296,13 @@ export function SpreadsheetGrid({
     }
   };
 
-  const getDropdownOptionsForColumn = (columnKey: string) => {
-    return dropdownOptions
-      .filter((opt) => opt.column_key === columnKey && opt.sheet_id === sheetId)
-      .sort((a, b) => a.order_index - b.order_index);
+  const getDropdownOptionsForColumn = (columnKey: string): string[] => {
+    const column = customColumns.find((col) => col.column_key === columnKey);
+    if (!column || column.type !== "dropdown") return [];
+    
+    // Extract dropdown options from column config
+    const config = column.config as any;
+    return config?.dropdown_options || [];
   };
 
   const toggleSort = (column: string) => {
@@ -657,7 +655,7 @@ export function SpreadsheetGrid({
                                 [col.key]: value,
                               }))
                             }
-                            options={getDropdownOptionsForColumn(col.key).map(opt => opt.value)}
+                            options={getDropdownOptionsForColumn(col.key)}
                           />
                         ) : (
                           <>
