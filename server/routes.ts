@@ -2879,16 +2879,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create quick filter (Company Admin only)
   app.post("/api/company/quick-filters", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      // Validate request body against schema
-      const validation = insertQuickFilterSchema.safeParse(req.body);
-      if (!validation.success) {
-        return res.status(400).json({ 
-          error: "Validation failed", 
-          details: validation.error.errors 
-        });
-      }
-
-      // Determine company_id
+      // Determine company_id first
       let companyId: string;
       if (req.userRole === "super_admin") {
         if (!req.body.company_id) {
@@ -2902,10 +2893,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         companyId = req.companyId;
       }
 
+      // Sanitize payload: remove server-side fields before validation to avoid strict schema rejection
+      const { company_id, created_by_user_id, ...sanitizedBody } = req.body;
+
+      // Validate only the client-provided fields
+      const validation = insertQuickFilterSchema.omit({ company_id: true, created_by_user_id: true }).safeParse(sanitizedBody);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validation.error.errors 
+        });
+      }
+
+      // Explicitly build the filter object with only trusted values
+      // Do NOT spread validation.data as it might contain client-supplied company_id
       const filter = await storage.createQuickFilter({
-        ...validation.data,
-        company_id: companyId,
-        created_by_user_id: req.userId!,
+        name: validation.data.name,
+        icon: validation.data.icon || null,
+        color: validation.data.color || null,
+        filter_config: validation.data.filter_config,
+        order_index: validation.data.order_index,
+        company_id: companyId, // Only use server-determined company_id
+        created_by_user_id: req.userId!, // Only use authenticated user_id
       });
 
       // Audit log

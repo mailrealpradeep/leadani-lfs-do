@@ -42,6 +42,29 @@ const COLOR_OPTIONS = [
   { value: "gray", label: "Gray" },
 ];
 
+// Helper function to normalize filter config
+function normalizeFilterConfig(config: any): any {
+  // Normalize logical_operator to lowercase
+  if (config.logical_operator) {
+    config.logical_operator = config.logical_operator.toLowerCase();
+  }
+  
+  // Normalize condition field names: "column" → "column_key"
+  if (config.conditions && Array.isArray(config.conditions)) {
+    config.conditions = config.conditions.map((condition: any) => {
+      const normalized = { ...condition };
+      // If "column" exists but "column_key" doesn't, rename it
+      if (normalized.column && !normalized.column_key) {
+        normalized.column_key = normalized.column;
+        delete normalized.column;
+      }
+      return normalized;
+    });
+  }
+  
+  return config;
+}
+
 export function QuickFilterManager() {
   const { toast } = useToast();
   
@@ -68,6 +91,7 @@ export function QuickFilterManager() {
       let parsedConfig;
       try {
         parsedConfig = newFilterConfig.trim() ? JSON.parse(newFilterConfig) : { conditions: [] };
+        parsedConfig = normalizeFilterConfig(parsedConfig);
       } catch (error) {
         throw new Error("Invalid filter configuration JSON");
       }
@@ -203,6 +227,7 @@ export function QuickFilterManager() {
     let parsedConfig;
     try {
       parsedConfig = editFilterConfig.trim() ? JSON.parse(editFilterConfig) : { conditions: [] };
+      parsedConfig = normalizeFilterConfig(parsedConfig);
     } catch (error) {
       toast({
         variant: "destructive",
