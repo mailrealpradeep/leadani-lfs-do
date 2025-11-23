@@ -2877,6 +2877,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reorder company columns (Company Admin only)
+  app.patch("/api/company/columns/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { columnOrders } = req.body; // Array of { id: string, order_index: number }
+      
+      if (!Array.isArray(columnOrders) || columnOrders.length === 0) {
+        return res.status(400).json({ error: "Invalid column orders" });
+      }
+
+      // Validate all columns belong to the company
+      for (const item of columnOrders) {
+        const column = await storage.getCustomColumnById(item.id);
+        if (!column) {
+          return res.status(404).json({ error: `Column ${item.id} not found` });
+        }
+        if (req.userRole === "company_admin" && column.company_id !== req.companyId) {
+          return res.status(403).json({ error: "Cannot reorder columns from other companies" });
+        }
+      }
+
+      // Update order_index for each column
+      for (const item of columnOrders) {
+        await storage.updateCustomColumn(item.id, { order_index: item.order_index });
+      }
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "update",
+        model: "custom_column",
+        model_id: "bulk_reorder",
+        payload: { column_count: columnOrders.length },
+      });
+
+      res.json({ success: true, message: "Columns reordered successfully" });
+    } catch (error: any) {
+      console.error("Reorder company columns error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Legacy endpoint for getting columns for a sheet (reads from company columns)
   app.get("/api/sheets/:id/columns", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
