@@ -107,7 +107,7 @@ The Reports Section provides comprehensive data visualization and analytics capa
 - Conditional validation: `y_axis_field` required for sum/avg aggregations
 - Enum validation: `y_axis` must be count/sum/avg; `chart_type` must be bar/line/pie
 
-**Frontend**: Reports page (`/reports`) features a card-based grid layout displaying all reports as individual cards. Each card shows the report name, lead count, and visualization (Recharts bar/line/pie charts). The Report Builder dialog provides intuitive selectors for X-axis (all available columns), Y-axis (aggregation method), Y-axis field (for sum/avg), chart type, and multi-sheet checkbox selection.
+**Frontend**: Reports page (`/reports`) features a card-based grid layout displaying all reports as individual cards. Each card shows the report name, lead count, and visualization (Recharts bar/line/pie charts). The Report Builder dialog provides intuitive selectors for X-axis (all available columns), Y-axis (aggregation method), Y-axis field (for sum/avg), chart type, and multi-sheet checkbox selection. The page implements its own scroll container (`h-full overflow-y-auto`) to ensure all report cards are accessible when content exceeds viewport height, while preserving the Dashboard's fixed-header layout.
 
 **Report Editing**: Company admins can edit existing reports via an Edit button (pencil icon) on each report card. The Report Builder dialog supports both create and edit modes, pre-populating all fields when editing. The implementation includes:
 -   **State Management**: `resetBuilder()` clears all state before loading edit values to prevent stale data when switching between chart and pivot table reports
