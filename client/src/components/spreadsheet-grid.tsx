@@ -531,7 +531,6 @@ export function SpreadsheetGrid({
   const handleResizeStart = useCallback((e: React.MouseEvent, columnKey: string, currentWidth: number) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log(`[RESIZE] Start: column=${columnKey}, startX=${e.clientX}, startWidth=${currentWidth}`);
     setResizingColumn({ key: columnKey, startX: e.clientX, startWidth: currentWidth });
   }, []);
   
@@ -540,28 +539,20 @@ export function SpreadsheetGrid({
       e.preventDefault();
       const delta = e.clientX - resizingColumn.startX;
       const newWidth = Math.max(60, resizingColumn.startWidth + delta);
-      console.log(`[RESIZE] Move: delta=${delta}, newWidth=${newWidth}`);
-      setColumnWidths(prev => {
-        const updated = { ...prev, [resizingColumn.key]: newWidth };
-        console.log(`[RESIZE] Updated columnWidths:`, updated);
-        return updated;
-      });
+      setColumnWidths(prev => ({ ...prev, [resizingColumn.key]: newWidth }));
     }
   }, [resizingColumn]);
   
   const handleResizeEnd = useCallback(() => {
-    console.log('[RESIZE] End');
     setResizingColumn(null);
   }, []);
   
   // Add/remove resize event listeners
   useEffect(() => {
     if (resizingColumn) {
-      console.log(`[RESIZE] Adding event listeners for column: ${resizingColumn.key}`);
       document.addEventListener('mousemove', handleResizeMove);
       document.addEventListener('mouseup', handleResizeEnd);
       return () => {
-        console.log(`[RESIZE] Removing event listeners`);
         document.removeEventListener('mousemove', handleResizeMove);
         document.removeEventListener('mouseup', handleResizeEnd);
       };
@@ -589,21 +580,17 @@ export function SpreadsheetGrid({
   }, [columnWidths]);
 
   // Convert CustomColumn to display columns (must be before filteredAndSortedLeads)
-  const columns = useMemo(() => {
-    const result = customColumns
-      .sort((a, b) => a.order_index - b.order_index)
-      .map((col) => ({
-        key: col.column_key,
-        label: col.name,
-        width: getColumnWidth(col.column_key, col.type),
-        sortable: true,
-        dropdown: col.type === "dropdown",
-        type: col.type,
-        config: col.config,
-      }));
-    console.log('[RESIZE] Columns recalculated:', result.map(c => ({ key: c.key, width: c.width })));
-    return result;
-  }, [customColumns, getColumnWidth]);
+  const columns = useMemo(() => customColumns
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((col) => ({
+      key: col.column_key,
+      label: col.name,
+      width: getColumnWidth(col.column_key, col.type),
+      sortable: true,
+      dropdown: col.type === "dropdown",
+      type: col.type,
+      config: col.config,
+    })), [customColumns, columnWidths, getColumnWidth]);
 
   // Set default sort to Lead Date (new to old) on first load
   useEffect(() => {
