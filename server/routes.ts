@@ -9,6 +9,7 @@ import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { seedData } from "./seed";
+import { validateLeadAgainstRules } from "@shared/validator";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -2659,6 +2660,232 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // VALIDATION RULES (Company-scoped Conditional Validations)
+  // ============================================================================
+  // Get validation rules for company (and optionally sheet-specific)
+  app.get("/api/company/validation-rules", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id 
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      const sheetId = req.query.sheet_id as string | undefined;
+      const rules = await storage.getValidationRules(companyId, sheetId);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get validation rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create validation rule (Company Admin only)
+  app.post("/api/company/validation-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, trigger_column_key, operator, trigger_value, required_fields, sheet_id } = req.body;
+
+      // Determine company_id
+      let companyId: string;
+      if (req.userRole === "super_admin") {
+        if (!req.body.company_id) {
+          return res.status(400).json({ error: "Super admins must provide company_id" });
+        }
+        companyId = req.body.company_id;
+      } else {
+        if (!req.companyId) {
+          return res.status(403).json({ error: "Must belong to a company" });
+        }
+        companyId = req.companyId;
+      }
+
+      // Validate required fields
+      if (!name || !trigger_column_key || !operator || !trigger_value || !required_fields || !Array.isArray(required_fields) || required_fields.length === 0) {
+        return res.status(400).json({ error: "Missing required fields: name, trigger_column_key, operator, trigger_value, required_fields" });
+      }
+
+      const rule = await storage.createValidationRule({
+        company_id: companyId,
+        sheet_id: sheet_id || null,
+        name,
+        trigger_column_key,
+        operator,
+        trigger_value,
+        required_fields,
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: companyId,
+        action: "create",
+        model: "validation_rule",
+        model_id: rule.id,
+        payload: { name, trigger_column_key, operator },
+      });
+
+      res.status(201).json(rule);
+    } catch (error: any) {
+      console.error("Create validation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update validation rule (Company Admin only)
+  app.patch("/api/company/validation-rules/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.getValidationRuleById(req.params.ruleId);
+      if (!rule) {
+        return res.status(404).json({ error: "Validation rule not found" });
+      }
+
+      // Company admins can only update rules in their company
+      if (req.userRole === "company_admin" && rule.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update rules from other companies" });
+      }
+
+      const { name, trigger_column_key, operator, trigger_value, required_fields } = req.body;
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (trigger_column_key !== undefined) updates.trigger_column_key = trigger_column_key;
+      if (operator !== undefined) updates.operator = operator;
+      if (trigger_value !== undefined) updates.trigger_value = trigger_value;
+      if (required_fields !== undefined) updates.required_fields = required_fields;
+
+      const updated = await storage.updateValidationRule(req.params.ruleId, updates);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: rule.company_id,
+        action: "update",
+        model: "validation_rule",
+        model_id: req.params.ruleId,
+        payload: updates,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update validation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete validation rule (Company Admin only)
+  app.delete("/api/company/validation-rules/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.getValidationRuleById(req.params.ruleId);
+      if (!rule) {
+        return res.status(404).json({ error: "Validation rule not found" });
+      }
+
+      // Company admins can only delete rules in their company
+      if (req.userRole === "company_admin" && rule.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete rules from other companies" });
+      }
+
+      await storage.deleteValidationRule(req.params.ruleId);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: rule.company_id,
+        action: "delete",
+        model: "validation_rule",
+        model_id: req.params.ruleId,
+        payload: {},
+      });
+
+      res.json({ success: true, message: "Validation rule deleted" });
+    } catch (error: any) {
+      console.error("Delete validation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Sheet-scoped validation rules endpoints (for frontend integration)
+  // GET /api/sheets/:sheetId/validation-rules - Fetch rules for a sheet (company-wide + sheet-specific)
+  app.get("/api/sheets/:sheetId/validation-rules", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
+    try {
+      const sheetId = req.params.sheetId;
+      
+      // Sheet access already verified by requireSheetAccess middleware
+      // Get validation rules for this sheet (both company-wide and sheet-specific)
+      const rules = await storage.getValidationRulesBySheetId(sheetId);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get sheet validation rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/sheets/:sheetId/validation-rules - Create rule for a sheet (Company Admin only)
+  app.post("/api/sheets/:sheetId/validation-rules", authMiddleware, requireCompanyAdmin, requireSheetAccess, async (req: AuthRequest, res) => {
+    try {
+      const sheetId = req.params.sheetId;
+      
+      // Sheet access already verified by requireSheetAccess middleware
+      // Get sheet to derive and validate company_id
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Explicit company_id validation to prevent cross-company injection
+      // Company admins can only create rules for sheets in their company
+      if (req.userRole === "company_admin") {
+        if (!req.companyId) {
+          return res.status(403).json({ error: "Company admin must belong to a company" });
+        }
+        if (sheet.company_id !== req.companyId) {
+          return res.status(403).json({ error: "Cannot create rules for sheets in other companies" });
+        }
+      }
+      // Super admins can create rules for any sheet, but we validate the sheet exists and is consistent
+      else if (req.userRole === "super_admin") {
+        if (!sheet.company_id) {
+          return res.status(400).json({ error: "Sheet must belong to a company" });
+        }
+      }
+      
+      const { name, trigger_column_key, operator, trigger_value, required_fields } = req.body;
+      
+      // Validate required fields
+      if (!name || !trigger_column_key || !operator || !trigger_value || !required_fields || !Array.isArray(required_fields) || required_fields.length === 0) {
+        return res.status(400).json({ error: "Missing required fields: name, trigger_column_key, operator, trigger_value, required_fields" });
+      }
+      
+      // Create rule with company_id derived from the sheet
+      const rule = await storage.createValidationRule({
+        company_id: sheet.company_id, // Derived from sheet, not from request
+        sheet_id: sheetId,
+        name,
+        trigger_column_key,
+        operator,
+        trigger_value,
+        required_fields,
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: sheet.company_id,
+        action: "create",
+        model: "validation_rule",
+        model_id: rule.id,
+        payload: { name, trigger_column_key, operator, sheet_id: sheetId },
+      });
+      
+      res.status(201).json(rule);
+    } catch (error: any) {
+      console.error("Create sheet validation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // WEBHOOKS
   // ============================================================================
   app.post("/api/webhooks/leads", webhookLimiter, async (req, res) => {
@@ -3100,6 +3327,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sheetColumns = await storage.getCustomColumns(sheetId);
       const columnMap = new Map(sheetColumns.map(c => [c.column_key, c]));
       
+      // Fetch validation rules for non-blocking validation during import
+      const validationRules = await storage.getValidationRulesBySheetId(sheetId);
+      
       // Validate fieldMap entries - only process columns that exist in this sheet
       // Filter out empty, skip, and invalid mappings
       // Allow special "_lead_updates" field for bulk update history import
@@ -3447,6 +3677,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             } catch (updateError: any) {
               rowWarnings.push(`Failed to parse lead updates: ${updateError.message}`);
+            }
+          }
+
+          // Validate lead against validation rules (non-blocking)
+          if (validationRules.length > 0) {
+            const validationResult = validateLeadAgainstRules(lead, validationRules);
+            if (!validationResult.isValid) {
+              const missingFieldsList = validationResult.missingFields.join(", ");
+              rowWarnings.push(`Validation warning: Missing required fields (${validationResult.triggeredBy}): ${missingFieldsList}`);
             }
           }
 

@@ -40,6 +40,8 @@ The system includes chronological tracking of lead updates (method, date, remark
 
 **Soft Delete and Recovery**: Leads support soft deletion with a 30-day retention period. Company admins and super admins can delete leads (which sets `deleted_at` timestamp and `deleted_by_user_id`), view deleted leads through a dedicated UI in the dashboard sidebar, and restore them within 30 days. A scheduled cleanup job runs daily on server startup and every 24 hours thereafter to permanently remove leads deleted more than 30 days ago. All lead queries automatically exclude soft-deleted records. Real-time Socket.io events synchronize deletions and restorations across connected clients.
 
+**Conditional Validation Rules**: The system supports creating conditional validation rules that make certain fields required when trigger conditions are met. Rules are company-scoped with optional sheet-level specificity. When a lead matches a rule's trigger condition (e.g., status equals "Hot"), specified fields become required. Invalid leads are highlighted in red in the spreadsheet grid. During import, validation is non-blocking - all leads are imported but validation warnings are logged for invalid entries. Company admins can manage validation rules via the sidebar UI, creating rules with trigger columns, operators (equals, in, not_equals, not_in), trigger values, and required field lists. The validator evaluates both fixed and custom fields.
+
 ### Design System
 
 Styling uses Tailwind CSS with custom design tokens, supporting light/dark themes. Shadcn UI provides accessible, customizable components, prioritizing a mobile-first approach.

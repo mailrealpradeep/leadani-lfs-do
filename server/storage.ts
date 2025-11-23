@@ -14,6 +14,8 @@ import type {
   InsertDropdownOption,
   CustomColumn,
   InsertCustomColumn,
+  ValidationRule,
+  InsertValidationRule,
   Audit,
   InsertAudit,
   WebhookLog,
@@ -109,6 +111,13 @@ export interface IStorage {
   updateCustomColumn(id: string, updates: Partial<CustomColumn>): Promise<CustomColumn | undefined>;
   deleteCustomColumn(id: string): Promise<boolean>;
 
+  // Validation Rules (Company-scoped Conditional Validations)
+  getValidationRules(companyId: string, sheetId?: string | null): Promise<ValidationRule[]>;
+  getValidationRuleById(id: string): Promise<ValidationRule | undefined>;
+  createValidationRule(rule: InsertValidationRule): Promise<ValidationRule>;
+  updateValidationRule(id: string, updates: Partial<ValidationRule>): Promise<ValidationRule | undefined>;
+  deleteValidationRule(id: string): Promise<boolean>;
+
   // Audit Logs
   getAuditLogs(): Promise<Audit[]>;
   getAuditLogsByCompany(companyId: string): Promise<Audit[]>;
@@ -158,6 +167,7 @@ export class MemStorage implements IStorage {
   private leads: Map<string, Lead>;
   private dropdownOptions: Map<string, DropdownOption>;
   private customColumns: Map<string, CustomColumn>;
+  private validationRules: Map<string, ValidationRule>;
   private auditLogs: Map<string, Audit>;
   private webhookLogs: Map<string, WebhookLog>;
   private leadUpdates: Map<string, LeadUpdate>;
@@ -171,6 +181,7 @@ export class MemStorage implements IStorage {
     this.leads = new Map();
     this.dropdownOptions = new Map();
     this.customColumns = new Map();
+    this.validationRules = new Map();
     this.auditLogs = new Map();
     this.webhookLogs = new Map();
     this.leadUpdates = new Map();
@@ -729,6 +740,48 @@ export class MemStorage implements IStorage {
     return this.customColumns.delete(id);
   }
 
+  // Validation Rules (Company-scoped Conditional Validations)
+  async getValidationRules(companyId: string, sheetId?: string | null): Promise<ValidationRule[]> {
+    return Array.from(this.validationRules.values()).filter(
+      (rule) => 
+        rule.company_id === companyId && 
+        (sheetId === undefined || rule.sheet_id === sheetId || rule.sheet_id === null)
+    );
+  }
+
+  async getValidationRuleById(id: string): Promise<ValidationRule | undefined> {
+    return this.validationRules.get(id);
+  }
+
+  async createValidationRule(insertRule: InsertValidationRule): Promise<ValidationRule> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const rule: ValidationRule = {
+      ...insertRule,
+      sheet_id: insertRule.sheet_id ?? null,
+      id,
+      created_at: now,
+      updated_at: now,
+    };
+    this.validationRules.set(id, rule);
+    return rule;
+  }
+
+  async updateValidationRule(
+    id: string,
+    updates: Partial<ValidationRule>
+  ): Promise<ValidationRule | undefined> {
+    const rule = this.validationRules.get(id);
+    if (!rule) return undefined;
+    const updated = { ...rule, ...updates, updated_at: new Date().toISOString() };
+    this.validationRules.set(id, updated);
+    return updated;
+  }
+
+  async deleteValidationRule(id: string): Promise<boolean> {
+    return this.validationRules.delete(id);
+  }
+
   // Audit Logs
   async getAuditLogs(): Promise<Audit[]> {
     return Array.from(this.auditLogs.values()).sort(
@@ -887,7 +940,7 @@ export class MemStorage implements IStorage {
 // POSTGRESQL STORAGE (Permanent Database)
 // ============================================================================
 import { db } from "./db";
-import { eq, and, desc, isNull, isNotNull, sql as drizzleSql } from "drizzle-orm";
+import { eq, and, or, desc, isNull, isNotNull, sql as drizzleSql } from "drizzle-orm";
 import * as dbSchema from "@shared/schema";
 import jwt from "jsonwebtoken";
 
@@ -1457,6 +1510,63 @@ export class PgStorage implements IStorage {
     return true;
   }
 
+  // Validation Rules (Company-scoped Conditional Validations)
+  async getValidationRules(companyId: string, sheetId?: string | null): Promise<ValidationRule[]> {
+    if (sheetId === undefined) {
+      // Get all rules for company
+      const result = await db.select().from(dbSchema.validation_rules).where(eq(dbSchema.validation_rules.company_id, companyId));
+      return result.map(this.mapValidationRule);
+    } else {
+      // Get rules for specific sheet or company-wide rules
+      const result = await db.select().from(dbSchema.validation_rules).where(and(
+        eq(dbSchema.validation_rules.company_id, companyId),
+        or(
+          eq(dbSchema.validation_rules.sheet_id, sheetId),
+          isNull(dbSchema.validation_rules.sheet_id)
+        )
+      ));
+      return result.map(this.mapValidationRule);
+    }
+  }
+
+  async getValidationRuleById(id: string): Promise<ValidationRule | undefined> {
+    const result = await db.select().from(dbSchema.validation_rules).where(eq(dbSchema.validation_rules.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapValidationRule(result[0]);
+  }
+
+  async createValidationRule(rule: InsertValidationRule): Promise<ValidationRule> {
+    const id = randomUUID();
+    const now = new Date();
+    const newRule = {
+      id,
+      ...rule,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.validation_rules).values(newRule);
+    return this.mapValidationRule(newRule as any);
+  }
+
+  async updateValidationRule(id: string, updates: Partial<ValidationRule>): Promise<ValidationRule | undefined> {
+    const updated_at = new Date();
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    convertedUpdates.updated_at = updated_at;
+    await db.update(dbSchema.validation_rules).set(convertedUpdates).where(eq(dbSchema.validation_rules.id, id));
+    return this.getValidationRuleById(id);
+  }
+
+  async deleteValidationRule(id: string): Promise<boolean> {
+    await db.delete(dbSchema.validation_rules).where(eq(dbSchema.validation_rules.id, id));
+    return true;
+  }
+
   // Audit Logs
   async getAuditLogs(): Promise<Audit[]> {
     const result = await db.select().from(dbSchema.audit_logs).orderBy(desc(dbSchema.audit_logs.created_at));
@@ -1617,6 +1727,14 @@ export class PgStorage implements IStorage {
   }
 
   private mapCustomColumn(row: any): CustomColumn {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapValidationRule(row: any): ValidationRule {
     return {
       ...row,
       created_at: row.created_at?.toISOString() || row.created_at,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
 import {
@@ -64,11 +64,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { format, isWithinInterval, parseISO } from "date-fns";
-import type { Lead, DropdownOption, CustomColumn } from "@shared/schema";
+import type { Lead, DropdownOption, CustomColumn, ValidationRule } from "@shared/schema";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { DateRangeFilter, type DateFilterValue } from "./filters/date-range-filter";
 import { DropdownFilter } from "./filters/dropdown-filter";
+import { validateLeadAgainstRules } from "@shared/validator";
 
 interface SpreadsheetGridProps {
   sheetId: string;
@@ -116,6 +117,11 @@ export function SpreadsheetGrid({
 
   const { data: allSheets = [] } = useQuery<any[]>({
     queryKey: ["/api/sheets"],
+  });
+
+  const { data: validationRules = [] } = useQuery<ValidationRule[]>({
+    queryKey: ["/api/sheets", sheetId, "validation-rules"],
+    enabled: !!sheetId,
   });
 
   const isLoading = isLoadingLeads || isLoadingColumns;
@@ -166,6 +172,24 @@ export function SpreadsheetGrid({
       });
     },
   });
+
+  // Compute which leads are invalid based on validation rules
+  const invalidLeadIds = useMemo(() => {
+    const invalid = new Set<string>();
+    
+    if (validationRules.length === 0) {
+      return invalid;
+    }
+    
+    for (const lead of leads) {
+      const result = validateLeadAgainstRules(lead, validationRules);
+      if (!result.isValid) {
+        invalid.add(lead.id);
+      }
+    }
+    
+    return invalid;
+  }, [leads, validationRules]);
 
   // Load hidden columns for current sheet and reset column filters on sheet change  
   useEffect(() => {
@@ -498,7 +522,11 @@ export function SpreadsheetGrid({
                 filteredAndSortedLeads.map((lead) => (
                   <div
                     key={lead.id}
-                    className="bg-card border rounded-lg p-4 hover-elevate active-elevate-2"
+                    className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${
+                      invalidLeadIds.has(lead.id) 
+                        ? "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800" 
+                        : "bg-card"
+                    }`}
                     data-testid={`card-lead-${lead.id}`}
                     onClick={() => onOpenLeadDetail(lead.id)}
                   >
@@ -707,7 +735,11 @@ export function SpreadsheetGrid({
                 filteredAndSortedLeads.map((lead) => (
                   <div
                     key={lead.id}
-                    className="hover-elevate grid border-b"
+                    className={`hover-elevate grid border-b ${
+                      invalidLeadIds.has(lead.id) 
+                        ? "bg-red-50 dark:bg-red-950/20" 
+                        : ""
+                    }`}
                     style={{ 
                       gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
                     }}

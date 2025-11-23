@@ -39,6 +39,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Sheet } from "@shared/schema";
+import { ValidationRulesManager } from "./validation-rules-manager";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -232,6 +233,9 @@ export function AppSidebar() {
                             <SettingsIcon className="h-4 w-4 mr-2" />
                             Column Schema
                           </Button>
+                        )}
+                        {isCompanyAdmin && (
+                          <ValidationRulesManager sheetId={selectedSheetId} />
                         )}
                         {canDeleteSheet && (
                           <Button
