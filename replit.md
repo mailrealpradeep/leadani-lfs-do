@@ -60,6 +60,8 @@ A comprehensive onboarding flow includes:
 
 The dashboard features a full-width spreadsheet interface with controls in a sidebar. A central `DashboardContext` manages state for sheet selection, search, filtering, and actions. The `SpreadsheetGrid` dynamically displays filtered data with sticky headers and horizontal scrolling.
 
+**Quick Filter Integration**: Quick filter buttons are displayed in the main application header (next to the sidebar toggle) to save vertical space. The filter logic is managed through `DashboardContext` with handlers registered from `SpreadsheetGrid` using `useCallback` to prevent stale closures. The system provides 7 pre-configured filters: Lead Type, Visit Today, Follow Up Today, Not Attended, Today's Leads, Visit Tomorrow, and Clear All. Filters only activate when target columns exist, providing user feedback via toast notifications when columns are missing. The header conditionally renders the quick filter bar only when on the dashboard route with a selected sheet.
+
 ### Webhook Integration System
 
 External systems can create leads via HTTP POST requests using a comprehensive webhook system.
