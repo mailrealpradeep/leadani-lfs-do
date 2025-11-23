@@ -198,6 +198,9 @@ export default function Reports() {
   };
 
   const handleEditReport = (report: Report) => {
+    // Reset all state first to avoid stale values from previous edits
+    resetBuilder();
+    
     setEditingReport(report);
     setReportName(report.name);
     setSelectedSheetIds(report.sheet_ids || []);
@@ -209,6 +212,11 @@ export default function Reports() {
       setColumnField(config.column_field || "");
       setAggregation(config.aggregation || "count");
       setValueField(config.value_field || "");
+      // Clear chart-specific state
+      setChartType("bar");
+      setXAxis("");
+      setYAxis("count");
+      setYAxisField("");
     } else {
       setVisualizationType("chart");
       const config = report.config || {};
@@ -216,6 +224,11 @@ export default function Reports() {
       setXAxis(config.x_axis || "");
       setYAxis(config.y_axis || "count");
       setYAxisField(config.y_axis_field || "");
+      // Clear pivot-specific state
+      setRowFields([]);
+      setColumnField("");
+      setAggregation("count");
+      setValueField("");
     }
 
     setBuilderOpen(true);
@@ -244,13 +257,24 @@ export default function Reports() {
         return;
       }
 
+      // Validate y_axis_field is required for sum/avg
+      if ((yAxis === "sum" || yAxis === "avg") && !yAxisField) {
+        toast({
+          title: "Validation error",
+          description: `Please select a field to ${yAxis === "sum" ? "sum" : "average"}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       config = {
         chart_type: chartType,
         x_axis: xAxis,
         y_axis: yAxis,
       };
 
-      if (yAxis !== "count" && yAxisField) {
+      // Only include y_axis_field if it's needed
+      if (yAxis !== "count") {
         config.y_axis_field = yAxisField;
       }
     } else {
@@ -264,14 +288,28 @@ export default function Reports() {
         return;
       }
 
+      // Validate value_field is required for sum/avg
+      if ((aggregation === "sum" || aggregation === "avg") && !valueField) {
+        toast({
+          title: "Validation error",
+          description: `Please select a field to ${aggregation === "sum" ? "sum" : "average"}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       reportType = "pivot_table";
       config = {
         row_fields: rowFields,
-        column_field: columnField || undefined,
         aggregation,
       };
 
-      if (aggregation !== "count" && valueField) {
+      // Only include optional fields if they have values
+      if (columnField) {
+        config.column_field = columnField;
+      }
+
+      if (aggregation !== "count") {
         config.value_field = valueField;
       }
     }
