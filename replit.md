@@ -72,6 +72,38 @@ External systems can create leads via HTTP POST requests using a comprehensive w
 -   **Lead Attribution**: Webhook-created leads are attributed to the webhook's `created_by_user_id`.
 -   **Security**: Unique, hashed webhook tokens and rate-limited public endpoint.
 
+### Reports Section
+
+The Reports Section provides comprehensive data visualization and analytics capabilities with permission-based access control.
+
+**Database Schema**: Reports table stores custom reports with company_id, name, report_type, sheet_ids array, optional config JSON, and created_by_user_id. Reports are company-scoped with multi-sheet support.
+
+**Report Types**: Seven pre-built report types with dynamic data aggregation:
+1. **Lead Status Distribution** - Pie chart showing lead distribution across different statuses
+2. **Leads Over Time** - Line chart displaying lead creation trends with configurable grouping (daily/weekly/monthly)
+3. **Lead Source Analysis** - Bar chart analyzing leads by source
+4. **Conversion Rate** - Funnel visualization showing lead conversion metrics
+5. **User Performance** - Bar chart comparing leads created/updated by each user
+6. **Lead Age Distribution** - Histogram showing distribution of lead ages in buckets
+7. **Custom Field Analysis** - Top 10 values analysis for any custom field
+
+**Authorization Model**:
+-   **Company Admins**: Can create, view, and delete all reports in their company; see all company sheets when creating reports
+-   **Regular Users**: Can view reports for sheets they have access to; cannot create or delete reports
+-   **Sheet Visibility**: `/api/sheets` endpoint returns all company sheets for admins, only accessible sheets for regular users
+
+**API Endpoints**:
+-   `GET /api/company/reports` - Fetch all accessible reports (filtered by user permissions)
+-   `POST /api/company/reports` - Create new report (admin only, validates sheet ownership and access)
+-   `GET /api/company/reports/:id/data` - Fetch report with generated visualizations and metadata
+-   `DELETE /api/company/reports/:id` - Delete report (admin only)
+
+**Data Aggregation**: All report queries automatically exclude soft-deleted leads (WHERE deleted_at IS NULL). Report data is generated dynamically on request, aggregating from all selected sheets with support for date range filtering and custom grouping.
+
+**Frontend**: Reports page (`/reports`) features a sidebar with saved reports list, main visualization area with Recharts graphs (pie, line, bar charts), and Create Report dialog with checkbox-based sheet selection. Empty states guide users when no reports exist.
+
+**Real-time Support**: Reports automatically refetch when navigating between saved reports. Sheet selection in Create Report dialog updates reactively based on user permissions.
+
 ## External Dependencies
 
 ### Required Services
