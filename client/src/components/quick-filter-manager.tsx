@@ -339,10 +339,17 @@ export function QuickFilterManager() {
       <CardContent className="space-y-3">
         {/* Add new filter form */}
         {isAdding && (
-          <div className="p-4 border rounded-lg space-y-3 bg-muted/50">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleAddFilter();
+            }}
+            className="p-4 border rounded-lg space-y-3 bg-muted/50"
+          >
             <div className="flex items-center justify-between">
               <Label className="font-semibold">New Quick Filter</Label>
               <Button
+                type="button"
                 size="sm"
                 variant="ghost"
                 onClick={resetAddForm}
@@ -406,6 +413,7 @@ export function QuickFilterManager() {
 
               <div className="flex justify-end gap-2">
                 <Button
+                  type="button"
                   size="sm"
                   variant="outline"
                   onClick={resetAddForm}
@@ -414,8 +422,8 @@ export function QuickFilterManager() {
                   Cancel
                 </Button>
                 <Button
+                  type="submit"
                   size="sm"
-                  onClick={handleAddFilter}
                   disabled={addFilterMutation.isPending}
                   data-testid="button-save-new-filter"
                 >
@@ -423,7 +431,7 @@ export function QuickFilterManager() {
                 </Button>
               </div>
             </div>
-          </div>
+          </form>
         )}
 
         {/* Existing filters */}
@@ -444,10 +452,17 @@ export function QuickFilterManager() {
             >
               {editingFilterId === filter.id ? (
                 // Edit mode
-                <div className="space-y-3">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSaveEdit();
+                  }}
+                  className="space-y-3"
+                >
                   <div className="flex items-center justify-between">
                     <Label className="font-semibold">Edit Filter</Label>
                     <Button
+                      type="button"
                       size="sm"
                       variant="ghost"
                       onClick={cancelEditing}
@@ -510,6 +525,7 @@ export function QuickFilterManager() {
 
                     <div className="flex justify-end gap-2">
                       <Button
+                        type="button"
                         size="sm"
                         variant="outline"
                         onClick={cancelEditing}
@@ -518,8 +534,8 @@ export function QuickFilterManager() {
                         Cancel
                       </Button>
                       <Button
+                        type="submit"
                         size="sm"
-                        onClick={handleSaveEdit}
                         disabled={updateFilterMutation.isPending}
                         data-testid="button-save-edit-filter"
                       >
@@ -527,7 +543,7 @@ export function QuickFilterManager() {
                       </Button>
                     </div>
                   </div>
-                </div>
+                </form>
               ) : (
                 // Display mode
                 <div className="space-y-2">

@@ -72,6 +72,7 @@ const RELATIVE_DATE_OPTIONS = [
 ];
 
 export interface FilterCondition {
+  id?: string; // Unique ID for React key
   column_key: string;
   operator: string;
   value?: any;
@@ -103,6 +104,7 @@ export function FilterConditionBuilder({ conditions, onChange }: FilterCondition
     onChange([
       ...conditions,
       {
+        id: crypto.randomUUID(),
         column_key: "",
         operator: "",
         value: undefined,
@@ -183,7 +185,7 @@ export function FilterConditionBuilder({ conditions, onChange }: FilterCondition
         const isDateEquals = condition.operator === "date_equals";
 
         return (
-          <div key={index} className="p-3 border rounded-lg space-y-2 bg-muted/30">
+          <div key={condition.id || index} className="p-3 border rounded-lg space-y-2 bg-muted/30">
             <div className="flex items-start gap-2">
               {/* Column Selector */}
               <div className="flex-1">
@@ -233,7 +235,11 @@ export function FilterConditionBuilder({ conditions, onChange }: FilterCondition
                     </SelectTrigger>
                     <SelectContent>
                       {operators.map((op) => (
-                        <SelectItem key={op.value} value={op.value}>
+                        <SelectItem 
+                          key={op.value} 
+                          value={op.value}
+                          data-testid={`option-operator-${op.value}`}
+                        >
                           {op.label}
                         </SelectItem>
                       ))}
@@ -362,7 +368,11 @@ export function FilterConditionBuilder({ conditions, onChange }: FilterCondition
                           type="text"
                           value={Array.isArray(condition.value) ? condition.value.join(", ") : condition.value || ""}
                           onChange={(e) => {
-                            const values = e.target.value.split(",").map(v => v.trim()).filter(v => v);
+                            const trimmedValues = e.target.value.split(",").map(v => v.trim()).filter(v => v);
+                            // For number columns, parse to numbers
+                            const values = columnType === "number" 
+                              ? trimmedValues.map(v => parseFloat(v)).filter(v => !isNaN(v))
+                              : trimmedValues;
                             updateCondition(index, { value: values });
                           }}
                           placeholder="Enter values separated by commas"
@@ -376,7 +386,13 @@ export function FilterConditionBuilder({ conditions, onChange }: FilterCondition
                       <Input
                         type={columnType === "number" ? "number" : "text"}
                         value={condition.value || ""}
-                        onChange={(e) => updateCondition(index, { value: e.target.value })}
+                        onChange={(e) => {
+                          // For number columns, parse to number; otherwise keep as string
+                          const value = columnType === "number" && e.target.value 
+                            ? parseFloat(e.target.value) 
+                            : e.target.value;
+                          updateCondition(index, { value });
+                        }}
                         placeholder="Enter value"
                         data-testid={`input-condition-value-${index}`}
                       />
