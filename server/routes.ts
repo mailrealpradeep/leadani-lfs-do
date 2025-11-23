@@ -132,11 +132,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper function to send existing locks to a socket
   const sendExistingLocks = (socket: any, sheetId: string) => {
-    console.log(`[LOCK] sendExistingLocks called for sheetId="${sheetId}", socket=${socket.id}, total locks in map: ${cellLocks.size}`);
     const existingLocks: Array<{ leadId: string; field: string; userId: string; userName: string }> = [];
     
     cellLocks.forEach((lock, lockKey) => {
-      console.log(`[LOCK] Checking lock: key="${lockKey}"`);
       // lockKey format: sheetId:leadId:field
       // Split defensively since IDs/fields might contain colons
       const parts = lockKey.split(":");
@@ -148,10 +146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const field = parts[parts.length - 1];
       const leadId = parts.slice(1, -1).join(":");
       
-      console.log(`[LOCK] Parsed: lockSheetId="${lockSheetId}", sheetId="${sheetId}", match=${lockSheetId === sheetId}`);
-      
       if (lockSheetId === sheetId) {
-        console.log(`[LOCK] MATCH! Found existing lock for sheet ${sheetId}: leadId=${leadId}, field=${field}, userName=${lock.userName}`);
         existingLocks.push({
           leadId,
           field,
@@ -164,8 +159,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (existingLocks.length > 0) {
       console.log(`[LOCK] Sending ${existingLocks.length} existing locks to socket ${socket.id}`);
       socket.emit("existing_locks", { locks: existingLocks });
-    } else {
-      console.log(`[LOCK] No existing locks to send for sheet ${sheetId} (socket ${socket.id})`);
     }
   };
 
