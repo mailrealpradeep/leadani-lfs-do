@@ -243,6 +243,34 @@ export const insertCustomColumnSchema = z.object({
 export type InsertCustomColumn = z.infer<typeof insertCustomColumnSchema>;
 
 // ============================================================================
+// VALIDATION RULES (Company-scoped Conditional Validations)
+// ============================================================================
+export interface ValidationRule {
+  id: string;
+  company_id: string; // company-scoped
+  sheet_id: string | null; // optional: if specified, rule applies only to specific sheet
+  name: string; // descriptive name like "NFDT required when Talked"
+  trigger_column_key: string; // column that triggers the rule (e.g., "lead_status")
+  operator: "equals" | "in" | "not_equals" | "not_in"; // comparison operator
+  trigger_value: string | string[]; // value(s) that trigger the rule (e.g., "Talked" or ["Talked", "Visit Scheduled"])
+  required_fields: string[]; // fields that become required when triggered (e.g., ["nfdt", "visit_date"])
+  created_at: string;
+  updated_at: string;
+}
+
+export const insertValidationRuleSchema = z.object({
+  company_id: z.string(),
+  sheet_id: z.string().nullable().optional(),
+  name: z.string().min(1, "Rule name is required"),
+  trigger_column_key: z.string().min(1, "Trigger column is required"),
+  operator: z.enum(["equals", "in", "not_equals", "not_in"]),
+  trigger_value: z.union([z.string(), z.array(z.string())]),
+  required_fields: z.array(z.string()).min(1, "At least one required field must be specified"),
+});
+
+export type InsertValidationRule = z.infer<typeof insertValidationRuleSchema>;
+
+// ============================================================================
 // AUDIT LOGS
 // ============================================================================
 export interface Audit {
@@ -538,6 +566,19 @@ export const custom_columns = pgTable('custom_columns', {
     required?: boolean;
   }>().default({}).notNull(),
   order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const validation_rules = pgTable('validation_rules', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  trigger_column_key: varchar('trigger_column_key', { length: 255 }).notNull(),
+  operator: varchar('operator', { length: 50 }).notNull(),
+  trigger_value: json('trigger_value').$type<string | string[]>().notNull(),
+  required_fields: json('required_fields').$type<string[]>().notNull(),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
