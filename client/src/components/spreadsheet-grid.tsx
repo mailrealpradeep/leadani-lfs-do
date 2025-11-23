@@ -359,7 +359,7 @@ export function SpreadsheetGrid({
     .map((col) => ({
       key: col.column_key,
       label: col.name,
-      width: col.type === "text" ? "150px" : col.type === "number" ? "100px" : col.type === "date" ? "120px" : col.type === "boolean" ? "100px" : "140px",
+      width: col.type === "text" ? "150px" : col.type === "number" ? "100px" : col.type === "date" ? "120px" : col.type === "boolean" ? "100px" : col.type === "mobile" ? "120px" : "140px",
       sortable: true,
       dropdown: col.type === "dropdown",
       type: col.type,
