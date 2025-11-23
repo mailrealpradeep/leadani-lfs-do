@@ -1637,11 +1637,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   app.get("/api/sheets", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      // Super admins can see all sheets
-      // Company admins/users see sheets accessible to them via getSheetsByUserId
-      const sheets = req.userRole === "super_admin"
-        ? await storage.getAllSheets()
-        : await storage.getSheetsByUserId(req.userId!);
+      let sheets;
+      
+      if (req.userRole === "super_admin") {
+        // Super admins can see all sheets
+        sheets = await storage.getAllSheets();
+      } else if (req.userRole === "company_admin") {
+        // Company admins see all sheets in their company
+        sheets = await storage.getSheetsByCompanyId(req.companyId!);
+      } else {
+        // Regular users see only sheets they have access to
+        sheets = await storage.getSheetsByUserId(req.userId!);
+      }
+      
       res.json(sheets);
     } catch (error: any) {
       console.error("Get sheets error:", error);
@@ -3050,6 +3058,463 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // ============================================================================
+  // REPORTS
+  // ============================================================================
+  
+  // GET /api/company/reports - Get all reports (filtered by permissions)
+  app.get("/api/company/reports", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id 
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      // Get all reports for the company
+      let reports = await storage.getReportsByCompanyId(companyId);
+
+      // For non-admin users, filter reports to only show those for sheets they have access to
+      if (req.userRole === "user") {
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        const userSheetIds = userSheets.map(s => s.id);
+        
+        reports = reports.filter(report => {
+          const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+          return reportSheetIds.some(sheetId => userSheetIds.includes(sheetId));
+        });
+      }
+
+      res.json(reports);
+    } catch (error: any) {
+      console.error("Get reports error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/company/reports/:reportId - Get a specific report
+  app.get("/api/company/reports/:reportId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const report = await storage.getReport(req.params.reportId);
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+
+      // Verify company access
+      if (req.userRole === "company_admin" && report.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access reports from other companies" });
+      }
+
+      // For regular users, verify they have access to at least one sheet in the report
+      if (req.userRole === "user") {
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        const userSheetIds = userSheets.map(s => s.id);
+        const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+        
+        const hasAccess = reportSheetIds.some(sheetId => userSheetIds.includes(sheetId));
+        if (!hasAccess) {
+          return res.status(403).json({ error: "No access to sheets in this report" });
+        }
+      }
+
+      res.json(report);
+    } catch (error: any) {
+      console.error("Get report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/company/reports - Create a new report
+  app.post("/api/company/reports", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Determine company_id
+      let companyId: string;
+      if (req.userRole === "super_admin") {
+        if (!req.body.company_id) {
+          return res.status(400).json({ error: "Super admins must provide company_id" });
+        }
+        companyId = req.body.company_id;
+      } else {
+        if (!req.companyId) {
+          return res.status(403).json({ error: "Must belong to a company" });
+        }
+        companyId = req.companyId;
+      }
+
+      const { name, description, report_type, sheet_ids, config } = req.body;
+
+      // Validate required fields
+      if (!name || !report_type || !Array.isArray(sheet_ids) || sheet_ids.length === 0) {
+        return res.status(400).json({ error: "Missing required fields: name, report_type, sheet_ids" });
+      }
+
+      // Verify all sheets belong to the company AND user has access
+      for (const sheetId of sheet_ids) {
+        const sheet = await storage.getSheet(sheetId);
+        if (!sheet) {
+          return res.status(404).json({ error: "Sheet not found" });
+        }
+        
+        // Verify sheet belongs to the same company
+        if (sheet.company_id !== companyId) {
+          return res.status(403).json({ error: "Cannot create reports for sheets in other companies" });
+        }
+        
+        // For regular users, verify they have access to the sheet
+        if (req.userRole === "user") {
+          const hasAccess = await storage.getSheetUser(sheetId, req.userId!);
+          if (!hasAccess) {
+            return res.status(403).json({ error: "No access to one or more selected sheets" });
+          }
+        }
+      }
+
+      const report = await storage.createReport({
+        company_id: companyId,
+        name,
+        description: description || null,
+        report_type,
+        sheet_ids,
+        config: config || {},
+        created_by_user_id: req.userId!,
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: companyId,
+        action: "create",
+        model: "report",
+        model_id: report.id,
+        payload: { name, report_type },
+      });
+
+      res.status(201).json(report);
+    } catch (error: any) {
+      console.error("Create report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // PATCH /api/company/reports/:reportId - Update a report
+  app.patch("/api/company/reports/:reportId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const report = await storage.getReport(req.params.reportId);
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+
+      // Company admins can only update reports in their company
+      if (req.userRole === "company_admin" && report.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update reports from other companies" });
+      }
+
+      const { name, description, report_type, sheet_ids, config } = req.body;
+      const updates: any = {};
+      
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (report_type !== undefined) updates.report_type = report_type;
+      if (config !== undefined) updates.config = config;
+      
+      // If updating sheet_ids, verify all sheets belong to the company
+      if (sheet_ids !== undefined) {
+        if (!Array.isArray(sheet_ids) || sheet_ids.length === 0) {
+          return res.status(400).json({ error: "sheet_ids must be a non-empty array" });
+        }
+        
+        for (const sheetId of sheet_ids) {
+          const sheet = await storage.getSheet(sheetId);
+          if (!sheet || sheet.company_id !== report.company_id) {
+            return res.status(403).json({ error: "Invalid sheet ID or access denied" });
+          }
+        }
+        updates.sheet_ids = sheet_ids;
+      }
+
+      const updated = await storage.updateReport(req.params.reportId, updates);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: report.company_id,
+        action: "update",
+        model: "report",
+        model_id: req.params.reportId,
+        payload: updates,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // DELETE /api/company/reports/:reportId - Delete a report
+  app.delete("/api/company/reports/:reportId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const report = await storage.getReport(req.params.reportId);
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+
+      // Company admins can only delete reports in their company
+      if (req.userRole === "company_admin" && report.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete reports from other companies" });
+      }
+
+      await storage.deleteReport(req.params.reportId);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: report.company_id,
+        action: "delete",
+        model: "report",
+        model_id: req.params.reportId,
+        payload: {},
+      });
+
+      res.json({ success: true, message: "Report deleted" });
+    } catch (error: any) {
+      console.error("Delete report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/company/reports/:reportId/data - Get report data (calculations and aggregations)
+  app.get("/api/company/reports/:reportId/data", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const report = await storage.getReport(req.params.reportId);
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+
+      // Verify company access
+      if (req.userRole === "company_admin" && report.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access reports from other companies" });
+      }
+
+      // Get accessible sheet IDs for the user
+      let accessibleSheetIds: string[] = [];
+      if (req.userRole === "company_admin" || req.userRole === "super_admin") {
+        // Admins can access all sheets in the report
+        accessibleSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+      } else {
+        // Regular users can only access sheets they have permissions for
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        const userSheetIds = userSheets.map(s => s.id);
+        const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+        accessibleSheetIds = reportSheetIds.filter(sheetId => userSheetIds.includes(sheetId));
+        
+        if (accessibleSheetIds.length === 0) {
+          return res.status(403).json({ error: "No access to sheets in this report" });
+        }
+      }
+
+      // Fetch all leads from accessible sheets (excluding soft-deleted)
+      const allLeads = (await Promise.all(
+        accessibleSheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
+      )).flat().filter(lead => !lead.deleted_at);
+
+      // Apply date range filter if configured
+      let filteredLeads = allLeads;
+      if (report.config?.date_range) {
+        const { start, end } = report.config.date_range;
+        filteredLeads = allLeads.filter(lead => {
+          const leadDate = new Date(lead.created_at);
+          if (start && leadDate < new Date(start)) return false;
+          if (end && leadDate > new Date(end)) return false;
+          return true;
+        });
+      }
+
+      // Generate data based on report type
+      let data: any;
+      switch (report.report_type) {
+        case "lead_status_distribution":
+          data = generateLeadStatusDistribution(filteredLeads);
+          break;
+        case "leads_over_time":
+          data = generateLeadsOverTime(filteredLeads, report.config);
+          break;
+        case "lead_source_analysis":
+          data = generateLeadSourceAnalysis(filteredLeads, report.config);
+          break;
+        case "conversion_rate":
+          data = generateConversionRate(filteredLeads);
+          break;
+        case "user_performance":
+          data = await generateUserPerformance(filteredLeads, storage);
+          break;
+        case "lead_age_distribution":
+          data = generateLeadAgeDistribution(filteredLeads);
+          break;
+        case "custom_field_analysis":
+          data = generateCustomFieldAnalysis(filteredLeads, report.config);
+          break;
+        default:
+          return res.status(400).json({ error: "Unknown report type" });
+      }
+
+      res.json({
+        report,
+        data,
+        total_leads: filteredLeads.length,
+        generated_at: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error("Get report data error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Helper functions for report data generation
+  function generateLeadStatusDistribution(leads: any[]) {
+    const statusCounts: Record<string, number> = {};
+    leads.forEach(lead => {
+      const status = lead.lead_status || "Unknown";
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+    });
+    
+    return Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
+  }
+
+  function generateLeadsOverTime(leads: any[], config: any) {
+    const groupBy = config?.group_by || "day"; // day, week, month
+    const dateCounts: Record<string, number> = {};
+    
+    leads.forEach(lead => {
+      const date = new Date(lead.created_at);
+      let key: string;
+      
+      if (groupBy === "month") {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      } else if (groupBy === "week") {
+        const weekNum = Math.ceil((date.getDate()) / 7);
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-W${weekNum}`;
+      } else {
+        key = date.toISOString().split('T')[0];
+      }
+      
+      dateCounts[key] = (dateCounts[key] || 0) + 1;
+    });
+    
+    return Object.entries(dateCounts)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, count]) => ({ date, count }));
+  }
+
+  function generateLeadSourceAnalysis(leads: any[], config: any) {
+    const field = config?.group_by || "language";
+    const sourceCounts: Record<string, number> = {};
+    
+    leads.forEach(lead => {
+      const value = lead[field] || lead.custom_fields?.[field] || "Unknown";
+      sourceCounts[value] = (sourceCounts[value] || 0) + 1;
+    });
+    
+    return Object.entries(sourceCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ name, value }));
+  }
+
+  function generateConversionRate(leads: any[]) {
+    const statuses = ["New", "Contacted", "Qualified", "Converted"];
+    const statusCounts: Record<string, number> = {};
+    
+    leads.forEach(lead => {
+      const status = lead.lead_status || "Unknown";
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+    });
+    
+    return statuses.map(status => ({
+      stage: status,
+      count: statusCounts[status] || 0,
+    }));
+  }
+
+  async function generateUserPerformance(leads: any[], storage: any) {
+    const userCounts: Record<string, { created: number; updated: number; name: string }> = {};
+    
+    for (const lead of leads) {
+      if (lead.created_by_user_id) {
+        if (!userCounts[lead.created_by_user_id]) {
+          const user = await storage.getUser(lead.created_by_user_id);
+          userCounts[lead.created_by_user_id] = { 
+            created: 0, 
+            updated: 0, 
+            name: user?.name || "Unknown" 
+          };
+        }
+        userCounts[lead.created_by_user_id].created++;
+      }
+      
+      if (lead.updated_by_user_id && lead.updated_by_user_id !== lead.created_by_user_id) {
+        if (!userCounts[lead.updated_by_user_id]) {
+          const user = await storage.getUser(lead.updated_by_user_id);
+          userCounts[lead.updated_by_user_id] = { 
+            created: 0, 
+            updated: 0, 
+            name: user?.name || "Unknown" 
+          };
+        }
+        userCounts[lead.updated_by_user_id].updated++;
+      }
+    }
+    
+    return Object.entries(userCounts).map(([userId, data]) => ({
+      user: data.name,
+      created: data.created,
+      updated: data.updated,
+      total: data.created + data.updated,
+    }));
+  }
+
+  function generateLeadAgeDistribution(leads: any[]) {
+    const now = new Date();
+    const ageBuckets = {
+      "0-7 days": 0,
+      "8-14 days": 0,
+      "15-30 days": 0,
+      "31-60 days": 0,
+      "61-90 days": 0,
+      "90+ days": 0,
+    };
+    
+    leads.forEach(lead => {
+      const createdDate = new Date(lead.created_at);
+      const ageInDays = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (ageInDays <= 7) ageBuckets["0-7 days"]++;
+      else if (ageInDays <= 14) ageBuckets["8-14 days"]++;
+      else if (ageInDays <= 30) ageBuckets["15-30 days"]++;
+      else if (ageInDays <= 60) ageBuckets["31-60 days"]++;
+      else if (ageInDays <= 90) ageBuckets["61-90 days"]++;
+      else ageBuckets["90+ days"]++;
+    });
+    
+    return Object.entries(ageBuckets).map(([range, count]) => ({ range, count }));
+  }
+
+  function generateCustomFieldAnalysis(leads: any[], config: any) {
+    const field = config?.metrics?.[0] || "occupation";
+    const fieldCounts: Record<string, number> = {};
+    
+    leads.forEach(lead => {
+      const value = lead[field] || lead.custom_fields?.[field] || "Unknown";
+      fieldCounts[value] = (fieldCounts[value] || 0) + 1;
+    });
+    
+    return Object.entries(fieldCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10) // Top 10
+      .map(([name, value]) => ({ name, value }));
+  }
 
   // Sheet-scoped validation rules endpoints (for frontend integration)
   // GET /api/sheets/:sheetId/validation-rules - Fetch rules for a sheet (company-wide + sheet-specific)

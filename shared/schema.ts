@@ -758,3 +758,36 @@ export type InsertWebhookAllocationRule = typeof webhook_allocation_rules.$infer
 
 export type WebhookRequest = typeof webhook_requests.$inferSelect;
 export type InsertWebhookRequest = typeof webhook_requests.$inferInsert;
+
+// ============================================================================
+// REPORTS
+// ============================================================================
+export const reports = pgTable('reports', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  report_type: varchar('report_type', { length: 100 }).notNull(),
+  sheet_ids: json('sheet_ids').$type<string[]>().notNull().default(sql`'[]'`),
+  config: json('config').$type<{
+    date_range?: { start?: string; end?: string; preset?: string };
+    group_by?: string;
+    filters?: any[];
+    chart_type?: string;
+    metrics?: string[];
+  }>().default({}).notNull(),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type Report = typeof reports.$inferSelect;
+export type InsertReport = typeof reports.$inferInsert;
+
+export const insertReportSchema = createInsertSchema(reports).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertReportData = z.infer<typeof insertReportSchema>;

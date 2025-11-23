@@ -34,6 +34,8 @@ import type {
   InsertWebhookAllocationRule,
   WebhookRequest,
   InsertWebhookRequest,
+  Report,
+  InsertReport,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -166,6 +168,14 @@ export interface IStorage {
   getWebhookRequests(webhookId: string): Promise<WebhookRequest[]>;
   getWebhookRequestsByCompanyId(companyId: string): Promise<WebhookRequest[]>;
   createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest>;
+
+  // Reports
+  getReport(id: string): Promise<Report | undefined>;
+  getReportsByCompanyId(companyId: string): Promise<Report[]>;
+  getReportsBySheetIds(sheetIds: string[]): Promise<Report[]>;
+  createReport(report: InsertReport): Promise<Report>;
+  updateReport(id: string, updates: Partial<Report>): Promise<Report | undefined>;
+  deleteReport(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -182,6 +192,7 @@ export class MemStorage implements IStorage {
   private webhookLogs: Map<string, WebhookLog>;
   private leadUpdates: Map<string, LeadUpdate>;
   private invites: Map<string, Invite>;
+  private reports: Map<string, Report>;
 
   constructor() {
     this.companies = new Map();
@@ -197,6 +208,7 @@ export class MemStorage implements IStorage {
     this.webhookLogs = new Map();
     this.leadUpdates = new Map();
     this.invites = new Map();
+    this.reports = new Map();
   }
 
   // Companies
@@ -985,6 +997,47 @@ export class MemStorage implements IStorage {
   
   async createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest> {
     throw new Error("Webhook management not supported in MemStorage");
+  }
+
+  // Reports
+  async getReport(id: string): Promise<Report | undefined> {
+    return this.reports.get(id);
+  }
+
+  async getReportsByCompanyId(companyId: string): Promise<Report[]> {
+    return Array.from(this.reports.values()).filter(report => report.company_id === companyId);
+  }
+
+  async getReportsBySheetIds(sheetIds: string[]): Promise<Report[]> {
+    return Array.from(this.reports.values()).filter(report => {
+      const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+      return reportSheetIds.some(sheetId => sheetIds.includes(sheetId));
+    });
+  }
+
+  async createReport(insertReport: InsertReport): Promise<Report> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const report: Report = {
+      ...insertReport,
+      id,
+      created_at: now,
+      updated_at: now,
+    };
+    this.reports.set(id, report);
+    return report;
+  }
+
+  async updateReport(id: string, updates: Partial<Report>): Promise<Report | undefined> {
+    const report = this.reports.get(id);
+    if (!report) return undefined;
+    const updated = { ...report, ...updates, updated_at: new Date().toISOString() };
+    this.reports.set(id, updated);
+    return updated;
+  }
+
+  async deleteReport(id: string): Promise<boolean> {
+    return this.reports.delete(id);
   }
 }
 
@@ -2025,6 +2078,64 @@ export class PgStorage implements IStorage {
     return {
       ...row,
       created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  // Reports
+  async getReport(id: string): Promise<Report | undefined> {
+    const result = await db.select().from(dbSchema.reports).where(eq(dbSchema.reports.id, id)).limit(1);
+    return result.length > 0 ? this.mapReport(result[0]) : undefined;
+  }
+
+  async getReportsByCompanyId(companyId: string): Promise<Report[]> {
+    const result = await db.select().from(dbSchema.reports).where(eq(dbSchema.reports.company_id, companyId)).orderBy(desc(dbSchema.reports.created_at));
+    return result.map(this.mapReport.bind(this));
+  }
+
+  async getReportsBySheetIds(sheetIds: string[]): Promise<Report[]> {
+    if (sheetIds.length === 0) return [];
+    // Find reports where sheet_ids array contains any of the provided sheetIds
+    const result = await db.select().from(dbSchema.reports).orderBy(desc(dbSchema.reports.created_at));
+    // Filter in-memory for array overlap
+    return result
+      .filter(report => {
+        const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+        return reportSheetIds.some(sheetId => sheetIds.includes(sheetId));
+      })
+      .map(this.mapReport.bind(this));
+  }
+
+  async createReport(report: InsertReport): Promise<Report> {
+    const id = randomUUID();
+    const now = new Date();
+    const newReport = {
+      id,
+      ...report,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.reports).values(newReport);
+    return this.mapReport(newReport as any);
+  }
+
+  async updateReport(id: string, updates: Partial<Report>): Promise<Report | undefined> {
+    const now = new Date();
+    await db.update(dbSchema.reports)
+      .set({ ...updates, updated_at: now })
+      .where(eq(dbSchema.reports.id, id));
+    return this.getReport(id);
+  }
+
+  async deleteReport(id: string): Promise<boolean> {
+    await db.delete(dbSchema.reports).where(eq(dbSchema.reports.id, id));
+    return true;
+  }
+
+  private mapReport(row: any): Report {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
     };
   }
 }
