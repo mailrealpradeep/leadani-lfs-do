@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -241,8 +242,10 @@ function SuperAdminView() {
 }
 
 function CompanyAdminView() {
-  const { company } = useAuth();
+  const { company, user: currentUser } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const { toast } = useToast();
 
   const { data: users = [], isLoading } = useQuery<User[]>({
@@ -280,6 +283,39 @@ function CompanyAdminView() {
       });
     },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return await apiRequest("DELETE", `/api/admin/company/users/${userId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/users"] });
+      setDeleteDialogOpen(false);
+      setUserToDelete(null);
+      toast({
+        title: "User deleted",
+        description: "The user has been removed from your company.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete user",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteClick = (user: User) => {
+    setUserToDelete(user);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (userToDelete) {
+      deleteMutation.mutate(userToDelete.id);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -422,6 +458,16 @@ function CompanyAdminView() {
                     <Badge variant={user.role === "company_admin" ? "default" : "secondary"}>
                       {user.role === "company_admin" ? "Admin" : "User"}
                     </Badge>
+                    {user.id !== currentUser?.id && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteClick(user)}
+                        data-testid={`button-delete-user-${user.id}`}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 ))}
                 {users.length === 0 && (
@@ -436,8 +482,30 @@ function CompanyAdminView() {
         <InviteManager />
         <CompanyColumnManager />
         <QuickFilterManager />
+        <SheetAssignmentManager />
         </div>
       </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {userToDelete?.name}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-user"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete User"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -680,6 +748,205 @@ function InviteManager() {
           </div>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+function SheetAssignmentManager() {
+  const { toast } = useToast();
+  const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+
+  interface Sheet {
+    id: string;
+    name: string;
+    visibility: string;
+  }
+
+  interface SheetUserWithDetails {
+    id: string;
+    sheet_id: string;
+    user_id: string;
+    role: string;
+    user_name?: string;
+    user_email?: string;
+  }
+
+  const { data: sheets = [] } = useQuery<Sheet[]>({
+    queryKey: ["/api/sheets"],
+  });
+
+  const { data: companyUsers = [] } = useQuery<User[]>({
+    queryKey: ["/api/admin/company/users"],
+  });
+
+  const { data: sheetUsers = [], refetch: refetchSheetUsers } = useQuery<SheetUserWithDetails[]>({
+    queryKey: ["/api/admin/sheets", selectedSheet, "users"],
+    enabled: !!selectedSheet,
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: async ({ user_id, role }: { user_id: string; role: string }) => {
+      return await apiRequest("POST", `/api/admin/sheets/${selectedSheet}/users`, { user_id, role });
+    },
+    onSuccess: () => {
+      refetchSheetUsers();
+      setAssignDialogOpen(false);
+      toast({
+        title: "User assigned",
+        description: "User has been assigned to the sheet successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to assign user",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const unassignMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return await apiRequest("DELETE", `/api/admin/sheets/${selectedSheet}/users/${userId}`);
+    },
+    onSuccess: () => {
+      refetchSheetUsers();
+      toast({
+        title: "User unassigned",
+        description: "User has been removed from the sheet.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to unassign user",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const assignedUserIds = new Set(sheetUsers.map((su) => su.user_id));
+  const availableUsers = companyUsers.filter((u) => !assignedUserIds.has(u.id));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sheet Assignments</CardTitle>
+        <CardDescription>Manage which users have access to specific sheets</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-2 block">Select Sheet</label>
+            <Select value={selectedSheet || ""} onValueChange={setSelectedSheet}>
+              <SelectTrigger data-testid="select-sheet">
+                <SelectValue placeholder="Choose a sheet..." />
+              </SelectTrigger>
+              <SelectContent>
+                {sheets.map((sheet) => (
+                  <SelectItem key={sheet.id} value={sheet.id} data-testid={`sheet-option-${sheet.id}`}>
+                    {sheet.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {selectedSheet && (
+            <>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium">Assigned Users</h4>
+                <Button
+                  size="sm"
+                  onClick={() => setAssignDialogOpen(true)}
+                  disabled={availableUsers.length === 0}
+                  data-testid="button-assign-user"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Assign User
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                {sheetUsers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No users assigned to this sheet
+                  </p>
+                ) : (
+                  sheetUsers.map((su) => (
+                    <div
+                      key={su.id}
+                      className="flex items-center justify-between p-3 border rounded-lg"
+                      data-testid={`sheet-user-${su.id}`}
+                    >
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">{su.user_name}</div>
+                        <div className="text-xs text-muted-foreground">{su.user_email}</div>
+                      </div>
+                      <Badge variant="secondary" className="mr-2">
+                        {su.role}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => unassignMutation.mutate(su.user_id)}
+                        data-testid={`button-unassign-${su.id}`}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </CardContent>
+
+      <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign User to Sheet</DialogTitle>
+            <DialogDescription>Select a user to give them access to this sheet</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {availableUsers.map((user) => (
+              <div
+                key={user.id}
+                className="flex items-center justify-between p-3 border rounded-lg hover-elevate"
+              >
+                <div className="flex-1">
+                  <div className="text-sm font-medium">{user.name}</div>
+                  <div className="text-xs text-muted-foreground">{user.email}</div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => assignMutation.mutate({ user_id: user.id, role: "viewer" })}
+                    data-testid={`button-assign-viewer-${user.id}`}
+                  >
+                    Viewer
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => assignMutation.mutate({ user_id: user.id, role: "editor" })}
+                    data-testid={`button-assign-editor-${user.id}`}
+                  >
+                    Editor
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {availableUsers.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                All users are already assigned to this sheet
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

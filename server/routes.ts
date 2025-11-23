@@ -982,6 +982,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/admin/company/users/:userId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+
+      // Prevent self-deletion
+      if (userId === req.userId) {
+        return res.status(403).json({ error: "Cannot delete your own account" });
+      }
+
+      // Verify user belongs to company
+      const userToDelete = await storage.getUser(userId);
+      if (!userToDelete) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Company admins can only delete users in their own company
+      if (req.userRole === "company_admin" && userToDelete.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete users from other companies" });
+      }
+
+      // Ensure at least one company admin remains
+      if (userToDelete.role === "company_admin") {
+        const companyAdmins = await storage.getUsersByCompanyId(userToDelete.company_id!);
+        const adminCount = companyAdmins.filter(u => u.role === "company_admin").length;
+        if (adminCount <= 1) {
+          return res.status(403).json({ error: "Cannot delete the last company admin. Promote another user first." });
+        }
+      }
+
+      // Delete user and cleanup
+      await storage.deleteUser(userId);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "delete",
+        model: "user",
+        model_id: userId,
+        payload: { email: userToDelete.email, role: userToDelete.role },
+      });
+
+      res.json({ message: "User deleted successfully" });
+    } catch (error: any) {
+      console.error("Delete user error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       // Company admins can only see users in their company
@@ -1805,6 +1854,156 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Sheet deleted" });
     } catch (error: any) {
       console.error("Delete sheet error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // SHEET USER ASSIGNMENT (Company Admin)
+  // ============================================================================
+  app.get("/api/admin/sheets/:sheetId/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sheetId } = req.params;
+      
+      // Verify sheet exists and belongs to company
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet || sheet.deleted_at) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Company admins can only manage sheets in their own company
+      if (req.userRole === "company_admin" && sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access sheets from other companies" });
+      }
+      
+      // Get assigned users
+      const sheetUsers = await storage.getSheetUsers(sheetId);
+      
+      // Get full user details
+      const usersWithDetails = await Promise.all(
+        sheetUsers.map(async (su) => {
+          const user = await storage.getUser(su.user_id);
+          return {
+            ...su,
+            user_name: user?.name,
+            user_email: user?.email,
+          };
+        })
+      );
+      
+      res.json(usersWithDetails);
+    } catch (error: any) {
+      console.error("Get sheet users error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/sheets/:sheetId/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sheetId } = req.params;
+      const { user_id, role } = req.body;
+      
+      // Verify sheet exists and belongs to company
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet || sheet.deleted_at) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Company admins can only manage sheets in their own company
+      if (req.userRole === "company_admin" && sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access sheets from other companies" });
+      }
+      
+      // Verify user exists and belongs to same company
+      const userToAssign = await storage.getUser(user_id);
+      if (!userToAssign) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (userToAssign.company_id !== sheet.company_id) {
+        return res.status(403).json({ error: "User must belong to the same company" });
+      }
+      
+      // Check if user is already assigned
+      const existing = await storage.getSheetUser(sheetId, user_id);
+      if (existing) {
+        return res.status(400).json({ error: "User is already assigned to this sheet" });
+      }
+      
+      // Create assignment
+      const sheetUser = await storage.createSheetUser({
+        sheet_id: sheetId,
+        user_id,
+        role: role || "editor",
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "create",
+        model: "sheet_user",
+        model_id: sheetUser.id,
+        payload: { sheet_id: sheetId, assigned_user_id: user_id, role: sheetUser.role },
+      });
+      
+      res.status(201).json(sheetUser);
+    } catch (error: any) {
+      console.error("Assign user to sheet error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/sheets/:sheetId/users/:userId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sheetId, userId } = req.params;
+      
+      // Verify sheet exists and belongs to company
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet || sheet.deleted_at) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Company admins can only manage sheets in their own company
+      if (req.userRole === "company_admin" && sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access sheets from other companies" });
+      }
+      
+      // Verify user exists and belongs to same company
+      const userToUnassign = await storage.getUser(userId);
+      if (!userToUnassign) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (userToUnassign.company_id !== sheet.company_id) {
+        return res.status(403).json({ error: "User must belong to the same company" });
+      }
+      
+      // Get sheet user assignment
+      const sheetUser = await storage.getSheetUser(sheetId, userId);
+      if (!sheetUser) {
+        return res.status(404).json({ error: "User is not assigned to this sheet" });
+      }
+      
+      // Prevent removing the sheet owner
+      if (sheet.owner_id === userId) {
+        return res.status(403).json({ error: "Cannot remove the sheet owner" });
+      }
+      
+      // Delete assignment
+      await storage.deleteSheetUser(sheetUser.id);
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "delete",
+        model: "sheet_user",
+        model_id: sheetUser.id,
+        payload: { sheet_id: sheetId, unassigned_user_id: userId },
+      });
+      
+      res.json({ message: "User unassigned successfully" });
+    } catch (error: any) {
+      console.error("Unassign user from sheet error:", error);
       res.status(500).json({ error: error.message });
     }
   });
