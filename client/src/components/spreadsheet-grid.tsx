@@ -366,6 +366,22 @@ export function SpreadsheetGrid({
       config: col.config,
     }));
 
+  // Set default sort to Lead Date (new to old) on first load
+  useEffect(() => {
+    if (customColumns.length > 0 && sortColumn === null) {
+      // Look for a date column with "lead" and "date" in the name/key
+      const leadDateColumn = customColumns.find(col => 
+        (col.name.toLowerCase().includes("lead") && col.name.toLowerCase().includes("date")) ||
+        (col.column_key.toLowerCase().includes("lead") && col.column_key.toLowerCase().includes("date"))
+      );
+      
+      if (leadDateColumn) {
+        setSortColumn(leadDateColumn.column_key);
+        setSortDirection("desc"); // New to old
+      }
+    }
+  }, [customColumns, sortColumn]);
+
   const filteredAndSortedLeads = leads
     .filter((lead) => {
       // Search query filter - search across all custom fields
