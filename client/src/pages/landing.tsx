@@ -10,7 +10,7 @@ export default function Landing() {
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <BarChart3 className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold">Dabluz CRM</span>
+            <span className="text-xl font-bold">LeadAni LFS</span>
           </div>
           <div className="flex items-center gap-2">
             <Link href="/login">
@@ -30,10 +30,10 @@ export default function Landing() {
       <section className="container mx-auto px-4 py-16 md:py-24">
         <div className="max-w-3xl mx-auto text-center space-y-6">
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-            Spreadsheet-Like CRM for Modern Teams
+            Spreadsheet-Like Lead Management for Modern Teams
           </h1>
           <p className="text-xl text-muted-foreground">
-            Manage leads with the simplicity of a spreadsheet and the power of a complete CRM. 
+            Manage leads with the simplicity of a spreadsheet and the power of a complete system. 
             Real-time collaboration, custom fields, webhooks, and more.
           </p>
           <div className="flex flex-wrap gap-3 justify-center pt-4">
@@ -150,7 +150,7 @@ export default function Landing() {
 
       <footer className="border-t mt-16">
         <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-          <p>&copy; 2024 Dabluz CRM. Built for modern teams.</p>
+          <p>&copy; 2024 LeadAni LFS. Built for modern teams.</p>
         </div>
       </footer>
     </div>

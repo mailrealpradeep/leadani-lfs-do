@@ -59,7 +59,7 @@ export default function Signup() {
 
       toast({
         title: "Success!",
-        description: `Welcome to Dabluz CRM, ${data.admin_name}!`,
+        description: `Welcome to LeadAni LFS, ${data.admin_name}!`,
       });
 
       // Navigate to onboarding
@@ -81,7 +81,7 @@ export default function Signup() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
             <BarChart3 className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold">Dabluz CRM</span>
+            <span className="text-xl font-bold">LeadAni LFS</span>
           </div>
           <CardTitle className="text-2xl">Create Your Company</CardTitle>
           <CardDescription>
