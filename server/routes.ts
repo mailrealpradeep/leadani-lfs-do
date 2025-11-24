@@ -14,6 +14,37 @@ import { insertQuickFilterSchema, quickFilterConfigSchema } from "@shared/schema
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
+// Helper function to parse dates in multiple formats (ISO and dd/MM/yy)
+function parseDateFlexible(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  
+  // Try ISO format first (YYYY-MM-DD or full ISO string)
+  let date = new Date(dateStr);
+  if (!isNaN(date.getTime())) {
+    return date;
+  }
+  
+  // Try dd/MM/yy format (used in existing report configs)
+  const ddMMyyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (ddMMyyMatch) {
+    const [, day, month, year] = ddMMyyMatch;
+    let fullYear = parseInt(year);
+    
+    // Convert 2-digit year to 4-digit (assume 20xx for yy < 50, else 19xx)
+    if (fullYear < 100) {
+      fullYear = fullYear < 50 ? 2000 + fullYear : 1900 + fullYear;
+    }
+    
+    // Month is 0-indexed in JavaScript Date
+    date = new Date(fullYear, parseInt(month) - 1, parseInt(day));
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  
+  return null; // Could not parse
+}
+
 // Helper function to generate mock values for webhook sample payload
 function generateMockValue(fieldKey: string, fieldType?: string): string {
   // Generate realistic sample values based on field type and name
@@ -3929,14 +3960,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Apply date range filter (from query params or report config)
       let filteredLeads = allLeads;
-      const startDate = req.query.start_date as string || report.config?.date_range?.start;
-      const endDate = req.query.end_date as string || report.config?.date_range?.end;
+      const startDateStr = req.query.start_date as string || report.config?.date_range?.start;
+      const endDateStr = req.query.end_date as string || report.config?.date_range?.end;
       
-      if (startDate || endDate) {
+      if (startDateStr || endDateStr) {
+        // Parse and validate dates (supports ISO and dd/MM/yy formats)
+        let startDate: Date | null = null;
+        let endDate: Date | null = null;
+        
+        if (startDateStr) {
+          startDate = parseDateFlexible(startDateStr);
+          if (!startDate) {
+            return res.status(422).json({ 
+              error: "Invalid start date format. Use ISO format (YYYY-MM-DD) or dd/MM/yy." 
+            });
+          }
+        }
+        
+        if (endDateStr) {
+          endDate = parseDateFlexible(endDateStr);
+          if (!endDate) {
+            return res.status(422).json({ 
+              error: "Invalid end date format. Use ISO format (YYYY-MM-DD) or dd/MM/yy." 
+            });
+          }
+        }
+        
+        // Validate start <= end
+        if (startDate && endDate && startDate > endDate) {
+          return res.status(422).json({ 
+            error: "Start date must be before or equal to end date" 
+          });
+        }
+        
+        // Filter leads by date range
         filteredLeads = allLeads.filter(lead => {
           const leadDate = new Date(lead.created_at);
-          if (startDate && leadDate < new Date(startDate)) return false;
-          if (endDate && leadDate > new Date(endDate)) return false;
+          if (startDate && leadDate < startDate) return false;
+          if (endDate && leadDate > endDate) return false;
           return true;
         });
       }

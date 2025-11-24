@@ -704,6 +704,50 @@ export default function Reports() {
   );
 }
 
+// Helper to parse and normalize dates (supports ISO and dd/MM/yy)
+function normalizeDate(dateStr: string): string {
+  if (!dateStr) return "";
+  
+  // Try ISO format first (YYYY-MM-DD)
+  const isoMatch = dateStr.match(/^\d{4}-\d{2}-\d{2}$/);
+  if (isoMatch) {
+    const date = new Date(dateStr);
+    return isNaN(date.getTime()) ? "" : dateStr;
+  }
+  
+  // Try dd/MM/yy format (used in existing report configs)
+  const ddMMyyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (ddMMyyMatch) {
+    const [, day, month, year] = ddMMyyMatch;
+    let fullYear = parseInt(year);
+    
+    // Convert 2-digit year to 4-digit (assume 20xx for yy < 50, else 19xx)
+    if (fullYear < 100) {
+      fullYear = fullYear < 50 ? 2000 + fullYear : 1900 + fullYear;
+    }
+    
+    // Create date and convert to ISO format (YYYY-MM-DD)
+    const date = new Date(fullYear, parseInt(month) - 1, parseInt(day));
+    if (!isNaN(date.getTime())) {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+  
+  // Try parsing as any valid date string and convert to ISO
+  const date = new Date(dateStr);
+  if (!isNaN(date.getTime())) {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  
+  return ""; // Could not parse
+}
+
 // Report Card Component
 function ReportCard({
   report,
@@ -718,8 +762,14 @@ function ReportCard({
   canEdit: boolean;
   canDelete: boolean;
 }) {
+  // Initialize date range from report config (normalize to ISO format)
+  const initialDateRange = {
+    start: normalizeDate(report.config?.date_range?.start || ""),
+    end: normalizeDate(report.config?.date_range?.end || ""),
+  };
+  
   const [selectedSheetFilters, setSelectedSheetFilters] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>(initialDateRange);
   
   // Drilldown modal state
   const [drilldownOpen, setDrilldownOpen] = useState(false);
@@ -757,8 +807,41 @@ function ReportCard({
     setDrilldownOpen(true);
   };
   
-  const { data: reportData, isLoading } = useQuery<ReportDataResponse>({
-    queryKey: ["/api/company/reports", report.id, "data", filteredSheetIds, dateRange],
+  // Handle date changes (normalize before setting state)
+  const handleDateChange = (field: 'start' | 'end', value: string) => {
+    const normalized = normalizeDate(value);
+    setDateRange(prev => ({
+      ...prev,
+      [field]: normalized
+    }));
+  };
+  
+  // Validate date range (trusts normalized ISO dates from normalizeDate())
+  const validateDateRange = (start: string, end: string): string | null => {
+    if (!start && !end) return null; // Both empty is valid (no filter)
+    
+    // Dates are already normalized by normalizeDate() - empty string means invalid
+    // Trust the normalization and only validate start <= end
+    if (start && end) {
+      // Simple string comparison works for ISO dates (YYYY-MM-DD)
+      if (start > end) {
+        return "Start date must be before or equal to end date";
+      }
+    }
+    
+    return null;
+  };
+
+  const dateValidationError = validateDateRange(dateRange.start, dateRange.end);
+  
+  // Create stable query key by using primitive values
+  const dateRangeKey = `${dateRange.start || ''}|${dateRange.end || ''}`;
+  // Serialize filteredSheetIds to prevent array reference changes (clone before sorting to avoid mutation)
+  const sheetIdsKey = filteredSheetIds ? [...filteredSheetIds].sort().join(',') : 'all';
+  
+  const { data: reportData, isLoading, error } = useQuery<ReportDataResponse>({
+    queryKey: ["/api/company/reports", report.id, "data", sheetIdsKey, dateRangeKey],
+    enabled: !dateValidationError, // Don't run query if validation fails
     queryFn: async () => {
       const token = localStorage.getItem("auth_token");
       const params = new URLSearchParams();
@@ -793,10 +876,26 @@ function ReportCard({
   });
 
   const renderVisualization = () => {
+    if (dateValidationError) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-sm text-destructive">{dateValidationError}</div>
+        </div>
+      );
+    }
+    
     if (isLoading) {
       return (
         <div className="flex items-center justify-center h-64">
           <div className="text-sm text-muted-foreground">Loading data...</div>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-sm text-destructive">Error: {error.message}</div>
         </div>
       );
     }
@@ -1125,7 +1224,7 @@ function ReportCard({
                       id={`date-start-${report.id}`}
                       type="date"
                       value={dateRange.start}
-                      onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                      onChange={(e) => handleDateChange('start', e.target.value)}
                       className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                       data-testid={`input-date-start-${report.id}`}
                     />
@@ -1136,7 +1235,7 @@ function ReportCard({
                       id={`date-end-${report.id}`}
                       type="date"
                       value={dateRange.end}
-                      onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                      onChange={(e) => handleDateChange('end', e.target.value)}
                       className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                       data-testid={`input-date-end-${report.id}`}
                     />
