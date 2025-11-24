@@ -908,18 +908,19 @@ function ReportCard({
     switch (chartType) {
       case "pie":
         return (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={400}>
             <RechartsPieChart>
               <Pie
                 data={data}
                 cx="50%"
-                cy="50%"
+                cy="45%"
                 labelLine={false}
                 label={false}
-                outerRadius={90}
+                outerRadius={100}
                 fill="#8884d8"
                 dataKey="value"
-                onClick={(data: any) => {
+                onClick={(data: any, index: number, event: any) => {
+                  if (event) event.stopPropagation();
                   const xAxisField = report.config?.x_axis || "";
                   const filters: DrilldownFilters = {
                     [xAxisField]: data.name,
@@ -937,9 +938,10 @@ function ReportCard({
                 formatter={(value: any) => [`${value} leads`, "Count"]}
               />
               <Legend 
-                layout="vertical" 
-                align="right" 
-                verticalAlign="middle"
+                layout="horizontal" 
+                align="center" 
+                verticalAlign="bottom"
+                wrapperStyle={{ paddingTop: '20px', paddingBottom: '10px' }}
                 formatter={(value: string, entry: any) => {
                   const total = data.reduce((sum: number, item: any) => sum + item.value, 0);
                   const percent = ((entry.payload.value / total) * 100).toFixed(0);
@@ -995,7 +997,7 @@ function ReportCard({
     <>
       <Card 
         data-testid={`card-report-${report.id}`}
-        className="w-fit min-w-[400px] max-w-[600px]"
+        className="w-fit min-w-[450px] max-w-[600px]"
       >
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
           <div className="flex-1 min-w-0">
