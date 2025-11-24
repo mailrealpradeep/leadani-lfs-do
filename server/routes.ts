@@ -3948,7 +3948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Parse filters from query params
-      const filters: Record<string, any> = {};
+      let filters: Record<string, any> = {};
       if (req.query.filters) {
         try {
           filters = JSON.parse(req.query.filters as string);
