@@ -718,7 +718,8 @@ function ReportCard({
   canEdit: boolean;
   canDelete: boolean;
 }) {
-  const [selectedSheetFilter, setSelectedSheetFilter] = useState<string>("all");
+  const [selectedSheetFilters, setSelectedSheetFilters] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
   
   // Drilldown modal state
   const [drilldownOpen, setDrilldownOpen] = useState(false);
