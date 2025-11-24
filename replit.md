@@ -28,7 +28,7 @@ Core entities include Users, Companies, Invites, Sheets, Leads (with fixed and c
 
 ### API and Security
 
-The system implements RESTful APIs for authentication, signup, invites, sheet operations, lead updates, and webhooks. Security features include JWT-based authentication with role and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit for public endpoints, and comprehensive audit trails.
+The system implements RESTful APIs for authentication, signup, invites, sheet operations, lead updates, and webhooks. Security features include JWT-based authentication with role and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit for public endpoints, password-protected sheet deletion (requires account password verification), and comprehensive audit trails.
 
 ### Real-time Synchronization
 
