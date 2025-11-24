@@ -15,8 +15,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ChevronLeft, ChevronRight, History } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { LeadUpdateHistoryDialog } from "@/components/lead-update-history-dialog";
 import type { DrilldownResponse, DrilldownFilters, CustomColumn } from "@shared/schema";
 import { format, parse } from "date-fns";
 
@@ -41,6 +45,9 @@ export function ReportDrilldownModal({
   const limit = 50;
   const prevOpenRef = useRef(false);
   const prevContextRef = useRef<string>("");
+  const [selectedLeadForHistory, setSelectedLeadForHistory] = useState<string>("");
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   // Fetch company columns with authentication
   const { data: companyColumns = [] } = useQuery<CustomColumn[]>({
@@ -150,6 +157,13 @@ export function ReportDrilldownModal({
     }
   };
 
+  // Helper to get a specific column value by column key
+  const getColumnValue = (lead: any, columnKey: string): string => {
+    const column = sortedColumns.find(col => col.column_key === columnKey);
+    if (!column) return "-";
+    return String(renderCellValue(lead, column) || "-");
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent 
@@ -172,7 +186,72 @@ export function ReportDrilldownModal({
             <div className="flex items-center justify-center h-full">
               <p className="text-sm md:text-base text-muted-foreground">No leads found</p>
             </div>
+          ) : isMobile ? (
+            // Mobile card view
+            <div className="space-y-3 py-3">
+              {leads.map((lead) => (
+                <Card 
+                  key={lead.id} 
+                  className="hover-elevate"
+                  data-testid={`drilldown-card-${lead.id}`}
+                >
+                  <CardContent className="p-3">
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-sm truncate">
+                          {getColumnValue(lead, "name")}
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {lead.sheet_name}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => {
+                          setSelectedLeadForHistory(lead.id);
+                          setHistoryDialogOpen(true);
+                        }}
+                        data-testid={`button-history-${lead.id}`}
+                      >
+                        <History className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-muted-foreground">Mobile:</span>
+                          <p className="font-medium mt-0.5">{getColumnValue(lead, "mobile_no")}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">WhatsApp:</span>
+                          <p className="font-medium mt-0.5">{getColumnValue(lead, "phone")}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-muted-foreground">Status:</span>
+                          <div className="mt-0.5">
+                            <Badge variant="secondary" className="text-xs">
+                              {getColumnValue(lead, "status")}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Language:</span>
+                          <p className="font-medium mt-0.5">{getColumnValue(lead, "language")}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           ) : (
+            // Desktop table view
             <div className="overflow-x-auto -mx-2 md:mx-0">
               <Table>
                 <TableHeader>
@@ -252,6 +331,15 @@ export function ReportDrilldownModal({
           </div>
         )}
       </DialogContent>
+
+      {/* Lead Update History Dialog */}
+      {selectedLeadForHistory && (
+        <LeadUpdateHistoryDialog
+          leadId={selectedLeadForHistory}
+          open={historyDialogOpen}
+          onOpenChange={setHistoryDialogOpen}
+        />
+      )}
     </Dialog>
   );
 }
