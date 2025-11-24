@@ -9,6 +9,9 @@ import {
   LineChart as LineIcon,
   X,
   Pencil,
+  ChevronDown,
+  Filter,
+  Check,
 } from "lucide-react";
 import {
   BarChart as RechartsBarChart,
@@ -37,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
 import type { DrilldownFilters } from "@shared/schema";
 
@@ -1187,31 +1191,82 @@ function ReportCard({
               {/* Sheet Multi-Select */}
               <div className="space-y-2">
                 <Label className="text-xs font-semibold">Filter by Sheets:</Label>
-                <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
-                  {sheets.map((sheet) => (
-                    <div key={sheet.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`sheet-${report.id}-${sheet.id}`}
-                        checked={selectedSheetFilters.includes(sheet.id)}
-                        onCheckedChange={() => handleSheetToggle(sheet.id)}
-                        data-testid={`checkbox-sheet-${report.id}-${sheet.id}`}
-                      />
-                      <label
-                        htmlFor={`sheet-${report.id}-${sheet.id}`}
-                        className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                      >
-                        {sheet.name}
-                      </label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between h-8 text-xs"
+                      data-testid={`button-sheet-filter-${report.id}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Filter className="h-3 w-3" />
+                        {selectedSheetFilters.length === 0 ? (
+                          <span>All Sheets</span>
+                        ) : (
+                          <span>{selectedSheetFilters.length} sheet{selectedSheetFilters.length > 1 ? "s" : ""} selected</span>
+                        )}
+                      </div>
+                      <ChevronDown className="h-3 w-3 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-0" align="start">
+                    <div className="p-3 space-y-2">
+                      <div className="flex items-center justify-between pb-2 border-b">
+                        <span className="text-xs font-semibold">Select Sheets</span>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs px-2"
+                            onClick={() => {
+                              if (sheets) {
+                                setSelectedSheetFilters(sheets.map(s => s.id));
+                              }
+                            }}
+                            data-testid={`button-select-all-sheets-${report.id}`}
+                          >
+                            Select All
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs px-2"
+                            onClick={() => setSelectedSheetFilters([])}
+                            data-testid={`button-clear-sheets-${report.id}`}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto space-y-1">
+                        {sheets && sheets.map((sheet) => (
+                          <div
+                            key={sheet.id}
+                            className="flex items-center space-x-2 p-2 rounded-md hover-elevate cursor-pointer"
+                            onClick={() => handleSheetToggle(sheet.id)}
+                            data-testid={`sheet-option-${report.id}-${sheet.id}`}
+                          >
+                            <Checkbox
+                              id={`sheet-${report.id}-${sheet.id}`}
+                              checked={selectedSheetFilters.includes(sheet.id)}
+                              onCheckedChange={() => handleSheetToggle(sheet.id)}
+                              data-testid={`checkbox-sheet-${report.id}-${sheet.id}`}
+                            />
+                            <label
+                              htmlFor={`sheet-${report.id}-${sheet.id}`}
+                              className="text-xs font-medium leading-none flex-1 cursor-pointer"
+                            >
+                              {sheet.name}
+                            </label>
+                            {selectedSheetFilters.includes(sheet.id) && (
+                              <Check className="h-3 w-3 text-primary" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-                {selectedSheetFilters.length > 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    {selectedSheetFilters.length} sheet{selectedSheetFilters.length > 1 ? "s" : ""} selected
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">All sheets selected</p>
-                )}
+                  </PopoverContent>
+                </Popover>
               </div>
               
               {/* Date Range Filter */}
