@@ -908,15 +908,15 @@ function ReportCard({
     switch (chartType) {
       case "pie":
         return (
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={300}>
             <RechartsPieChart>
               <Pie
                 data={data}
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
+                label={false}
+                outerRadius={90}
                 fill="#8884d8"
                 dataKey="value"
                 onClick={(data: any) => {
@@ -933,7 +933,19 @@ function ReportCard({
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip 
+                formatter={(value: any) => [`${value} leads`, "Count"]}
+              />
+              <Legend 
+                layout="vertical" 
+                align="right" 
+                verticalAlign="middle"
+                formatter={(value: string, entry: any) => {
+                  const total = data.reduce((sum: number, item: any) => sum + item.value, 0);
+                  const percent = ((entry.payload.value / total) * 100).toFixed(0);
+                  return `${value}: ${percent}%`;
+                }}
+              />
             </RechartsPieChart>
           </ResponsiveContainer>
         );
@@ -983,7 +995,7 @@ function ReportCard({
     <>
       <Card 
         data-testid={`card-report-${report.id}`}
-        className="w-fit min-w-[300px] max-w-full"
+        className="w-fit min-w-[400px] max-w-[600px]"
       >
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
           <div className="flex-1 min-w-0">
