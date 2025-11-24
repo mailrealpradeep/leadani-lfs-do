@@ -733,13 +733,22 @@ function ReportCard({
 
   // Build query parameters based on sheet selection
   const getFilteredSheetIds = () => {
-    if (selectedSheetFilter === "all") {
+    if (selectedSheetFilters.length === 0) {
       return null; // null means all sheets
     }
-    return [selectedSheetFilter]; // Single sheet ID
+    return selectedSheetFilters; // Array of selected sheet IDs
   };
 
   const filteredSheetIds = getFilteredSheetIds();
+  
+  // Handle sheet toggle for multi-select
+  const handleSheetToggle = (sheetId: string) => {
+    setSelectedSheetFilters((prev) =>
+      prev.includes(sheetId)
+        ? prev.filter((id) => id !== sheetId)
+        : [...prev, sheetId]
+    );
+  };
   
   // Handle drilldown click
   const handleDrilldownClick = (filters: DrilldownFilters, title: string) => {
@@ -749,15 +758,26 @@ function ReportCard({
   };
   
   const { data: reportData, isLoading } = useQuery<ReportDataResponse>({
-    queryKey: ["/api/company/reports", report.id, "data", filteredSheetIds],
+    queryKey: ["/api/company/reports", report.id, "data", filteredSheetIds, dateRange],
     queryFn: async () => {
       const token = localStorage.getItem("auth_token");
-      let url = `/api/company/reports/${report.id}/data`;
+      const params = new URLSearchParams();
+      
+      // Add sheet filters
       if (filteredSheetIds) {
-        const params = new URLSearchParams();
         filteredSheetIds.forEach(id => params.append("sheet_ids", id));
-        url += `?${params.toString()}`;
       }
+      
+      // Add date range filters
+      if (dateRange.start) {
+        params.append("start_date", dateRange.start);
+      }
+      if (dateRange.end) {
+        params.append("end_date", dateRange.end);
+      }
+      
+      const url = `/api/company/reports/${report.id}/data${params.toString() ? `?${params.toString()}` : ''}`;
+      
       const response = await fetch(url, {
         credentials: "include",
         headers: {
@@ -1062,35 +1082,78 @@ function ReportCard({
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* Sheet Filter Selector */}
+          {/* Sheet Multi-Select and Date Range Filters */}
           {sheets && sheets.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Label className="text-xs font-medium shrink-0">View:</Label>
-              <Select
-                value={selectedSheetFilter}
-                onValueChange={setSelectedSheetFilter}
-              >
-                <SelectTrigger 
-                  className="h-8 text-xs flex-1 sm:w-auto sm:min-w-[150px]"
-                  data-testid={`select-sheet-filter-${report.id}`}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" data-testid={`select-option-all-${report.id}`}>
-                    All Sheets
-                  </SelectItem>
+            <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
+              {/* Sheet Multi-Select */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold">Filter by Sheets:</Label>
+                <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
                   {sheets.map((sheet) => (
-                    <SelectItem 
-                      key={sheet.id} 
-                      value={sheet.id}
-                      data-testid={`select-option-sheet-${sheet.id}`}
-                    >
-                      {sheet.name}
-                    </SelectItem>
+                    <div key={sheet.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`sheet-${report.id}-${sheet.id}`}
+                        checked={selectedSheetFilters.includes(sheet.id)}
+                        onCheckedChange={() => handleSheetToggle(sheet.id)}
+                        data-testid={`checkbox-sheet-${report.id}-${sheet.id}`}
+                      />
+                      <label
+                        htmlFor={`sheet-${report.id}-${sheet.id}`}
+                        className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        {sheet.name}
+                      </label>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
+                </div>
+                {selectedSheetFilters.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {selectedSheetFilters.length} sheet{selectedSheetFilters.length > 1 ? "s" : ""} selected
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">All sheets selected</p>
+                )}
+              </div>
+              
+              {/* Date Range Filter */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold">Filter by Date Range:</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor={`date-start-${report.id}`} className="text-xs text-muted-foreground">From:</Label>
+                    <input
+                      id={`date-start-${report.id}`}
+                      type="date"
+                      value={dateRange.start}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                      className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      data-testid={`input-date-start-${report.id}`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`date-end-${report.id}`} className="text-xs text-muted-foreground">To:</Label>
+                    <input
+                      id={`date-end-${report.id}`}
+                      type="date"
+                      value={dateRange.end}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                      className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      data-testid={`input-date-end-${report.id}`}
+                    />
+                  </div>
+                </div>
+                {(dateRange.start || dateRange.end) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDateRange({ start: "", end: "" })}
+                    className="h-7 text-xs"
+                    data-testid={`button-clear-dates-${report.id}`}
+                  >
+                    Clear dates
+                  </Button>
+                )}
+              </div>
             </div>
           )}
           {renderVisualization()}

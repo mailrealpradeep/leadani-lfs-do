@@ -3927,14 +3927,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         accessibleSheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
       )).flat().filter(lead => !lead.deleted_at);
 
-      // Apply date range filter if configured
+      // Apply date range filter (from query params or report config)
       let filteredLeads = allLeads;
-      if (report.config?.date_range) {
-        const { start, end } = report.config.date_range;
+      const startDate = req.query.start_date as string || report.config?.date_range?.start;
+      const endDate = req.query.end_date as string || report.config?.date_range?.end;
+      
+      if (startDate || endDate) {
         filteredLeads = allLeads.filter(lead => {
           const leadDate = new Date(lead.created_at);
-          if (start && leadDate < new Date(start)) return false;
-          if (end && leadDate > new Date(end)) return false;
+          if (startDate && leadDate < new Date(startDate)) return false;
+          if (endDate && leadDate > new Date(endDate)) return false;
           return true;
         });
       }
