@@ -91,6 +91,7 @@ export interface IStorage {
   getLead(id: string): Promise<Lead | undefined>;
   getLeadsBySheetId(sheetId: string): Promise<Lead[]>;
   getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]>;
+  findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined>;
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined>;
   deleteLead(id: string, userId: string): Promise<boolean>;
@@ -585,6 +586,18 @@ export class MemStorage implements IStorage {
 
   async getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]> {
     return Array.from(this.leads.values()).filter((lead) => lead.sheet_id === sheetId && lead.deleted_at);
+  }
+
+  async findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined> {
+    // Get all sheets for this company
+    const companySheets = Array.from(this.sheets.values()).filter((s) => s.company_id === companyId);
+    const sheetIds = new Set(companySheets.map((s) => s.id));
+    
+    // Search for lead with matching mobile_no in any of the company's sheets (including soft-deleted)
+    return Array.from(this.leads.values()).find((lead) => 
+      sheetIds.has(lead.sheet_id) && 
+      lead.custom_fields?.mobile_no === mobileNo
+    );
   }
 
   async createLead(insertLead: InsertLead): Promise<Lead> {
@@ -1453,6 +1466,26 @@ export class PgStorage implements IStorage {
       )
     );
     return result.map(this.mapLead);
+  }
+
+  async findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined> {
+    // Find lead by mobile_no across all sheets in the company (including soft-deleted)
+    const result = await db
+      .select({
+        lead: dbSchema.leads,
+      })
+      .from(dbSchema.leads)
+      .innerJoin(dbSchema.sheets, eq(dbSchema.leads.sheet_id, dbSchema.sheets.id))
+      .where(
+        and(
+          eq(dbSchema.sheets.company_id, companyId),
+          drizzleSql`${dbSchema.leads.custom_fields}->>'mobile_no' = ${mobileNo}`
+        )
+      )
+      .limit(1);
+    
+    if (result.length === 0) return undefined;
+    return this.mapLead(result[0].lead);
   }
 
   async createLead(lead: InsertLead): Promise<Lead> {
