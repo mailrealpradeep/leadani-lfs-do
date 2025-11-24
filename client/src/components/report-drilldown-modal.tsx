@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { DrilldownResponse, DrilldownFilters, CustomColumn } from "@shared/schema";
 import { format, parse } from "date-fns";
 
@@ -157,23 +157,10 @@ export function ReportDrilldownModal({
         data-testid="dialog-report-drilldown"
       >
         <DialogHeader className="px-4 md:px-6 py-3 md:py-4 border-b">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="text-base md:text-lg truncate">{title}</DialogTitle>
-              <DialogDescription className="text-xs md:text-sm">
-                Showing {leads.length} of {total} leads
-              </DialogDescription>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onOpenChange(false)}
-              data-testid="button-close-drilldown"
-              className="shrink-0"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+          <DialogTitle className="text-base md:text-lg truncate">{title}</DialogTitle>
+          <DialogDescription className="text-xs md:text-sm">
+            Showing {leads.length} of {total} leads
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-auto px-2 md:px-6">
@@ -191,12 +178,10 @@ export function ReportDrilldownModal({
                 <TableHeader>
                   <TableRow>
                     {/* Dynamically render company columns */}
-                    {sortedColumns.map((column, index) => (
+                    {sortedColumns.map((column) => (
                       <TableHead 
                         key={column.id} 
-                        className={`min-w-[120px] text-xs md:text-sm whitespace-nowrap ${
-                          index === 0 ? 'sticky left-0 z-10 bg-background md:static' : ''
-                        }`}
+                        className="min-w-[120px] text-xs md:text-sm whitespace-nowrap"
                       >
                         {column.name}
                       </TableHead>
@@ -211,12 +196,10 @@ export function ReportDrilldownModal({
                   {leads.map((lead) => (
                     <TableRow key={lead.id} data-testid={`drilldown-lead-${lead.id}`}>
                       {/* Dynamically render company column values */}
-                      {sortedColumns.map((column, index) => (
+                      {sortedColumns.map((column) => (
                         <TableCell 
                           key={column.id} 
-                          className={`text-xs md:text-sm ${
-                            index === 0 ? 'sticky left-0 z-10 bg-background md:static' : ''
-                          }`}
+                          className="text-xs md:text-sm"
                         >
                           {renderCellValue(lead, column)}
                         </TableCell>
