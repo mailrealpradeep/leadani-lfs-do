@@ -798,3 +798,23 @@ export const insertReportSchema = createInsertSchema(reports).omit({
 });
 
 export type InsertReportData = z.infer<typeof insertReportSchema>;
+
+// ============================================================================
+// REPORT DRILLDOWN (Click-through to see underlying leads)
+// ============================================================================
+export interface DrilldownFilters {
+  [key: string]: string | number | null; // e.g., { lead_status: "Talked", lang: "Hindi" }
+}
+
+export interface DrilldownLead extends Lead {
+  sheet_name: string;
+  owner_name: string;
+}
+
+export interface DrilldownResponse {
+  leads: DrilldownLead[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}

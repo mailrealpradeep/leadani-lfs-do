@@ -3934,6 +3934,143 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/company/reports/:reportId/drilldown - Get leads for a specific data point
+  app.get("/api/company/reports/:reportId/drilldown", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const report = await storage.getReport(req.params.reportId);
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+
+      // Verify company access
+      if (req.userRole === "company_admin" && report.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access reports from other companies" });
+      }
+
+      // Parse filters from query params
+      const filters: Record<string, any> = {};
+      if (req.query.filters) {
+        try {
+          filters = JSON.parse(req.query.filters as string);
+        } catch (e) {
+          return res.status(400).json({ error: "Invalid filters format" });
+        }
+      }
+
+      // Parse pagination
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = (page - 1) * limit;
+
+      // Get filter sheet IDs from query parameters (if provided)
+      let filterSheetIds: string[] | null = null;
+      if (req.query.sheet_ids) {
+        const rawSheetIds = req.query.sheet_ids;
+        if (Array.isArray(rawSheetIds)) {
+          filterSheetIds = rawSheetIds.filter((id): id is string => typeof id === 'string');
+        } else if (typeof rawSheetIds === 'string') {
+          filterSheetIds = [rawSheetIds];
+        }
+      }
+
+      // Get accessible sheet IDs for the user
+      let accessibleSheetIds: string[] = [];
+      if (req.userRole === "company_admin" || req.userRole === "super_admin") {
+        const companyId = req.companyId || report.company_id;
+        
+        if (filterSheetIds) {
+          const companySheets = await storage.getSheetsByCompanyId(companyId);
+          const companySheetIds = companySheets.map(s => s.id);
+          accessibleSheetIds = filterSheetIds.filter(sheetId => companySheetIds.includes(sheetId));
+        } else {
+          accessibleSheetIds = Array.isArray(report.sheet_ids) && report.sheet_ids.length > 0
+            ? report.sheet_ids
+            : (await storage.getSheetsByCompanyId(companyId)).map(s => s.id);
+        }
+      } else {
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        const userSheetIds = userSheets.map(s => s.id);
+        
+        if (filterSheetIds) {
+          accessibleSheetIds = filterSheetIds.filter(sheetId => userSheetIds.includes(sheetId));
+        } else {
+          const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
+          accessibleSheetIds = reportSheetIds.filter(sheetId => userSheetIds.includes(sheetId));
+        }
+        
+        if (accessibleSheetIds.length === 0) {
+          return res.status(403).json({ error: "No access to sheets in this report" });
+        }
+      }
+
+      // Fetch all leads from accessible sheets (excluding soft-deleted)
+      const allLeads = (await Promise.all(
+        accessibleSheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
+      )).flat().filter(lead => !lead.deleted_at);
+
+      // Apply filters
+      let filteredLeads = allLeads.filter(lead => {
+        for (const [key, value] of Object.entries(filters)) {
+          // Check both direct properties and custom_fields
+          const leadValue = lead[key as keyof typeof lead] || lead.custom_fields?.[key];
+          
+          // Handle null/undefined comparisons
+          if (value === null || value === "null") {
+            if (leadValue !== null && leadValue !== undefined && leadValue !== "") {
+              return false;
+            }
+          } else if (leadValue !== value) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      // Apply date range filter if configured
+      if (report.config?.date_range) {
+        const { start, end } = report.config.date_range;
+        filteredLeads = filteredLeads.filter(lead => {
+          const leadDate = new Date(lead.created_at);
+          if (start && leadDate < new Date(start)) return false;
+          if (end && leadDate > new Date(end)) return false;
+          return true;
+        });
+      }
+
+      // Get total count before pagination
+      const total = filteredLeads.length;
+      const totalPages = Math.ceil(total / limit);
+
+      // Apply pagination
+      const paginatedLeads = filteredLeads.slice(offset, offset + limit);
+
+      // Enrich leads with sheet and owner information
+      const enrichedLeads = await Promise.all(
+        paginatedLeads.map(async (lead) => {
+          const sheet = await storage.getSheet(lead.sheet_id);
+          const owner = await storage.getUser(lead.owner_user_id);
+          
+          return {
+            ...lead,
+            sheet_name: sheet?.name || "Unknown",
+            owner_name: owner?.name || "Unknown",
+          };
+        })
+      );
+
+      res.json({
+        leads: enrichedLeads,
+        total,
+        page,
+        limit,
+        total_pages: totalPages,
+      });
+    } catch (error: any) {
+      console.error("Get report drilldown error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Helper functions for report data generation
   function generateLeadStatusDistribution(leads: any[]) {
     const statusCounts: Record<string, number> = {};

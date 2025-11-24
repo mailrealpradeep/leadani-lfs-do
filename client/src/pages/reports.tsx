@@ -37,6 +37,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
+import type { DrilldownFilters } from "@shared/schema";
 
 interface ReportDataResponse {
   report: Report;
@@ -81,6 +83,13 @@ export default function Reports() {
   const [aggregation, setAggregation] = useState("count");
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
+  
+  // Drilldown modal state
+  const [drilldownOpen, setDrilldownOpen] = useState(false);
+  const [drilldownFilters, setDrilldownFilters] = useState<DrilldownFilters>({});
+  const [drilldownTitle, setDrilldownTitle] = useState("");
+  const [drilldownReportId, setDrilldownReportId] = useState("");
+  const [drilldownSheetIds, setDrilldownSheetIds] = useState<string[]>([]);
 
   // Fetch all reports
   const { data: reports, isLoading: reportsLoading } = useQuery<Report[]>({
@@ -702,6 +711,11 @@ function ReportCard({
 }) {
   const [selectedSheetFilter, setSelectedSheetFilter] = useState<string>("all");
   
+  // Drilldown modal state
+  const [drilldownOpen, setDrilldownOpen] = useState(false);
+  const [drilldownFilters, setDrilldownFilters] = useState<DrilldownFilters>({});
+  const [drilldownTitle, setDrilldownTitle] = useState("");
+  
   // Fetch available sheets
   const { data: sheets } = useQuery<any[]>({
     queryKey: ["/api/sheets"],
@@ -716,6 +730,13 @@ function ReportCard({
   };
 
   const filteredSheetIds = getFilteredSheetIds();
+  
+  // Handle drilldown click
+  const handleDrilldownClick = (filters: DrilldownFilters, title: string) => {
+    setDrilldownFilters(filters);
+    setDrilldownTitle(title);
+    setDrilldownOpen(true);
+  };
   
   const { data: reportData, isLoading } = useQuery<ReportDataResponse>({
     queryKey: ["/api/company/reports", report.id, "data", filteredSheetIds],
@@ -789,7 +810,22 @@ function ReportCard({
                     {row.keys.map((key: string, j: number) => (
                       <td key={j} className="px-3 py-2 whitespace-nowrap">{key}</td>
                     ))}
-                    <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{row.value}</td>
+                    <td className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                      <button
+                        onClick={() => {
+                          const filters: DrilldownFilters = {};
+                          data.rowFields.forEach((field: string, idx: number) => {
+                            filters[field] = row.keys[idx];
+                          });
+                          const title = `${row.keys.join(" - ")} (${row.value} leads)`;
+                          handleDrilldownClick(filters, title);
+                        }}
+                        className="text-primary hover:underline cursor-pointer"
+                        data-testid={`drilldown-${row.keys.join("-")}`}
+                      >
+                        {row.value}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -822,9 +858,42 @@ function ReportCard({
                     <td key={j} className="px-3 py-2 sticky left-0 bg-background whitespace-nowrap z-10">{key}</td>
                   ))}
                   {data.columns.map((col: string) => (
-                    <td key={col} className="px-3 py-2 text-right whitespace-nowrap">{row[col] || 0}</td>
+                    <td key={col} className="px-3 py-2 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => {
+                          const filters: DrilldownFilters = {};
+                          data.rowFields.forEach((field: string, idx: number) => {
+                            filters[field] = row.keys[idx];
+                          });
+                          if (data.columnField) {
+                            filters[data.columnField] = col;
+                          }
+                          const title = `${row.keys.join(" - ")} - ${col} (${row[col] || 0} leads)`;
+                          handleDrilldownClick(filters, title);
+                        }}
+                        className="text-primary hover:underline cursor-pointer"
+                        data-testid={`drilldown-${row.keys.join("-")}-${col}`}
+                      >
+                        {row[col] || 0}
+                      </button>
+                    </td>
                   ))}
-                  <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{row.total}</td>
+                  <td className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                    <button
+                      onClick={() => {
+                        const filters: DrilldownFilters = {};
+                        data.rowFields.forEach((field: string, idx: number) => {
+                          filters[field] = row.keys[idx];
+                        });
+                        const title = `${row.keys.join(" - ")} - Total (${row.total} leads)`;
+                        handleDrilldownClick(filters, title);
+                      }}
+                      className="text-primary hover:underline cursor-pointer"
+                      data-testid={`drilldown-${row.keys.join("-")}-total`}
+                    >
+                      {row.total}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -850,6 +919,15 @@ function ReportCard({
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
+                onClick={(data: any) => {
+                  const xAxisField = report.config?.x_axis || "";
+                  const filters: DrilldownFilters = {
+                    [xAxisField]: data.name,
+                  };
+                  const title = `${data.name} (${data.value} leads)`;
+                  handleDrilldownClick(filters, title);
+                }}
+                cursor="pointer"
               >
                 {data.map((_: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -882,7 +960,19 @@ function ReportCard({
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="value" fill="#3b82f6" />
+              <Bar 
+                dataKey="value" 
+                fill="#3b82f6"
+                onClick={(data: any) => {
+                  const xAxisField = report.config?.x_axis || "";
+                  const filters: DrilldownFilters = {
+                    [xAxisField]: data.name,
+                  };
+                  const title = `${data.name} (${data.value} leads)`;
+                  handleDrilldownClick(filters, title);
+                }}
+                cursor="pointer"
+              />
             </RechartsBarChart>
           </ResponsiveContainer>
         );
@@ -890,78 +980,88 @@ function ReportCard({
   };
 
   return (
-    <Card 
-      data-testid={`card-report-${report.id}`}
-      className="w-fit min-w-[300px] max-w-full"
-    >
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-        <div className="flex-1 min-w-0">
-          <CardTitle className="text-lg">{report.name}</CardTitle>
-          {reportData && (
-            <CardDescription className="text-xs mt-1">
-              {reportData.total_leads} total leads
-            </CardDescription>
-          )}
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          {canEdit && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onEdit}
-              data-testid={`button-edit-report-${report.id}`}
-              className="h-8 w-8"
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-          )}
-          {canDelete && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onDelete}
-              data-testid={`button-delete-report-${report.id}`}
-              className="h-8 w-8"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {/* Sheet Filter Selector */}
-        {sheets && sheets.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-medium shrink-0">View:</Label>
-            <Select
-              value={selectedSheetFilter}
-              onValueChange={setSelectedSheetFilter}
-            >
-              <SelectTrigger 
-                className="h-8 text-xs w-auto min-w-[150px]"
-                data-testid={`select-sheet-filter-${report.id}`}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" data-testid={`select-option-all-${report.id}`}>
-                  All Sheets
-                </SelectItem>
-                {sheets.map((sheet) => (
-                  <SelectItem 
-                    key={sheet.id} 
-                    value={sheet.id}
-                    data-testid={`select-option-sheet-${sheet.id}`}
-                  >
-                    {sheet.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+    <>
+      <Card 
+        data-testid={`card-report-${report.id}`}
+        className="w-fit min-w-[300px] max-w-full"
+      >
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-lg">{report.name}</CardTitle>
+            {reportData && (
+              <CardDescription className="text-xs mt-1">
+                {reportData.total_leads} total leads
+              </CardDescription>
+            )}
           </div>
-        )}
-        {renderVisualization()}
-      </CardContent>
-    </Card>
+          <div className="flex items-center gap-1 shrink-0">
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onEdit}
+                data-testid={`button-edit-report-${report.id}`}
+                className="h-8 w-8"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onDelete}
+                data-testid={`button-delete-report-${report.id}`}
+                className="h-8 w-8"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Sheet Filter Selector */}
+          {sheets && sheets.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Label className="text-xs font-medium shrink-0">View:</Label>
+              <Select
+                value={selectedSheetFilter}
+                onValueChange={setSelectedSheetFilter}
+              >
+                <SelectTrigger 
+                  className="h-8 text-xs w-auto min-w-[150px]"
+                  data-testid={`select-sheet-filter-${report.id}`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" data-testid={`select-option-all-${report.id}`}>
+                    All Sheets
+                  </SelectItem>
+                  {sheets.map((sheet) => (
+                    <SelectItem 
+                      key={sheet.id} 
+                      value={sheet.id}
+                      data-testid={`select-option-sheet-${sheet.id}`}
+                    >
+                      {sheet.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {renderVisualization()}
+        </CardContent>
+      </Card>
+      <ReportDrilldownModal
+        open={drilldownOpen}
+        onOpenChange={setDrilldownOpen}
+        reportId={report.id}
+        filters={drilldownFilters}
+        title={drilldownTitle}
+        sheetIds={filteredSheetIds || []}
+      />
+    </>
   );
 }
