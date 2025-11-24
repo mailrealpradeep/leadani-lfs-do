@@ -158,6 +158,17 @@ export function SpreadsheetGrid({
     mutationFn: async (preferences: Record<string, number>) => {
       return await apiRequest("POST", `/api/sheets/${sheetId}/column-preferences`, { preferences });
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "column-preferences"] });
+    },
+    onError: (error: any) => {
+      console.error("Failed to save column preferences:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save column width preferences",
+        variant: "destructive",
+      });
+    },
   });
 
   const isLoading = isLoadingLeads || isLoadingColumns;
