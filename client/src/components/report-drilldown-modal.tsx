@@ -68,8 +68,12 @@ export function ReportDrilldownModal({
   const { data, isLoading } = useQuery<DrilldownResponse>({
     queryKey: ["/api/company/reports", reportId, "drilldown", filters, page, sheetIds],
     queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
       const res = await fetch(`/api/company/reports/${reportId}/drilldown?${queryParams.toString()}`, {
         credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!res.ok) throw new Error("Failed to fetch drilldown data");
       return res.json();
