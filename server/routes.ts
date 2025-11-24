@@ -718,6 +718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let isDuplicate = false;
       let isTransferred = false;
       let previousOwnerName = "";
+      let oldSheetId: string | null = null;
 
       if (mobileNo) {
         const existingLead = await storage.findLeadByMobileNo(webhook.company_id, mobileNo);
@@ -763,6 +764,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Check if lead needs to be transferred to different sheet
           if (existingLead.sheet_id !== targetSheetId) {
+            // Save old sheet ID for Socket.io events
+            oldSheetId = existingLead.sheet_id;
+            
             // Get previous owner info
             const previousOwner = await storage.getUser(existingLead.owner_user_id);
             previousOwnerName = previousOwner?.name || "Unknown";
@@ -853,6 +857,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateCompanyWebhook(webhook.id, {
         last_allocated_sheet_id: targetSheetId,
       });
+
+      // Emit real-time events for frontend sync
+      const io = app.get("io") as SocketIOServer;
+      if (isDuplicate) {
+        if (isTransferred) {
+          // Lead was transferred - emit delete from old sheet and create in new sheet
+          if (oldSheetId) {
+            io.to(`sheet:${oldSheetId}`).emit("lead_deleted", { id: lead.id });
+          }
+          io.to(`sheet:${targetSheetId}`).emit("lead_created", lead);
+        } else {
+          // Lead was updated in same sheet
+          io.to(`sheet:${targetSheetId}`).emit("lead_updated", lead);
+        }
+      } else {
+        // New lead created
+        io.to(`sheet:${targetSheetId}`).emit("lead_created", lead);
+      }
 
       requestStatus = "success";
       
