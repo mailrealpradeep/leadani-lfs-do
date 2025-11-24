@@ -347,11 +347,11 @@ export default function Reports() {
 
   if (reportsLoading) {
     return (
-      <div className="h-full overflow-y-auto p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold">Reports</h1>
+      <div className="h-full overflow-y-auto p-4 md:p-6">
+        <div className="flex items-center justify-between mb-4 md:mb-6">
+          <h1 className="text-xl md:text-2xl font-semibold">Reports</h1>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           {[1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-96" />
           ))}
@@ -361,17 +361,22 @@ export default function Reports() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div className="h-full overflow-y-auto p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 md:mb-6">
         <div>
-          <h1 className="text-2xl font-semibold">Reports</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl md:text-2xl font-semibold">Reports</h1>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">
             Build custom reports with dynamic axis selection
           </p>
         </div>
         {user?.role !== "user" && (
-          <Button onClick={() => setBuilderOpen(true)} data-testid="button-create-report">
+          <Button 
+            onClick={() => setBuilderOpen(true)} 
+            data-testid="button-create-report"
+            size="sm"
+            className="w-full sm:w-auto"
+          >
             <Plus className="h-4 w-4 mr-2" />
             New Report
           </Button>
@@ -380,15 +385,19 @@ export default function Reports() {
 
       {/* Empty State */}
       {!reports || reports.length === 0 ? (
-        <Card className="p-12">
+        <Card className="p-6 md:p-12">
           <div className="flex flex-col items-center justify-center text-center">
-            <BarChart3 className="h-16 w-16 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No reports yet</h3>
-            <p className="text-sm text-muted-foreground mb-4">
+            <BarChart3 className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
+            <h3 className="text-base md:text-lg font-semibold mb-2">No reports yet</h3>
+            <p className="text-xs md:text-sm text-muted-foreground mb-4">
               Create your first custom report to visualize your data
             </p>
             {user?.role !== "user" && (
-              <Button onClick={() => setBuilderOpen(true)} data-testid="button-create-first-report">
+              <Button 
+                onClick={() => setBuilderOpen(true)} 
+                data-testid="button-create-first-report"
+                size="sm"
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 Create Report
               </Button>
@@ -396,7 +405,7 @@ export default function Reports() {
           </div>
         </Card>
       ) : (
-        <div className="flex flex-wrap gap-6">
+        <div className="flex flex-wrap gap-4 md:gap-6">
           {reports.map((report) => (
             <ReportCard
               key={report.id}
@@ -790,16 +799,16 @@ function ReportCard({
       // Simple table (no column pivot)
       if (data.type === "simple") {
         return (
-          <div className="overflow-x-auto max-h-96">
-            <table className="text-sm" style={{ width: "auto", minWidth: "100%" }}>
+          <div className="overflow-x-auto max-h-96 -mx-2 md:mx-0">
+            <table className="text-xs md:text-sm" style={{ width: "auto", minWidth: "100%" }}>
               <thead className="bg-muted">
                 <tr>
                   {data.rowFields.map((field: string, i: number) => (
-                    <th key={i} className="px-3 py-2 text-left font-medium whitespace-nowrap">
+                    <th key={i} className="px-2 md:px-3 py-2 text-left font-medium whitespace-nowrap">
                       {field.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
                     </th>
                   ))}
-                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                  <th className="px-2 md:px-3 py-2 text-right font-medium whitespace-nowrap">
                     {data.aggregation === "count" ? "Count" : data.aggregation === "sum" ? "Sum" : "Average"}
                   </th>
                 </tr>
@@ -808,9 +817,9 @@ function ReportCard({
                 {data.rows.map((row: any, i: number) => (
                   <tr key={i} className="border-b hover-elevate">
                     {row.keys.map((key: string, j: number) => (
-                      <td key={j} className="px-3 py-2 whitespace-nowrap">{key}</td>
+                      <td key={j} className="px-2 md:px-3 py-2 whitespace-nowrap">{key}</td>
                     ))}
-                    <td className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                    <td className="px-2 md:px-3 py-2 text-right font-medium whitespace-nowrap">
                       <button
                         onClick={() => {
                           const filters: DrilldownFilters = {};
@@ -836,29 +845,29 @@ function ReportCard({
 
       // Full pivot table (with column pivot)
       return (
-        <div className="overflow-x-auto max-h-96">
-          <table className="text-sm" style={{ width: "auto", minWidth: "100%" }}>
+        <div className="overflow-x-auto max-h-96 -mx-2 md:mx-0">
+          <table className="text-xs md:text-sm" style={{ width: "auto", minWidth: "100%" }}>
             <thead className="bg-muted">
               <tr>
                 {data.rowFields.map((field: string, i: number) => (
-                  <th key={i} className="px-3 py-2 text-left font-medium sticky left-0 bg-muted whitespace-nowrap z-10">
+                  <th key={i} className="px-2 md:px-3 py-2 text-left font-medium sticky left-0 bg-muted whitespace-nowrap z-10">
                     {field.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
                   </th>
                 ))}
                 {data.columns.map((col: string) => (
-                  <th key={col} className="px-3 py-2 text-right font-medium whitespace-nowrap">{col}</th>
+                  <th key={col} className="px-2 md:px-3 py-2 text-right font-medium whitespace-nowrap">{col}</th>
                 ))}
-                <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Total</th>
+                <th className="px-2 md:px-3 py-2 text-right font-medium whitespace-nowrap">Total</th>
               </tr>
             </thead>
             <tbody>
               {data.rows.map((row: any, i: number) => (
                 <tr key={i} className="border-b hover-elevate">
                   {row.keys.map((key: string, j: number) => (
-                    <td key={j} className="px-3 py-2 sticky left-0 bg-background whitespace-nowrap z-10">{key}</td>
+                    <td key={j} className="px-2 md:px-3 py-2 sticky left-0 bg-background whitespace-nowrap z-10">{key}</td>
                   ))}
                   {data.columns.map((col: string) => (
-                    <td key={col} className="px-3 py-2 text-right whitespace-nowrap">
+                    <td key={col} className="px-2 md:px-3 py-2 text-right whitespace-nowrap">
                       <button
                         onClick={() => {
                           const filters: DrilldownFilters = {};
@@ -878,7 +887,7 @@ function ReportCard({
                       </button>
                     </td>
                   ))}
-                  <td className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                  <td className="px-2 md:px-3 py-2 text-right font-medium whitespace-nowrap">
                     <button
                       onClick={() => {
                         const filters: DrilldownFilters = {};
@@ -904,19 +913,21 @@ function ReportCard({
 
     // Render charts
     const chartType = report.config?.chart_type || "bar";
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const chartHeight = isMobile ? 300 : chartType === "pie" ? 400 : 250;
 
     switch (chartType) {
       case "pie":
         return (
-          <ResponsiveContainer width="100%" height={400}>
+          <ResponsiveContainer width="100%" height={chartHeight}>
             <RechartsPieChart>
               <Pie
                 data={data}
                 cx="50%"
-                cy="45%"
+                cy={isMobile ? "40%" : "45%"}
                 labelLine={false}
                 label={false}
-                outerRadius={100}
+                outerRadius={isMobile ? 80 : 100}
                 fill="#8884d8"
                 dataKey="value"
                 onClick={(data: any, index: number, event: any) => {
@@ -941,11 +952,15 @@ function ReportCard({
                 layout="horizontal" 
                 align="center" 
                 verticalAlign="bottom"
-                wrapperStyle={{ paddingTop: '20px', paddingBottom: '10px' }}
+                wrapperStyle={{ 
+                  paddingTop: isMobile ? '10px' : '20px', 
+                  paddingBottom: '10px',
+                  fontSize: isMobile ? '11px' : '12px'
+                }}
                 formatter={(value: string, entry: any) => {
                   const total = data.reduce((sum: number, item: any) => sum + item.value, 0);
                   const percent = ((entry.payload.value / total) * 100).toFixed(0);
-                  return `${value}: ${percent}%`;
+                  return isMobile ? `${percent}%` : `${value}: ${percent}%`;
                 }}
               />
             </RechartsPieChart>
@@ -954,11 +969,17 @@ function ReportCard({
 
       case "line":
         return (
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={chartHeight}>
             <RechartsLineChart data={data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
+              <XAxis 
+                dataKey="name" 
+                tick={{ fontSize: isMobile ? 10 : 12 }}
+                angle={isMobile ? -45 : 0}
+                textAnchor={isMobile ? "end" : "middle"}
+                height={isMobile ? 60 : 30}
+              />
+              <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
               <Tooltip />
               <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} />
             </RechartsLineChart>
@@ -968,11 +989,17 @@ function ReportCard({
       case "bar":
       default:
         return (
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={chartHeight}>
             <RechartsBarChart data={data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
+              <XAxis 
+                dataKey="name" 
+                tick={{ fontSize: isMobile ? 10 : 12 }}
+                angle={isMobile ? -45 : 0}
+                textAnchor={isMobile ? "end" : "middle"}
+                height={isMobile ? 60 : 30}
+              />
+              <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
               <Tooltip />
               <Bar 
                 dataKey="value" 
@@ -997,11 +1024,11 @@ function ReportCard({
     <>
       <Card 
         data-testid={`card-report-${report.id}`}
-        className="w-fit min-w-[450px] max-w-[600px]"
+        className="w-full lg:w-auto lg:min-w-[450px] lg:max-w-[600px]"
       >
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+        <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 space-y-0 pb-2">
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-lg">{report.name}</CardTitle>
+            <CardTitle className="text-base md:text-lg truncate">{report.name}</CardTitle>
             {reportData && (
               <CardDescription className="text-xs mt-1">
                 {reportData.total_leads} total leads
@@ -1017,7 +1044,7 @@ function ReportCard({
                 data-testid={`button-edit-report-${report.id}`}
                 className="h-8 w-8"
               >
-                <Pencil className="h-4 w-4" />
+                <Pencil className="h-3 w-3 md:h-4 md:w-4" />
               </Button>
             )}
             {canDelete && (
@@ -1028,7 +1055,7 @@ function ReportCard({
                 data-testid={`button-delete-report-${report.id}`}
                 className="h-8 w-8"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-3 w-3 md:h-4 md:w-4" />
               </Button>
             )}
           </div>
@@ -1043,7 +1070,7 @@ function ReportCard({
                 onValueChange={setSelectedSheetFilter}
               >
                 <SelectTrigger 
-                  className="h-8 text-xs w-auto min-w-[150px]"
+                  className="h-8 text-xs flex-1 sm:w-auto sm:min-w-[150px]"
                   data-testid={`select-sheet-filter-${report.id}`}
                 >
                   <SelectValue />
