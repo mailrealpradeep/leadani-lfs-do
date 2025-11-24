@@ -2006,6 +2006,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/sheets/:id", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
+      const { password } = req.body;
+
+      // Verify password is provided
+      if (!password) {
+        return res.status(400).json({ error: "Password is required to delete a sheet" });
+      }
+
+      // Get the current user to verify password
+      const user = await storage.getUser(req.userId!);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Verify password
+      const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+      if (!isPasswordValid) {
+        return res.status(401).json({ error: "Incorrect password" });
+      }
+
       const sheet = await storage.getSheet(req.params.id);
       if (!sheet || sheet.deleted_at) {
         return res.status(404).json({ error: "Sheet not found" });

@@ -55,6 +55,7 @@ export function AppSidebar() {
   } = useDashboard();
   const { toast } = useToast();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
 
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -72,13 +73,14 @@ export function AppSidebar() {
   );
 
   const deleteMutation = useMutation({
-    mutationFn: async (sheetId: string) => {
-      return await apiRequest("DELETE", `/api/sheets/${sheetId}`);
+    mutationFn: async ({ sheetId, password }: { sheetId: string; password: string }) => {
+      return await apiRequest("DELETE", `/api/sheets/${sheetId}`, { password });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
       setSelectedSheetId(null);
       setIsDeleteDialogOpen(false);
+      setDeletePassword("");
       toast({
         title: "Sheet deleted",
         description: "The sheet has been permanently deleted",
@@ -347,7 +349,10 @@ export function AppSidebar() {
         </SidebarFooter>
       </Sidebar>
 
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
+        setIsDeleteDialogOpen(open);
+        if (!open) setDeletePassword("");
+      }}>
         <AlertDialogContent data-testid="dialog-delete-sheet">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete sheet?</AlertDialogTitle>
@@ -356,17 +361,37 @@ export function AppSidebar() {
               This will permanently delete the sheet and all its leads. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="py-4">
+            <label htmlFor="delete-password" className="text-sm font-medium mb-2 block">
+              Enter your account password to confirm
+            </label>
+            <Input
+              id="delete-password"
+              type="password"
+              placeholder="Your password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              data-testid="input-delete-password"
+              className="w-full"
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete-sheet">
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => selectedSheetId && deleteMutation.mutate(selectedSheetId)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            <Button
+              onClick={(e) => {
+                e.preventDefault();
+                if (selectedSheetId && deletePassword) {
+                  deleteMutation.mutate({ sheetId: selectedSheetId, password: deletePassword });
+                }
+              }}
+              disabled={!deletePassword || deleteMutation.isPending}
+              variant="destructive"
               data-testid="button-confirm-delete-sheet"
             >
-              Delete
-            </AlertDialogAction>
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
