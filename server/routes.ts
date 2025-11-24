@@ -712,27 +712,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: errorMessage });
       }
 
-      // Create the lead in the target sheet with all fields in custom_fields
-      const lead = await storage.createLead({
-        sheet_id: targetSheetId,
-        owner_user_id: webhook.created_by_user_id,
-        custom_fields: {
-          name: leadData.name || "",
-          mobile_no: leadData.mobile_no || "",
-          whatsapp: leadData.whatsapp || leadData.mobile_no || "",
-          lang: leadData.lang || "",
-          occupation: leadData.occupation || "",
-          qualification: leadData.qualification || "",
-          lead_date: leadData.lead_date || new Date().toISOString().split('T')[0],
-          lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
-          lead_status: leadData.lead_status || "New",
-          visit_status: leadData.visit_status || "Not Visited",
-          ...leadData,
-        },
-        meta: leadData.meta || {},
-      });
+      // Check for duplicate lead based on mobile_no
+      const mobileNo = leadData.mobile_no;
+      let lead: Lead;
+      let isDuplicate = false;
+      let isTransferred = false;
+      let previousOwnerName = "";
 
-      createdLeadId = lead.id;
+      if (mobileNo) {
+        const existingLead = await storage.findLeadByMobileNo(webhook.company_id, mobileNo);
+        
+        if (existingLead) {
+          isDuplicate = true;
+          const today = new Date().toISOString().split('T')[0];
+          
+          // Restore if soft-deleted
+          if (existingLead.deleted_at) {
+            await storage.restoreLead(existingLead.id);
+            await storage.createLeadUpdate({
+              lead_id: existingLead.id,
+              update_via: "webhook",
+              update_on: today,
+              remark: "Restored due to new lead receipt via webhook",
+              created_by_user_id: webhook.created_by_user_id,
+            });
+          }
+          
+          // Merge new data with existing lead (only update non-empty fields)
+          const mergedCustomFields = { ...existingLead.custom_fields };
+          for (const [key, value] of Object.entries(leadData)) {
+            if (value !== undefined && value !== null && value !== "") {
+              mergedCustomFields[key] = value;
+            }
+          }
+          // Always update lead_date to today
+          mergedCustomFields.lead_date = today;
+          
+          // Update the existing lead
+          const updated = await storage.updateLead(existingLead.id, {
+            custom_fields: mergedCustomFields,
+            deleted_at: null, // Ensure it's not soft-deleted
+          });
+          
+          if (!updated) {
+            errorMessage = "Failed to update existing lead";
+            return res.status(500).json({ error: errorMessage });
+          }
+          
+          lead = updated;
+          
+          // Check if lead needs to be transferred to different sheet
+          if (existingLead.sheet_id !== targetSheetId) {
+            // Get previous owner info
+            const previousOwner = await storage.getUser(existingLead.owner_user_id);
+            previousOwnerName = previousOwner?.name || "Unknown";
+            const newOwner = webhookCreator;
+            
+            // Transfer the lead to new sheet
+            await storage.updateLead(existingLead.id, {
+              sheet_id: targetSheetId,
+              owner_user_id: webhook.created_by_user_id,
+            });
+            
+            isTransferred = true;
+            
+            // Create transfer update
+            await storage.createLeadUpdate({
+              lead_id: existingLead.id,
+              update_via: "transfer",
+              update_on: today,
+              remark: `Repeat Lead: Transferred from ${previousOwnerName} to ${newOwner.name}`,
+              created_by_user_id: webhook.created_by_user_id,
+            });
+            
+            // Get updated lead after transfer
+            const transferredLead = await storage.getLead(existingLead.id);
+            if (transferredLead) {
+              lead = transferredLead;
+            }
+          }
+          
+          // Create repeat lead update
+          await storage.createLeadUpdate({
+            lead_id: existingLead.id,
+            update_via: "webhook",
+            update_on: today,
+            remark: `Repeat lead received via webhook on ${today}`,
+            created_by_user_id: webhook.created_by_user_id,
+          });
+          
+          createdLeadId = existingLead.id;
+        } else {
+          // No duplicate - create new lead
+          lead = await storage.createLead({
+            sheet_id: targetSheetId,
+            owner_user_id: webhook.created_by_user_id,
+            custom_fields: {
+              name: leadData.name || "",
+              mobile_no: leadData.mobile_no || "",
+              whatsapp: leadData.whatsapp || leadData.mobile_no || "",
+              lang: leadData.lang || "",
+              occupation: leadData.occupation || "",
+              qualification: leadData.qualification || "",
+              lead_date: leadData.lead_date || new Date().toISOString().split('T')[0],
+              lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+              lead_status: leadData.lead_status || "New",
+              visit_status: leadData.visit_status || "Not Visited",
+              ...leadData,
+            },
+            meta: leadData.meta || {},
+          });
+          
+          createdLeadId = lead.id;
+        }
+      } else {
+        // No mobile_no provided - create new lead
+        lead = await storage.createLead({
+          sheet_id: targetSheetId,
+          owner_user_id: webhook.created_by_user_id,
+          custom_fields: {
+            name: leadData.name || "",
+            mobile_no: leadData.mobile_no || "",
+            whatsapp: leadData.whatsapp || leadData.mobile_no || "",
+            lang: leadData.lang || "",
+            occupation: leadData.occupation || "",
+            qualification: leadData.qualification || "",
+            lead_date: leadData.lead_date || new Date().toISOString().split('T')[0],
+            lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+            lead_status: leadData.lead_status || "New",
+            visit_status: leadData.visit_status || "Not Visited",
+            ...leadData,
+          },
+          meta: leadData.meta || {},
+        });
+        
+        createdLeadId = lead.id;
+      }
 
       // Update webhook's last allocated sheet for round-robin
       await storage.updateCompanyWebhook(webhook.id, {
@@ -740,11 +855,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       requestStatus = "success";
+      
+      // Build response message based on what happened
+      let message = "Lead created successfully";
+      if (isDuplicate) {
+        if (isTransferred) {
+          message = `Duplicate lead updated and transferred to ${webhookCreator.name}`;
+        } else {
+          message = "Duplicate lead updated successfully";
+        }
+      }
+      
       res.status(201).json({ 
         success: true, 
         lead_id: lead.id,
         sheet_id: targetSheetId,
-        message: "Lead created successfully"
+        is_duplicate: isDuplicate,
+        is_transferred: isTransferred,
+        message
       });
     } catch (error: any) {
       console.error("Webhook ingestion error:", error);
