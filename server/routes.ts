@@ -2071,6 +2071,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/sheets/:sheetId/column-preferences - Get user's column width preferences for a sheet
+  app.get("/api/sheets/:sheetId/column-preferences", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
+    try {
+      const preferences = await storage.getUserColumnPreferences(req.userId!, req.params.sheetId);
+      
+      // Convert to a more convenient format for the frontend
+      const preferencesMap: Record<string, number> = {};
+      preferences.forEach(pref => {
+        preferencesMap[pref.column_key] = pref.width;
+      });
+      
+      res.json(preferencesMap);
+    } catch (error: any) {
+      console.error("Get column preferences error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/sheets/:sheetId/column-preferences - Save user's column width preferences for a sheet
+  app.post("/api/sheets/:sheetId/column-preferences", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
+    try {
+      const { preferences } = req.body;
+      
+      // Validate preferences format
+      if (!preferences || typeof preferences !== 'object') {
+        return res.status(400).json({ error: "preferences must be an object" });
+      }
+      
+      // Convert from { column_key: width } to array format with validation
+      const preferencesArray = Object.entries(preferences)
+        .map(([column_key, width]) => {
+          const numWidth = Number(width);
+          // Validate width is a finite number >= 60
+          if (!isFinite(numWidth) || numWidth < 60) {
+            throw new Error(`Invalid width for column ${column_key}: must be a finite number >= 60`);
+          }
+          return {
+            column_key,
+            width: numWidth
+          };
+        });
+      
+      await storage.saveUserColumnPreferences(req.userId!, req.params.sheetId, preferencesArray);
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Save column preferences error:", error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // SHEET USER ASSIGNMENT (Company Admin)
   // ============================================================================

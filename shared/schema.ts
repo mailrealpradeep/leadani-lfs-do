@@ -800,6 +800,30 @@ export const insertReportSchema = createInsertSchema(reports).omit({
 export type InsertReportData = z.infer<typeof insertReportSchema>;
 
 // ============================================================================
+// USER COLUMN PREFERENCES (Column Width Customization)
+// ============================================================================
+export const userColumnPreferences = pgTable('user_column_preferences', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  column_key: varchar('column_key').notNull(), // e.g., "name", "mobile", "custom_field_name"
+  width: integer('width').notNull(), // width in pixels
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type UserColumnPreference = typeof userColumnPreferences.$inferSelect;
+export type InsertUserColumnPreference = typeof userColumnPreferences.$inferInsert;
+
+export const insertUserColumnPreferenceSchema = createInsertSchema(userColumnPreferences).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertUserColumnPreferenceData = z.infer<typeof insertUserColumnPreferenceSchema>;
+
+// ============================================================================
 // REPORT DRILLDOWN (Click-through to see underlying leads)
 // ============================================================================
 export interface DrilldownFilters {

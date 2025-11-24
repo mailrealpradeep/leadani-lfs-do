@@ -36,6 +36,7 @@ import type {
   InsertWebhookRequest,
   Report,
   InsertReport,
+  UserColumnPreference,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -178,6 +179,10 @@ export interface IStorage {
   createReport(report: InsertReport): Promise<Report>;
   updateReport(id: string, updates: Partial<Report>): Promise<Report | undefined>;
   deleteReport(id: string): Promise<boolean>;
+
+  // User Column Preferences
+  getUserColumnPreferences(userId: string, sheetId: string): Promise<UserColumnPreference[]>;
+  saveUserColumnPreferences(userId: string, sheetId: string, preferences: Array<{column_key: string, width: number}>): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -195,6 +200,7 @@ export class MemStorage implements IStorage {
   private leadUpdates: Map<string, LeadUpdate>;
   private invites: Map<string, Invite>;
   private reports: Map<string, Report>;
+  private userColumnPreferences: Map<string, UserColumnPreference>;
 
   constructor() {
     this.companies = new Map();
@@ -211,6 +217,7 @@ export class MemStorage implements IStorage {
     this.leadUpdates = new Map();
     this.invites = new Map();
     this.reports = new Map();
+    this.userColumnPreferences = new Map();
   }
 
   // Companies
@@ -1060,6 +1067,37 @@ export class MemStorage implements IStorage {
 
   async deleteReport(id: string): Promise<boolean> {
     return this.reports.delete(id);
+  }
+
+  // User Column Preferences
+  async getUserColumnPreferences(userId: string, sheetId: string): Promise<UserColumnPreference[]> {
+    return Array.from(this.userColumnPreferences.values()).filter(
+      pref => pref.user_id === userId && pref.sheet_id === sheetId
+    );
+  }
+
+  async saveUserColumnPreferences(userId: string, sheetId: string, preferences: Array<{column_key: string, width: number}>): Promise<void> {
+    // Delete existing preferences for this user+sheet combo
+    const toDelete = Array.from(this.userColumnPreferences.entries())
+      .filter(([_, pref]) => pref.user_id === userId && pref.sheet_id === sheetId)
+      .map(([id]) => id);
+    toDelete.forEach(id => this.userColumnPreferences.delete(id));
+
+    // Insert new preferences
+    const now = new Date().toISOString();
+    preferences.forEach(pref => {
+      const id = randomUUID();
+      const preference: UserColumnPreference = {
+        id,
+        user_id: userId,
+        sheet_id: sheetId,
+        column_key: pref.column_key,
+        width: pref.width,
+        created_at: now,
+        updated_at: now,
+      };
+      this.userColumnPreferences.set(id, preference);
+    });
   }
 }
 
@@ -2198,7 +2236,51 @@ export class PgStorage implements IStorage {
     return true;
   }
 
+  // User Column Preferences
+  async getUserColumnPreferences(userId: string, sheetId: string): Promise<UserColumnPreference[]> {
+    const result = await db.select()
+      .from(dbSchema.userColumnPreferences)
+      .where(and(
+        eq(dbSchema.userColumnPreferences.user_id, userId),
+        eq(dbSchema.userColumnPreferences.sheet_id, sheetId)
+      ));
+    return result.map(this.mapUserColumnPreference.bind(this));
+  }
+
+  async saveUserColumnPreferences(userId: string, sheetId: string, preferences: Array<{column_key: string, width: number}>): Promise<void> {
+    // Delete existing preferences for this user+sheet combo
+    await db.delete(dbSchema.userColumnPreferences)
+      .where(and(
+        eq(dbSchema.userColumnPreferences.user_id, userId),
+        eq(dbSchema.userColumnPreferences.sheet_id, sheetId)
+      ));
+
+    // Insert new preferences
+    if (preferences.length > 0) {
+      const now = new Date();
+      await db.insert(dbSchema.userColumnPreferences).values(
+        preferences.map(pref => ({
+          id: randomUUID(),
+          user_id: userId,
+          sheet_id: sheetId,
+          column_key: pref.column_key,
+          width: pref.width,
+          created_at: now,
+          updated_at: now,
+        }))
+      );
+    }
+  }
+
   private mapReport(row: any): Report {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapUserColumnPreference(row: any): UserColumnPreference {
     return {
       ...row,
       created_at: row.created_at?.toISOString() || row.created_at,

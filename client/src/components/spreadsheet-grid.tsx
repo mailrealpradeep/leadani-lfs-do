@@ -121,6 +121,13 @@ export function SpreadsheetGrid({
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
 
+  // Column resizing state
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [resizingColumn, setResizingColumn] = useState<string | null>(null);
+  const resizeStartX = useRef<number>(0);
+  const resizeStartWidth = useRef<number>(0);
+  const hasMovedRef = useRef<boolean>(false);
+
   const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
     queryKey: ["/api/sheets", sheetId, "leads"],
     enabled: !!sheetId,
@@ -138,6 +145,19 @@ export function SpreadsheetGrid({
   const { data: validationRules = [] } = useQuery<ValidationRule[]>({
     queryKey: ["/api/sheets", sheetId, "validation-rules"],
     enabled: !!sheetId,
+  });
+
+  // Load column width preferences
+  const { data: columnPreferences = {} } = useQuery<Record<string, number>>({
+    queryKey: ["/api/sheets", sheetId, "column-preferences"],
+    enabled: !!sheetId,
+  });
+
+  // Save column width preferences mutation
+  const saveColumnPreferencesMutation = useMutation({
+    mutationFn: async (preferences: Record<string, number>) => {
+      return await apiRequest("POST", `/api/sheets/${sheetId}/column-preferences`, { preferences });
+    },
   });
 
   const isLoading = isLoadingLeads || isLoadingColumns;
@@ -376,14 +396,97 @@ export function SpreadsheetGrid({
     return lead.custom_fields[columnKey];
   };
 
+  // Sync column preferences into local state when loaded or sheet changes
+  useEffect(() => {
+    // Always sync preferences from backend (could be empty object for sheets without saved prefs)
+    setColumnWidths(columnPreferences);
+  }, [columnPreferences, sheetId]);
+
+  // Column resize handlers
+  const handleResizeStart = (e: React.MouseEvent, columnKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizingColumn(columnKey);
+    resizeStartX.current = e.clientX;
+    hasMovedRef.current = false;
+    
+    // Get current width - use saved width or parse default width for the column type
+    const column = columns.find(c => c.key === columnKey);
+    const defaultWidth = column ? parseInt(column.width) : 120;
+    const currentWidth = columnWidths[columnKey] || defaultWidth;
+    resizeStartWidth.current = currentWidth;
+  };
+
+  const handleResizeMove = useCallback((e: MouseEvent) => {
+    if (!resizingColumn) return;
+    
+    const deltaX = e.clientX - resizeStartX.current;
+    if (Math.abs(deltaX) > 2) {
+      hasMovedRef.current = true;
+    }
+    
+    const newWidth = Math.max(60, resizeStartWidth.current + deltaX); // Min width 60px
+    
+    setColumnWidths(prev => ({
+      ...prev,
+      [resizingColumn]: newWidth
+    }));
+  }, [resizingColumn]);
+
+  const handleResizeEnd = useCallback(() => {
+    if (resizingColumn && hasMovedRef.current) {
+      const newWidth = columnWidths[resizingColumn];
+      // Only save if we have a valid width (use explicit numeric check, not truthiness)
+      if (Number.isFinite(newWidth) && newWidth >= 60) {
+        // Filter to only include defined widths in the payload
+        const updatedPreferences: Record<string, number> = {};
+        Object.entries(columnWidths).forEach(([key, value]) => {
+          if (Number.isFinite(value) && value >= 60) {
+            updatedPreferences[key] = value;
+          }
+        });
+        saveColumnPreferencesMutation.mutate(updatedPreferences);
+      }
+    }
+    setResizingColumn(null);
+    hasMovedRef.current = false;
+  }, [resizingColumn, columnWidths, saveColumnPreferencesMutation]);
+
+  // Add/remove event listeners for column resizing
+  useEffect(() => {
+    if (resizingColumn) {
+      document.addEventListener('mousemove', handleResizeMove);
+      document.addEventListener('mouseup', handleResizeEnd);
+      return () => {
+        document.removeEventListener('mousemove', handleResizeMove);
+        document.removeEventListener('mouseup', handleResizeEnd);
+      };
+    }
+  }, [resizingColumn, handleResizeMove, handleResizeEnd]);
+
+  // Helper to get column width (from saved preferences or defaults)
+  const getColumnWidth = (columnKey: string, colType: string): string => {
+    const savedWidth = columnWidths[columnKey];
+    if (savedWidth) return `${savedWidth}px`;
+    
+    // Default widths
+    if (columnKey === "name") return "260px";
+    if (colType === "text") return "120px";
+    if (colType === "number") return "90px";
+    if (colType === "date") return "110px";
+    if (colType === "boolean") return "90px";
+    if (colType === "mobile") return "130px";
+    if (colType === "percentage") return "100px";
+    return "120px";
+  };
+
   // Convert CustomColumn to display columns (must be before filteredAndSortedLeads)
   const columns = customColumns
     .sort((a, b) => a.order_index - b.order_index)
     .map((col) => ({
       key: col.column_key,
       label: col.name,
-      // Special width for name column to accommodate longer names with wrapping
-      width: col.column_key === "name" ? "260px" : col.type === "text" ? "120px" : col.type === "number" ? "90px" : col.type === "date" ? "110px" : col.type === "boolean" ? "90px" : col.type === "mobile" ? "130px" : col.type === "percentage" ? "100px" : "120px",
+      width: getColumnWidth(col.column_key, col.type),
       sortable: true,
       dropdown: col.type === "dropdown",
       type: col.type,
@@ -955,8 +1058,17 @@ export function SpreadsheetGrid({
                 {visibleColumns.map((col) => (
                   <div
                     key={col.key}
-                    className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide"
+                    className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide relative"
                   >
+                    {/* Resize Handle */}
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary z-30 group"
+                      onMouseDown={(e) => handleResizeStart(e, col.key)}
+                      data-testid={`resize-handle-${col.key}`}
+                    >
+                      <div className="w-full h-full group-hover:bg-primary transition-colors" />
+                    </div>
+                    
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
                         <span>{col.label}</span>
@@ -1089,18 +1201,12 @@ export function SpreadsheetGrid({
                         editingCell?.leadId === lead.id && editingCell?.field === col.key;
                       const value = getLeadValue(lead, col.key);
                       const isDropdown = col.dropdown;
-                      // Check if this is the name/full name column
-                      const isNameColumn = (col.label.toLowerCase() === "name" || col.label.toLowerCase() === "full name") || 
-                                          col.key === "name" || 
-                                          col.width === "260px";
 
                       return (
                         <div
                           key={col.key}
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
-                          className={`border-r px-3 py-2 ${
-                            isNameColumn ? "wrap-text-cell" : "flex items-center whitespace-nowrap"
-                          }`}
+                          className="border-r px-3 py-2 wrap-text-cell"
                           data-testid={`cell-${lead.id}-${col.key}`}
                         >
                         {isEditing ? (
