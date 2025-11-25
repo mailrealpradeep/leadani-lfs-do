@@ -1,18 +1,11 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Flame, Eye, Download, Trash2 } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useDashboard } from "./dashboard-context";
 import { SheetSelector } from "./sheet-selector";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sidebar,
   SidebarContent,
@@ -49,8 +42,6 @@ export function AppSidebar() {
     setSelectedSheetId,
     searchQuery,
     setSearchQuery,
-    categoryFilter,
-    setCategoryFilter,
     actions,
   } = useDashboard();
   const { toast } = useToast();
@@ -271,36 +262,6 @@ export function AppSidebar() {
                           data-testid="input-search-leads"
                         />
                       </div>
-                      <Select value={categoryFilter} onValueChange={(v: any) => setCategoryFilter(v)}>
-                        <SelectTrigger className="w-full" data-testid="select-category-filter">
-                          <SelectValue placeholder="All Leads" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Leads</SelectItem>
-                          <SelectItem value="hot">
-                            <div className="flex items-center gap-2">
-                              <Flame className="h-4 w-4 text-red-500" />
-                              Hot Leads
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="warm">
-                            <div className="flex items-center gap-2">
-                              <Flame className="h-4 w-4 text-orange-500" />
-                              Warm Leads
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="cold">Cold Leads</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        variant="outline"
-                        onClick={actions.onToggleColumns}
-                        className="w-full justify-start"
-                        data-testid="button-toggle-columns"
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        Toggle Columns
-                      </Button>
                       <Button
                         variant="outline"
                         onClick={actions.onExport}
