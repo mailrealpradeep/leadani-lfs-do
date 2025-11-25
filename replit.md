@@ -66,6 +66,16 @@ Socket.io facilitates real-time synchronization by allowing clients to subscribe
     - Uses nullish coalescing (??) to properly preserve zero values in inputs
     - PATCH /api/leads/{id} to save changes
     - Touch-friendly with min-h-[44px] for all interactive elements
+*   **Mobile Sort & Filter**: MobileFilterSheet component for sorting and filtering leads on mobile:
+    - Bottom sheet drawer (80vh height) with Sort By and Filter By sections
+    - Sort by any column in ascending/descending order
+    - Filter by dropdown columns (single value) and date columns (date range picker)
+    - "Sort & Filter" button in mobile header with active count badge
+    - Active filters shown as removable badges with individual clear option and "Clear All"
+    - State management pattern: useEffect syncs local state when sheet opens, handleCancel resets before closing
+    - Date range filter supports Today, This Week, This Month, Last 7 Days, and Custom Range
+    - Apply button commits changes to parent, Cancel reverts to committed values
+    - Touch-friendly with min-h-[44px] for all interactive elements
 *   **Lead Detail Drawer**: Slide-out drawer showing lead details and activity history
     - Header displays the lead's Full Name dynamically using flexible regex matching
     - Uses getFullName function with patterns: /^full[_\s]?name/i, /^name$/i
