@@ -42,6 +42,7 @@ import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
+import { ExecutivePerformanceCard } from "@/components/executive-performance-card";
 import type { DrilldownFilters } from "@shared/schema";
 
 interface ReportDataResponse {
@@ -387,12 +388,17 @@ export default function Reports() {
         )}
       </div>
 
-      {/* Empty State */}
+      {/* Executive Performance Card */}
+      <div className="mb-4 md:mb-6">
+        <ExecutivePerformanceCard />
+      </div>
+
+      {/* Custom Reports */}
       {!reports || reports.length === 0 ? (
         <Card className="p-6 md:p-12">
           <div className="flex flex-col items-center justify-center text-center">
             <BarChart3 className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
-            <h3 className="text-base md:text-lg font-semibold mb-2">No reports yet</h3>
+            <h3 className="text-base md:text-lg font-semibold mb-2">No custom reports yet</h3>
             <p className="text-xs md:text-sm text-muted-foreground mb-4">
               Create your first custom report to visualize your data
             </p>

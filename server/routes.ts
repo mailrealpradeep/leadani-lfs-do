@@ -3269,6 +3269,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get dropdown options for a specific column key at company level
+  app.get("/api/company/dropdown-options/:columnKey", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id 
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      const options = await storage.getDropdownOptionsByColumn(companyId, req.params.columnKey);
+      
+      // Sort by order_index
+      options.sort((a, b) => a.order_index - b.order_index);
+      
+      res.json(options);
+    } catch (error: any) {
+      console.error("Get company dropdown options error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Legacy endpoint for getting columns for a sheet (reads from company columns)
   app.get("/api/sheets/:id/columns", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
@@ -4215,6 +4238,213 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Get report drilldown error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/company/executive-performance - Get executive performance data by dropdown column option
+  app.get("/api/company/executive-performance", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      // Get parameters
+      const columnKey = req.query.column_key as string;
+      const optionValue = req.query.option_value as string;
+      
+      if (!columnKey || !optionValue) {
+        return res.status(400).json({ 
+          error: "Missing required parameters: column_key and option_value" 
+        });
+      }
+      
+      // Get company ID
+      const companyId = req.companyId;
+      if (!companyId) {
+        return res.status(403).json({ error: "Company access required" });
+      }
+      
+      // Get accessible sheet IDs for the user
+      let sheets: any[] = [];
+      if (req.userRole === "company_admin" || req.userRole === "super_admin") {
+        sheets = await storage.getSheetsByCompanyId(companyId);
+      } else {
+        sheets = await storage.getSheetsByUserId(req.userId!);
+      }
+      
+      if (sheets.length === 0) {
+        return res.json({
+          column_key: columnKey,
+          option_value: optionValue,
+          sheets: [],
+          generated_at: new Date().toISOString(),
+        });
+      }
+      
+      // Calculate date boundaries
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      // Start of current week (Monday)
+      const dayOfWeek = now.getDay();
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const weekStart = new Date(todayStart);
+      weekStart.setDate(weekStart.getDate() - daysFromMonday);
+      
+      // Last 30 days
+      const thirtyDaysAgo = new Date(todayStart);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      // Aggregate data per sheet
+      const sheetData = await Promise.all(
+        sheets.map(async (sheet) => {
+          // Get all leads for this sheet (excluding soft-deleted)
+          const allLeads = await storage.getLeadsBySheetId(sheet.id);
+          const activeLeads = allLeads.filter(lead => !lead.deleted_at);
+          
+          // Filter leads matching the column/option
+          const matchingLeads = activeLeads.filter(lead => {
+            const fieldValue = lead.custom_fields?.[columnKey];
+            if (Array.isArray(fieldValue)) {
+              return fieldValue.includes(optionValue);
+            }
+            return fieldValue === optionValue;
+          });
+          
+          // Count by time period
+          let todayCount = 0;
+          let weekCount = 0;
+          let monthCount = 0;
+          
+          matchingLeads.forEach(lead => {
+            const createdAt = new Date(lead.created_at);
+            
+            if (createdAt >= todayStart) {
+              todayCount++;
+            }
+            if (createdAt >= weekStart) {
+              weekCount++;
+            }
+            if (createdAt >= thirtyDaysAgo) {
+              monthCount++;
+            }
+          });
+          
+          return {
+            sheet_id: sheet.id,
+            sheet_name: sheet.name,
+            today: todayCount,
+            this_week: weekCount,
+            last_30_days: monthCount,
+            total: matchingLeads.length,
+          };
+        })
+      );
+      
+      // Sort by total count descending
+      sheetData.sort((a, b) => b.total - a.total);
+      
+      res.json({
+        column_key: columnKey,
+        option_value: optionValue,
+        sheets: sheetData,
+        generated_at: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error("Get executive performance error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // GET /api/company/executive-performance/drilldown - Get leads for a specific sheet/time period
+  app.get("/api/company/executive-performance/drilldown", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const sheetId = req.query.sheet_id as string;
+      const columnKey = req.query.column_key as string;
+      const optionValue = req.query.option_value as string;
+      const timePeriod = req.query.time_period as string; // "today", "this_week", "last_30_days", "total"
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = (page - 1) * limit;
+      
+      if (!sheetId || !columnKey || !optionValue) {
+        return res.status(400).json({ 
+          error: "Missing required parameters: sheet_id, column_key, option_value" 
+        });
+      }
+      
+      // Check sheet access
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, sheetId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to this sheet" });
+      }
+      
+      // Get sheet for enrichment
+      const sheet = await storage.getSheet(sheetId);
+      
+      // Calculate date boundaries
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      const dayOfWeek = now.getDay();
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const weekStart = new Date(todayStart);
+      weekStart.setDate(weekStart.getDate() - daysFromMonday);
+      
+      const thirtyDaysAgo = new Date(todayStart);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      // Get all leads for this sheet
+      const allLeads = await storage.getLeadsBySheetId(sheetId);
+      const activeLeads = allLeads.filter(lead => !lead.deleted_at);
+      
+      // Filter leads matching the column/option
+      let matchingLeads = activeLeads.filter(lead => {
+        const fieldValue = lead.custom_fields?.[columnKey];
+        if (Array.isArray(fieldValue)) {
+          return fieldValue.includes(optionValue);
+        }
+        return fieldValue === optionValue;
+      });
+      
+      // Apply time period filter
+      if (timePeriod === "today") {
+        matchingLeads = matchingLeads.filter(lead => new Date(lead.created_at) >= todayStart);
+      } else if (timePeriod === "this_week") {
+        matchingLeads = matchingLeads.filter(lead => new Date(lead.created_at) >= weekStart);
+      } else if (timePeriod === "last_30_days") {
+        matchingLeads = matchingLeads.filter(lead => new Date(lead.created_at) >= thirtyDaysAgo);
+      }
+      // "total" or undefined: no additional date filter
+      
+      // Sort by created_at descending
+      matchingLeads.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
+      // Get total count before pagination
+      const total = matchingLeads.length;
+      const totalPages = Math.ceil(total / limit);
+      
+      // Apply pagination
+      const paginatedLeads = matchingLeads.slice(offset, offset + limit);
+      
+      // Enrich leads with owner information
+      const enrichedLeads = await Promise.all(
+        paginatedLeads.map(async (lead) => {
+          const owner = await storage.getUser(lead.owner_user_id);
+          return {
+            ...lead,
+            sheet_name: sheet?.name || "Unknown",
+            owner_name: owner?.name || "Unknown",
+          };
+        })
+      );
+      
+      res.json({
+        leads: enrichedLeads,
+        total,
+        page,
+        limit,
+        total_pages: totalPages,
+      });
+    } catch (error: any) {
+      console.error("Get executive performance drilldown error:", error);
       res.status(500).json({ error: error.message });
     }
   });
