@@ -65,11 +65,56 @@ export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawe
   };
 
   const sortedColumns = [...columns].sort((a, b) => a.order_index - b.order_index);
-  const nameField = sortedColumns.find(col => col.column_key === "name");
+  
+  // Find the full name field - search in lead.custom_fields for common name patterns
+  const getFullName = (lead: Lead | undefined, cols: typeof columns) => {
+    if (!lead || !lead.custom_fields) return null;
+    
+    const customFields = lead.custom_fields;
+    const fieldKeys = Object.keys(customFields);
+    
+    // Priority patterns for full name (check in order)
+    const patterns = [
+      /^full[_\s]?name/i,  // full_name, fullname, full name
+      /^name$/i,            // exact "name"
+    ];
+    
+    for (const pattern of patterns) {
+      const matchingKey = fieldKeys.find(k => pattern.test(k));
+      if (matchingKey && customFields[matchingKey]) {
+        return String(customFields[matchingKey]);
+      }
+    }
+    
+    // If columns are loaded, check by column name containing "Full Name"
+    if (cols.length > 0) {
+      const fullNameColumn = cols.find(col => 
+        col.name.toLowerCase().includes("full name") ||
+        col.name.toLowerCase() === "name"
+      );
+      if (fullNameColumn && customFields[fullNameColumn.column_key]) {
+        return String(customFields[fullNameColumn.column_key]);
+      }
+    }
+    
+    // Last resort: find any field that looks like it could be a name (non-empty string)
+    const nameKey = fieldKeys.find(k => 
+      k.toLowerCase().includes("name") && 
+      typeof customFields[k] === "string" &&
+      customFields[k].trim().length > 0
+    );
+    if (nameKey && customFields[nameKey]) {
+      return String(customFields[nameKey]);
+    }
+    
+    return null;
+  };
+
+  const leadFullName = getFullName(lead, columns);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-lg flex flex-col h-full">
         {isLoading ? (
           <div className="space-y-4">
             <Skeleton className="h-8 w-3/4" />
@@ -77,16 +122,16 @@ export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawe
           </div>
         ) : lead ? (
           <>
-            <SheetHeader className="pb-6">
+            <SheetHeader className="pb-6 flex-shrink-0">
               <SheetTitle className="text-xl">
-                {getLeadValue(lead, nameField?.column_key || "name") || "Unnamed Lead"}
+                {leadFullName || "Lead Details"}
               </SheetTitle>
               <SheetDescription>
                 Lead details and activity history
               </SheetDescription>
             </SheetHeader>
 
-            <div className="space-y-6">
+            <div className="space-y-6 overflow-y-auto flex-1 pb-6">
               <div>
                 <h3 className="text-sm font-medium mb-3">Lead Information</h3>
                 <div className="grid grid-cols-2 gap-4">
