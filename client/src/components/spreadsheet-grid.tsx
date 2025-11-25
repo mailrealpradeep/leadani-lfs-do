@@ -77,7 +77,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { format, isWithinInterval, parseISO } from "date-fns";
+import { format, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import type { Lead, DropdownOption, CustomColumn, ValidationRule } from "@shared/schema";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
@@ -256,6 +256,53 @@ export function SpreadsheetGrid({
   const invalidLeadIds = useMemo(() => {
     return new Set(leadValidationResults.keys());
   }, [leadValidationResults]);
+
+  // Check for NFDT (Next Follow-up Date Time) columns with past dates
+  // This creates a Map of lead ID -> column keys that have past NFDT dates
+  const leadsWithPastNFDT = useMemo(() => {
+    const results = new Map<string, string[]>();
+    const today = startOfDay(new Date());
+    
+    // Find NFDT columns (match common naming patterns)
+    const nfdtColumns = columns.filter(col => 
+      col.type === "date" && (
+        col.column_key.toLowerCase() === "nfdt" ||
+        col.column_key.toLowerCase().includes("nfdt") ||
+        col.column_key.toLowerCase().includes("next_follow") ||
+        col.column_key.toLowerCase().includes("followup_date") ||
+        col.name.toLowerCase().includes("nfdt") ||
+        col.name.toLowerCase().includes("next follow")
+      )
+    );
+    
+    if (nfdtColumns.length === 0) {
+      return results;
+    }
+    
+    for (const lead of leads) {
+      const pastColumns: string[] = [];
+      
+      for (const col of nfdtColumns) {
+        const value = lead.custom_fields?.[col.column_key];
+        if (value) {
+          try {
+            const dateValue = parseISO(value);
+            if (isBefore(startOfDay(dateValue), today)) {
+              pastColumns.push(col.column_key);
+            }
+          } catch {
+            // Invalid date format, skip
+          }
+        }
+      }
+      
+      if (pastColumns.length > 0) {
+        results.set(lead.id, pastColumns);
+      }
+    }
+    
+    return results;
+  }, [leads, columns]);
 
   // Load hidden columns for current sheet and reset column filters on sheet change  
   useEffect(() => {
