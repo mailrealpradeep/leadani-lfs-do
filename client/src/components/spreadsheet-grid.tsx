@@ -264,7 +264,7 @@ export function SpreadsheetGrid({
     const today = startOfDay(new Date());
     
     // Find NFDT columns (match common naming patterns)
-    const nfdtColumns = columns.filter(col => 
+    const nfdtColumns = customColumns.filter(col => 
       col.type === "date" && (
         col.column_key.toLowerCase() === "nfdt" ||
         col.column_key.toLowerCase().includes("nfdt") ||
@@ -302,7 +302,7 @@ export function SpreadsheetGrid({
     }
     
     return results;
-  }, [leads, columns]);
+  }, [leads, customColumns]);
 
   // Load hidden columns for current sheet and reset column filters on sheet change  
   useEffect(() => {
@@ -1216,10 +1216,15 @@ export function SpreadsheetGrid({
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                           {detailColumns.map((col) => {
                             const value = getLeadValue(lead, col.key);
+                            const isPastNFDT = leadsWithPastNFDT.get(lead.id)?.includes(col.key);
                             return (
-                              <div key={col.key}>
+                              <div 
+                                key={col.key}
+                                className={isPastNFDT ? "px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30" : ""}
+                                title={isPastNFDT ? "Past follow-up date" : undefined}
+                              >
                                 <span className="text-muted-foreground">{col.label}:</span>
-                                <p className="truncate">
+                                <p className={`truncate ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
                                   {col.type === "date" && value 
                                     ? format(new Date(value), "dd/MM/yy")
                                     : value || "—"}
@@ -1494,13 +1499,17 @@ export function SpreadsheetGrid({
                         editingCell?.leadId === lead.id && editingCell?.field === col.key;
                       const value = getLeadValue(lead, col.key);
                       const isDropdown = col.dropdown;
+                      const isPastNFDT = leadsWithPastNFDT.get(lead.id)?.includes(col.key);
 
                       return (
                         <div
                           key={col.key}
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
-                          className="border-r px-3 py-2 wrap-text-cell"
+                          className={`border-r px-3 py-2 wrap-text-cell ${
+                            isPastNFDT ? "bg-amber-100 dark:bg-amber-900/30" : ""
+                          }`}
                           data-testid={`cell-${lead.id}-${col.key}`}
+                          title={isPastNFDT ? "Past follow-up date" : undefined}
                         >
                         {isEditing ? (
                           isDropdown ? (
