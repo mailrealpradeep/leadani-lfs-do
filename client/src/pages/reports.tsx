@@ -42,7 +42,6 @@ import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
-import { ExecutivePerformanceCard } from "@/components/executive-performance-card";
 import type { DrilldownFilters } from "@shared/schema";
 
 interface ReportDataResponse {
@@ -386,11 +385,6 @@ export default function Reports() {
             New Report
           </Button>
         )}
-      </div>
-
-      {/* Executive Performance Card */}
-      <div className="mb-4 md:mb-6">
-        <ExecutivePerformanceCard />
       </div>
 
       {/* Custom Reports */}

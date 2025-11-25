@@ -21,6 +21,7 @@ import Onboarding from "@/pages/onboarding";
 import InviteAccept from "@/pages/invite-accept";
 import Dashboard from "@/pages/dashboard";
 import Reports from "@/pages/reports";
+import TeamPerformance from "@/pages/team-performance";
 import Admin from "@/pages/admin";
 import Webhooks from "@/pages/webhooks";
 import AuditLogs from "@/pages/audit";
@@ -71,6 +72,9 @@ function Router() {
       </Route>
       <Route path="/reports">
         {() => <ProtectedRoute component={Reports} />}
+      </Route>
+      <Route path="/team-performance">
+        {() => <ProtectedRoute component={TeamPerformance} />}
       </Route>
       <Route path="/audit">
         {() => <ProtectedRoute component={AuditLogs} />}

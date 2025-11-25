@@ -3280,7 +3280,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? req.query.company_id as string
         : req.companyId!;
 
-      const options = await storage.getDropdownOptionsByColumn(companyId, req.params.columnKey);
+      // First try to get from dropdown_options table
+      let options = await storage.getDropdownOptionsByColumn(companyId, req.params.columnKey);
+      
+      // If no options in table, check the column's config.dropdown_options
+      if (options.length === 0) {
+        const columns = await storage.getCompanyColumns(companyId);
+        const column = columns.find(c => c.column_key === req.params.columnKey && c.type === "dropdown");
+        
+        if (column && column.config && Array.isArray((column.config as any).dropdown_options)) {
+          const configOptions = (column.config as any).dropdown_options as string[];
+          // Convert config options to DropdownOption format
+          options = configOptions.map((value, index) => ({
+            id: `${column.id}-${index}`,
+            company_id: companyId,
+            sheet_id: column.sheet_id,
+            column_key: req.params.columnKey,
+            value: value,
+            order_index: index,
+            created_at: new Date().toISOString(),
+          }));
+        }
+      }
       
       // Sort by order_index
       options.sort((a, b) => a.order_index - b.order_index);
