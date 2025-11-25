@@ -57,6 +57,15 @@ Socket.io facilitates real-time synchronization by allowing clients to subscribe
     - Settings stored in company.settings.mobile_card_columns
     - Mobile card view includes Call and WhatsApp action buttons with tel: and wa.me links
     - API: GET /api/company/settings (all users), PATCH /api/admin/company/settings (admins only)
+*   **Mobile Lead Editing**: LeadEditDialog component for editing leads on mobile devices:
+    - Bottom sheet drawer (85vh height) slides up with rounded corners
+    - Full form with all lead fields based on column configuration
+    - Field types: text inputs, number inputs, dropdown selects, date pickers
+    - "Edit Lead" button as primary action on mobile cards
+    - Action button layout: Edit Lead (full width primary), then Update/History/Call/WhatsApp row
+    - Uses nullish coalescing (??) to properly preserve zero values in inputs
+    - PATCH /api/leads/{id} to save changes
+    - Touch-friendly with min-h-[44px] for all interactive elements
 *   **Lead Detail Drawer**: Slide-out drawer showing lead details and activity history
     - Header displays the lead's Full Name dynamically using flexible regex matching
     - Uses getFullName function with patterns: /^full[_\s]?name/i, /^name$/i
