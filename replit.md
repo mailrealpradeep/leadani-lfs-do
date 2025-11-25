@@ -57,6 +57,19 @@ Socket.io facilitates real-time synchronization by allowing clients to subscribe
     - Settings stored in company.settings.mobile_card_columns
     - Mobile card view includes Call and WhatsApp action buttons with tel: and wa.me links
     - API: GET /api/company/settings (all users), PATCH /api/admin/company/settings (admins only)
+*   **Lead Detail Drawer**: Slide-out drawer showing lead details and activity history
+    - Header displays the lead's Full Name dynamically using flexible regex matching
+    - Uses getFullName function with patterns: /^full[_\s]?name/i, /^name$/i
+    - Falls back to column metadata lookup and any field containing "name"
+    - Proper scroll behavior with flex layout for Activity History at bottom
+*   **Mandatory System Columns**: Full Name and Mobile No are protected system columns
+    - PROTECTED_SYSTEM_COLUMN_KEYS: ["full_name", "mobile_no"] hardcoded in routes
+    - Cannot be deleted (DELETE returns 400 error)
+    - Cannot have type changed (PATCH returns 400)
+    - Cannot have required or is_system_column flags removed
+    - Config is merged, not replaced, and flags are re-enforced for system columns
+    - UI shows "Required" badge and hides delete button for system columns
+    - New companies get these columns with is_system_column: true in config
 
 ## External Dependencies
 
