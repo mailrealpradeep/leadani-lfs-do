@@ -27,6 +27,7 @@ import {
   FilterX,
   Zap,
   MessageCircle,
+  Clock,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -1642,7 +1643,8 @@ export function SpreadsheetGrid({
                             />
                           )
                         ) : (
-                          <span className={`text-sm ${col.width === "260px" || col.key === "name" ? "break-words w-full" : ""}`}>
+                          <span className={`text-sm flex items-center gap-1 ${col.width === "260px" || col.key === "name" ? "break-words w-full" : ""} ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
+                            {isPastNFDT && <Clock className="h-3 w-3 flex-shrink-0" />}
                             {col.type === "date" && value
                               ? format(new Date(value), "dd/MM/yy")
                               : col.type === "percentage" && value != null && value !== ""
