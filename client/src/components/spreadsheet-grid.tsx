@@ -16,6 +16,7 @@ import {
   Flame,
   X,
   Edit2,
+  Pencil,
   History,
   ArrowRightLeft,
   Calendar as CalendarIcon,
@@ -79,6 +80,7 @@ import { format, isWithinInterval, parseISO } from "date-fns";
 import type { Lead, DropdownOption, CustomColumn, ValidationRule } from "@shared/schema";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
+import { LeadEditDialog } from "./lead-edit-dialog";
 import { DateRangeFilter, type DateFilterValue } from "./filters/date-range-filter";
 import { DropdownFilter } from "./filters/dropdown-filter";
 import { validateLeadAgainstRules } from "@shared/validator";
@@ -119,6 +121,8 @@ export function SpreadsheetGrid({
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
 
@@ -924,6 +928,19 @@ export function SpreadsheetGrid({
         </>
       )}
 
+      {/* Lead Edit Dialog for Mobile */}
+      {selectedLeadForEdit && (
+        <LeadEditDialog
+          leadId={selectedLeadForEdit}
+          sheetId={sheetId}
+          open={editDialogOpen}
+          onOpenChange={(open) => {
+            setEditDialogOpen(open);
+            if (!open) setSelectedLeadForEdit(null);
+          }}
+        />
+      )}
+
       {selectedRows.size > 0 && (
         <div className="flex items-center gap-2 mb-4">
           <Badge variant="secondary" data-testid="text-selected-count">
@@ -1024,69 +1041,87 @@ export function SpreadsheetGrid({
                           })}
                         </div>
 
-                        <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
+                        <div className="mt-3 pt-3 border-t space-y-2" onClick={(e) => e.stopPropagation()}>
+                          {/* Primary Edit Button */}
                           <Button
-                            variant="outline"
+                            variant="default"
                             size="sm"
-                            className="flex-1 min-h-[44px]"
+                            className="w-full min-h-[44px]"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedLeadForUpdate(lead.id);
-                              setUpdateDialogOpen(true);
+                              setSelectedLeadForEdit(lead.id);
+                              setEditDialogOpen(true);
                             }}
-                            data-testid={`button-update-lead-${lead.id}`}
+                            data-testid={`button-edit-lead-${lead.id}`}
                           >
-                            <Edit2 className="h-4 w-4 mr-2" />
-                            Update
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit Lead
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1 min-h-[44px]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedLeadForUpdate(lead.id);
-                              setUpdateHistoryDialogOpen(true);
-                            }}
-                            data-testid={`button-update-history-${lead.id}`}
-                          >
-                            <History className="h-4 w-4 mr-2" />
-                            History
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="min-h-[44px] min-w-[44px]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const mobileNo = lead.custom_fields?.mobile_no || lead.custom_fields?.mobile || lead.custom_fields?.phone;
-                              if (mobileNo) {
-                                window.location.href = `tel:${mobileNo}`;
-                              }
-                            }}
-                            data-testid={`button-call-lead-${lead.id}`}
-                            title="Call"
-                          >
-                            <Phone className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="min-h-[44px] min-w-[44px]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const whatsappNo = lead.custom_fields?.whatsapp_no || lead.custom_fields?.whatsapp || lead.custom_fields?.mobile_no || lead.custom_fields?.mobile;
-                              if (whatsappNo) {
-                                const cleanNumber = String(whatsappNo).replace(/[\s-]/g, '');
-                                const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
-                                window.open(`https://wa.me/${formattedNumber}`, '_blank');
-                              }
-                            }}
-                            data-testid={`button-whatsapp-lead-${lead.id}`}
-                            title="WhatsApp"
-                          >
-                            <MessageCircle className="h-4 w-4" />
-                          </Button>
+                          {/* Secondary Actions Row */}
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 min-h-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedLeadForUpdate(lead.id);
+                                setUpdateDialogOpen(true);
+                              }}
+                              data-testid={`button-update-lead-${lead.id}`}
+                            >
+                              <Edit2 className="h-4 w-4 mr-2" />
+                              Update
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 min-h-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedLeadForUpdate(lead.id);
+                                setUpdateHistoryDialogOpen(true);
+                              }}
+                              data-testid={`button-update-history-${lead.id}`}
+                            >
+                              <History className="h-4 w-4 mr-2" />
+                              History
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="min-h-[44px] min-w-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const mobileNo = lead.custom_fields?.mobile_no || lead.custom_fields?.mobile || lead.custom_fields?.phone;
+                                if (mobileNo) {
+                                  window.location.href = `tel:${mobileNo}`;
+                                }
+                              }}
+                              data-testid={`button-call-lead-${lead.id}`}
+                              title="Call"
+                            >
+                              <Phone className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="min-h-[44px] min-w-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const whatsappNo = lead.custom_fields?.whatsapp_no || lead.custom_fields?.whatsapp || lead.custom_fields?.mobile_no || lead.custom_fields?.mobile;
+                                if (whatsappNo) {
+                                  const cleanNumber = String(whatsappNo).replace(/[\s-]/g, '');
+                                  const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
+                                  window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                                }
+                              }}
+                              data-testid={`button-whatsapp-lead-${lead.id}`}
+                              title="WhatsApp"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))
