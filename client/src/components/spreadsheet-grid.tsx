@@ -19,6 +19,7 @@ import {
   Pencil,
   History,
   ArrowRightLeft,
+  ArrowUpDown,
   Calendar as CalendarIcon,
   Phone,
   UserCheck,
@@ -81,6 +82,7 @@ import type { Lead, DropdownOption, CustomColumn, ValidationRule } from "@shared
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { LeadEditDialog } from "./lead-edit-dialog";
+import { MobileFilterSheet } from "./mobile-filter-sheet";
 import { DateRangeFilter, type DateFilterValue } from "./filters/date-range-filter";
 import { DropdownFilter } from "./filters/dropdown-filter";
 import { validateLeadAgainstRules } from "@shared/validator";
@@ -125,6 +127,7 @@ export function SpreadsheetGrid({
   const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
+  const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
 
   // Column resizing state
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -987,14 +990,152 @@ export function SpreadsheetGrid({
           const titleColumns = mobileCardColumns.slice(0, 2);
           const detailColumns = mobileCardColumns.slice(2, 6);
           
+          // Count active filters for badge
+          const activeFilterCount = Object.values(columnFilters).filter(v => v !== null && v !== undefined).length;
+          const hasActiveFiltersOrSort = sortColumn || activeFilterCount > 0;
+
+          // Helper to get filter display text
+          const getFilterLabel = (key: string, value: any): string => {
+            const col = columns.find(c => c.key === key);
+            if (!value) return "";
+            if (typeof value === "string") return `${col?.label || key}: ${value}`;
+            if (typeof value === "object" && "type" in value) {
+              const typeLabels: Record<string, string> = {
+                today: "Today",
+                thisWeek: "This Week", 
+                thisMonth: "This Month",
+                last7Days: "Last 7 Days",
+                custom: "Custom",
+              };
+              return `${col?.label || key}: ${typeLabels[value.type] || value.type}`;
+            }
+            return "";
+          };
+
           return (
             <div className="h-full flex flex-col overflow-hidden">
+              {/* Mobile Filter Header */}
+              <div className="flex-shrink-0 pb-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-sm text-muted-foreground">
+                      {filteredAndSortedLeads.length} lead{filteredAndSortedLeads.length !== 1 ? 's' : ''}
+                    </span>
+                    {hasActiveFiltersOrSort && (
+                      <Badge variant="secondary" className="text-xs">
+                        {sortColumn ? 1 : 0} sort, {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
+                      </Badge>
+                    )}
+                  </div>
+                  <Button
+                    variant={hasActiveFiltersOrSort ? "default" : "outline"}
+                    size="sm"
+                    className="min-h-[44px] gap-2"
+                    onClick={() => setMobileFilterSheetOpen(true)}
+                    data-testid="button-mobile-filter"
+                  >
+                    <Filter className="h-4 w-4" />
+                    Sort & Filter
+                    {hasActiveFiltersOrSort && (
+                      <Badge variant="secondary" className="ml-1 bg-primary-foreground/20 text-xs">
+                        {(sortColumn ? 1 : 0) + activeFilterCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Active Filters Display */}
+                {hasActiveFiltersOrSort && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {sortColumn && (
+                      <Badge 
+                        variant="outline" 
+                        className="text-xs flex items-center gap-1 pr-1"
+                      >
+                        <ArrowUpDown className="h-3 w-3" />
+                        {columns.find(c => c.key === sortColumn)?.label || sortColumn}
+                        {sortDirection === "asc" ? " ↑" : " ↓"}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-4 w-4 ml-0.5 hover:bg-transparent"
+                          onClick={() => {
+                            setSortColumn(null);
+                            setSortDirection("asc");
+                          }}
+                          data-testid="button-clear-sort"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </Badge>
+                    )}
+                    {Object.entries(columnFilters).map(([key, value]) => {
+                      if (!value) return null;
+                      return (
+                        <Badge 
+                          key={key}
+                          variant="outline" 
+                          className="text-xs flex items-center gap-1 pr-1"
+                        >
+                          {getFilterLabel(key, value)}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-4 w-4 ml-0.5 hover:bg-transparent"
+                            onClick={() => {
+                              setColumnFilters(prev => {
+                                const updated = { ...prev };
+                                delete updated[key];
+                                return updated;
+                              });
+                            }}
+                            data-testid={`button-clear-filter-${key}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </Badge>
+                      );
+                    })}
+                    {hasActiveFiltersOrSort && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-muted-foreground"
+                        onClick={() => {
+                          setSortColumn(null);
+                          setSortDirection("asc");
+                          setColumnFilters({});
+                        }}
+                        data-testid="button-clear-all-mobile"
+                      >
+                        Clear all
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="flex-1 overflow-y-auto">
                 <div className="space-y-3">
                   {filteredAndSortedLeads.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground">
                       <Filter className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
                       <p>No leads found.</p>
+                      {hasActiveFiltersOrSort && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 text-primary"
+                          onClick={() => {
+                            setSortColumn(null);
+                            setSortDirection("asc");
+                            setColumnFilters({});
+                          }}
+                          data-testid="button-clear-filters-empty"
+                        >
+                          Clear filters
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     filteredAndSortedLeads.map((lead) => (
@@ -1587,6 +1728,26 @@ export function SpreadsheetGrid({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Mobile Filter Sheet */}
+      <MobileFilterSheet
+        open={mobileFilterSheetOpen}
+        onOpenChange={setMobileFilterSheetOpen}
+        columns={columns.map(col => ({
+          key: col.key,
+          name: col.label,
+          type: customColumns.find(c => c.column_key === col.key)?.type || "text",
+          config: customColumns.find(c => c.column_key === col.key)?.config as { dropdown_options?: string[] } | undefined,
+        }))}
+        sortColumn={sortColumn}
+        sortDirection={sortDirection}
+        columnFilters={columnFilters}
+        onSortChange={(column, direction) => {
+          setSortColumn(column);
+          setSortDirection(direction);
+        }}
+        onFilterChange={setColumnFilters}
+      />
     </>
   );
 }
