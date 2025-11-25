@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { CustomColumn } from "@shared/schema";
+import { SYSTEM_COLUMN_KEYS } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -727,11 +728,16 @@ function SortableColumnItem({
               <GripVertical className="h-5 w-5 text-muted-foreground" />
             </div>
             <div className="flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="font-medium">{column.name}</div>
                 <Badge variant="outline" className="text-xs">
                   {typeLabels[column.type]}
                 </Badge>
+                {((SYSTEM_COLUMN_KEYS as readonly string[]).includes(column.column_key) || column.config?.is_system_column) && (
+                  <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
+                    Required
+                  </Badge>
+                )}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
                 Key: {column.column_key}
@@ -756,18 +762,20 @@ function SortableColumnItem({
             >
               <Edit2 className="h-4 w-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                if (window.confirm(`Delete column "${column.name}"? This will remove it from all sheets.`)) {
-                  deleteColumnMutation.mutate(column.id);
-                }
-              }}
-              data-testid={`button-delete-column-${column.id}`}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {!((SYSTEM_COLUMN_KEYS as readonly string[]).includes(column.column_key) || column.config?.is_system_column) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (window.confirm(`Delete column "${column.name}"? This will remove it from all sheets.`)) {
+                    deleteColumnMutation.mutate(column.id);
+                  }
+                }}
+                data-testid={`button-delete-column-${column.id}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
       )}

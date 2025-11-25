@@ -3303,6 +3303,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // System column keys that cannot be deleted or have their core properties modified
+  const PROTECTED_SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no"];
+  
   // Update company column (Company Admin only)
   app.patch("/api/company/columns/:columnId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
@@ -3316,11 +3319,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Cannot update columns from other companies" });
       }
 
+      const isSystemColumn = PROTECTED_SYSTEM_COLUMN_KEYS.includes(column.column_key) || 
+                             (column.config && (column.config as any).is_system_column);
+
+      // Protect system columns from critical modifications
+      if (isSystemColumn) {
+        const { type, config } = req.body;
+        
+        // Block type changes for system columns
+        if (type !== undefined && type !== column.type) {
+          return res.status(400).json({ 
+            error: "Cannot modify system column", 
+            message: `The "${column.name}" column type cannot be changed.` 
+          });
+        }
+        
+        // Block explicit removal of required or is_system_column flags
+        if (config !== undefined) {
+          if (config.required === false) {
+            return res.status(400).json({ 
+              error: "Cannot modify system column", 
+              message: `The "${column.name}" column must remain required.` 
+            });
+          }
+          if (config.is_system_column === false) {
+            return res.status(400).json({ 
+              error: "Cannot modify system column", 
+              message: `The "${column.name}" column system status cannot be changed.` 
+            });
+          }
+        }
+      }
+
       const { name, type, config } = req.body;
       const updates: any = {};
       if (name !== undefined) updates.name = name;
       if (type !== undefined) updates.type = type;
-      if (config !== undefined) updates.config = config;
+      
+      // For config, merge with existing and enforce system column flags
+      if (config !== undefined) {
+        const existingConfig = column.config || {};
+        const mergedConfig = { ...existingConfig, ...config };
+        
+        // Always re-enforce mandatory flags for system columns
+        if (isSystemColumn) {
+          mergedConfig.required = true;
+          mergedConfig.is_system_column = true;
+        }
+        
+        updates.config = mergedConfig;
+      }
 
       const updated = await storage.updateCustomColumn(req.params.columnId, updates);
 
@@ -3352,6 +3400,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Company admins can only delete columns in their company
       if (req.userRole === "company_admin" && column.company_id !== req.companyId) {
         return res.status(403).json({ error: "Cannot delete columns from other companies" });
+      }
+
+      // Prevent deletion of system columns (Full Name and Mobile No)
+      const isSystemColumn = PROTECTED_SYSTEM_COLUMN_KEYS.includes(column.column_key) || 
+                             (column.config && (column.config as any).is_system_column);
+      if (isSystemColumn) {
+        return res.status(400).json({ 
+          error: "Cannot delete system columns", 
+          message: `The "${column.name}" column is required and cannot be deleted.` 
+        });
       }
 
       await storage.deleteCustomColumn(req.params.columnId);

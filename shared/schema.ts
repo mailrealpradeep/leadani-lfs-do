@@ -222,6 +222,7 @@ export interface CustomColumn {
     default_value?: any;
     dropdown_options?: string[];
     required?: boolean;
+    is_system_column?: boolean; // System columns (Full Name, Mobile No) cannot be deleted
   };
   order_index: number; // for column ordering
   created_at: string;
@@ -238,6 +239,7 @@ export const insertCustomColumnSchema = z.object({
     default_value: z.any().optional(),
     dropdown_options: z.array(z.string()).optional(),
     required: z.boolean().optional(),
+    is_system_column: z.boolean().optional(),
   }).default({}),
   order_index: z.number().default(0),
 });
@@ -458,15 +460,18 @@ export interface GlobalReportSummary {
 // ============================================================================
 // UTILITY: Default Columns for New Companies
 // ============================================================================
+// System column keys that cannot be deleted
+export const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no"] as const;
+
 export function getDefaultColumnsForCompany(companyId: string): InsertCustomColumn[] {
   return [
     {
       company_id: companyId,
       sheet_id: null,
-      name: "Name",
-      column_key: "name",
+      name: "Full Name",
+      column_key: "full_name",
       type: "text" as const,
-      config: { required: true },
+      config: { required: true, is_system_column: true },
       order_index: 0,
     },
     {
@@ -475,7 +480,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       name: "Mobile No",
       column_key: "mobile_no",
       type: "mobile" as const,
-      config: { required: true },
+      config: { required: true, is_system_column: true },
       order_index: 1,
     },
     {
