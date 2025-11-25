@@ -12,6 +12,7 @@ export interface Company {
     timezone?: string;
     date_format?: string;
     custom_branding?: any;
+    mobile_card_columns?: string[]; // column keys to display in mobile card view
   };
   status: "active" | "suspended" | "trial";
   created_at: string;
@@ -25,6 +26,7 @@ export const insertCompanySchema = z.object({
     timezone: z.string().optional(),
     date_format: z.string().optional(),
     custom_branding: z.any().optional(),
+    mobile_card_columns: z.array(z.string()).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),
 });

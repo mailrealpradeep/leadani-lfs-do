@@ -1092,6 +1092,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // COMPANY SETTINGS
+  // ============================================================================
+  // Get company settings (available to all authenticated users in company)
+  app.get("/api/company/settings", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      res.json({ settings: company.settings || {} });
+    } catch (error: any) {
+      console.error("Get company settings error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get company settings (alias for admin panel - company admin only)
+  app.get("/api/admin/company/settings", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      res.json({ settings: company.settings || {} });
+    } catch (error: any) {
+      console.error("Get company settings error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update company settings
+  app.patch("/api/admin/company/settings", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+      
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      const incomingSettings = req.body.settings;
+      if (!incomingSettings || typeof incomingSettings !== 'object') {
+        return res.status(400).json({ error: "Settings must be an object" });
+      }
+
+      // Validate mobile_card_columns if present
+      if (incomingSettings.mobile_card_columns !== undefined) {
+        if (!Array.isArray(incomingSettings.mobile_card_columns)) {
+          return res.status(400).json({ error: "mobile_card_columns must be an array" });
+        }
+        if (!incomingSettings.mobile_card_columns.every((key: any) => typeof key === 'string')) {
+          return res.status(400).json({ error: "mobile_card_columns must be an array of strings" });
+        }
+        // Validate that columns exist for this company
+        const companyColumns = await storage.getCompanyColumns(req.companyId);
+        const validColumnKeys = new Set(companyColumns.map(c => c.column_key));
+        const invalidKeys = incomingSettings.mobile_card_columns.filter((key: string) => !validColumnKeys.has(key));
+        if (invalidKeys.length > 0) {
+          return res.status(400).json({ error: `Invalid column keys: ${invalidKeys.join(', ')}` });
+        }
+      }
+
+      // Merge new settings with existing settings (only allow known fields)
+      const allowedFields = ['mobile_card_columns'];
+      const sanitizedSettings: Record<string, any> = {};
+      for (const field of allowedFields) {
+        if (incomingSettings[field] !== undefined) {
+          sanitizedSettings[field] = incomingSettings[field];
+        }
+      }
+
+      const updatedSettings = {
+        ...company.settings,
+        ...sanitizedSettings,
+      };
+
+      const updated = await storage.updateCompany(req.companyId, { settings: updatedSettings });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId,
+        action: "update",
+        model: "company_settings",
+        model_id: req.companyId,
+        payload: sanitizedSettings,
+      });
+
+      res.json({ settings: updated?.settings || {} });
+    } catch (error: any) {
+      console.error("Update company settings error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // USER MANAGEMENT (Company Admin)
   // ============================================================================
   app.get("/api/admin/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {

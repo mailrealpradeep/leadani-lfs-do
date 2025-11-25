@@ -24,6 +24,7 @@ import {
   AlertCircle,
   FilterX,
   Zap,
+  MessageCircle,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -145,6 +146,12 @@ export function SpreadsheetGrid({
   const { data: validationRules = [] } = useQuery<ValidationRule[]>({
     queryKey: ["/api/sheets", sheetId, "validation-rules"],
     enabled: !!sheetId,
+  });
+
+  // Load company settings (for mobile card columns)
+  const { data: companySettingsData } = useQuery<{ settings: { mobile_card_columns?: string[] } }>({
+    queryKey: ["/api/company/settings"],
+    enabled: isMobile,
   });
 
   // Load column width preferences
@@ -948,95 +955,147 @@ export function SpreadsheetGrid({
       {/* Conditionally render mobile or desktop view based on viewport */}
       {isMobile ? (
         /* Mobile Card View with Scroll Container */
-        <div className="h-full flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto">
-            <div className="space-y-3">
-              {filteredAndSortedLeads.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <div className="text-4xl mb-3">📋</div>
-                  <p>No leads found.</p>
-                </div>
-              ) : (
-                filteredAndSortedLeads.map((lead) => (
-                  <div
-                    key={lead.id}
-                    className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${
-                      invalidLeadIds.has(lead.id) 
-                        ? "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800" 
-                        : "bg-card"
-                    }`}
-                    data-testid={`card-lead-${lead.id}`}
-                    onClick={() => onOpenLeadDetail(lead.id)}
-                    title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
-                      ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
-                      : undefined
-                    }
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="flex-1 min-w-0">
-                        {visibleColumns.slice(0, 2).map((col) => {
-                          const value = getLeadValue(lead, col.key);
-                          return value ? (
-                            <p key={col.key} className="text-sm truncate">
-                              <span className="font-medium">{value}</span>
-                            </p>
-                          ) : null;
-                        })}
-                      </div>
+        (() => {
+          // Get mobile card columns from company settings
+          const mobileCardColumnKeys = companySettingsData?.settings?.mobile_card_columns;
+          
+          // If company has configured mobile columns, use those in order; otherwise fallback to first 6 visible columns
+          const mobileCardColumns = mobileCardColumnKeys && mobileCardColumnKeys.length > 0
+            ? mobileCardColumnKeys
+                .map(key => visibleColumns.find(col => col.key === key))
+                .filter(Boolean) as typeof visibleColumns
+            : visibleColumns.slice(0, 6);
+          
+          // Split into title columns (first 2) and detail columns (next 4)
+          const titleColumns = mobileCardColumns.slice(0, 2);
+          const detailColumns = mobileCardColumns.slice(2, 6);
+          
+          return (
+            <div className="h-full flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-3">
+                  {filteredAndSortedLeads.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Filter className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+                      <p>No leads found.</p>
                     </div>
-                    
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                      {visibleColumns.slice(2, 6).map((col) => {
-                        const value = getLeadValue(lead, col.key);
-                        return (
-                          <div key={col.key}>
-                            <span className="text-muted-foreground">{col.label}:</span>
-                            <p className="truncate">
-                              {col.type === "date" && value 
-                                ? format(new Date(value), "dd/MM/yy")
-                                : value || "—"}
-                            </p>
+                  ) : (
+                    filteredAndSortedLeads.map((lead) => (
+                      <div
+                        key={lead.id}
+                        className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${
+                          invalidLeadIds.has(lead.id) 
+                            ? "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800" 
+                            : "bg-card"
+                        }`}
+                        data-testid={`card-lead-${lead.id}`}
+                        onClick={() => onOpenLeadDetail(lead.id)}
+                        title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                          ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
+                          : undefined
+                        }
+                      >
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="flex-1 min-w-0">
+                            {titleColumns.map((col) => {
+                              const value = getLeadValue(lead, col.key);
+                              return value ? (
+                                <p key={col.key} className="text-sm truncate">
+                                  <span className="font-medium">{value}</span>
+                                </p>
+                              ) : null;
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                          {detailColumns.map((col) => {
+                            const value = getLeadValue(lead, col.key);
+                            return (
+                              <div key={col.key}>
+                                <span className="text-muted-foreground">{col.label}:</span>
+                                <p className="truncate">
+                                  {col.type === "date" && value 
+                                    ? format(new Date(value), "dd/MM/yy")
+                                    : value || "—"}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
 
-                    <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 min-h-[44px]"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedLeadForUpdate(lead.id);
-                          setUpdateDialogOpen(true);
-                        }}
-                        data-testid={`button-update-lead-${lead.id}`}
-                      >
-                        <Edit2 className="h-4 w-4 mr-2" />
-                        Update
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 min-h-[44px]"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedLeadForUpdate(lead.id);
-                          setUpdateHistoryDialogOpen(true);
-                        }}
-                        data-testid={`button-update-history-${lead.id}`}
-                      >
-                        <History className="h-4 w-4 mr-2" />
-                        History
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
+                        <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 min-h-[44px]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLeadForUpdate(lead.id);
+                              setUpdateDialogOpen(true);
+                            }}
+                            data-testid={`button-update-lead-${lead.id}`}
+                          >
+                            <Edit2 className="h-4 w-4 mr-2" />
+                            Update
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 min-h-[44px]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLeadForUpdate(lead.id);
+                              setUpdateHistoryDialogOpen(true);
+                            }}
+                            data-testid={`button-update-history-${lead.id}`}
+                          >
+                            <History className="h-4 w-4 mr-2" />
+                            History
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="min-h-[44px] min-w-[44px]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const mobileNo = lead.custom_fields?.mobile_no || lead.custom_fields?.mobile || lead.custom_fields?.phone;
+                              if (mobileNo) {
+                                window.location.href = `tel:${mobileNo}`;
+                              }
+                            }}
+                            data-testid={`button-call-lead-${lead.id}`}
+                            title="Call"
+                          >
+                            <Phone className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="min-h-[44px] min-w-[44px]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const whatsappNo = lead.custom_fields?.whatsapp_no || lead.custom_fields?.whatsapp || lead.custom_fields?.mobile_no || lead.custom_fields?.mobile;
+                              if (whatsappNo) {
+                                const cleanNumber = String(whatsappNo).replace(/[\s-]/g, '');
+                                const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
+                                window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                              }
+                            }}
+                            data-testid={`button-whatsapp-lead-${lead.id}`}
+                            title="WhatsApp"
+                          >
+                            <MessageCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          );
+        })()
       ) : (
         /* Desktop Grid View with Sticky Header */
         <div className="border rounded-lg h-full flex flex-col">

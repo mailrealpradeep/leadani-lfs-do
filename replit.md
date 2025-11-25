@@ -51,6 +51,12 @@ Socket.io facilitates real-time synchronization by allowing clients to subscribe
     - Drill-down support to view underlying leads for any count
     - Time periods calculated from midnight (Today), Monday-start (This Week), and 30-day lookback (Last 30 Days)
     - Dropdown options are read from column config.dropdown_options
+*   **Mobile Card Configuration**: Company admins can configure which columns appear on mobile lead cards via Admin Console:
+    - MobileCardSettings component with drag-and-drop reordering in Admin Console
+    - First 2 selected columns display as card title, next 4 as detail fields
+    - Settings stored in company.settings.mobile_card_columns
+    - Mobile card view includes Call and WhatsApp action buttons with tel: and wa.me links
+    - API: GET /api/company/settings (all users), PATCH /api/admin/company/settings (admins only)
 
 ## External Dependencies
 

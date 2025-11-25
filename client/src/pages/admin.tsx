@@ -21,6 +21,7 @@ import type { User, Company, GlobalReportSummary, InsertCompany, InsertUser } fr
 import { insertCompanySchema, insertUserSchema } from "@shared/schema";
 import { CompanyColumnManager } from "@/components/company-column-manager";
 import { QuickFilterManager } from "@/components/quick-filter-manager";
+import { MobileCardSettings } from "@/components/mobile-card-settings";
 
 function SuperAdminView() {
   const [createOpen, setCreateOpen] = useState(false);
@@ -544,6 +545,7 @@ function CompanyAdminView() {
 
         <InviteManager />
         <CompanyColumnManager />
+        <MobileCardSettings />
         <QuickFilterManager />
         <SheetAssignmentManager />
         </div>
