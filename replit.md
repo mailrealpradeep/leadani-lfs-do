@@ -39,6 +39,12 @@ Socket.io facilitates real-time synchronization by allowing clients to subscribe
 *   **Lead Management**: Chronological tracking of lead updates, export/import of leads (Excel/CSV) with intelligent column mapping, field validation, and bulk lead transfer.
 *   **Soft Delete & Recovery**: Leads can be soft-deleted and recovered by admins within 30 days, with a scheduled job for permanent removal.
 *   **Conditional Validation**: Supports creation of company-scoped, sheet-specific rules to make fields required based on trigger conditions, with visual highlighting of invalid leads in the grid and non-blocking import validation.
+*   **NFDT Highlighting**: Two-tier visual highlighting for Next Follow-up Date Time columns:
+    - **Empty NFDT (Red)**: When validation rules require NFDT but it's empty, the entire row gets red background (`bg-red-50`)
+    - **Past NFDT (Amber)**: Individual NFDT cells with past dates get amber cell-level styling (`bg-amber-100`), clock icon, and tooltip "Past follow-up date"
+    - Column detection matches: `nfdt`, `next_follow`, `followup_date` in column_key, or `nfdt`, `next follow` in column name
+    - Works in both desktop spreadsheet view and mobile card view
+    - Uses memoized `leadsWithPastNFDT` Map for efficient rendering
 *   **Design System**: Tailwind CSS with custom design tokens, Shadcn UI components, and support for light/dark themes, built with a mobile-first approach.
 *   **Self-Service Signup**: A multi-step onboarding flow for company registration, admin setup, invite management, and staff onboarding.
 *   **User Management**: Company admins can manage users, including deletion (with safeguards like preventing self-deletion and ensuring admin presence) and sheet-level access control (viewer/editor roles), with real-time updates and audit logging.
