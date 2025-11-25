@@ -2596,7 +2596,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const deletedLeads = await storage.getDeletedLeadsBySheetId(req.params.id);
-      res.json(deletedLeads);
+      
+      // Enrich deleted leads with user names and extract contact fields
+      const enrichedLeads = await Promise.all(deletedLeads.map(async (lead) => {
+        // Get user who deleted the lead
+        let deletedByUserName = "Unknown";
+        if (lead.deleted_by_user_id) {
+          const deletedByUser = await storage.getUser(lead.deleted_by_user_id);
+          if (deletedByUser) {
+            deletedByUserName = deletedByUser.name;
+          }
+        }
+        
+        // Extract contact fields from custom_fields (case-insensitive matching)
+        const customFields = lead.custom_fields || {};
+        const getFieldValue = (keys: string[]) => {
+          for (const key of keys) {
+            const matchKey = Object.keys(customFields).find(k => k.toLowerCase() === key.toLowerCase());
+            if (matchKey && customFields[matchKey]) {
+              return String(customFields[matchKey]);
+            }
+          }
+          return null;
+        };
+        
+        return {
+          ...lead,
+          sheet_name: sheet.name,
+          deleted_by_user_name: deletedByUserName,
+          full_name: getFieldValue(['full_name', 'fullname', 'name', 'full name']),
+          mobile: getFieldValue(['mob_no', 'mobile', 'phone', 'phone_no', 'mob no', 'phone no', 'mobile_no', 'mobile no']),
+          whatsapp: getFieldValue(['whatsapp_no', 'whatsapp', 'whats_app', 'whatsapp no', 'whats app no', 'wa_no']),
+        };
+      }));
+      
+      res.json(enrichedLeads);
     } catch (error: any) {
       console.error("Get deleted leads error:", error);
       res.status(500).json({ error: error.message });

@@ -5,9 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Trash2, RotateCcw, Calendar, User } from "lucide-react";
+import { Trash2, RotateCcw, Calendar, User, Phone, MessageCircle, FileSpreadsheet } from "lucide-react";
 import { format } from "date-fns";
-import type { Lead, CustomColumn } from "@shared/schema";
+import type { Lead } from "@shared/schema";
+
+interface EnrichedDeletedLead extends Lead {
+  sheet_name: string;
+  deleted_by_user_name: string;
+  full_name: string | null;
+  mobile: string | null;
+  whatsapp: string | null;
+}
 
 interface DeletedLeadsDialogProps {
   sheetId: string;
@@ -19,13 +27,8 @@ export function DeletedLeadsDialog({ sheetId, open, onOpenChange }: DeletedLeads
   const { toast } = useToast();
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
 
-  const { data: deletedLeads = [], isLoading } = useQuery<Lead[]>({
+  const { data: deletedLeads = [], isLoading } = useQuery<EnrichedDeletedLead[]>({
     queryKey: ["/api/sheets", sheetId, "deleted-leads"],
-    enabled: open && !!sheetId,
-  });
-
-  const { data: columns = [] } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/sheets", sheetId, "columns"],
     enabled: open && !!sheetId,
   });
 
@@ -82,18 +85,9 @@ export function DeletedLeadsDialog({ sheetId, open, onOpenChange }: DeletedLeads
     restoreMutation.mutate(Array.from(selectedLeads));
   };
 
-  const getDisplayValue = (lead: Lead, columnKey: string) => {
-    const value = lead.custom_fields?.[columnKey];
-    if (value === null || value === undefined || value === "") return "-";
-    if (Array.isArray(value)) return value.join(", ");
-    return String(value);
-  };
-
-  const primaryColumn = columns.find((col) => col.order_index === 0);
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[80vh]">
+      <DialogContent className="max-w-5xl max-h-[85vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Trash2 className="w-5 h-5" />
@@ -141,17 +135,18 @@ export function DeletedLeadsDialog({ sheetId, open, onOpenChange }: DeletedLeads
                 </Button>
               </div>
 
-              <div className="overflow-auto max-h-[400px] border rounded-md">
-                <table className="w-full">
-                  <thead className="bg-muted sticky top-0">
+              <div className="overflow-auto max-h-[450px] border rounded-md">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted sticky top-0 z-10">
                     <tr>
-                      <th className="w-12 p-2"></th>
-                      <th className="text-left p-2 text-sm font-medium">
-                        {primaryColumn?.name || "Lead"}
-                      </th>
-                      <th className="text-left p-2 text-sm font-medium">Deleted By</th>
-                      <th className="text-left p-2 text-sm font-medium">Deleted At</th>
-                      <th className="w-24 p-2"></th>
+                      <th className="w-10 p-2"></th>
+                      <th className="text-left p-2 font-medium whitespace-nowrap">Full Name</th>
+                      <th className="text-left p-2 font-medium whitespace-nowrap">Mob No</th>
+                      <th className="text-left p-2 font-medium whitespace-nowrap">WhatsApp No</th>
+                      <th className="text-left p-2 font-medium whitespace-nowrap">Sheet Name</th>
+                      <th className="text-left p-2 font-medium whitespace-nowrap">Deleted By</th>
+                      <th className="text-left p-2 font-medium whitespace-nowrap">Deleted Date</th>
+                      <th className="w-16 p-2"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -169,24 +164,40 @@ export function DeletedLeadsDialog({ sheetId, open, onOpenChange }: DeletedLeads
                           />
                         </td>
                         <td className="p-2">
-                          <div className="font-medium">
-                            {primaryColumn
-                              ? getDisplayValue(lead, primaryColumn.column_key)
-                              : lead.id.substring(0, 8)}
+                          <div className="font-medium" data-testid={`text-fullname-${lead.id}`}>
+                            {lead.full_name || "-"}
                           </div>
                         </td>
                         <td className="p-2">
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <User className="w-3 h-3" />
-                            <span>{lead.deleted_by_user_id || "Unknown"}</span>
+                          <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-mobile-${lead.id}`}>
+                            <Phone className="w-3 h-3 shrink-0" />
+                            <span>{lead.mobile || "-"}</span>
                           </div>
                         </td>
                         <td className="p-2">
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <Calendar className="w-3 h-3" />
+                          <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-whatsapp-${lead.id}`}>
+                            <MessageCircle className="w-3 h-3 shrink-0" />
+                            <span>{lead.whatsapp || "-"}</span>
+                          </div>
+                        </td>
+                        <td className="p-2">
+                          <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-sheet-${lead.id}`}>
+                            <FileSpreadsheet className="w-3 h-3 shrink-0" />
+                            <span className="truncate max-w-[120px]">{lead.sheet_name || "-"}</span>
+                          </div>
+                        </td>
+                        <td className="p-2">
+                          <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-deleted-by-${lead.id}`}>
+                            <User className="w-3 h-3 shrink-0" />
+                            <span>{lead.deleted_by_user_name || "Unknown"}</span>
+                          </div>
+                        </td>
+                        <td className="p-2">
+                          <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-deleted-date-${lead.id}`}>
+                            <Calendar className="w-3 h-3 shrink-0" />
                             <span>
                               {lead.deleted_at
-                                ? format(new Date(lead.deleted_at), "MMM d, yyyy h:mm a")
+                                ? format(new Date(lead.deleted_at), "dd/MM/yy")
                                 : "-"}
                             </span>
                           </div>
