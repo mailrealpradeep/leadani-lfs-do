@@ -22,6 +22,7 @@ import { insertCompanySchema, insertUserSchema } from "@shared/schema";
 import { CompanyColumnManager } from "@/components/company-column-manager";
 import { QuickFilterManager } from "@/components/quick-filter-manager";
 import { MobileCardSettings } from "@/components/mobile-card-settings";
+import { NotificationSettings } from "@/components/notification-settings";
 
 function SuperAdminView() {
   const [createOpen, setCreateOpen] = useState(false);
@@ -546,6 +547,7 @@ function CompanyAdminView() {
         <InviteManager />
         <CompanyColumnManager />
         <MobileCardSettings />
+        <NotificationSettings />
         <QuickFilterManager />
         <SheetAssignmentManager />
         </div>

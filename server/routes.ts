@@ -11,6 +11,7 @@ import crypto from "crypto";
 import { seedData } from "./seed";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { insertQuickFilterSchema, quickFilterConfigSchema } from "@shared/schema";
+import { notifyLeadAssigned, notifyLeadUpdated, notifyWebhookReceived, notifyUserJoined } from "./push-service";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -553,6 +554,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get company info
       const company = await storage.getCompany(user.company_id!);
 
+      // Notify admins about new user joining
+      notifyUserJoined(user.company_id!, user.name, user.id).catch(err => {
+        console.error("Failed to send user joined notification:", err);
+      });
+
       const { password_hash: _, ...userWithoutPassword } = user;
       res.status(201).json({
         message: "Account created successfully",
@@ -908,6 +914,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       requestStatus = "success";
+      
+      // Send webhook received notification
+      const sheet = await storage.getSheet(targetSheetId);
+      const leadName = lead.custom_fields?.name || lead.custom_fields?.full_name || "New Lead";
+      notifyWebhookReceived(
+        webhook.company_id,
+        leadName,
+        sheet?.name || "Sheet",
+        targetSheetId,
+        lead.id
+      ).catch(err => {
+        console.error("Failed to send webhook notification:", err);
+      });
       
       // Build response message based on what happened
       let message = "Lead created successfully";
@@ -2621,6 +2640,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         model_id: req.params.id,
         payload: req.body,
       });
+
+      // Send notification to lead owner if updated by someone else
+      if (lead.owner_user_id && lead.owner_user_id !== req.userId) {
+        const updater = await storage.getUser(req.userId!);
+        const leadName = updated?.custom_fields?.name || updated?.custom_fields?.full_name || "Lead";
+        notifyLeadUpdated(
+          lead.owner_user_id,
+          updater?.name || "Someone",
+          leadName,
+          lead.sheet_id,
+          lead.id,
+          req.userId!
+        ).catch(err => {
+          console.error("Failed to send lead updated notification:", err);
+        });
+      }
 
       // Realtime update
       const io = app.get("io") as SocketIOServer;
