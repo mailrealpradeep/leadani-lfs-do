@@ -5950,6 +5950,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // PUSH NOTIFICATIONS
+  // ============================================================================
+  
+  // Get VAPID public key for client-side subscription
+  app.get("/api/push/vapid-public-key", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
+      if (!vapidPublicKey) {
+        return res.status(500).json({ error: "Push notifications not configured" });
+      }
+      res.json({ vapidPublicKey });
+    } catch (error: any) {
+      console.error("Get VAPID public key error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Subscribe to push notifications
+  app.post("/api/push/subscribe", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { endpoint, keys, deviceType, userAgent } = req.body;
+
+      if (!endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ error: "Invalid subscription data" });
+      }
+
+      // Check if subscription already exists
+      const existing = await storage.getPushSubscription(req.userId!, endpoint);
+      if (existing) {
+        return res.json({ success: true, message: "Already subscribed" });
+      }
+
+      await storage.createPushSubscription({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        endpoint,
+        p256dh: keys.p256dh,
+        auth: keys.auth,
+        device_type: deviceType || null,
+        user_agent: userAgent || null,
+      });
+
+      res.json({ success: true, message: "Subscribed to push notifications" });
+    } catch (error: any) {
+      console.error("Push subscribe error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Unsubscribe from push notifications
+  app.post("/api/push/unsubscribe", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { endpoint } = req.body;
+
+      if (!endpoint) {
+        return res.status(400).json({ error: "Endpoint required" });
+      }
+
+      await storage.deletePushSubscription(req.userId!, endpoint);
+      res.json({ success: true, message: "Unsubscribed from push notifications" });
+    } catch (error: any) {
+      console.error("Push unsubscribe error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get user's push subscription status
+  app.get("/api/push/status", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const subscriptions = await storage.getPushSubscriptionsByUserId(req.userId!);
+      res.json({ 
+        subscribed: subscriptions.length > 0,
+        deviceCount: subscriptions.length
+      });
+    } catch (error: any) {
+      console.error("Push status error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // ADMIN
   // ============================================================================
   app.get("/api/admin/users", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
