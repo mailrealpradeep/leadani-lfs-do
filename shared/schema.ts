@@ -13,6 +13,13 @@ export interface Company {
     date_format?: string;
     custom_branding?: any;
     mobile_card_columns?: string[]; // column keys to display in mobile card view
+    notification_settings?: {
+      lead_assigned?: boolean;
+      nfdt_reminder?: boolean;
+      lead_updated?: boolean;
+      webhook_received?: boolean;
+      user_joined?: boolean;
+    };
   };
   status: "active" | "suspended" | "trial";
   created_at: string;
@@ -27,6 +34,13 @@ export const insertCompanySchema = z.object({
     date_format: z.string().optional(),
     custom_branding: z.any().optional(),
     mobile_card_columns: z.array(z.string()).optional(),
+    notification_settings: z.object({
+      lead_assigned: z.boolean().optional(),
+      nfdt_reminder: z.boolean().optional(),
+      lead_updated: z.boolean().optional(),
+      webhook_received: z.boolean().optional(),
+      user_joined: z.boolean().optional(),
+    }).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),
 });
@@ -849,3 +863,49 @@ export interface DrilldownResponse {
   limit: number;
   total_pages: number;
 }
+
+// ============================================================================
+// PUSH SUBSCRIPTIONS (Web Push Notifications)
+// ============================================================================
+export const pushSubscriptions = pgTable('push_subscriptions', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  endpoint: text('endpoint').notNull(),
+  p256dh: text('p256dh').notNull(), // Public key for encryption
+  auth: text('auth').notNull(), // Auth secret for encryption
+  device_type: varchar('device_type', { length: 50 }), // 'mobile' or 'desktop'
+  user_agent: text('user_agent'), // Browser/device info
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = typeof pushSubscriptions.$inferInsert;
+
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertPushSubscriptionData = z.infer<typeof insertPushSubscriptionSchema>;
+
+// ============================================================================
+// NOTIFICATION SETTINGS (Company-level Configuration)
+// ============================================================================
+export interface NotificationSettings {
+  lead_assigned: boolean; // When a lead is assigned to a user
+  nfdt_reminder: boolean; // Daily reminder for leads with NFDT = today
+  lead_updated: boolean; // When another user updates your lead
+  webhook_received: boolean; // New lead via webhook
+  user_joined: boolean; // Team member accepts invite
+}
+
+export const defaultNotificationSettings: NotificationSettings = {
+  lead_assigned: true,
+  nfdt_reminder: true,
+  lead_updated: false,
+  webhook_received: true,
+  user_joined: true,
+};

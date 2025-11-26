@@ -37,6 +37,8 @@ import type {
   Report,
   InsertReport,
   UserColumnPreference,
+  PushSubscription,
+  InsertPushSubscription,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -183,6 +185,14 @@ export interface IStorage {
   // User Column Preferences
   getUserColumnPreferences(userId: string, sheetId: string): Promise<UserColumnPreference[]>;
   saveUserColumnPreferences(userId: string, sheetId: string, preferences: Array<{column_key: string, width: number}>): Promise<void>;
+
+  // Push Subscriptions
+  getPushSubscription(userId: string, endpoint: string): Promise<PushSubscription | undefined>;
+  getPushSubscriptionsByUserId(userId: string): Promise<PushSubscription[]>;
+  getPushSubscriptionsByCompanyId(companyId: string): Promise<PushSubscription[]>;
+  createPushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription>;
+  deletePushSubscription(userId: string, endpoint: string): Promise<boolean>;
+  deletePushSubscriptionsByUserId(userId: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -1098,6 +1108,54 @@ export class MemStorage implements IStorage {
       };
       this.userColumnPreferences.set(id, preference);
     });
+  }
+
+  // Push Subscriptions (MemStorage - minimal implementation)
+  private pushSubscriptions: Map<string, PushSubscription> = new Map();
+
+  async getPushSubscription(userId: string, endpoint: string): Promise<PushSubscription | undefined> {
+    return Array.from(this.pushSubscriptions.values()).find(
+      sub => sub.user_id === userId && sub.endpoint === endpoint
+    );
+  }
+
+  async getPushSubscriptionsByUserId(userId: string): Promise<PushSubscription[]> {
+    return Array.from(this.pushSubscriptions.values()).filter(sub => sub.user_id === userId);
+  }
+
+  async getPushSubscriptionsByCompanyId(companyId: string): Promise<PushSubscription[]> {
+    return Array.from(this.pushSubscriptions.values()).filter(sub => sub.company_id === companyId);
+  }
+
+  async createPushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newSub: PushSubscription = {
+      id,
+      user_id: subscription.user_id,
+      company_id: subscription.company_id,
+      endpoint: subscription.endpoint,
+      p256dh: subscription.p256dh,
+      auth: subscription.auth,
+      device_type: subscription.device_type ?? null,
+      user_agent: subscription.user_agent ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.pushSubscriptions.set(id, newSub);
+    return newSub;
+  }
+
+  async deletePushSubscription(userId: string, endpoint: string): Promise<boolean> {
+    const sub = await this.getPushSubscription(userId, endpoint);
+    if (!sub) return false;
+    return this.pushSubscriptions.delete(sub.id);
+  }
+
+  async deletePushSubscriptionsByUserId(userId: string): Promise<boolean> {
+    const subs = await this.getPushSubscriptionsByUserId(userId);
+    subs.forEach(sub => this.pushSubscriptions.delete(sub.id));
+    return true;
   }
 }
 
@@ -2270,6 +2328,71 @@ export class PgStorage implements IStorage {
         }))
       );
     }
+  }
+
+  // Push Subscriptions
+  async getPushSubscription(userId: string, endpoint: string): Promise<PushSubscription | undefined> {
+    const result = await db.select().from(dbSchema.pushSubscriptions)
+      .where(and(
+        eq(dbSchema.pushSubscriptions.user_id, userId),
+        eq(dbSchema.pushSubscriptions.endpoint, endpoint)
+      ));
+    if (result.length === 0) return undefined;
+    return this.mapPushSubscription(result[0]);
+  }
+
+  async getPushSubscriptionsByUserId(userId: string): Promise<PushSubscription[]> {
+    const result = await db.select().from(dbSchema.pushSubscriptions)
+      .where(eq(dbSchema.pushSubscriptions.user_id, userId));
+    return result.map(this.mapPushSubscription.bind(this));
+  }
+
+  async getPushSubscriptionsByCompanyId(companyId: string): Promise<PushSubscription[]> {
+    const result = await db.select().from(dbSchema.pushSubscriptions)
+      .where(eq(dbSchema.pushSubscriptions.company_id, companyId));
+    return result.map(this.mapPushSubscription.bind(this));
+  }
+
+  async createPushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription> {
+    const id = randomUUID();
+    const now = new Date();
+    const newSub = {
+      id,
+      user_id: subscription.user_id,
+      company_id: subscription.company_id,
+      endpoint: subscription.endpoint,
+      p256dh: subscription.p256dh,
+      auth: subscription.auth,
+      device_type: subscription.device_type ?? null,
+      user_agent: subscription.user_agent ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.pushSubscriptions).values(newSub);
+    return this.mapPushSubscription(newSub as any);
+  }
+
+  async deletePushSubscription(userId: string, endpoint: string): Promise<boolean> {
+    await db.delete(dbSchema.pushSubscriptions)
+      .where(and(
+        eq(dbSchema.pushSubscriptions.user_id, userId),
+        eq(dbSchema.pushSubscriptions.endpoint, endpoint)
+      ));
+    return true;
+  }
+
+  async deletePushSubscriptionsByUserId(userId: string): Promise<boolean> {
+    await db.delete(dbSchema.pushSubscriptions)
+      .where(eq(dbSchema.pushSubscriptions.user_id, userId));
+    return true;
+  }
+
+  private mapPushSubscription(row: any): PushSubscription {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
   }
 
   private mapReport(row: any): Report {
