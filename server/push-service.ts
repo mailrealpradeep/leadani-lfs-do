@@ -6,12 +6,21 @@ import type { PushSubscription, User, Company } from '@shared/schema';
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 
+let vapidConfigured = false;
+
+// Try to configure VAPID, but don't crash if keys are invalid
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(
-    'mailto:support@leadani.com',
-    VAPID_PUBLIC_KEY,
-    VAPID_PRIVATE_KEY
-  );
+  try {
+    webpush.setVapidDetails(
+      'mailto:support@leadani.com',
+      VAPID_PUBLIC_KEY,
+      VAPID_PRIVATE_KEY
+    );
+    vapidConfigured = true;
+    console.log('[Push] VAPID keys configured successfully');
+  } catch (error: any) {
+    console.warn('[Push] Invalid VAPID keys, push notifications disabled:', error.message);
+  }
 }
 
 export interface NotificationPayload {
@@ -39,12 +48,16 @@ export async function getVapidPublicKey(): Promise<string> {
   return VAPID_PUBLIC_KEY;
 }
 
+export function isPushEnabled(): boolean {
+  return vapidConfigured;
+}
+
 export async function sendPushNotification(
   subscription: PushSubscription,
   payload: NotificationPayload
 ): Promise<boolean> {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-    console.warn('VAPID keys not configured, skipping push notification');
+  if (!vapidConfigured) {
+    console.warn('[Push] VAPID not configured, skipping push notification');
     return false;
   }
 
