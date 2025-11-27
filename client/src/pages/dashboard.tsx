@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { FileSpreadsheet } from "lucide-react";
 import { useDashboard } from "@/components/dashboard-context";
 import { SpreadsheetGrid } from "@/components/spreadsheet-grid";
+import { MultiSheetGrid } from "@/components/multi-sheet-grid";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { DropdownManagerModal } from "@/components/dropdown-manager-modal";
 import { AddLeadDialog } from "@/components/add-lead-dialog";
@@ -12,7 +14,7 @@ import type { Sheet } from "@shared/schema";
 
 export default function Dashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { selectedSheetId, setSelectedSheetId, setActions } = useDashboard();
+  const { selectedSheetId, setSelectedSheetId, selectedSheetIds, isMultiSheetMode, setActions } = useDashboard();
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
@@ -86,7 +88,12 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col h-full">
       <div ref={containerRef} className="flex-1 p-4 overflow-hidden">
-        {selectedSheetId ? (
+        {isMultiSheetMode && selectedSheetIds.length > 0 ? (
+          <MultiSheetGrid
+            sheetIds={selectedSheetIds}
+            onOpenLeadDetail={handleOpenLeadDetail}
+          />
+        ) : selectedSheetId ? (
           <SpreadsheetGrid
             sheetId={selectedSheetId}
             onOpenLeadDetail={handleOpenLeadDetail}
@@ -96,7 +103,7 @@ export default function Dashboard() {
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-4 max-w-md">
-              <div className="text-6xl">📊</div>
+              <FileSpreadsheet className="h-16 w-16 mx-auto text-muted-foreground" />
               <h2 className="text-2xl font-semibold">No sheet selected</h2>
               <p className="text-muted-foreground">
                 Select a sheet from the sidebar to view and manage leads, or create a new sheet to get started.

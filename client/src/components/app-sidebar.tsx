@@ -241,7 +241,7 @@ export function AppSidebar() {
                             Column Schema
                           </Button>
                         )}
-                        {isCompanyAdmin && (
+                        {isCompanyAdmin && selectedSheetId && (
                           <ValidationRulesManager sheetId={selectedSheetId} />
                         )}
                         {canDeleteSheet && (
