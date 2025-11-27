@@ -30,6 +30,7 @@ import Webhooks from "@/pages/webhooks";
 import AuditLogs from "@/pages/audit";
 import Attendance from "@/pages/attendance";
 import Tasks from "@/pages/tasks";
+import SuperAdmin from "@/pages/super-admin";
 
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => JSX.Element; adminOnly?: boolean }) {
   const { isAuthenticated, isSuperAdmin, isCompanyAdmin, isLoading } = useAuth();
@@ -95,6 +96,9 @@ function Router() {
       </Route>
       <Route path="/admin">
         {() => <ProtectedRoute component={Admin} adminOnly />}
+      </Route>
+      <Route path="/super-admin">
+        {() => <ProtectedRoute component={SuperAdmin} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

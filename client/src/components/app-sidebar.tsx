@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare } from "lucide-react";
-import { useLocation } from "wouter";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield } from "lucide-react";
+import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useDashboard } from "./dashboard-context";
@@ -163,10 +163,10 @@ export function AppSidebar() {
                       isActive={location === item.url}
                       data-testid={item.testId}
                     >
-                      <a href={item.url}>
+                      <Link href={item.url}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
-                      </a>
+                      </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -186,10 +186,10 @@ export function AppSidebar() {
                         isActive={location === item.url}
                         data-testid={item.testId}
                       >
-                        <a href={item.url}>
+                        <Link href={item.url}>
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
-                        </a>
+                        </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -324,15 +324,31 @@ export function AppSidebar() {
               )}
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={logout}
-            className="w-full"
-            data-testid="button-logout"
-          >
-            Sign out
-          </Button>
+          <div className="flex gap-2">
+            {user?.email === "mailrealpradeep@gmail.com" && (
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+                className="flex-1"
+                data-testid="button-super-admin"
+              >
+                <Link href="/super-admin">
+                  <Shield className="h-4 w-4 mr-1" />
+                  Super Admin
+                </Link>
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={logout}
+              className={user?.email === "mailrealpradeep@gmail.com" ? "flex-1" : "w-full"}
+              data-testid="button-logout"
+            >
+              Sign out
+            </Button>
+          </div>
         </SidebarFooter>
       </Sidebar>
 

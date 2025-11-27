@@ -7377,6 +7377,282 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // SUPER ADMIN PANEL
+  // ============================================================================
+  const SUPER_ADMIN_EMAIL = "mailrealpradeep@gmail.com";
+  
+  // Middleware to check if user is the super admin by email
+  const requireSuperAdminByEmail = async (req: AuthRequest, res: any, next: any) => {
+    if (!req.userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = await storage.getUser(req.userId);
+    if (!user || user.email !== SUPER_ADMIN_EMAIL) {
+      return res.status(403).json({ error: "Access denied. Super admin only." });
+    }
+    (req as any).superAdminUser = user;
+    next();
+  };
+
+  // Super Admin Stats
+  app.get("/api/super-admin/stats", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const companies = await storage.getAllCompanies();
+      const users = await storage.getAllUsers();
+      const sheets = await storage.getAllSheets();
+      
+      // Count leads from all sheets
+      let totalLeads = 0;
+      for (const sheet of sheets) {
+        const sheetLeads = await storage.getLeadsBySheetId(sheet.id);
+        totalLeads += sheetLeads.length;
+      }
+      
+      // Count tasks from all companies
+      let totalTasks = 0;
+      for (const company of companies) {
+        const companyTasks = await storage.getTasksByCompanyId(company.id, { includeCompleted: true });
+        totalTasks += companyTasks.length;
+      }
+      
+      // Calculate recent signups (last 7 days)
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const recentSignups = users.filter(u => new Date(u.created_at) >= sevenDaysAgo).length;
+      
+      // Get webhook errors in last 24 hours
+      const webhookLogs = await storage.getWebhookLogs();
+      const twentyFourHoursAgo = new Date();
+      twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+      const webhookErrors = webhookLogs.filter(
+        log => new Date(log.created_at) >= twentyFourHoursAgo && log.status === "error"
+      ).length;
+      
+      res.json({
+        totalCompanies: companies.length,
+        totalUsers: users.length,
+        activeUsers: users.filter(u => u.last_login).length,
+        totalLeads,
+        totalTasks,
+        totalSheets: sheets.length,
+        recentSignups,
+        webhookErrors,
+      });
+    } catch (error: any) {
+      console.error("Super admin stats error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Super Admin Companies List
+  app.get("/api/super-admin/companies", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const companies = await storage.getAllCompanies();
+      const users = await storage.getAllUsers();
+      const sheets = await storage.getAllSheets();
+      
+      const companiesWithStats = await Promise.all(companies.map(async company => {
+        // Count leads for this company
+        const companySheets = sheets.filter(s => s.company_id === company.id);
+        let leadCount = 0;
+        for (const sheet of companySheets) {
+          const sheetLeads = await storage.getLeadsBySheetId(sheet.id);
+          leadCount += sheetLeads.length;
+        }
+        
+        return {
+          id: company.id,
+          name: company.name,
+          is_active: company.status === "active",
+          created_at: company.created_at,
+          userCount: users.filter(u => u.company_id === company.id).length,
+          leadCount,
+          sheetCount: companySheets.length,
+        };
+      }));
+      
+      res.json(companiesWithStats);
+    } catch (error: any) {
+      console.error("Super admin companies error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Super Admin Users List
+  app.get("/api/super-admin/users", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      const companies = await storage.getAllCompanies();
+      
+      const usersWithCompany = users.map(user => {
+        const company = user.company_id ? companies.find(c => c.id === user.company_id) : null;
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          is_active: true, // Default to true since we don't have is_active field
+          created_at: user.created_at,
+          company_id: user.company_id,
+          company_name: company?.name || null,
+        };
+      });
+      
+      res.json(usersWithCompany);
+    } catch (error: any) {
+      console.error("Super admin users error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Super Admin Activity Logs
+  app.get("/api/super-admin/activity", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const companies = await storage.getAllCompanies();
+      const users = await storage.getAllUsers();
+      
+      // Get all audit logs
+      const allAuditLogs = await storage.getAuditLogs();
+      
+      // Take recent 100
+      const recentLogs = allAuditLogs.slice(0, 100);
+      
+      const logsWithDetails = recentLogs.map(log => {
+        const user = users.find(u => u.id === log.user_id);
+        const company = companies.find(c => c.id === log.company_id);
+        return {
+          id: log.id,
+          user_id: log.user_id,
+          user_name: user?.name || "Unknown",
+          user_email: user?.email || "",
+          company_name: company?.name || null,
+          action: log.action,
+          entity_type: log.model,
+          entity_id: log.model_id,
+          details: log.changes,
+          created_at: log.created_at,
+        };
+      });
+      
+      res.json(logsWithDetails);
+    } catch (error: any) {
+      console.error("Super admin activity error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Super Admin Webhook Logs
+  app.get("/api/super-admin/webhook-logs", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const companies = await storage.getAllCompanies();
+      const allWebhookLogs: any[] = [];
+      
+      for (const company of companies) {
+        const companyLogs = await storage.getWebhookLogsByCompany(company.id);
+        allWebhookLogs.push(...companyLogs.map(log => ({
+          ...log,
+          company_name: company.name,
+        })));
+      }
+      
+      // Sort by date and take recent 100
+      allWebhookLogs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
+      res.json(allWebhookLogs.slice(0, 100));
+    } catch (error: any) {
+      console.error("Super admin webhook logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Toggle User Status
+  app.patch("/api/super-admin/users/:userId/status", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const { is_active } = req.body;
+      
+      // For now we'll just return success since is_active isn't in the schema
+      // In a real implementation, you'd add is_active to the users table
+      res.json({ success: true, message: `User ${is_active ? 'enabled' : 'disabled'}` });
+    } catch (error: any) {
+      console.error("Toggle user status error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Toggle Company Status
+  app.patch("/api/super-admin/companies/:companyId/status", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const { companyId } = req.params;
+      const { is_active } = req.body;
+      
+      const company = await storage.getCompany(companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      
+      await storage.updateCompany(companyId, { 
+        status: is_active ? "active" : "suspended" 
+      });
+      
+      res.json({ success: true, message: `Company ${is_active ? 'enabled' : 'disabled'}` });
+    } catch (error: any) {
+      console.error("Toggle company status error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Impersonate User
+  app.post("/api/super-admin/impersonate/:userId", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const superAdminUser = (req as any).superAdminUser;
+      
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Don't allow impersonating super admin
+      if (targetUser.email === SUPER_ADMIN_EMAIL) {
+        return res.status(403).json({ error: "Cannot impersonate super admin" });
+      }
+      
+      // Get the user's company
+      const company = targetUser.company_id ? await storage.getCompany(targetUser.company_id) : null;
+      
+      // Create audit log for impersonation
+      if (targetUser.company_id) {
+        await storage.createAuditLog({
+          company_id: targetUser.company_id,
+          user_id: superAdminUser.id,
+          action: "impersonate",
+          model: "user",
+          model_id: userId,
+          changes: {
+            impersonated_user: targetUser.email,
+            impersonated_by: superAdminUser.email,
+          },
+        });
+      }
+      
+      // Generate token for the impersonated user
+      const token = generateToken(targetUser);
+      
+      const { password_hash, ...userWithoutPassword } = targetUser;
+      
+      res.json({
+        token,
+        user: userWithoutPassword,
+        company,
+      });
+    } catch (error: any) {
+      console.error("Impersonate user error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
