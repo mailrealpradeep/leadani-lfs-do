@@ -68,7 +68,7 @@ export function LeadUpdateDialog({
 
   const createUpdateMutation = useMutation({
     mutationFn: async (data: InsertLeadUpdate) => {
-      return await apiRequest("POST", `/api/leads/${leadId}/updates`, data);
+      return await apiRequest("POST", `/api/leads/${data.lead_id}/updates`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "updates"] });
