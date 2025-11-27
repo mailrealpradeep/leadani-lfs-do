@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertLeadUpdateSchema, type InsertLeadUpdate } from "@shared/schema";
@@ -53,6 +53,18 @@ export function LeadUpdateDialog({
       remark: "",
     },
   });
+
+  // Reset form when leadId changes to prevent updates going to wrong lead
+  useEffect(() => {
+    if (leadId) {
+      form.reset({
+        lead_id: leadId,
+        update_via: "call",
+        update_on: new Date().toISOString().split("T")[0],
+        remark: "",
+      });
+    }
+  }, [leadId, form]);
 
   const createUpdateMutation = useMutation({
     mutationFn: async (data: InsertLeadUpdate) => {
