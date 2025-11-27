@@ -1553,8 +1553,8 @@ export function SpreadsheetGrid({
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
                         <span>{col.label}</span>
-                        {/* Sort button - only in single-sheet mode */}
-                        {col.sortable && !isMultiMode && (
+                        {/* Sort button - works in both single and multi-sheet mode */}
+                        {col.sortable && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1574,64 +1574,62 @@ export function SpreadsheetGrid({
                           </Button>
                         )}
                       </div>
-                      {/* Column filters - only in single-sheet mode (multi-mode uses server-side pagination) */}
-                      {!isMultiMode && (
-                        <div className="relative">
-                          {col.type === "date" ? (
-                            <DateRangeFilter
-                              value={columnFilters[col.key] as DateFilterValue}
-                              onChange={(value) =>
+                      {/* Column filters - works in both single and multi-sheet mode */}
+                      <div className="relative">
+                        {col.type === "date" ? (
+                          <DateRangeFilter
+                            value={columnFilters[col.key] as DateFilterValue}
+                            onChange={(value) =>
+                              setColumnFilters((prev) => ({
+                                ...prev,
+                                [col.key]: value,
+                              }))
+                            }
+                          />
+                        ) : col.type === "dropdown" ? (
+                          <DropdownFilter
+                            value={columnFilters[col.key] as string | null}
+                            onChange={(value) =>
+                              setColumnFilters((prev) => ({
+                                ...prev,
+                                [col.key]: value,
+                              }))
+                            }
+                            options={getDropdownOptionsForColumn(col.key)}
+                          />
+                        ) : (
+                          <>
+                            <Input
+                              placeholder="Filter..."
+                              value={(columnFilters[col.key] as string) || ""}
+                              onChange={(e) =>
                                 setColumnFilters((prev) => ({
                                   ...prev,
-                                  [col.key]: value,
+                                  [col.key]: e.target.value,
                                 }))
                               }
+                              className="h-7 text-xs"
+                              data-testid={`input-filter-${col.key}`}
                             />
-                          ) : col.type === "dropdown" ? (
-                            <DropdownFilter
-                              value={columnFilters[col.key] as string | null}
-                              onChange={(value) =>
-                                setColumnFilters((prev) => ({
-                                  ...prev,
-                                  [col.key]: value,
-                                }))
-                              }
-                              options={getDropdownOptionsForColumn(col.key)}
-                            />
-                          ) : (
-                            <>
-                              <Input
-                                placeholder="Filter..."
-                                value={(columnFilters[col.key] as string) || ""}
-                                onChange={(e) =>
-                                  setColumnFilters((prev) => ({
-                                    ...prev,
-                                    [col.key]: e.target.value,
-                                  }))
+                            {columnFilters[col.key] && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
+                                onClick={() =>
+                                  setColumnFilters((prev) => {
+                                    const next = { ...prev };
+                                    delete next[col.key];
+                                    return next;
+                                  })
                                 }
-                                className="h-7 text-xs"
-                                data-testid={`input-filter-${col.key}`}
-                              />
-                              {columnFilters[col.key] && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                                  onClick={() =>
-                                    setColumnFilters((prev) => {
-                                      const next = { ...prev };
-                                      delete next[col.key];
-                                      return next;
-                                    })
-                                  }
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
