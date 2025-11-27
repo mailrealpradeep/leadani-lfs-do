@@ -90,7 +90,21 @@ export function AppSidebar() {
     },
   });
 
-  const mainItems = [
+  // Check if the current user is the dedicated Super Admin account
+  const isSuperAdminAccount = user?.email === "adminleadani@leadani.com";
+
+  // Super Admin has a completely different, focused sidebar
+  const superAdminItems = [
+    {
+      title: "Super Admin Console",
+      url: "/super-admin",
+      icon: Shield,
+      testId: "link-super-admin-console",
+    },
+  ];
+
+  // Regular user items - hidden for Super Admin
+  const mainItems = isSuperAdminAccount ? [] : [
     {
       title: "My Sheets",
       url: "/",
@@ -135,7 +149,8 @@ export function AppSidebar() {
     },
   ];
 
-  const adminItems = (isSuperAdmin || isCompanyAdmin)
+  // Admin items - only for company admins, not Super Admin account
+  const adminItems = (!isSuperAdminAccount && (isSuperAdmin || isCompanyAdmin))
     ? [
         {
           title: "Admin Console",
@@ -156,6 +171,22 @@ export function AppSidebar() {
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
+                {/* Show Super Admin items for dedicated Super Admin account */}
+                {isSuperAdminAccount && superAdminItems.map((item) => (
+                  <SidebarMenuItem key={item.url}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === item.url || location.startsWith("/super-admin")}
+                      data-testid={item.testId}
+                    >
+                      <Link href={item.url}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+                {/* Show regular items for non-Super-Admin users */}
                 {mainItems.map((item) => (
                   <SidebarMenuItem key={item.url}>
                     <SidebarMenuButton
@@ -198,7 +229,7 @@ export function AppSidebar() {
             </SidebarGroup>
           )}
 
-          {location === "/" && (
+          {location === "/" && !isSuperAdminAccount && (
             <>
               <SidebarGroup>
                 <SidebarGroupLabel className="px-4">Current Sheet</SidebarGroupLabel>
@@ -336,25 +367,11 @@ export function AppSidebar() {
             </div>
           </div>
           <div className="flex gap-2">
-            {user?.email === "adminleadani@leadani.com" && (
-              <Button
-                variant="outline"
-                size="sm"
-                asChild
-                className="flex-1"
-                data-testid="button-super-admin"
-              >
-                <Link href="/super-admin">
-                  <Shield className="h-4 w-4 mr-1" />
-                  Super Admin
-                </Link>
-              </Button>
-            )}
             <Button
               variant="outline"
               size="sm"
               onClick={logout}
-              className={user?.email === "adminleadani@leadani.com" && sessionStorage.getItem("impersonating") !== "true" ? "flex-1" : "w-full"}
+              className="w-full"
               data-testid="button-logout"
             >
               {sessionStorage.getItem("impersonating") === "true" ? "End Session" : "Sign out"}

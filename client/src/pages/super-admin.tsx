@@ -9,35 +9,25 @@ import {
   Building2,
   Users,
   FileSpreadsheet,
-  Activity,
   Search,
   UserCheck,
   UserX,
   LogIn,
   RefreshCw,
-  Webhook,
-  ChevronLeft,
+  ChevronDown,
+  ChevronRight,
   Eye,
   TrendingUp,
   AlertCircle,
   CheckCircle2,
-  Clock,
-  Filter,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -46,13 +36,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,7 +46,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Redirect, Link, useLocation } from "wouter";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Redirect, useLocation } from "wouter";
 
 interface SuperAdminStats {
   totalCompanies: number;
@@ -97,75 +85,35 @@ interface UserWithCompany {
   company_name: string | null;
 }
 
-interface ActivityLog {
-  id: string;
-  user_id: string;
-  user_name: string;
-  user_email: string;
-  company_name: string | null;
-  action: string;
-  entity_type: string;
-  entity_id: string | null;
-  details: any;
-  created_at: string;
-}
-
-interface WebhookLogEntry {
-  id: string;
-  company_id: string;
-  company_name: string;
-  endpoint: string;
-  method: string;
-  status_code: number | null;
-  success: boolean;
-  error_message: string | null;
-  created_at: string;
-}
-
 const SUPER_ADMIN_EMAIL = "adminleadani@leadani.com";
 
 export default function SuperAdmin() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [activeTab, setActiveTab] = useState("dashboard");
   const [searchQuery, setSearchQuery] = useState("");
-  const [companyFilter, setCompanyFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [expandedCompanies, setExpandedCompanies] = useState<Set<string>>(new Set());
   const [selectedUser, setSelectedUser] = useState<UserWithCompany | null>(null);
   const [isImpersonateDialogOpen, setIsImpersonateDialogOpen] = useState(false);
   const [isToggleStatusDialogOpen, setIsToggleStatusDialogOpen] = useState(false);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  // Check if user is authorized - must be done before hooks but after auth check
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
-  if (user?.email !== SUPER_ADMIN_EMAIL) {
-    return <Redirect to="/" />;
-  }
-
+  // All hooks must be called unconditionally BEFORE any early returns
   const { data: stats, isLoading: statsLoading } = useQuery<SuperAdminStats>({
     queryKey: ["/api/super-admin/stats"],
+    enabled: isSuperAdmin && !authLoading,
   });
 
   const { data: companies = [], isLoading: companiesLoading } = useQuery<CompanyWithStats[]>({
     queryKey: ["/api/super-admin/companies"],
+    enabled: isSuperAdmin && !authLoading,
   });
 
   const { data: users = [], isLoading: usersLoading } = useQuery<UserWithCompany[]>({
     queryKey: ["/api/super-admin/users"],
-  });
-
-  const { data: activityLogs = [], isLoading: activityLoading } = useQuery<ActivityLog[]>({
-    queryKey: ["/api/super-admin/activity"],
-  });
-
-  const { data: webhookLogs = [], isLoading: webhooksLoading } = useQuery<WebhookLogEntry[]>({
-    queryKey: ["/api/super-admin/webhook-logs"],
+    enabled: isSuperAdmin && !authLoading,
   });
 
   const toggleUserStatusMutation = useMutation({
@@ -245,23 +193,47 @@ export default function SuperAdmin() {
     },
   });
 
-  const filteredUsers = users.filter(u => {
-    const matchesSearch = 
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (u.company_name?.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesCompany = companyFilter === "all" || u.company_id === companyFilter;
-    const matchesStatus = statusFilter === "all" || 
-      (statusFilter === "active" && u.is_active) ||
-      (statusFilter === "inactive" && !u.is_active);
-    
-    return matchesSearch && matchesCompany && matchesStatus;
-  });
+  const toggleCompanyExpanded = (companyId: string) => {
+    const newExpanded = new Set(expandedCompanies);
+    if (newExpanded.has(companyId)) {
+      newExpanded.delete(companyId);
+    } else {
+      newExpanded.add(companyId);
+    }
+    setExpandedCompanies(newExpanded);
+  };
+
+  const getUsersForCompany = (companyId: string) => {
+    return users.filter(u => u.company_id === companyId);
+  };
 
   const filteredCompanies = companies.filter(c => 
     c.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const filteredUsers = users.filter(u =>
+    u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.company_name?.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  const handleQuickImpersonate = (user: UserWithCompany) => {
+    setSelectedUser(user);
+    setIsImpersonateDialogOpen(true);
+  };
+
+  // Early returns AFTER all hooks are called
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!isSuperAdmin) {
+    return <Redirect to="/" />;
+  }
 
   const StatCard = ({ title, value, icon: Icon, description, trend }: { 
     title: string; 
@@ -271,7 +243,7 @@ export default function SuperAdmin() {
     trend?: "up" | "down" | "neutral";
   }) => (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-2 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
@@ -287,31 +259,182 @@ export default function SuperAdmin() {
     </Card>
   );
 
+  const UserRow = ({ u, showCompany = false }: { u: UserWithCompany; showCompany?: boolean }) => (
+    <div 
+      className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover-elevate transition-colors"
+      data-testid={`row-user-${u.id}`}
+    >
+      <div className="flex items-center gap-3">
+        <Avatar className="h-8 w-8">
+          <AvatarFallback className="text-xs">
+            {u.name?.substring(0, 2).toUpperCase() || "??"}
+          </AvatarFallback>
+        </Avatar>
+        <div>
+          <p className="font-medium text-sm">{u.name}</p>
+          <p className="text-xs text-muted-foreground">{u.email}</p>
+          {showCompany && u.company_name && (
+            <p className="text-xs text-muted-foreground">{u.company_name}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className="text-xs">
+          {u.role === "super_admin" ? "Super Admin" : 
+           u.role === "company_admin" ? "Admin" : "User"}
+        </Badge>
+        <Badge variant={u.is_active ? "default" : "secondary"} className="text-xs">
+          {u.is_active ? "Active" : "Inactive"}
+        </Badge>
+        <div className="flex gap-1 ml-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedUser(u);
+              setIsToggleStatusDialogOpen(true);
+            }}
+            title={u.is_active ? "Disable user" : "Enable user"}
+            data-testid={`button-toggle-user-${u.id}`}
+          >
+            {u.is_active ? (
+              <UserX className="h-3.5 w-3.5" />
+            ) : (
+              <UserCheck className="h-3.5 w-3.5" />
+            )}
+          </Button>
+          {u.email !== SUPER_ADMIN_EMAIL && (
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 px-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleQuickImpersonate(u);
+              }}
+              title="Login as this user for support"
+              data-testid={`button-impersonate-${u.id}`}
+            >
+              <LogIn className="h-3.5 w-3.5 mr-1" />
+              Support
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const CompanyCard = ({ company }: { company: CompanyWithStats }) => {
+    const isExpanded = expandedCompanies.has(company.id);
+    const companyUsers = getUsersForCompany(company.id);
+    
+    return (
+      <Collapsible open={isExpanded} onOpenChange={() => toggleCompanyExpanded(company.id)}>
+        <Card className="overflow-hidden">
+          <CollapsibleTrigger asChild>
+            <CardHeader 
+              className="cursor-pointer hover-elevate transition-colors"
+              data-testid={`card-company-${company.id}`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {isExpanded ? (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-primary" />
+                    <div>
+                      <CardTitle className="text-base">{company.name}</CardTitle>
+                      <CardDescription className="text-xs mt-0.5">
+                        Created {format(parseISO(company.created_at), "MMM d, yyyy")}
+                      </CardDescription>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <Users className="h-4 w-4" />
+                      {company.userCount}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <FileSpreadsheet className="h-4 w-4" />
+                      {company.sheetCount}
+                    </span>
+                    <span>{company.leadCount} leads</span>
+                  </div>
+                  <Badge variant={company.is_active ? "default" : "secondary"}>
+                    {company.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCompanyStatusMutation.mutate({
+                        companyId: company.id,
+                        isActive: !company.is_active
+                      });
+                    }}
+                    disabled={toggleCompanyStatusMutation.isPending}
+                    data-testid={`button-toggle-company-${company.id}`}
+                  >
+                    {company.is_active ? "Disable" : "Enable"}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0 border-t">
+              <div className="pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Users ({companyUsers.length})
+                  </h4>
+                </div>
+                {companyUsers.length > 0 ? (
+                  <div className="space-y-2">
+                    {companyUsers.map((u) => (
+                      <UserRow key={u.id} u={u} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No users in this company
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+    );
+  };
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-4 md:p-6 space-y-6 flex flex-col flex-1 min-h-0">
+        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setLocation("/")}
-              data-testid="button-back-home"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <Shield className="h-6 w-6 text-primary" />
+            <Shield className="h-8 w-8 text-primary" />
             <div>
-              <h1 className="text-2xl font-bold" data-testid="text-super-admin-title">Super Admin Panel</h1>
-              <p className="text-sm text-muted-foreground">Manage all companies and users</p>
+              <h1 className="text-2xl font-bold" data-testid="text-super-admin-title">Super Admin Console</h1>
+              <p className="text-sm text-muted-foreground">Manage companies and users across the platform</p>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
-            <div className="relative w-64">
+            <div className="relative w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search users, companies..."
+                placeholder="Search companies or users..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -331,463 +454,122 @@ export default function SuperAdmin() {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
-            <TabsTrigger value="dashboard" data-testid="tab-dashboard">
-              <Activity className="h-4 w-4 mr-2 hidden sm:block" />
-              Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="companies" data-testid="tab-companies">
-              <Building2 className="h-4 w-4 mr-2 hidden sm:block" />
-              Companies
-            </TabsTrigger>
-            <TabsTrigger value="users" data-testid="tab-users">
-              <Users className="h-4 w-4 mr-2 hidden sm:block" />
-              Users
-            </TabsTrigger>
-            <TabsTrigger value="activity" data-testid="tab-activity">
-              <Clock className="h-4 w-4 mr-2 hidden sm:block" />
-              Activity
-            </TabsTrigger>
-            <TabsTrigger value="webhooks" data-testid="tab-webhooks">
-              <Webhook className="h-4 w-4 mr-2 hidden sm:block" />
-              Webhooks
-            </TabsTrigger>
-          </TabsList>
+        {/* Stats Row */}
+        {statsLoading ? (
+          <div className="flex items-center justify-center h-24">
+            <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              title="Companies"
+              value={companies.length}
+              icon={Building2}
+              description={`${companies.filter(c => c.is_active).length} active`}
+            />
+            <StatCard
+              title="Users"
+              value={stats?.totalUsers || 0}
+              icon={Users}
+              description={`${stats?.activeUsers || 0} active`}
+            />
+            <StatCard
+              title="Sheets"
+              value={stats?.totalSheets || 0}
+              icon={FileSpreadsheet}
+            />
+            <StatCard
+              title="Leads"
+              value={stats?.totalLeads || 0}
+              icon={TrendingUp}
+            />
+          </div>
+        )}
 
-          <TabsContent value="dashboard" className="flex-1 mt-4">
-            {statsLoading ? (
-              <div className="flex items-center justify-center h-64">
-                <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                  <StatCard
-                    title="Total Companies"
-                    value={stats?.totalCompanies || 0}
-                    icon={Building2}
-                  />
-                  <StatCard
-                    title="Total Users"
-                    value={stats?.totalUsers || 0}
-                    icon={Users}
-                    description={`${stats?.activeUsers || 0} active`}
-                  />
-                  <StatCard
-                    title="Total Leads"
-                    value={stats?.totalLeads || 0}
-                    icon={FileSpreadsheet}
-                  />
-                  <StatCard
-                    title="Total Tasks"
-                    value={stats?.totalTasks || 0}
-                    icon={Activity}
-                  />
-                </div>
+        {/* Main Content */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full">
+            {searchQuery ? (
+              /* Search Results View */
+              <div className="space-y-6 pr-4">
+                {/* Company Results */}
+                {filteredCompanies.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      Companies ({filteredCompanies.length})
+                    </h3>
+                    <div className="space-y-3">
+                      {filteredCompanies.map((company) => (
+                        <CompanyCard key={company.id} company={company} />
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                  <StatCard
-                    title="Total Sheets"
-                    value={stats?.totalSheets || 0}
-                    icon={FileSpreadsheet}
-                  />
-                  <StatCard
-                    title="Recent Signups"
-                    value={stats?.recentSignups || 0}
-                    icon={UserCheck}
-                    description="Last 7 days"
-                    trend="up"
-                  />
-                  <StatCard
-                    title="Webhook Errors"
-                    value={stats?.webhookErrors || 0}
-                    icon={AlertCircle}
-                    description="Last 24 hours"
-                  />
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">System Status</CardTitle>
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold text-green-600">Healthy</div>
-                      <p className="text-xs text-muted-foreground mt-1">All systems operational</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Recent Activity</CardTitle>
-                    <CardDescription>Latest actions across the platform</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[300px]">
-                      {activityLoading ? (
-                        <div className="flex items-center justify-center h-32">
-                          <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                        </div>
-                      ) : activityLogs.length === 0 ? (
-                        <div className="text-center text-muted-foreground py-8">
-                          No recent activity
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {activityLogs.slice(0, 10).map((log) => (
-                            <div key={log.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30">
-                              <Activity className="h-4 w-4 mt-1 text-muted-foreground" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm">
-                                  <span className="font-medium">{log.user_name}</span>
-                                  <span className="text-muted-foreground"> {log.action} </span>
-                                  <span className="font-medium">{log.entity_type}</span>
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {log.company_name && <span>{log.company_name} • </span>}
-                                  {format(parseISO(log.created_at), "MMM d, h:mm a")}
-                                </p>
-                              </div>
-                            </div>
+                {/* User Results */}
+                {filteredUsers.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      Users ({filteredUsers.length})
+                    </h3>
+                    <Card>
+                      <CardContent className="p-4">
+                        <div className="space-y-2">
+                          {filteredUsers.map((u) => (
+                            <UserRow key={u.id} u={u} showCompany />
                           ))}
                         </div>
-                      )}
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-          </TabsContent>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
 
-          <TabsContent value="companies" className="flex-1 mt-4">
-            <Card className="h-full flex flex-col">
-              <CardHeader>
-                <CardTitle>Companies</CardTitle>
-                <CardDescription>Manage all registered companies</CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1 min-h-0">
+                {filteredCompanies.length === 0 && filteredUsers.length === 0 && (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">No results found</p>
+                    <p className="text-sm">Try a different search term</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Default Company List View */
+              <div className="space-y-3 pr-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Building2 className="h-4 w-4" />
+                    All Companies ({companies.length})
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Click a company to see users inside
+                  </p>
+                </div>
                 {companiesLoading ? (
                   <div className="flex items-center justify-center h-64">
                     <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
+                ) : companies.length > 0 ? (
+                  companies.map((company) => (
+                    <CompanyCard key={company.id} company={company} />
+                  ))
                 ) : (
-                  <ScrollArea className="h-[500px]">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Company</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-center">Users</TableHead>
-                          <TableHead className="text-center">Leads</TableHead>
-                          <TableHead className="text-center">Sheets</TableHead>
-                          <TableHead>Created</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredCompanies.map((company) => (
-                          <TableRow key={company.id} data-testid={`row-company-${company.id}`}>
-                            <TableCell className="font-medium">{company.name}</TableCell>
-                            <TableCell>
-                              <Badge variant={company.is_active ? "default" : "secondary"}>
-                                {company.is_active ? "Active" : "Inactive"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">{company.userCount}</TableCell>
-                            <TableCell className="text-center">{company.leadCount}</TableCell>
-                            <TableCell className="text-center">{company.sheetCount}</TableCell>
-                            <TableCell>
-                              {format(parseISO(company.created_at), "MMM d, yyyy")}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => toggleCompanyStatusMutation.mutate({
-                                  companyId: company.id,
-                                  isActive: !company.is_active
-                                })}
-                                disabled={toggleCompanyStatusMutation.isPending}
-                                data-testid={`button-toggle-company-${company.id}`}
-                              >
-                                {company.is_active ? (
-                                  <>
-                                    <UserX className="h-4 w-4 mr-1" />
-                                    Disable
-                                  </>
-                                ) : (
-                                  <>
-                                    <UserCheck className="h-4 w-4 mr-1" />
-                                    Enable
-                                  </>
-                                )}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {filteredCompanies.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                              No companies found
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
+                  <Card>
+                    <CardContent className="py-12 text-center text-muted-foreground">
+                      <Building2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium">No companies yet</p>
+                      <p className="text-sm">Companies will appear here when they sign up</p>
+                    </CardContent>
+                  </Card>
                 )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="users" className="flex-1 mt-4">
-            <Card className="h-full flex flex-col">
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <CardTitle>Users</CardTitle>
-                    <CardDescription>Manage all users across companies</CardDescription>
-                  </div>
-                  <div className="flex gap-2">
-                    <Select value={companyFilter} onValueChange={setCompanyFilter}>
-                      <SelectTrigger className="w-[180px]" data-testid="select-company-filter">
-                        <Building2 className="h-4 w-4 mr-2" />
-                        <SelectValue placeholder="All Companies" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Companies</SelectItem>
-                        {companies.map(c => (
-                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
-                        <Filter className="h-4 w-4 mr-2" />
-                        <SelectValue placeholder="All Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Status</SelectItem>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="inactive">Inactive</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex-1 min-h-0">
-                {usersLoading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : (
-                  <ScrollArea className="h-[500px]">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Email</TableHead>
-                          <TableHead>Company</TableHead>
-                          <TableHead>Role</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Joined</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredUsers.map((u) => (
-                          <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
-                            <TableCell className="font-medium">{u.name}</TableCell>
-                            <TableCell>{u.email}</TableCell>
-                            <TableCell>{u.company_name || "-"}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline">
-                                {u.role === "super_admin" ? "Super Admin" : 
-                                 u.role === "company_admin" ? "Admin" : "User"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={u.is_active ? "default" : "secondary"}>
-                                {u.is_active ? "Active" : "Inactive"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              {format(parseISO(u.created_at), "MMM d, yyyy")}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-1">
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => {
-                                    setSelectedUser(u);
-                                    setIsToggleStatusDialogOpen(true);
-                                  }}
-                                  data-testid={`button-toggle-user-${u.id}`}
-                                >
-                                  {u.is_active ? (
-                                    <UserX className="h-4 w-4" />
-                                  ) : (
-                                    <UserCheck className="h-4 w-4" />
-                                  )}
-                                </Button>
-                                {u.email !== SUPER_ADMIN_EMAIL && (
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    onClick={() => {
-                                      setSelectedUser(u);
-                                      setIsImpersonateDialogOpen(true);
-                                    }}
-                                    data-testid={`button-impersonate-${u.id}`}
-                                  >
-                                    <LogIn className="h-4 w-4" />
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {filteredUsers.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                              No users found
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="activity" className="flex-1 mt-4">
-            <Card className="h-full flex flex-col">
-              <CardHeader>
-                <CardTitle>Activity Logs</CardTitle>
-                <CardDescription>Recent platform activity across all companies</CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1 min-h-0">
-                {activityLoading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : (
-                  <ScrollArea className="h-[500px]">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>User</TableHead>
-                          <TableHead>Action</TableHead>
-                          <TableHead>Entity</TableHead>
-                          <TableHead>Company</TableHead>
-                          <TableHead>Time</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {activityLogs.map((log) => (
-                          <TableRow key={log.id}>
-                            <TableCell>
-                              <div>
-                                <p className="font-medium">{log.user_name}</p>
-                                <p className="text-xs text-muted-foreground">{log.user_email}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{log.action}</Badge>
-                            </TableCell>
-                            <TableCell>{log.entity_type}</TableCell>
-                            <TableCell>{log.company_name || "-"}</TableCell>
-                            <TableCell>
-                              {format(parseISO(log.created_at), "MMM d, h:mm a")}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {activityLogs.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                              No activity logs found
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="webhooks" className="flex-1 mt-4">
-            <Card className="h-full flex flex-col">
-              <CardHeader>
-                <CardTitle>Webhook Logs</CardTitle>
-                <CardDescription>Monitor webhook activity and troubleshoot issues</CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1 min-h-0">
-                {webhooksLoading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : (
-                  <ScrollArea className="h-[500px]">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Company</TableHead>
-                          <TableHead>Endpoint</TableHead>
-                          <TableHead>Method</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Result</TableHead>
-                          <TableHead>Time</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {webhookLogs.map((log) => (
-                          <TableRow key={log.id}>
-                            <TableCell className="font-medium">{log.company_name}</TableCell>
-                            <TableCell className="max-w-[200px] truncate">{log.endpoint}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{log.method}</Badge>
-                            </TableCell>
-                            <TableCell>{log.status_code || "-"}</TableCell>
-                            <TableCell>
-                              {log.success ? (
-                                <Badge className="bg-green-500/10 text-green-600">
-                                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                                  Success
-                                </Badge>
-                              ) : (
-                                <Badge variant="destructive">
-                                  <AlertCircle className="h-3 w-3 mr-1" />
-                                  Failed
-                                </Badge>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {format(parseISO(log.created_at), "MMM d, h:mm a")}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {webhookLogs.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                              No webhook logs found
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              </div>
+            )}
+          </ScrollArea>
+        </div>
       </div>
 
+      {/* Toggle Status Dialog */}
       <AlertDialog open={isToggleStatusDialogOpen} onOpenChange={setIsToggleStatusDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -819,10 +601,11 @@ export default function SuperAdmin() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Impersonate Dialog */}
       <Dialog open={isImpersonateDialogOpen} onOpenChange={setIsImpersonateDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Login as User</DialogTitle>
+            <DialogTitle>Login as User for Support</DialogTitle>
             <DialogDescription>
               You are about to log in as <strong>{selectedUser?.name}</strong> ({selectedUser?.email}).
               This action will be logged for audit purposes.
