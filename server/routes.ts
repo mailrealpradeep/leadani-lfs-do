@@ -2200,6 +2200,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user role on sheet
+  app.patch("/api/admin/sheets/:sheetId/users/:userId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sheetId, userId } = req.params;
+      const { role } = req.body;
+      
+      if (!role || !["viewer", "editor"].includes(role)) {
+        return res.status(400).json({ error: "Role must be 'viewer' or 'editor'" });
+      }
+      
+      // Verify sheet exists and belongs to company
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet || sheet.deleted_at) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Company admins can only manage sheets in their own company
+      if (req.userRole === "company_admin" && sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access sheets from other companies" });
+      }
+      
+      // Verify user exists and belongs to same company
+      const userToUpdate = await storage.getUser(userId);
+      if (!userToUpdate) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (userToUpdate.company_id !== sheet.company_id) {
+        return res.status(403).json({ error: "User must belong to the same company" });
+      }
+      
+      // Get sheet user assignment
+      const sheetUser = await storage.getSheetUser(sheetId, userId);
+      if (!sheetUser) {
+        return res.status(404).json({ error: "User is not assigned to this sheet" });
+      }
+      
+      // Update role
+      const updatedSheetUser = await storage.updateSheetUser(sheetUser.id, { role });
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "update",
+        model: "sheet_user",
+        model_id: sheetUser.id,
+        payload: { sheet_id: sheetId, user_id: userId, old_role: sheetUser.role, new_role: role },
+      });
+      
+      res.json(updatedSheetUser);
+    } catch (error: any) {
+      console.error("Update sheet user role error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // LEADS
   // ============================================================================

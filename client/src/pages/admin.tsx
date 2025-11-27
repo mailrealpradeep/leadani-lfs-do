@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -728,6 +729,8 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
   const { toast } = useToast();
   const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRole, setSelectedRole] = useState<string>("editor");
 
   interface Sheet {
     id: string;
@@ -761,13 +764,18 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
     mutationFn: async ({ user_id, role }: { user_id: string; role: string }) => {
       return await apiRequest("POST", `/api/admin/sheets/${selectedSheet}/users`, { user_id, role });
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       refetchSheetUsers();
-      setAssignDialogOpen(false);
       toast({
         title: "User assigned",
         description: "User has been assigned to the sheet successfully.",
       });
+      // Close dialog if this was the last available user (check with current data minus assigned user)
+      const remainingUsers = availableUsers.filter(u => u.id !== variables.user_id);
+      if (remainingUsers.length === 0) {
+        setAssignDialogOpen(false);
+        setSearchQuery("");
+      }
     },
     onError: (error: any) => {
       toast({
@@ -798,8 +806,45 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
     },
   });
 
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ user_id, role }: { user_id: string; role: string }) => {
+      return await apiRequest("PATCH", `/api/admin/sheets/${selectedSheet}/users/${user_id}`, { role });
+    },
+    onSuccess: () => {
+      refetchSheetUsers();
+      toast({
+        title: "Role updated",
+        description: "User role has been updated successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update role",
+        variant: "destructive",
+      });
+    },
+  });
+
   const assignedUserIds = new Set(sheetUsers.map((su) => su.user_id));
   const availableUsers = companyUsers.filter((u) => !assignedUserIds.has(u.id));
+
+  const filteredAvailableUsers = useMemo(() => {
+    if (!searchQuery.trim()) return availableUsers;
+    const query = searchQuery.toLowerCase();
+    return availableUsers.filter(
+      (user) =>
+        user.name?.toLowerCase().includes(query) ||
+        user.email?.toLowerCase().includes(query)
+    );
+  }, [availableUsers, searchQuery]);
+
+  const handleDialogClose = (open: boolean) => {
+    setAssignDialogOpen(open);
+    if (!open) {
+      setSearchQuery("");
+    }
+  };
 
   const content = (
     <div className="space-y-4">
@@ -821,8 +866,15 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
 
       {selectedSheet && (
         <>
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium">Assigned Users</h4>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h4 className="text-sm font-medium">
+              Assigned Users
+              {sheetUsers.length > 0 && (
+                <Badge variant="secondary" className="ml-2">
+                  {sheetUsers.length}
+                </Badge>
+              )}
+            </h4>
             <Button
               size="sm"
               onClick={() => setAssignDialogOpen(true)}
@@ -843,24 +895,45 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
               sheetUsers.map((su) => (
                 <div
                   key={su.id}
-                  className="flex items-center justify-between p-3 border rounded-lg"
+                  className="flex items-center justify-between gap-2 p-3 border rounded-lg"
                   data-testid={`sheet-user-${su.id}`}
                 >
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">{su.user_name}</div>
-                    <div className="text-xs text-muted-foreground">{su.user_email}</div>
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <Avatar className="h-8 w-8 shrink-0">
+                      <AvatarFallback className="text-xs">
+                        {su.user_name?.slice(0, 2).toUpperCase() || "??"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">{su.user_name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{su.user_email}</div>
+                    </div>
                   </div>
-                  <Badge variant="secondary" className="mr-2">
-                    {su.role}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => unassignMutation.mutate(su.user_id)}
-                    data-testid={`button-unassign-${su.id}`}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Select
+                      value={su.role}
+                      onValueChange={(newRole) => updateRoleMutation.mutate({ user_id: su.user_id, role: newRole })}
+                      disabled={updateRoleMutation.isPending}
+                    >
+                      <SelectTrigger className="w-24 h-8" data-testid={`select-role-${su.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="viewer">Viewer</SelectItem>
+                        <SelectItem value="editor">Editor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => unassignMutation.mutate(su.user_id)}
+                      disabled={unassignMutation.isPending}
+                      data-testid={`button-unassign-${su.id}`}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
@@ -868,46 +941,79 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
         </>
       )}
 
-      <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-        <DialogContent>
+      <Dialog open={assignDialogOpen} onOpenChange={handleDialogClose}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Assign User to Sheet</DialogTitle>
-            <DialogDescription>Select a user to give them access to this sheet</DialogDescription>
+            <DialogTitle>Assign Users to Sheet</DialogTitle>
+            <DialogDescription>
+              Select users to give them access. {filteredAvailableUsers.length} of {availableUsers.length} user(s) shown.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            {availableUsers.map((user) => (
-              <div
-                key={user.id}
-                className="flex items-center justify-between p-3 border rounded-lg hover-elevate"
-              >
-                <div className="flex-1">
-                  <div className="text-sm font-medium">{user.name}</div>
-                  <div className="text-xs text-muted-foreground">{user.email}</div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => assignMutation.mutate({ user_id: user.id, role: "viewer" })}
-                    data-testid={`button-assign-viewer-${user.id}`}
-                  >
-                    Viewer
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => assignMutation.mutate({ user_id: user.id, role: "editor" })}
-                    data-testid={`button-assign-editor-${user.id}`}
-                  >
-                    Editor
-                  </Button>
-                </div>
+          
+          <div className="flex flex-col gap-4 min-h-0 flex-1">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name or email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-search-users"
+                />
               </div>
-            ))}
-            {availableUsers.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                All users are already assigned to this sheet
-              </p>
-            )}
+              <Select value={selectedRole} onValueChange={setSelectedRole}>
+                <SelectTrigger className="w-28" data-testid="select-default-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                  <SelectItem value="editor">Editor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <ScrollArea className="flex-1 min-h-0 max-h-[50vh]">
+              <div className="space-y-2 pr-4">
+                {filteredAvailableUsers.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-muted-foreground">
+                      {searchQuery
+                        ? "No users match your search"
+                        : "All users are already assigned to this sheet"}
+                    </p>
+                  </div>
+                ) : (
+                  filteredAvailableUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      className="flex items-center justify-between gap-2 p-3 border rounded-lg hover-elevate"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <Avatar className="h-9 w-9 shrink-0">
+                          <AvatarFallback className="text-xs">
+                            {user.name?.slice(0, 2).toUpperCase() || "??"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">{user.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => assignMutation.mutate({ user_id: user.id, role: selectedRole })}
+                        disabled={assignMutation.isPending}
+                        data-testid={`button-assign-${user.id}`}
+                      >
+                        <UserPlus className="h-4 w-4 mr-1" />
+                        Assign
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
           </div>
         </DialogContent>
       </Dialog>
