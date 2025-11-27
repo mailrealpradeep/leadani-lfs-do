@@ -457,35 +457,47 @@ export default function Tasks() {
           </Button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[160px]" data-testid="select-status-filter">
-              <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="active">Pending & Ongoing</SelectItem>
-              <SelectItem value="pending">Pending Only</SelectItem>
-              <SelectItem value="ongoing">Ongoing Only</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="all">All Tasks</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {isAdmin && (
-            <Select value={assignedFilter} onValueChange={setAssignedFilter}>
-              <SelectTrigger className="w-[180px]" data-testid="select-assigned-filter">
-                <User className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Assigned To" />
+        <div className={`${isMobile ? 'bg-muted/30 rounded-xl p-3 border border-border/50' : ''}`}>
+          <div className={`flex ${isMobile ? 'flex-col gap-2' : 'flex-wrap items-center gap-3'}`}>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger 
+                className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[160px]'}`} 
+                data-testid="select-status-filter"
+              >
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-primary" />
+                  <SelectValue placeholder="Status" />
+                </div>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Users</SelectItem>
-                {users.map(u => (
-                  <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                ))}
+                <SelectItem value="active">Pending & Ongoing</SelectItem>
+                <SelectItem value="pending">Pending Only</SelectItem>
+                <SelectItem value="ongoing">Ongoing Only</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="all">All Tasks</SelectItem>
               </SelectContent>
             </Select>
-          )}
+
+            {isAdmin && (
+              <Select value={assignedFilter} onValueChange={setAssignedFilter}>
+                <SelectTrigger 
+                  className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[180px]'}`} 
+                  data-testid="select-assigned-filter"
+                >
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-primary" />
+                    <SelectValue placeholder="Assigned To" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Users</SelectItem>
+                  {users.map(u => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
 
         {sortedTasks.length === 0 ? (
