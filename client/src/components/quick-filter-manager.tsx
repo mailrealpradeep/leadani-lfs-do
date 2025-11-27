@@ -65,7 +65,11 @@ function normalizeFilterConfig(config: any): any {
   return config;
 }
 
-export function QuickFilterManager() {
+interface QuickFilterManagerProps {
+  headless?: boolean;
+}
+
+export function QuickFilterManager({ headless = false }: QuickFilterManagerProps) {
   const { toast } = useToast();
   
   // Add mode state
@@ -314,30 +318,21 @@ export function QuickFilterManager() {
     addFilterMutation.mutate();
   };
 
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Quick Filters</CardTitle>
-            <CardDescription>
-              Manage company-wide quick filters for all sheets
-            </CardDescription>
-          </div>
-          {!isAdding && (
-            <Button 
-              size="sm"
-              onClick={() => setIsAdding(true)}
-              data-testid="button-add-quick-filter"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Filter
-            </Button>
-          )}
+  const content = (
+    <div className="space-y-3">
+      {!isAdding && (
+        <div className="flex justify-end">
+          <Button 
+            size="sm"
+            onClick={() => setIsAdding(true)}
+            data-testid="button-add-quick-filter"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Filter
+          </Button>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {/* Add new filter form */}
+      )}
+      {/* Add new filter form */}
         {isAdding && (
           <form
             onSubmit={(e) => {
@@ -615,6 +610,23 @@ export function QuickFilterManager() {
             </div>
           ))
         )}
+    </div>
+  );
+
+  if (headless) {
+    return content;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Quick Filters</CardTitle>
+        <CardDescription>
+          Manage company-wide quick filters for all sheets
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {content}
       </CardContent>
     </Card>
   );

@@ -24,9 +24,10 @@ interface CompanySettings {
 
 interface NotificationSettingsProps {
   className?: string;
+  headless?: boolean;
 }
 
-export function NotificationSettings({ className }: NotificationSettingsProps) {
+export function NotificationSettings({ className, headless = false }: NotificationSettingsProps) {
   const { toast } = useToast();
   const [settings, setSettings] = useState<NotificationSettings>({
     lead_assigned: true,
@@ -121,6 +122,18 @@ export function NotificationSettings({ className }: NotificationSettingsProps) {
   ];
 
   if (isLoading) {
+    const loadingContent = (
+      <div className="space-y-4">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <Skeleton key={i} className="h-16 w-full" />
+        ))}
+      </div>
+    );
+
+    if (headless) {
+      return loadingContent;
+    }
+
     return (
       <Card className={className}>
         <CardHeader>
@@ -133,15 +146,64 @@ export function NotificationSettings({ className }: NotificationSettingsProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Skeleton key={i} className="h-16 w-full" />
-          ))}
+          {loadingContent}
         </CardContent>
       </Card>
     );
   }
 
   const anyEnabled = Object.values(settings).some(Boolean);
+
+  const content = (
+    <div className="space-y-4">
+      {notificationTypes.map(({ key, title, description, icon: Icon }) => (
+        <div
+          key={key}
+          className="flex items-center justify-between p-4 rounded-lg border"
+          data-testid={`notification-setting-${key}`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-md bg-muted">
+              <Icon className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <Label htmlFor={key} className="text-sm font-medium cursor-pointer">
+                {title}
+              </Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {description}
+              </p>
+            </div>
+          </div>
+          <Switch
+            id={key}
+            checked={settings[key]}
+            onCheckedChange={() => handleToggle(key)}
+            disabled={updateMutation.isPending}
+            data-testid={`switch-${key}`}
+          />
+        </div>
+      ))}
+
+      {updateMutation.isPending && (
+        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Saving...
+        </div>
+      )}
+
+      <div className="pt-4 border-t">
+        <p className="text-xs text-muted-foreground">
+          <strong>Note:</strong> Push notifications require users to install the app and grant notification permission. 
+          Notifications are sent to all devices where the user has enabled them.
+        </p>
+      </div>
+    </div>
+  );
+
+  if (headless) {
+    return content;
+  }
 
   return (
     <Card className={className} data-testid="card-notification-settings">
@@ -158,49 +220,8 @@ export function NotificationSettings({ className }: NotificationSettingsProps) {
           Configure which events trigger push notifications for your team. Users must enable notifications on their devices to receive alerts.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {notificationTypes.map(({ key, title, description, icon: Icon }) => (
-          <div
-            key={key}
-            className="flex items-center justify-between p-4 rounded-lg border bg-card"
-            data-testid={`notification-setting-${key}`}
-          >
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-md bg-muted">
-                <Icon className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div>
-                <Label htmlFor={key} className="text-sm font-medium cursor-pointer">
-                  {title}
-                </Label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {description}
-                </p>
-              </div>
-            </div>
-            <Switch
-              id={key}
-              checked={settings[key]}
-              onCheckedChange={() => handleToggle(key)}
-              disabled={updateMutation.isPending}
-              data-testid={`switch-${key}`}
-            />
-          </div>
-        ))}
-
-        {updateMutation.isPending && (
-          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Saving...
-          </div>
-        )}
-
-        <div className="pt-4 border-t">
-          <p className="text-xs text-muted-foreground">
-            <strong>Note:</strong> Push notifications require users to install the app and grant notification permission. 
-            Notifications are sent to all devices where the user has enabled them.
-          </p>
-        </div>
+      <CardContent>
+        {content}
       </CardContent>
     </Card>
   );

@@ -35,7 +35,11 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-export function CompanyColumnManager() {
+interface CompanyColumnManagerProps {
+  headless?: boolean;
+}
+
+export function CompanyColumnManager({ headless = false }: CompanyColumnManagerProps) {
   const { toast } = useToast();
   
   // Add mode state
@@ -310,18 +314,11 @@ export function CompanyColumnManager() {
     percentage: "Percentage (%)",
   };
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Company Column Schema</CardTitle>
-        <CardDescription>
-          Define custom columns that will be available across all company sheets. Changes affect all sheets immediately.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium">Company-Wide Columns</h3>
+  const content = (
+    <div className="space-y-6">
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-medium">Company-Wide Columns</h3>
             {!isAdding && !editingColumnId && (
               <Button
                 variant="outline"
@@ -514,18 +511,35 @@ export function CompanyColumnManager() {
           )}
         </div>
 
-        <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 p-4">
-          <div className="flex gap-3">
-            <Lightbulb className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-900 dark:text-blue-100">
-              <p className="font-medium mb-1">Company-Wide Column Management</p>
-              <p className="text-blue-700 dark:text-blue-200">
-                Custom columns defined here are automatically available across all sheets in your company.
-                Any changes to column names, types, or dropdown options will update everywhere instantly.
-              </p>
-            </div>
+      <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 p-4">
+        <div className="flex gap-3">
+          <Lightbulb className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-blue-900 dark:text-blue-100">
+            <p className="font-medium mb-1">Company-Wide Column Management</p>
+            <p className="text-blue-700 dark:text-blue-200">
+              Custom columns defined here are automatically available across all sheets in your company.
+              Any changes to column names, types, or dropdown options will update everywhere instantly.
+            </p>
           </div>
         </div>
+      </div>
+    </div>
+  );
+
+  if (headless) {
+    return content;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Company Column Schema</CardTitle>
+        <CardDescription>
+          Define custom columns that will be available across all company sheets. Changes affect all sheets immediately.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {content}
       </CardContent>
     </Card>
   );

@@ -89,7 +89,11 @@ function SortableColumnItem({
   );
 }
 
-export function MobileCardSettings() {
+interface MobileCardSettingsProps {
+  headless?: boolean;
+}
+
+export function MobileCardSettings({ headless = false }: MobileCardSettingsProps) {
   const { toast } = useToast();
   const [selectedColumnKeys, setSelectedColumnKeys] = useState<Set<string>>(new Set());
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -140,7 +144,7 @@ export function MobileCardSettings() {
       }
     } else {
       setSelectedColumnKeys(prev => {
-        const validSelected = new Set([...prev].filter(key => validColumnKeys.has(key)));
+        const validSelected = new Set(Array.from(prev).filter(key => validColumnKeys.has(key)));
         if (validSelected.size !== prev.size) return validSelected;
         return prev;
       });
@@ -234,6 +238,18 @@ export function MobileCardSettings() {
   const isLoading = columnsLoading || settingsLoading;
 
   if (isLoading) {
+    const loadingContent = (
+      <div className="space-y-2">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="h-12 bg-muted animate-pulse rounded-md" />
+        ))}
+      </div>
+    );
+
+    if (headless) {
+      return loadingContent;
+    }
+
     return (
       <Card>
         <CardHeader>
@@ -243,14 +259,52 @@ export function MobileCardSettings() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-12 bg-muted animate-pulse rounded-md" />
-            ))}
-          </div>
+          {loadingContent}
         </CardContent>
       </Card>
     );
+  }
+
+  const content = (
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <Button 
+          onClick={handleSave}
+          disabled={updateMutation.isPending}
+          data-testid="button-save-mobile-columns"
+        >
+          {updateMutation.isPending ? "Saving..." : "Save Changes"}
+        </Button>
+      </div>
+      <div className="p-3 bg-muted/50 rounded-md text-sm text-muted-foreground">
+        Drag to reorder columns. Selected columns will appear in mobile card view.
+      </div>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={orderedColumns.map(c => c.column_key)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="space-y-2">
+            {orderedColumns.map((column) => (
+              <SortableColumnItem
+                key={column.column_key}
+                column={column}
+                isSelected={selectedColumnKeys.has(column.column_key)}
+                onToggle={() => handleToggle(column.column_key)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </div>
+  );
+
+  if (headless) {
+    return content;
   }
 
   return (
@@ -266,40 +320,10 @@ export function MobileCardSettings() {
               Select and order columns to display in mobile lead cards. First 2 columns show as title, next 4 show as details.
             </CardDescription>
           </div>
-          <Button 
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-            data-testid="button-save-mobile-columns"
-          >
-            {updateMutation.isPending ? "Saving..." : "Save Changes"}
-          </Button>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-3 p-3 bg-muted/50 rounded-md text-sm text-muted-foreground">
-          Drag to reorder columns. Selected columns will appear in mobile card view.
-        </div>
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={orderedColumns.map(c => c.column_key)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="space-y-2">
-              {orderedColumns.map((column) => (
-                <SortableColumnItem
-                  key={column.column_key}
-                  column={column}
-                  isSelected={selectedColumnKeys.has(column.column_key)}
-                  onToggle={() => handleToggle(column.column_key)}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+        {content}
       </CardContent>
     </Card>
   );

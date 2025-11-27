@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { useForm } from "react-hook-form";
@@ -483,16 +484,21 @@ function CompanyAdminView() {
       </div>
 
       <div className="flex-1 overflow-auto px-6 py-6">
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Company Users</CardTitle>
-              <CardDescription>
-                {users.length} {users.length === 1 ? "user" : "users"} in your company
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
+        <Accordion type="multiple" className="space-y-4" data-testid="admin-accordion">
+          <AccordionItem value="users" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-users">
+              <div className="flex items-center gap-3">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Company Users</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    {users.length} {users.length === 1 ? "user" : "users"} in your company
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-3 pt-2">
                 {users.map((user) => (
                   <div
                     key={user.id}
@@ -537,19 +543,108 @@ function CompanyAdminView() {
                 ))}
                 {users.length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                  No users found
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                    No users found
+                  </p>
+                )}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
 
-        <CompanyColumnManager />
-        <MobileCardSettings />
-        <NotificationSettings />
-        <QuickFilterManager />
-        <SheetAssignmentManager />
-        </div>
+          <AccordionItem value="columns" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-columns">
+              <div className="flex items-center gap-3">
+                <Columns className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Company Column Schema</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Define and manage custom columns for leads
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <CompanyColumnManager headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="mobile" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-mobile">
+              <div className="flex items-center gap-3">
+                <Smartphone className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Mobile Card Display</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure how leads appear on mobile devices
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <MobileCardSettings headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="notifications" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-notifications">
+              <div className="flex items-center gap-3">
+                <Bell className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Push Notifications</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Manage notification settings and preferences
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <NotificationSettings headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="filters" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-filters">
+              <div className="flex items-center gap-3">
+                <Filter className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Quick Filters</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Create and manage quick filter presets
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <QuickFilterManager headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="sheets" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-sheets">
+              <div className="flex items-center gap-3">
+                <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Sheet Assignments</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Assign users to sheets and manage permissions
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <SheetAssignmentManager headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
 
       <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
@@ -625,7 +720,11 @@ function CompanyAdminView() {
   );
 }
 
-function SheetAssignmentManager() {
+interface SheetAssignmentManagerProps {
+  headless?: boolean;
+}
+
+function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProps) {
   const { toast } = useToast();
   const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -702,80 +801,72 @@ function SheetAssignmentManager() {
   const assignedUserIds = new Set(sheetUsers.map((su) => su.user_id));
   const availableUsers = companyUsers.filter((u) => !assignedUserIds.has(u.id));
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Sheet Assignments</CardTitle>
-        <CardDescription>Manage which users have access to specific sheets</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium mb-2 block">Select Sheet</label>
-            <Select value={selectedSheet || ""} onValueChange={setSelectedSheet}>
-              <SelectTrigger data-testid="select-sheet">
-                <SelectValue placeholder="Choose a sheet..." />
-              </SelectTrigger>
-              <SelectContent>
-                {sheets.map((sheet) => (
-                  <SelectItem key={sheet.id} value={sheet.id} data-testid={`sheet-option-${sheet.id}`}>
-                    {sheet.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+  const content = (
+    <div className="space-y-4">
+      <div>
+        <label className="text-sm font-medium mb-2 block">Select Sheet</label>
+        <Select value={selectedSheet || ""} onValueChange={setSelectedSheet}>
+          <SelectTrigger data-testid="select-sheet">
+            <SelectValue placeholder="Choose a sheet..." />
+          </SelectTrigger>
+          <SelectContent>
+            {sheets.map((sheet) => (
+              <SelectItem key={sheet.id} value={sheet.id} data-testid={`sheet-option-${sheet.id}`}>
+                {sheet.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {selectedSheet && (
+        <>
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium">Assigned Users</h4>
+            <Button
+              size="sm"
+              onClick={() => setAssignDialogOpen(true)}
+              disabled={availableUsers.length === 0}
+              data-testid="button-assign-user"
+            >
+              <UserPlus className="h-4 w-4 mr-2" />
+              Assign User
+            </Button>
           </div>
 
-          {selectedSheet && (
-            <>
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">Assigned Users</h4>
-                <Button
-                  size="sm"
-                  onClick={() => setAssignDialogOpen(true)}
-                  disabled={availableUsers.length === 0}
-                  data-testid="button-assign-user"
+          <div className="space-y-2">
+            {sheetUsers.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No users assigned to this sheet
+              </p>
+            ) : (
+              sheetUsers.map((su) => (
+                <div
+                  key={su.id}
+                  className="flex items-center justify-between p-3 border rounded-lg"
+                  data-testid={`sheet-user-${su.id}`}
                 >
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Assign User
-                </Button>
-              </div>
-
-              <div className="space-y-2">
-                {sheetUsers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No users assigned to this sheet
-                  </p>
-                ) : (
-                  sheetUsers.map((su) => (
-                    <div
-                      key={su.id}
-                      className="flex items-center justify-between p-3 border rounded-lg"
-                      data-testid={`sheet-user-${su.id}`}
-                    >
-                      <div className="flex-1">
-                        <div className="text-sm font-medium">{su.user_name}</div>
-                        <div className="text-xs text-muted-foreground">{su.user_email}</div>
-                      </div>
-                      <Badge variant="secondary" className="mr-2">
-                        {su.role}
-                      </Badge>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => unassignMutation.mutate(su.user_id)}
-                        data-testid={`button-unassign-${su.id}`}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </CardContent>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">{su.user_name}</div>
+                    <div className="text-xs text-muted-foreground">{su.user_email}</div>
+                  </div>
+                  <Badge variant="secondary" className="mr-2">
+                    {su.role}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => unassignMutation.mutate(su.user_id)}
+                    data-testid={`button-unassign-${su.id}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
 
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
         <DialogContent>
@@ -820,6 +911,22 @@ function SheetAssignmentManager() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+
+  if (headless) {
+    return content;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sheet Assignments</CardTitle>
+        <CardDescription>Manage which users have access to specific sheets</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {content}
+      </CardContent>
     </Card>
   );
 }
