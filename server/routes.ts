@@ -2439,6 +2439,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Paginated multi-sheet leads endpoint
+  app.post("/api/leads/query", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { sheetIds, page = 1, limit = 50, sortBy, sortOrder, filters } = req.body;
+      
+      if (!sheetIds || !Array.isArray(sheetIds) || sheetIds.length === 0) {
+        return res.status(400).json({ error: "sheetIds array is required" });
+      }
+      
+      // Verify user has access to all requested sheets
+      const accessibleSheetIds: string[] = [];
+      for (const sheetId of sheetIds) {
+        const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, sheetId);
+        if (hasAccess) {
+          accessibleSheetIds.push(sheetId);
+        }
+      }
+      
+      if (accessibleSheetIds.length === 0) {
+        return res.status(403).json({ error: "No access to any of the requested sheets" });
+      }
+      
+      const result = await storage.getLeadsBySheetIds({
+        sheetIds: accessibleSheetIds,
+        page: Math.max(1, parseInt(page) || 1),
+        limit: Math.min(100, Math.max(1, parseInt(limit) || 50)),
+        sortBy,
+        sortOrder: sortOrder === 'asc' ? 'asc' : 'desc',
+        filters: filters || {},
+      });
+      
+      // Get sheet info for the Sheet Name column
+      const sheetMap: Record<string, string> = {};
+      for (const sheetId of accessibleSheetIds) {
+        const sheet = await storage.getSheet(sheetId);
+        if (sheet) {
+          sheetMap[sheetId] = sheet.name;
+        }
+      }
+      
+      res.json({
+        ...result,
+        sheetNames: sheetMap,
+        requestedSheetIds: sheetIds,
+        accessibleSheetIds,
+      });
+    } catch (error: any) {
+      console.error("Query leads error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/sheets/:id/leads", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
       // Get sheet to access company_id

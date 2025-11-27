@@ -41,6 +41,24 @@ import type {
   InsertPushSubscription,
 } from "@shared/schema";
 
+// Pagination result interface
+export interface PaginatedLeadsResult {
+  leads: Lead[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface LeadsQueryOptions {
+  sheetIds: string[];
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  filters?: Record<string, any>;
+}
+
 export interface IStorage {
   // Companies
   getCompany(id: string): Promise<Company | undefined>;
@@ -93,6 +111,7 @@ export interface IStorage {
   // Leads
   getLead(id: string): Promise<Lead | undefined>;
   getLeadsBySheetId(sheetId: string): Promise<Lead[]>;
+  getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult>;
   getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]>;
   findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined>;
   createLead(lead: InsertLead): Promise<Lead>;
@@ -599,6 +618,69 @@ export class MemStorage implements IStorage {
 
   async getLeadsBySheetId(sheetId: string): Promise<Lead[]> {
     return Array.from(this.leads.values()).filter((lead) => lead.sheet_id === sheetId && !lead.deleted_at);
+  }
+
+  async getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult> {
+    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters = {} } = options;
+    const sheetIdSet = new Set(sheetIds);
+    
+    // Filter leads by sheet IDs and not deleted
+    let filteredLeads = Array.from(this.leads.values()).filter(
+      (lead) => sheetIdSet.has(lead.sheet_id) && !lead.deleted_at
+    );
+    
+    // Apply filters
+    if (Object.keys(filters).length > 0) {
+      filteredLeads = filteredLeads.filter(lead => {
+        for (const [key, value] of Object.entries(filters)) {
+          if (value === null || value === undefined || value === '') continue;
+          
+          const leadValue = lead.custom_fields?.[key];
+          if (typeof value === 'string' && typeof leadValue === 'string') {
+            if (!leadValue.toLowerCase().includes(value.toLowerCase())) return false;
+          } else if (leadValue !== value) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+    
+    // Sort
+    if (sortBy) {
+      filteredLeads.sort((a, b) => {
+        let aVal = sortBy === 'created_at' || sortBy === 'updated_at' 
+          ? a[sortBy as keyof Lead] 
+          : a.custom_fields?.[sortBy];
+        let bVal = sortBy === 'created_at' || sortBy === 'updated_at' 
+          ? b[sortBy as keyof Lead] 
+          : b.custom_fields?.[sortBy];
+        
+        if (aVal == null) aVal = '';
+        if (bVal == null) bVal = '';
+        
+        const comparison = String(aVal).localeCompare(String(bVal));
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
+    } else {
+      // Default sort by created_at desc
+      filteredLeads.sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    }
+    
+    const total = filteredLeads.length;
+    const totalPages = Math.ceil(total / limit);
+    const offset = (page - 1) * limit;
+    const paginatedLeads = filteredLeads.slice(offset, offset + limit);
+    
+    return {
+      leads: paginatedLeads,
+      total,
+      page,
+      limit,
+      totalPages,
+    };
   }
 
   async getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]> {
@@ -1163,7 +1245,7 @@ export class MemStorage implements IStorage {
 // POSTGRESQL STORAGE (Permanent Database)
 // ============================================================================
 import { db } from "./db";
-import { eq, and, or, desc, isNull, isNotNull, sql as drizzleSql } from "drizzle-orm";
+import { eq, and, or, desc, asc, isNull, isNotNull, inArray, sql as drizzleSql } from "drizzle-orm";
 import * as dbSchema from "@shared/schema";
 import jwt from "jsonwebtoken";
 
@@ -1552,6 +1634,76 @@ export class PgStorage implements IStorage {
       )
     );
     return result.map(this.mapLead);
+  }
+
+  async getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult> {
+    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters = {} } = options;
+    
+    if (sheetIds.length === 0) {
+      return { leads: [], total: 0, page, limit, totalPages: 0 };
+    }
+    
+    // Build base conditions
+    const conditions = [
+      inArray(dbSchema.leads.sheet_id, sheetIds),
+      isNull(dbSchema.leads.deleted_at)
+    ];
+    
+    // Add filter conditions
+    for (const [key, value] of Object.entries(filters)) {
+      if (value === null || value === undefined || value === '') continue;
+      if (typeof value === 'string') {
+        conditions.push(drizzleSql`${dbSchema.leads.custom_fields}->>${key} ILIKE ${'%' + value + '%'}`);
+      } else {
+        conditions.push(drizzleSql`${dbSchema.leads.custom_fields}->>${key} = ${String(value)}`);
+      }
+    }
+    
+    // Get total count
+    const countResult = await db
+      .select({ count: drizzleSql<number>`count(*)` })
+      .from(dbSchema.leads)
+      .where(and(...conditions));
+    const total = Number(countResult[0]?.count || 0);
+    
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit);
+    const offset = (page - 1) * limit;
+    
+    // Build order clause
+    let orderClause;
+    if (sortBy === 'created_at') {
+      orderClause = sortOrder === 'asc' 
+        ? asc(dbSchema.leads.created_at) 
+        : desc(dbSchema.leads.created_at);
+    } else if (sortBy === 'updated_at') {
+      orderClause = sortOrder === 'asc' 
+        ? asc(dbSchema.leads.updated_at) 
+        : desc(dbSchema.leads.updated_at);
+    } else if (sortBy) {
+      orderClause = sortOrder === 'asc'
+        ? asc(drizzleSql`${dbSchema.leads.custom_fields}->>${sortBy}`)
+        : desc(drizzleSql`${dbSchema.leads.custom_fields}->>${sortBy}`);
+    } else {
+      orderClause = desc(dbSchema.leads.created_at);
+    }
+    
+    // Fetch paginated results
+    const result = await db
+      .select()
+      .from(dbSchema.leads)
+      .where(and(...conditions))
+      .orderBy(orderClause)
+      .limit(limit)
+      .offset(offset);
+    
+    return {
+      leads: result.map(this.mapLead),
+      total,
+      page,
+      limit,
+      totalPages,
+    };
   }
 
   async getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]> {
