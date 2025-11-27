@@ -67,7 +67,7 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
       if (isMultiSheetMode) {
-        queryClient.invalidateQueries({ queryKey: ["/api/leads/paginated"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
       }
       onOpenChange(false);
       setFormData({});
