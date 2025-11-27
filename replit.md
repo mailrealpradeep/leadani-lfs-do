@@ -28,7 +28,7 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 
 ### Key Features
 
-*   **Lead Management**: Features include chronological lead update tracking, Excel/CSV import/export with intelligent column mapping, field validation, bulk lead transfer, and soft-delete with recovery.
+*   **Lead Management**: Features include chronological lead update tracking, Excel/CSV import/export with intelligent column mapping, field validation, bulk lead transfer, soft-delete with recovery, and Lead Thought marking (Sure/May Be) with visual highlighting.
 *   **Real-time Synchronization**: Socket.io facilitates real-time data updates across clients.
 *   **Role-Based Access Control**: Three-tier system (Super Admin, Company Admin, User) with sheet-level permissions and audit logging.
 *   **Dynamic UI**: Customizable grid interface with dynamic column management, conditional validation, and "Next Follow-up Date Time" (NFDT) highlighting.
