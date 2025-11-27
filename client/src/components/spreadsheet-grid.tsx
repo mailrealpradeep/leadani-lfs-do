@@ -142,7 +142,7 @@ export function SpreadsheetGrid({
   const activeSheetIds = isMultiMode ? selectedSheetIds : [];
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [sortColumn, setSortColumn] = useState<string | null>("lead_date");
+  const [sortColumn, setSortColumn] = useState<string | null>("created_at");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [editingCell, setEditingCell] = useState<{ leadId: string; field: string; originalValue?: any } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -759,21 +759,6 @@ export function SpreadsheetGrid({
       ]
     : baseColumns;
 
-  // Set default sort to Lead Date (new to old) on first load
-  useEffect(() => {
-    if (customColumns.length > 0 && sortColumn === null) {
-      // Look for a date column with "lead" and "date" in the name/key
-      const leadDateColumn = customColumns.find(col => 
-        (col.name.toLowerCase().includes("lead") && col.name.toLowerCase().includes("date")) ||
-        (col.column_key.toLowerCase().includes("lead") && col.column_key.toLowerCase().includes("date"))
-      );
-      
-      if (leadDateColumn) {
-        setSortColumn(leadDateColumn.column_key);
-        setSortDirection("desc"); // New to old
-      }
-    }
-  }, [customColumns, sortColumn]);
 
   // In multi-mode, server handles filtering/sorting; in single-mode, do it client-side
   const filteredAndSortedLeads = isMultiMode
@@ -843,20 +828,31 @@ export function SpreadsheetGrid({
           return true;
         })
         .sort((a, b) => {
-          if (!sortColumn) return 0;
-          const aVal = getLeadValue(a, sortColumn);
-          const bVal = getLeadValue(b, sortColumn);
+          // Default to created_at descending if no sort column specified
+          const effectiveSortColumn = sortColumn || "created_at";
+          const effectiveSortDirection = sortColumn ? sortDirection : "desc";
+          
+          const aVal = getLeadValue(a, effectiveSortColumn);
+          const bVal = getLeadValue(b, effectiveSortColumn);
           
           // Get the column to check its type
-          const column = customColumns.find(col => col.column_key === sortColumn);
+          const column = customColumns.find(col => col.column_key === effectiveSortColumn);
           const columnType = column?.type;
+          
+          // Handle created_at as a date type
+          if (effectiveSortColumn === "created_at") {
+            const aDate = a.created_at ? new Date(a.created_at).getTime() : -Infinity;
+            const bDate = b.created_at ? new Date(b.created_at).getTime() : -Infinity;
+            const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
+            return effectiveSortDirection === "asc" ? comparison : -comparison;
+          }
           
           // Handle numeric types (number and percentage)
           if (columnType === "number" || columnType === "percentage") {
             const aNum = aVal != null && aVal !== "" ? parseFloat(String(aVal)) : -Infinity;
             const bNum = bVal != null && bVal !== "" ? parseFloat(String(bVal)) : -Infinity;
             const comparison = aNum > bNum ? 1 : aNum < bNum ? -1 : 0;
-            return sortDirection === "asc" ? comparison : -comparison;
+            return effectiveSortDirection === "asc" ? comparison : -comparison;
           }
           
           // Handle date types
@@ -864,14 +860,14 @@ export function SpreadsheetGrid({
             const aDate = aVal ? new Date(aVal).getTime() : -Infinity;
             const bDate = bVal ? new Date(bVal).getTime() : -Infinity;
             const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
-            return sortDirection === "asc" ? comparison : -comparison;
+            return effectiveSortDirection === "asc" ? comparison : -comparison;
           }
           
           // Handle other types as strings
           const aStr = String(aVal || "");
           const bStr = String(bVal || "");
           const comparison = aStr > bStr ? 1 : aStr < bStr ? -1 : 0;
-          return sortDirection === "asc" ? comparison : -comparison;
+          return effectiveSortDirection === "asc" ? comparison : -comparison;
         });
 
   const visibleColumns = columns.filter((col) => !hiddenColumns.has(col.key));
