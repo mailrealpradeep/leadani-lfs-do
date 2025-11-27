@@ -7572,7 +7572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           name: user.name,
           email: user.email,
           role: user.role,
-          is_active: true, // Default to true since we don't have is_active field
+          is_active: user.is_active ?? true,
           created_at: user.created_at,
           company_id: user.company_id,
           company_name: company?.name || null,
@@ -7652,11 +7652,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { userId } = req.params;
       const { is_active } = req.body;
       
-      // For now we'll just return success since is_active isn't in the schema
-      // In a real implementation, you'd add is_active to the users table
-      res.json({ success: true, message: `User ${is_active ? 'enabled' : 'disabled'}` });
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Don't allow modifying super admin
+      if (user.email === SUPER_ADMIN_EMAIL) {
+        return res.status(403).json({ error: "Cannot modify super admin account" });
+      }
+      
+      await storage.updateUser(userId, { is_active });
+      
+      res.json({ success: true, message: `User ${is_active ? 'activated' : 'suspended'}` });
     } catch (error: any) {
       console.error("Toggle user status error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Reset User Password (Super Admin)
+  app.post("/api/super-admin/users/:userId/reset-password", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const superAdminUser = (req as any).superAdminUser;
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Don't allow resetting super admin password through this endpoint
+      if (user.email === SUPER_ADMIN_EMAIL) {
+        return res.status(403).json({ error: "Cannot reset super admin password through this endpoint" });
+      }
+      
+      // Generate a temporary password
+      const temporaryPassword = crypto.randomBytes(8).toString("hex").slice(0, 12);
+      const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+      
+      await storage.updateUser(userId, { password_hash: passwordHash });
+      
+      // Create audit log
+      if (user.company_id) {
+        await storage.createAuditLog({
+          company_id: user.company_id,
+          user_id: superAdminUser.id,
+          action: "reset_password",
+          model: "user",
+          model_id: userId,
+          payload: {
+            target_user: user.email,
+            reset_by: superAdminUser.email,
+          },
+        });
+      }
+      
+      res.json({ 
+        success: true, 
+        temporaryPassword,
+        message: "Password has been reset" 
+      });
+    } catch (error: any) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete User (Super Admin)
+  app.delete("/api/super-admin/users/:userId", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const superAdminUser = (req as any).superAdminUser;
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Don't allow deleting super admin
+      if (user.email === SUPER_ADMIN_EMAIL) {
+        return res.status(403).json({ error: "Cannot delete super admin account" });
+      }
+      
+      // Create audit log before deletion
+      if (user.company_id) {
+        await storage.createAuditLog({
+          company_id: user.company_id,
+          user_id: superAdminUser.id,
+          action: "delete",
+          model: "user",
+          model_id: userId,
+          payload: {
+            deleted_user: user.email,
+            deleted_user_name: user.name,
+            deleted_by: superAdminUser.email,
+          },
+        });
+      }
+      
+      await storage.deleteUser(userId);
+      
+      res.json({ success: true, message: "User has been deleted" });
+    } catch (error: any) {
+      console.error("Delete user error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -7723,7 +7822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           action: "impersonate",
           model: "user",
           model_id: userId,
-          changes: {
+          payload: {
             impersonated_user: targetUser.email,
             impersonated_by: superAdminUser.email,
           },

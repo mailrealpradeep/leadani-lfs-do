@@ -68,6 +68,7 @@ export interface User {
   password_hash: string;
   role: "super_admin" | "company_admin" | "user";
   invited_by: string | null; // user_id of who invited them
+  is_active: boolean;
   last_login: string | null;
   created_at: string;
   updated_at: string;
@@ -596,6 +597,7 @@ export const users = pgTable('users', {
   password_hash: varchar('password_hash', { length: 255 }).notNull(),
   role: varchar('role', { length: 50 }).notNull().default('user'),
   invited_by: varchar('invited_by').references(() => users.id, { onDelete: 'set null' }),
+  is_active: boolean('is_active').notNull().default(true),
   last_login: timestamp('last_login'),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
