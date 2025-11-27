@@ -1080,6 +1080,7 @@ function TasksGrid({
         <thead className="bg-muted/50 sticky top-0 z-10">
           <tr className="border-b">
             <th className="text-left p-3 font-medium text-sm">Title</th>
+            <th className="text-left p-3 font-medium text-sm w-[100px]">Priority</th>
             <th className="text-left p-3 font-medium text-sm w-[120px]">Status</th>
             <th className="text-left p-3 font-medium text-sm w-[150px]">Assigned To</th>
             <th className="text-left p-3 font-medium text-sm w-[120px]">Due Date</th>
@@ -1106,6 +1107,11 @@ function TasksGrid({
                     {task.description}
                   </p>
                 )}
+              </td>
+              <td className="p-3">
+                <Badge className={PRIORITY_COLORS[task.priority || "medium"]} variant="secondary">
+                  {PRIORITY_LABELS[task.priority || "medium"]}
+                </Badge>
               </td>
               <td className="p-3">
                 {canEditTask(task) ? (
