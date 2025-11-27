@@ -39,6 +39,12 @@ import type {
   UserColumnPreference,
   PushSubscription,
   InsertPushSubscription,
+  AttendanceEntry,
+  AttendanceEntryRecord,
+  InsertAttendanceEntry,
+  AttendanceRule,
+  AttendanceRuleRecord,
+  InsertAttendanceRule,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -212,6 +218,23 @@ export interface IStorage {
   createPushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription>;
   deletePushSubscription(userId: string, endpoint: string): Promise<boolean>;
   deletePushSubscriptionsByUserId(userId: string): Promise<boolean>;
+
+  // Attendance Entries
+  getAttendanceEntry(id: string): Promise<AttendanceEntryRecord | undefined>;
+  getTodayAttendanceEntry(userId: string): Promise<AttendanceEntryRecord | undefined>;
+  getAttendanceEntriesByUserId(userId: string, startDate?: Date, endDate?: Date): Promise<AttendanceEntryRecord[]>;
+  getAttendanceEntriesByCompanyId(companyId: string, startDate?: Date, endDate?: Date): Promise<AttendanceEntryRecord[]>;
+  getPendingForceExitsByCompanyId(companyId: string): Promise<AttendanceEntryRecord[]>;
+  createAttendanceEntry(entry: InsertAttendanceEntry): Promise<AttendanceEntryRecord>;
+  updateAttendanceEntry(id: string, updates: Partial<AttendanceEntryRecord>): Promise<AttendanceEntryRecord | undefined>;
+  cleanupOldSelfieUrls(daysOld: number): Promise<number>;
+
+  // Attendance Rules
+  getAttendanceRule(id: string): Promise<AttendanceRuleRecord | undefined>;
+  getAttendanceRulesByCompanyId(companyId: string): Promise<AttendanceRuleRecord[]>;
+  createAttendanceRule(rule: InsertAttendanceRule): Promise<AttendanceRuleRecord>;
+  updateAttendanceRule(id: string, updates: Partial<AttendanceRuleRecord>): Promise<AttendanceRuleRecord | undefined>;
+  deleteAttendanceRule(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -1239,13 +1262,140 @@ export class MemStorage implements IStorage {
     subs.forEach(sub => this.pushSubscriptions.delete(sub.id));
     return true;
   }
+
+  // Attendance Entries (MemStorage - minimal stub implementation)
+  private attendanceEntries: Map<string, AttendanceEntryRecord> = new Map();
+  private attendanceRules: Map<string, AttendanceRuleRecord> = new Map();
+
+  async getAttendanceEntry(id: string): Promise<AttendanceEntryRecord | undefined> {
+    return this.attendanceEntries.get(id);
+  }
+
+  async getTodayAttendanceEntry(userId: string): Promise<AttendanceEntryRecord | undefined> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Array.from(this.attendanceEntries.values()).find(e => 
+      e.user_id === userId && new Date(e.entry_time) >= today
+    );
+  }
+
+  async getAttendanceEntriesByUserId(userId: string, startDate?: Date, endDate?: Date): Promise<AttendanceEntryRecord[]> {
+    return Array.from(this.attendanceEntries.values()).filter(e => {
+      if (e.user_id !== userId) return false;
+      const entryDate = new Date(e.entry_time);
+      if (startDate && entryDate < startDate) return false;
+      if (endDate && entryDate > endDate) return false;
+      return true;
+    });
+  }
+
+  async getAttendanceEntriesByCompanyId(companyId: string, startDate?: Date, endDate?: Date): Promise<AttendanceEntryRecord[]> {
+    return Array.from(this.attendanceEntries.values()).filter(e => {
+      if (e.company_id !== companyId) return false;
+      const entryDate = new Date(e.entry_time);
+      if (startDate && entryDate < startDate) return false;
+      if (endDate && entryDate > endDate) return false;
+      return true;
+    });
+  }
+
+  async getPendingForceExitsByCompanyId(companyId: string): Promise<AttendanceEntryRecord[]> {
+    return Array.from(this.attendanceEntries.values()).filter(e =>
+      e.company_id === companyId && e.exit_type === "forced" && e.review_status === "pending"
+    );
+  }
+
+  async createAttendanceEntry(entry: InsertAttendanceEntry): Promise<AttendanceEntryRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newEntry: AttendanceEntryRecord = {
+      id,
+      user_id: entry.user_id,
+      company_id: entry.company_id,
+      entry_time: entry.entry_time.toISOString(),
+      entry_location: entry.entry_location ?? null,
+      entry_selfie_url: entry.entry_selfie_url ?? null,
+      exit_time: entry.exit_time?.toISOString() ?? null,
+      exit_type: entry.exit_type ?? null,
+      force_exit_reason: entry.force_exit_reason ?? null,
+      force_exit_blocking_reasons: entry.force_exit_blocking_reasons ?? null,
+      review_status: entry.review_status ?? null,
+      reviewed_by_user_id: entry.reviewed_by_user_id ?? null,
+      reviewed_at: entry.reviewed_at?.toISOString() ?? null,
+      review_notes: entry.review_notes ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.attendanceEntries.set(id, newEntry);
+    return newEntry;
+  }
+
+  async updateAttendanceEntry(id: string, updates: Partial<AttendanceEntryRecord>): Promise<AttendanceEntryRecord | undefined> {
+    const existing = this.attendanceEntries.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
+    this.attendanceEntries.set(id, updated);
+    return updated;
+  }
+
+  async cleanupOldSelfieUrls(daysOld: number): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    let count = 0;
+    this.attendanceEntries.forEach((entry, id) => {
+      if (entry.entry_selfie_url && new Date(entry.entry_time) < cutoffDate) {
+        this.attendanceEntries.set(id, { ...entry, entry_selfie_url: null });
+        count++;
+      }
+    });
+    return count;
+  }
+
+  // Attendance Rules (MemStorage - minimal stub implementation)
+  async getAttendanceRule(id: string): Promise<AttendanceRuleRecord | undefined> {
+    return this.attendanceRules.get(id);
+  }
+
+  async getAttendanceRulesByCompanyId(companyId: string): Promise<AttendanceRuleRecord[]> {
+    return Array.from(this.attendanceRules.values()).filter(r => r.company_id === companyId);
+  }
+
+  async createAttendanceRule(rule: InsertAttendanceRule): Promise<AttendanceRuleRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newRule: AttendanceRuleRecord = {
+      id,
+      company_id: rule.company_id,
+      rule_type: rule.rule_type,
+      name: rule.name,
+      description: rule.description ?? null,
+      is_enabled: rule.is_enabled ?? true,
+      config: rule.config ?? {},
+      created_at: now,
+      updated_at: now,
+    };
+    this.attendanceRules.set(id, newRule);
+    return newRule;
+  }
+
+  async updateAttendanceRule(id: string, updates: Partial<AttendanceRuleRecord>): Promise<AttendanceRuleRecord | undefined> {
+    const existing = this.attendanceRules.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
+    this.attendanceRules.set(id, updated);
+    return updated;
+  }
+
+  async deleteAttendanceRule(id: string): Promise<boolean> {
+    return this.attendanceRules.delete(id);
+  }
 }
 
 // ============================================================================
 // POSTGRESQL STORAGE (Permanent Database)
 // ============================================================================
 import { db } from "./db";
-import { eq, and, or, desc, asc, isNull, isNotNull, inArray, sql as drizzleSql } from "drizzle-orm";
+import { eq, and, or, desc, asc, isNull, isNotNull, inArray, gte, lte, sql as drizzleSql } from "drizzle-orm";
 import * as dbSchema from "@shared/schema";
 import jwt from "jsonwebtoken";
 
@@ -2573,6 +2723,191 @@ export class PgStorage implements IStorage {
   }
 
   private mapUserColumnPreference(row: any): UserColumnPreference {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  // ============================================================================
+  // ATTENDANCE ENTRIES
+  // ============================================================================
+  async getAttendanceEntry(id: string): Promise<AttendanceEntryRecord | undefined> {
+    const result = await db.select().from(dbSchema.attendanceEntries)
+      .where(eq(dbSchema.attendanceEntries.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapAttendanceEntry(result[0]);
+  }
+
+  async getTodayAttendanceEntry(userId: string): Promise<AttendanceEntryRecord | undefined> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const result = await db.select().from(dbSchema.attendanceEntries)
+      .where(and(
+        eq(dbSchema.attendanceEntries.user_id, userId),
+        gte(dbSchema.attendanceEntries.entry_time, today),
+        lte(dbSchema.attendanceEntries.entry_time, tomorrow)
+      ))
+      .orderBy(desc(dbSchema.attendanceEntries.entry_time))
+      .limit(1);
+    
+    if (result.length === 0) return undefined;
+    return this.mapAttendanceEntry(result[0]);
+  }
+
+  async getAttendanceEntriesByUserId(userId: string, startDate?: Date, endDate?: Date): Promise<AttendanceEntryRecord[]> {
+    let conditions = [eq(dbSchema.attendanceEntries.user_id, userId)];
+    
+    if (startDate) {
+      conditions.push(gte(dbSchema.attendanceEntries.entry_time, startDate));
+    }
+    if (endDate) {
+      conditions.push(lte(dbSchema.attendanceEntries.entry_time, endDate));
+    }
+    
+    const result = await db.select().from(dbSchema.attendanceEntries)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.attendanceEntries.entry_time));
+    return result.map(this.mapAttendanceEntry.bind(this));
+  }
+
+  async getAttendanceEntriesByCompanyId(companyId: string, startDate?: Date, endDate?: Date): Promise<AttendanceEntryRecord[]> {
+    let conditions = [eq(dbSchema.attendanceEntries.company_id, companyId)];
+    
+    if (startDate) {
+      conditions.push(gte(dbSchema.attendanceEntries.entry_time, startDate));
+    }
+    if (endDate) {
+      conditions.push(lte(dbSchema.attendanceEntries.entry_time, endDate));
+    }
+    
+    const result = await db.select().from(dbSchema.attendanceEntries)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.attendanceEntries.entry_time));
+    return result.map(this.mapAttendanceEntry.bind(this));
+  }
+
+  async getPendingForceExitsByCompanyId(companyId: string): Promise<AttendanceEntryRecord[]> {
+    const result = await db.select().from(dbSchema.attendanceEntries)
+      .where(and(
+        eq(dbSchema.attendanceEntries.company_id, companyId),
+        eq(dbSchema.attendanceEntries.exit_type, "forced"),
+        eq(dbSchema.attendanceEntries.review_status, "pending")
+      ))
+      .orderBy(desc(dbSchema.attendanceEntries.exit_time));
+    return result.map(this.mapAttendanceEntry.bind(this));
+  }
+
+  async createAttendanceEntry(entry: InsertAttendanceEntry): Promise<AttendanceEntryRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newEntry = {
+      id,
+      user_id: entry.user_id,
+      company_id: entry.company_id,
+      entry_time: entry.entry_time,
+      entry_location: entry.entry_location ?? null,
+      entry_selfie_url: entry.entry_selfie_url ?? null,
+      exit_time: entry.exit_time ?? null,
+      exit_type: entry.exit_type ?? null,
+      force_exit_reason: entry.force_exit_reason ?? null,
+      force_exit_blocking_reasons: entry.force_exit_blocking_reasons ?? null,
+      review_status: entry.review_status ?? null,
+      reviewed_by_user_id: entry.reviewed_by_user_id ?? null,
+      reviewed_at: entry.reviewed_at ?? null,
+      review_notes: entry.review_notes ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.attendanceEntries).values(newEntry);
+    return this.mapAttendanceEntry(newEntry as any);
+  }
+
+  async updateAttendanceEntry(id: string, updates: Partial<AttendanceEntryRecord>): Promise<AttendanceEntryRecord | undefined> {
+    const now = new Date();
+    await db.update(dbSchema.attendanceEntries)
+      .set({ ...updates, updated_at: now } as any)
+      .where(eq(dbSchema.attendanceEntries.id, id));
+    return this.getAttendanceEntry(id);
+  }
+
+  async cleanupOldSelfieUrls(daysOld: number): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    const result = await db.update(dbSchema.attendanceEntries)
+      .set({ entry_selfie_url: null })
+      .where(and(
+        isNotNull(dbSchema.attendanceEntries.entry_selfie_url),
+        lte(dbSchema.attendanceEntries.entry_time, cutoffDate)
+      ));
+    
+    return (result as any).rowCount || 0;
+  }
+
+  private mapAttendanceEntry(row: any): AttendanceEntryRecord {
+    return {
+      ...row,
+      entry_time: row.entry_time?.toISOString() || row.entry_time,
+      exit_time: row.exit_time?.toISOString() || row.exit_time,
+      reviewed_at: row.reviewed_at?.toISOString() || row.reviewed_at,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  // ============================================================================
+  // ATTENDANCE RULES
+  // ============================================================================
+  async getAttendanceRule(id: string): Promise<AttendanceRuleRecord | undefined> {
+    const result = await db.select().from(dbSchema.attendanceRules)
+      .where(eq(dbSchema.attendanceRules.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapAttendanceRule(result[0]);
+  }
+
+  async getAttendanceRulesByCompanyId(companyId: string): Promise<AttendanceRuleRecord[]> {
+    const result = await db.select().from(dbSchema.attendanceRules)
+      .where(eq(dbSchema.attendanceRules.company_id, companyId));
+    return result.map(this.mapAttendanceRule.bind(this));
+  }
+
+  async createAttendanceRule(rule: InsertAttendanceRule): Promise<AttendanceRuleRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newRule = {
+      id,
+      company_id: rule.company_id,
+      rule_type: rule.rule_type,
+      name: rule.name,
+      description: rule.description ?? null,
+      is_enabled: rule.is_enabled ?? true,
+      config: rule.config ?? {},
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.attendanceRules).values(newRule);
+    return this.mapAttendanceRule(newRule as any);
+  }
+
+  async updateAttendanceRule(id: string, updates: Partial<AttendanceRuleRecord>): Promise<AttendanceRuleRecord | undefined> {
+    const now = new Date();
+    await db.update(dbSchema.attendanceRules)
+      .set({ ...updates, updated_at: now } as any)
+      .where(eq(dbSchema.attendanceRules.id, id));
+    return this.getAttendanceRule(id);
+  }
+
+  async deleteAttendanceRule(id: string): Promise<boolean> {
+    await db.delete(dbSchema.attendanceRules).where(eq(dbSchema.attendanceRules.id, id));
+    return true;
+  }
+
+  private mapAttendanceRule(row: any): AttendanceRuleRecord {
     return {
       ...row,
       created_at: row.created_at?.toISOString() || row.created_at,

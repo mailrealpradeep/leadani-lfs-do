@@ -110,6 +110,18 @@ Socket.io facilitates real-time synchronization by allowing clients to subscribe
     - AddLeadDialog shows sheet selector dropdown when in multi-sheet mode
     - Storage layer getLeadsBySheetIds handles filtering, sorting, and pagination across multiple sheets
     - Designed for large datasets (10k-100k leads) with efficient server-side processing
+*   **Attendance System**: Mobile-first PWA feature for daily entry/exit tracking with configurable exit rules and admin review workflow:
+    - **Entry/Exit Recording**: Users can record entry (punch in) and exit (punch out) with optional location and selfie capture
+    - **Exit Rules**: Admins can configure rules that must be met before normal exit (e.g., minimum leads added, minimum hours worked, minimum lead updates)
+    - **Force Exit Workflow**: When exit rules are not met, users can submit a force exit with a mandatory reason, which goes to admin review queue
+    - **Admin Review Queue**: Admins see pending force exit requests with user info, blocking reasons, and can approve/reject with notes
+    - **Attendance History**: Users can view their own attendance history; admins can view company-wide attendance data
+    - **Real-time Updates**: Socket.io events for attendance:entry, attendance:exit, attendance:force-exit, attendance:reviewed
+    - **Database Tables**: attendance_entries (entry/exit records, review status), attendance_rules (company-scoped exit rules)
+    - **Selfie Retention**: 45-day automatic cleanup of selfie URLs via scheduled job (cleanupOldSelfieUrls)
+    - **API Endpoints**: GET /api/attendance/today, POST /api/attendance/entry, POST /api/attendance/exit, POST /api/attendance/force-exit, GET /api/attendance/pending-reviews, POST /api/attendance/:entryId/review, GET/POST/PATCH/DELETE /api/attendance/rules
+    - **UI**: Tabs for My Attendance, History, and Admin (with pending review badge count)
+    - **Mobile-Optimized**: Touch-friendly buttons, large tap targets, PWA-compatible
 
 ## External Dependencies
 

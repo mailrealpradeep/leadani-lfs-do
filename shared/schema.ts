@@ -909,3 +909,133 @@ export const defaultNotificationSettings: NotificationSettings = {
   webhook_received: true,
   user_joined: true,
 };
+
+// ============================================================================
+// ATTENDANCE SYSTEM
+// ============================================================================
+export interface AttendanceEntry {
+  id: string;
+  user_id: string;
+  company_id: string;
+  entry_time: string;
+  entry_location: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+    address?: string;
+  } | null;
+  entry_selfie_url: string | null;
+  exit_time: string | null;
+  exit_type: "normal" | "forced" | null; // normal = conditions met, forced = force exit
+  force_exit_reason: string | null; // reason provided for force exit
+  force_exit_blocking_reasons: string[] | null; // what conditions were blocking
+  review_status: "pending" | "approved" | "rejected" | null; // for force exits
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const attendanceEntries = pgTable('attendance_entries', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  entry_time: timestamp('entry_time').notNull(),
+  entry_location: json('entry_location').$type<{
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+    address?: string;
+  } | null>(),
+  entry_selfie_url: text('entry_selfie_url'),
+  exit_time: timestamp('exit_time'),
+  exit_type: varchar('exit_type', { length: 50 }), // 'normal' or 'forced'
+  force_exit_reason: text('force_exit_reason'),
+  force_exit_blocking_reasons: json('force_exit_blocking_reasons').$type<string[]>(),
+  review_status: varchar('review_status', { length: 50 }), // 'pending', 'approved', 'rejected'
+  reviewed_by_user_id: varchar('reviewed_by_user_id').references(() => users.id),
+  reviewed_at: timestamp('reviewed_at'),
+  review_notes: text('review_notes'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type AttendanceEntryRecord = typeof attendanceEntries.$inferSelect;
+export type InsertAttendanceEntry = typeof attendanceEntries.$inferInsert;
+
+export const insertAttendanceEntrySchema = createInsertSchema(attendanceEntries).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertAttendanceEntryData = z.infer<typeof insertAttendanceEntrySchema>;
+
+// ============================================================================
+// ATTENDANCE RULES (Admin-configurable exit conditions)
+// ============================================================================
+export interface AttendanceRule {
+  id: string;
+  company_id: string;
+  rule_type: "no_past_nfdt" | "all_nfdt_updated" | "tomorrow_visits_scheduled" | "custom";
+  name: string;
+  description: string | null;
+  is_enabled: boolean;
+  config: Record<string, any>; // for custom rules or additional configuration
+  created_at: string;
+  updated_at: string;
+}
+
+export const attendanceRules = pgTable('attendance_rules', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  rule_type: varchar('rule_type', { length: 100 }).notNull(), // 'no_past_nfdt', 'all_nfdt_updated', 'tomorrow_visits_scheduled', 'custom'
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  config: json('config').$type<Record<string, any>>().default({}).notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type AttendanceRuleRecord = typeof attendanceRules.$inferSelect;
+export type InsertAttendanceRule = typeof attendanceRules.$inferInsert;
+
+export const insertAttendanceRuleSchema = createInsertSchema(attendanceRules).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertAttendanceRuleData = z.infer<typeof insertAttendanceRuleSchema>;
+
+// Default attendance rules for new companies
+export function getDefaultAttendanceRules(companyId: string): InsertAttendanceRule[] {
+  return [
+    {
+      company_id: companyId,
+      rule_type: "no_past_nfdt",
+      name: "No Past NFDTs",
+      description: "All leads with past Next Follow-up Date must be updated before exit",
+      is_enabled: true,
+      config: {},
+    },
+    {
+      company_id: companyId,
+      rule_type: "all_nfdt_updated",
+      name: "All NFDTs Updated Today",
+      description: "All leads with NFDT = today must have been updated",
+      is_enabled: false,
+      config: {},
+    },
+    {
+      company_id: companyId,
+      rule_type: "tomorrow_visits_scheduled",
+      name: "Tomorrow Visits Scheduled",
+      description: "All visits for tomorrow must be scheduled before exit",
+      is_enabled: false,
+      config: {},
+    },
+  ];
+}

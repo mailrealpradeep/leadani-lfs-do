@@ -6118,6 +6118,413 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // ATTENDANCE SYSTEM
+  // ============================================================================
+
+  // Get today's attendance entry for current user
+  app.get("/api/attendance/today", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const entry = await storage.getTodayAttendanceEntry(req.userId!);
+      res.json(entry || null);
+    } catch (error: any) {
+      console.error("Get today attendance error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get user's attendance history
+  app.get("/api/attendance/history", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const start = startDate ? new Date(startDate as string) : undefined;
+      const end = endDate ? new Date(endDate as string) : undefined;
+      
+      const entries = await storage.getAttendanceEntriesByUserId(req.userId!, start, end);
+      res.json(entries);
+    } catch (error: any) {
+      console.error("Get attendance history error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get company-wide attendance (admin only)
+  app.get("/api/attendance/company", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const start = startDate ? new Date(startDate as string) : undefined;
+      const end = endDate ? new Date(endDate as string) : undefined;
+      
+      const entries = await storage.getAttendanceEntriesByCompanyId(req.companyId!, start, end);
+      
+      // Enrich with user names
+      const users = await storage.getUsersByCompanyId(req.companyId!);
+      const userMap = new Map(users.map(u => [u.id, u]));
+      
+      const enrichedEntries = entries.map(entry => ({
+        ...entry,
+        user_name: userMap.get(entry.user_id)?.name || "Unknown",
+        user_email: userMap.get(entry.user_id)?.email || "",
+      }));
+      
+      res.json(enrichedEntries);
+    } catch (error: any) {
+      console.error("Get company attendance error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Record entry (punch in)
+  app.post("/api/attendance/entry", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      // Check if user already has an entry today without exit
+      const existingEntry = await storage.getTodayAttendanceEntry(req.userId!);
+      if (existingEntry && !existingEntry.exit_time) {
+        return res.status(400).json({ error: "You already have an active entry. Please record exit first." });
+      }
+      
+      const { location, selfie_url } = req.body;
+      
+      const newEntry = await storage.createAttendanceEntry({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        entry_time: new Date(),
+        entry_location: location || null,
+        entry_selfie_url: selfie_url || null,
+      });
+      
+      // Emit socket event for real-time updates
+      io.to(`company-${req.companyId}`).emit("attendance:entry", {
+        userId: req.userId,
+        entryId: newEntry.id,
+      });
+      
+      res.json(newEntry);
+    } catch (error: any) {
+      console.error("Record entry error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Helper function to validate exit rules
+  async function validateExitRules(userId: string, companyId: string): Promise<{ valid: boolean; blockingReasons: string[] }> {
+    const rules = await storage.getAttendanceRulesByCompanyId(companyId);
+    const enabledRules = rules.filter(r => r.is_enabled);
+    const blockingReasons: string[] = [];
+    
+    for (const rule of enabledRules) {
+      if (rule.rule_type === "min_leads") {
+        // Check if user has added enough leads today
+        const config = rule.config as { min_count?: number };
+        const minCount = config.min_count || 1;
+        
+        // Get user's sheets and count leads added today
+        const sheets = await storage.getSheetsByUserId(userId);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        let totalLeadsToday = 0;
+        for (const sheet of sheets) {
+          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const leadsToday = leads.filter((l: any) => {
+            const createdAt = new Date(l.created_at);
+            return createdAt >= today && l.owner_user_id === userId;
+          });
+          totalLeadsToday += leadsToday.length;
+        }
+        
+        if (totalLeadsToday < minCount) {
+          blockingReasons.push(`Minimum ${minCount} leads required (you have ${totalLeadsToday})`);
+        }
+      } else if (rule.rule_type === "min_hours") {
+        const config = rule.config as { min_hours?: number };
+        const minHours = config.min_hours || 8;
+        
+        const todayEntry = await storage.getTodayAttendanceEntry(userId);
+        if (todayEntry) {
+          const entryTime = new Date(todayEntry.entry_time);
+          const now = new Date();
+          const hoursWorked = (now.getTime() - entryTime.getTime()) / (1000 * 60 * 60);
+          
+          if (hoursWorked < minHours) {
+            blockingReasons.push(`Minimum ${minHours} hours required (you have ${hoursWorked.toFixed(1)})`);
+          }
+        }
+      } else if (rule.rule_type === "min_updates") {
+        // Check if user has made enough lead updates today
+        const config = rule.config as { min_count?: number };
+        const minCount = config.min_count || 1;
+        
+        const sheets = await storage.getSheetsByUserId(userId);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        let totalUpdatesToday = 0;
+        for (const sheet of sheets) {
+          const leads = await storage.getLeadsBySheetId(sheet.id);
+          for (const lead of leads) {
+            const updates = await storage.getLeadUpdates(lead.id);
+            const updatesToday = updates.filter((u: any) => {
+              const updatedAt = new Date(u.updated_at);
+              return updatedAt >= today && u.updated_by_user_id === userId;
+            });
+            totalUpdatesToday += updatesToday.length;
+          }
+        }
+        
+        if (totalUpdatesToday < minCount) {
+          blockingReasons.push(`Minimum ${minCount} lead updates required (you have ${totalUpdatesToday})`);
+        }
+      }
+    }
+    
+    return {
+      valid: blockingReasons.length === 0,
+      blockingReasons,
+    };
+  }
+
+  // Record normal exit (punch out)
+  app.post("/api/attendance/exit", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const todayEntry = await storage.getTodayAttendanceEntry(req.userId!);
+      if (!todayEntry) {
+        return res.status(400).json({ error: "No entry found for today" });
+      }
+      if (todayEntry.exit_time) {
+        return res.status(400).json({ error: "Exit already recorded for today" });
+      }
+      
+      // Validate exit rules
+      const validation = await validateExitRules(req.userId!, req.companyId!);
+      
+      if (!validation.valid) {
+        return res.status(400).json({ 
+          error: "Exit blocked",
+          blocking_reasons: validation.blockingReasons,
+          requires_force_exit: true,
+        });
+      }
+      
+      // Normal exit
+      const updated = await storage.updateAttendanceEntry(todayEntry.id, {
+        exit_time: new Date() as any,
+        exit_type: "normal",
+      });
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("attendance:exit", {
+        userId: req.userId,
+        entryId: todayEntry.id,
+        exitType: "normal",
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Record exit error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Record forced exit (when rules not met)
+  app.post("/api/attendance/force-exit", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const todayEntry = await storage.getTodayAttendanceEntry(req.userId!);
+      if (!todayEntry) {
+        return res.status(400).json({ error: "No entry found for today" });
+      }
+      if (todayEntry.exit_time) {
+        return res.status(400).json({ error: "Exit already recorded for today" });
+      }
+      
+      const { reason } = req.body;
+      if (!reason || reason.trim().length === 0) {
+        return res.status(400).json({ error: "Reason is required for force exit" });
+      }
+      
+      // Get blocking reasons for record-keeping
+      const validation = await validateExitRules(req.userId!, req.companyId!);
+      
+      const updated = await storage.updateAttendanceEntry(todayEntry.id, {
+        exit_time: new Date() as any,
+        exit_type: "forced",
+        force_exit_reason: reason,
+        force_exit_blocking_reasons: validation.blockingReasons,
+        review_status: "pending",
+      });
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("attendance:force-exit", {
+        userId: req.userId,
+        entryId: todayEntry.id,
+        reason,
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Force exit error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get pending force exit reviews (admin only)
+  app.get("/api/attendance/pending-reviews", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const pendingReviews = await storage.getPendingForceExitsByCompanyId(req.companyId!);
+      
+      // Enrich with user names
+      const users = await storage.getUsersByCompanyId(req.companyId!);
+      const userMap = new Map(users.map(u => [u.id, u]));
+      
+      const enrichedReviews = pendingReviews.map(entry => ({
+        ...entry,
+        user_name: userMap.get(entry.user_id)?.name || "Unknown",
+        user_email: userMap.get(entry.user_id)?.email || "",
+      }));
+      
+      res.json(enrichedReviews);
+    } catch (error: any) {
+      console.error("Get pending reviews error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Review force exit (admin only)
+  app.post("/api/attendance/:entryId/review", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { entryId } = req.params;
+      const { status, notes } = req.body;
+      
+      if (!status || !["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ error: "Status must be 'approved' or 'rejected'" });
+      }
+      
+      const entry = await storage.getAttendanceEntry(entryId);
+      if (!entry) {
+        return res.status(404).json({ error: "Attendance entry not found" });
+      }
+      if (entry.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (entry.review_status !== "pending") {
+        return res.status(400).json({ error: "This entry has already been reviewed" });
+      }
+      
+      const updated = await storage.updateAttendanceEntry(entryId, {
+        review_status: status,
+        reviewed_by_user_id: req.userId,
+        reviewed_at: new Date() as any,
+        review_notes: notes || null,
+      });
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("attendance:reviewed", {
+        entryId,
+        status,
+        reviewedBy: req.userId,
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Review force exit error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ATTENDANCE RULES (Admin only)
+  // ============================================================================
+
+  // Get company attendance rules
+  app.get("/api/attendance/rules", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const rules = await storage.getAttendanceRulesByCompanyId(req.companyId!);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get attendance rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create attendance rule
+  app.post("/api/attendance/rules", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { rule_type, name, description, is_enabled, config } = req.body;
+      
+      if (!rule_type || !name) {
+        return res.status(400).json({ error: "Rule type and name are required" });
+      }
+      
+      const validTypes = ["min_leads", "min_hours", "min_updates"];
+      if (!validTypes.includes(rule_type)) {
+        return res.status(400).json({ error: "Invalid rule type" });
+      }
+      
+      const rule = await storage.createAttendanceRule({
+        company_id: req.companyId!,
+        rule_type,
+        name,
+        description: description || null,
+        is_enabled: is_enabled ?? true,
+        config: config || {},
+      });
+      
+      res.json(rule);
+    } catch (error: any) {
+      console.error("Create attendance rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update attendance rule
+  app.patch("/api/attendance/rules/:ruleId", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { ruleId } = req.params;
+      const { name, description, is_enabled, config } = req.body;
+      
+      const existing = await storage.getAttendanceRule(ruleId);
+      if (!existing) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+      if (existing.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (is_enabled !== undefined) updates.is_enabled = is_enabled;
+      if (config !== undefined) updates.config = config;
+      
+      const updated = await storage.updateAttendanceRule(ruleId, updates);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update attendance rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete attendance rule
+  app.delete("/api/attendance/rules/:ruleId", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { ruleId } = req.params;
+      
+      const existing = await storage.getAttendanceRule(ruleId);
+      if (!existing) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+      if (existing.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      await storage.deleteAttendanceRule(ruleId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete attendance rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // ADMIN
   // ============================================================================
   app.get("/api/admin/users", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
@@ -6154,6 +6561,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[Cleanup] Scheduled cleanup completed: ${count} leads permanently removed`);
     } catch (error) {
       console.error('[Cleanup] Failed to run scheduled lead cleanup:', error);
+    }
+  }, cleanupInterval);
+
+  // ============================================================================
+  // SCHEDULED CLEANUP - 45-Day Selfie URL Retention
+  // ============================================================================
+  // Run initial selfie cleanup on startup
+  (async () => {
+    try {
+      console.log('[Cleanup] Running initial cleanup of selfie URLs older than 45 days...');
+      const count = await storage.cleanupOldSelfieUrls(45);
+      console.log(`[Cleanup] Initial selfie cleanup completed: ${count} selfie URLs cleared`);
+    } catch (error) {
+      console.error('[Cleanup] Failed to run initial selfie cleanup:', error);
+    }
+  })();
+
+  // Schedule daily selfie cleanup
+  setInterval(async () => {
+    try {
+      console.log('[Cleanup] Running scheduled cleanup of selfie URLs older than 45 days...');
+      const count = await storage.cleanupOldSelfieUrls(45);
+      console.log(`[Cleanup] Scheduled selfie cleanup completed: ${count} selfie URLs cleared`);
+    } catch (error) {
+      console.error('[Cleanup] Failed to run scheduled selfie cleanup:', error);
     }
   }, cleanupInterval);
 
