@@ -6765,6 +6765,539 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // TASKS SYSTEM
+  // ============================================================================
+
+  // Get all tasks for the company (with filters)
+  app.get("/api/tasks", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { status, assignedTo, includeCompleted } = req.query;
+      const isAdmin = req.userRole === "company_admin" || req.userRole === "super_admin";
+      
+      const options: any = {
+        includeCompleted: includeCompleted === "true",
+      };
+      
+      if (status) {
+        options.status = (status as string).split(",");
+      }
+      
+      // Non-admins can only see their own tasks
+      if (!isAdmin) {
+        options.assignedTo = req.userId;
+      } else if (assignedTo) {
+        options.assignedTo = assignedTo as string;
+      }
+      
+      const tasks = await storage.getTasksByCompanyId(req.companyId!, options);
+      
+      // Enrich with user names
+      const users = await storage.getUsersByCompanyId(req.companyId!);
+      const userMap = new Map(users.map(u => [u.id, u]));
+      
+      const enrichedTasks = tasks.map(task => ({
+        ...task,
+        assigned_to_name: userMap.get(task.assigned_to_user_id)?.name || "Unknown",
+        created_by_name: userMap.get(task.created_by_user_id)?.name || "Unknown",
+      }));
+      
+      res.json(enrichedTasks);
+    } catch (error: any) {
+      console.error("Get tasks error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get task counts for sidebar badge
+  app.get("/api/tasks/counts", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const isAdmin = req.userRole === "company_admin" || req.userRole === "super_admin";
+      
+      let tasks;
+      if (isAdmin) {
+        tasks = await storage.getTasksByCompanyId(req.companyId!, { includeCompleted: false });
+      } else {
+        tasks = await storage.getTasksByUserId(req.userId!, { includeCompleted: false });
+      }
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      let pending = 0;
+      let ongoing = 0;
+      let overdue = 0;
+      let dueToday = 0;
+      
+      tasks.forEach(task => {
+        if (task.status === "pending") pending++;
+        if (task.status === "ongoing") ongoing++;
+        
+        if (task.due_date) {
+          const dueDate = new Date(task.due_date);
+          if (dueDate < today) overdue++;
+          else if (dueDate >= today && dueDate < tomorrow) dueToday++;
+        }
+      });
+      
+      res.json({ pending, ongoing, overdue, dueToday, total: pending + ongoing });
+    } catch (error: any) {
+      console.error("Get task counts error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get single task
+  app.get("/api/tasks/:taskId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { taskId } = req.params;
+      const task = await storage.getTask(taskId);
+      
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      if (task.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Non-admins can only see their own tasks
+      const isAdmin = req.userRole === "company_admin" || req.userRole === "super_admin";
+      if (!isAdmin && task.assigned_to_user_id !== req.userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Enrich with linked leads
+      const taskLeads = await storage.getTaskLeads(taskId);
+      const linkedLeads = [];
+      for (const tl of taskLeads) {
+        const lead = await storage.getLead(tl.lead_id);
+        if (lead) {
+          linkedLeads.push({
+            id: lead.id,
+            full_name: lead.full_name,
+            mobile_no: lead.mobile_no,
+          });
+        }
+      }
+      
+      // Get user names
+      const users = await storage.getUsersByCompanyId(req.companyId!);
+      const userMap = new Map(users.map(u => [u.id, u]));
+      
+      res.json({
+        ...task,
+        assigned_to_name: userMap.get(task.assigned_to_user_id)?.name || "Unknown",
+        created_by_name: userMap.get(task.created_by_user_id)?.name || "Unknown",
+        linked_leads: linkedLeads,
+      });
+    } catch (error: any) {
+      console.error("Get task error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create task (admins can assign to anyone, users can only create for themselves)
+  app.post("/api/tasks", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { title, description, start_date, due_date, assigned_to_user_id, admin_remarks, lead_ids } = req.body;
+      
+      if (!title || title.trim().length === 0) {
+        return res.status(400).json({ error: "Title is required" });
+      }
+      
+      const isAdmin = req.userRole === "company_admin" || req.userRole === "super_admin";
+      
+      // Determine assigned user
+      let assignedTo = req.userId!;
+      if (isAdmin && assigned_to_user_id) {
+        // Verify the user belongs to the same company
+        const assignedUser = await storage.getUser(assigned_to_user_id);
+        if (!assignedUser || assignedUser.company_id !== req.companyId) {
+          return res.status(400).json({ error: "Invalid user" });
+        }
+        assignedTo = assigned_to_user_id;
+      }
+      
+      const task = await storage.createTask({
+        company_id: req.companyId!,
+        title: title.trim(),
+        description: description?.trim() || null,
+        start_date: start_date || null,
+        due_date: due_date || null,
+        status: "pending",
+        user_remarks: null,
+        admin_remarks: isAdmin ? (admin_remarks?.trim() || null) : null,
+        assigned_to_user_id: assignedTo,
+        created_by_user_id: req.userId!,
+      });
+      
+      // Create initial task update
+      await storage.createTaskUpdate({
+        task_id: task.id,
+        user_id: req.userId!,
+        update_type: "created",
+        old_value: null,
+        new_value: { title: task.title, assigned_to: assignedTo },
+        description: `Task created by ${req.userRole === "company_admin" ? "admin" : "user"}`,
+      });
+      
+      // Link leads if provided
+      if (lead_ids && Array.isArray(lead_ids) && lead_ids.length > 0) {
+        for (const leadId of lead_ids) {
+          const lead = await storage.getLead(leadId);
+          if (lead) {
+            await storage.addTaskLead({ task_id: task.id, lead_id: leadId });
+            await storage.createTaskUpdate({
+              task_id: task.id,
+              user_id: req.userId!,
+              update_type: "lead_linked",
+              old_value: null,
+              new_value: { lead_id: leadId, lead_name: lead.full_name },
+              description: `Linked lead: ${lead.full_name}`,
+            });
+          }
+        }
+      }
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("task:created", {
+        taskId: task.id,
+        assignedTo,
+        createdBy: req.userId,
+      });
+      
+      res.status(201).json(task);
+    } catch (error: any) {
+      console.error("Create task error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update task (admins can update anything, users can update status and user_remarks on their tasks)
+  app.patch("/api/tasks/:taskId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { taskId } = req.params;
+      const { title, description, start_date, due_date, status, user_remarks, admin_remarks, assigned_to_user_id } = req.body;
+      
+      const existing = await storage.getTask(taskId);
+      if (!existing) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      if (existing.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const isAdmin = req.userRole === "company_admin" || req.userRole === "super_admin";
+      
+      // Non-admins can only update their own tasks and only status/user_remarks
+      if (!isAdmin) {
+        if (existing.assigned_to_user_id !== req.userId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+        // Users can only update status and user_remarks
+        if (title !== undefined || description !== undefined || start_date !== undefined || 
+            due_date !== undefined || admin_remarks !== undefined || assigned_to_user_id !== undefined) {
+          return res.status(403).json({ error: "You can only update status and user remarks" });
+        }
+      }
+      
+      const updates: any = {};
+      const changes: string[] = [];
+      
+      if (title !== undefined && title !== existing.title) {
+        updates.title = title.trim();
+        changes.push(`Title changed from "${existing.title}" to "${updates.title}"`);
+      }
+      if (description !== undefined && description !== existing.description) {
+        updates.description = description?.trim() || null;
+        changes.push("Description updated");
+      }
+      if (start_date !== undefined && start_date !== existing.start_date) {
+        updates.start_date = start_date || null;
+        changes.push(`Start date changed`);
+      }
+      if (due_date !== undefined && due_date !== existing.due_date) {
+        updates.due_date = due_date || null;
+        changes.push(`Due date changed`);
+      }
+      if (status !== undefined && status !== existing.status) {
+        updates.status = status;
+        changes.push(`Status changed from "${existing.status}" to "${status}"`);
+        
+        // Create specific status change update
+        await storage.createTaskUpdate({
+          task_id: taskId,
+          user_id: req.userId!,
+          update_type: "status_change",
+          old_value: { status: existing.status },
+          new_value: { status },
+          description: `Status changed from "${existing.status}" to "${status}"`,
+        });
+      }
+      if (user_remarks !== undefined && user_remarks !== existing.user_remarks) {
+        updates.user_remarks = user_remarks?.trim() || null;
+        changes.push("User remarks updated");
+        
+        await storage.createTaskUpdate({
+          task_id: taskId,
+          user_id: req.userId!,
+          update_type: "remarks_change",
+          old_value: { user_remarks: existing.user_remarks },
+          new_value: { user_remarks: updates.user_remarks },
+          description: "User remarks updated",
+        });
+      }
+      if (admin_remarks !== undefined && admin_remarks !== existing.admin_remarks && isAdmin) {
+        updates.admin_remarks = admin_remarks?.trim() || null;
+        changes.push("Admin remarks updated");
+        
+        await storage.createTaskUpdate({
+          task_id: taskId,
+          user_id: req.userId!,
+          update_type: "remarks_change",
+          old_value: { admin_remarks: existing.admin_remarks },
+          new_value: { admin_remarks: updates.admin_remarks },
+          description: "Admin remarks updated",
+        });
+      }
+      if (assigned_to_user_id !== undefined && assigned_to_user_id !== existing.assigned_to_user_id && isAdmin) {
+        const assignedUser = await storage.getUser(assigned_to_user_id);
+        if (!assignedUser || assignedUser.company_id !== req.companyId) {
+          return res.status(400).json({ error: "Invalid user" });
+        }
+        updates.assigned_to_user_id = assigned_to_user_id;
+        changes.push(`Assigned user changed`);
+        
+        await storage.createTaskUpdate({
+          task_id: taskId,
+          user_id: req.userId!,
+          update_type: "details_change",
+          old_value: { assigned_to_user_id: existing.assigned_to_user_id },
+          new_value: { assigned_to_user_id },
+          description: `Task reassigned to ${assignedUser.name}`,
+        });
+      }
+      
+      if (Object.keys(updates).length === 0) {
+        return res.json(existing);
+      }
+      
+      // Create general details change update if there were non-specific changes
+      const nonSpecificChanges = changes.filter(c => 
+        !c.includes("Status") && !c.includes("remarks") && !c.includes("Assigned")
+      );
+      if (nonSpecificChanges.length > 0) {
+        await storage.createTaskUpdate({
+          task_id: taskId,
+          user_id: req.userId!,
+          update_type: "details_change",
+          old_value: null,
+          new_value: updates,
+          description: nonSpecificChanges.join(", "),
+        });
+      }
+      
+      const updated = await storage.updateTask(taskId, updates);
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("task:updated", {
+        taskId,
+        updates,
+        updatedBy: req.userId,
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update task error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete task (admins can delete any, users can only delete tasks they created)
+  app.delete("/api/tasks/:taskId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { taskId } = req.params;
+      
+      const existing = await storage.getTask(taskId);
+      if (!existing) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      if (existing.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const isAdmin = req.userRole === "company_admin" || req.userRole === "super_admin";
+      
+      // Users can only delete tasks they created themselves
+      if (!isAdmin && existing.created_by_user_id !== req.userId) {
+        return res.status(403).json({ error: "You can only delete tasks you created" });
+      }
+      
+      // Remove all linked leads first
+      await storage.removeAllTaskLeads(taskId);
+      
+      await storage.deleteTask(taskId);
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("task:deleted", {
+        taskId,
+        deletedBy: req.userId,
+      });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete task error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get task updates (activity history)
+  app.get("/api/tasks/:taskId/updates", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { taskId } = req.params;
+      
+      const task = await storage.getTask(taskId);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      if (task.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const isAdmin = req.userRole === "company_admin" || req.userRole === "super_admin";
+      if (!isAdmin && task.assigned_to_user_id !== req.userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const updates = await storage.getTaskUpdates(taskId);
+      
+      // Enrich with user names
+      const users = await storage.getUsersByCompanyId(req.companyId!);
+      const userMap = new Map(users.map(u => [u.id, u]));
+      
+      const enrichedUpdates = updates.map(update => ({
+        ...update,
+        user_name: userMap.get(update.user_id)?.name || "Unknown",
+      }));
+      
+      res.json(enrichedUpdates);
+    } catch (error: any) {
+      console.error("Get task updates error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Link leads to task
+  app.post("/api/tasks/:taskId/leads", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { taskId } = req.params;
+      const { lead_ids } = req.body;
+      
+      const task = await storage.getTask(taskId);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      if (task.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      if (!lead_ids || !Array.isArray(lead_ids) || lead_ids.length === 0) {
+        return res.status(400).json({ error: "lead_ids array is required" });
+      }
+      
+      const linked = [];
+      for (const leadId of lead_ids) {
+        const lead = await storage.getLead(leadId);
+        if (lead) {
+          await storage.addTaskLead({ task_id: taskId, lead_id: leadId });
+          await storage.createTaskUpdate({
+            task_id: taskId,
+            user_id: req.userId!,
+            update_type: "lead_linked",
+            old_value: null,
+            new_value: { lead_id: leadId, lead_name: lead.full_name },
+            description: `Linked lead: ${lead.full_name}`,
+          });
+          linked.push({ id: leadId, full_name: lead.full_name });
+        }
+      }
+      
+      res.json({ linked });
+    } catch (error: any) {
+      console.error("Link leads to task error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Unlink lead from task
+  app.delete("/api/tasks/:taskId/leads/:leadId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { taskId, leadId } = req.params;
+      
+      const task = await storage.getTask(taskId);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      if (task.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const lead = await storage.getLead(leadId);
+      
+      await storage.removeTaskLead(taskId, leadId);
+      
+      await storage.createTaskUpdate({
+        task_id: taskId,
+        user_id: req.userId!,
+        update_type: "lead_unlinked",
+        old_value: { lead_id: leadId, lead_name: lead?.full_name },
+        new_value: null,
+        description: `Unlinked lead: ${lead?.full_name || leadId}`,
+      });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Unlink lead from task error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get task linked leads
+  app.get("/api/tasks/:taskId/leads", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { taskId } = req.params;
+      
+      const task = await storage.getTask(taskId);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      if (task.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const taskLeads = await storage.getTaskLeads(taskId);
+      const leads = [];
+      for (const tl of taskLeads) {
+        const lead = await storage.getLead(tl.lead_id);
+        if (lead) {
+          leads.push({
+            id: lead.id,
+            full_name: lead.full_name,
+            mobile_no: lead.mobile_no,
+            sheet_id: lead.sheet_id,
+          });
+        }
+      }
+      
+      res.json(leads);
+    } catch (error: any) {
+      console.error("Get task leads error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // ADMIN
   // ============================================================================
   app.get("/api/admin/users", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {

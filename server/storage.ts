@@ -45,6 +45,15 @@ import type {
   AttendanceRule,
   AttendanceRuleRecord,
   InsertAttendanceRule,
+  Task,
+  TaskRecord,
+  InsertTask,
+  TaskLead,
+  TaskLeadRecord,
+  InsertTaskLead,
+  TaskUpdate,
+  TaskUpdateRecord,
+  InsertTaskUpdate,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -236,6 +245,25 @@ export interface IStorage {
   createAttendanceRule(rule: InsertAttendanceRule): Promise<AttendanceRuleRecord>;
   updateAttendanceRule(id: string, updates: Partial<AttendanceRuleRecord>): Promise<AttendanceRuleRecord | undefined>;
   deleteAttendanceRule(id: string): Promise<boolean>;
+
+  // Tasks
+  getTask(id: string): Promise<TaskRecord | undefined>;
+  getTasksByCompanyId(companyId: string, options?: { status?: string[]; assignedTo?: string; includeCompleted?: boolean }): Promise<TaskRecord[]>;
+  getTasksByUserId(userId: string, options?: { status?: string[]; includeCompleted?: boolean }): Promise<TaskRecord[]>;
+  getOverdueAndTodayTasks(companyId: string): Promise<TaskRecord[]>;
+  createTask(task: InsertTask): Promise<TaskRecord>;
+  updateTask(id: string, updates: Partial<TaskRecord>): Promise<TaskRecord | undefined>;
+  deleteTask(id: string): Promise<boolean>;
+
+  // Task Leads (linking tasks to leads)
+  getTaskLeads(taskId: string): Promise<TaskLeadRecord[]>;
+  addTaskLead(taskLead: InsertTaskLead): Promise<TaskLeadRecord>;
+  removeTaskLead(taskId: string, leadId: string): Promise<boolean>;
+  removeAllTaskLeads(taskId: string): Promise<boolean>;
+
+  // Task Updates (activity history)
+  getTaskUpdates(taskId: string): Promise<TaskUpdateRecord[]>;
+  createTaskUpdate(update: InsertTaskUpdate): Promise<TaskUpdateRecord>;
 }
 
 export class MemStorage implements IStorage {
@@ -1393,6 +1421,141 @@ export class MemStorage implements IStorage {
 
   async deleteAttendanceRule(id: string): Promise<boolean> {
     return this.attendanceRules.delete(id);
+  }
+
+  // Tasks (MemStorage - minimal stub implementation)
+  private tasksMap = new Map<string, TaskRecord>();
+  private taskLeadsMap = new Map<string, TaskLeadRecord>();
+  private taskUpdatesMap = new Map<string, TaskUpdateRecord>();
+
+  async getTask(id: string): Promise<TaskRecord | undefined> {
+    return this.tasksMap.get(id);
+  }
+
+  async getTasksByCompanyId(companyId: string, options?: { status?: string[]; assignedTo?: string; includeCompleted?: boolean }): Promise<TaskRecord[]> {
+    let tasks = Array.from(this.tasksMap.values()).filter(t => t.company_id === companyId);
+    if (options?.status && options.status.length > 0) {
+      tasks = tasks.filter(t => options.status!.includes(t.status));
+    } else if (options?.includeCompleted === false) {
+      tasks = tasks.filter(t => t.status !== 'completed');
+    }
+    if (options?.assignedTo) {
+      tasks = tasks.filter(t => t.assigned_to_user_id === options.assignedTo);
+    }
+    return tasks;
+  }
+
+  async getTasksByUserId(userId: string, options?: { status?: string[]; includeCompleted?: boolean }): Promise<TaskRecord[]> {
+    let tasks = Array.from(this.tasksMap.values()).filter(t => t.assigned_to_user_id === userId);
+    if (options?.status && options.status.length > 0) {
+      tasks = tasks.filter(t => options.status!.includes(t.status));
+    } else if (options?.includeCompleted === false) {
+      tasks = tasks.filter(t => t.status !== 'completed');
+    }
+    return tasks;
+  }
+
+  async getOverdueAndTodayTasks(companyId: string): Promise<TaskRecord[]> {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    return Array.from(this.tasksMap.values()).filter(t => 
+      t.company_id === companyId && 
+      (t.status === 'pending' || t.status === 'ongoing') &&
+      t.due_date && new Date(t.due_date) <= today
+    );
+  }
+
+  async createTask(task: InsertTask): Promise<TaskRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newTask: TaskRecord = {
+      id,
+      company_id: task.company_id,
+      title: task.title,
+      description: task.description ?? null,
+      start_date: task.start_date ?? null,
+      due_date: task.due_date ?? null,
+      status: task.status ?? 'pending',
+      user_remarks: task.user_remarks ?? null,
+      admin_remarks: task.admin_remarks ?? null,
+      assigned_to_user_id: task.assigned_to_user_id,
+      created_by_user_id: task.created_by_user_id,
+      created_at: now,
+      updated_at: now,
+    };
+    this.tasksMap.set(id, newTask);
+    return newTask;
+  }
+
+  async updateTask(id: string, updates: Partial<TaskRecord>): Promise<TaskRecord | undefined> {
+    const existing = this.tasksMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
+    this.tasksMap.set(id, updated);
+    return updated;
+  }
+
+  async deleteTask(id: string): Promise<boolean> {
+    return this.tasksMap.delete(id);
+  }
+
+  async getTaskLeads(taskId: string): Promise<TaskLeadRecord[]> {
+    return Array.from(this.taskLeadsMap.values()).filter(tl => tl.task_id === taskId);
+  }
+
+  async addTaskLead(taskLead: InsertTaskLead): Promise<TaskLeadRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newTaskLead: TaskLeadRecord = {
+      id,
+      task_id: taskLead.task_id,
+      lead_id: taskLead.lead_id,
+      created_at: now,
+    };
+    this.taskLeadsMap.set(id, newTaskLead);
+    return newTaskLead;
+  }
+
+  async removeTaskLead(taskId: string, leadId: string): Promise<boolean> {
+    for (const [id, tl] of this.taskLeadsMap.entries()) {
+      if (tl.task_id === taskId && tl.lead_id === leadId) {
+        this.taskLeadsMap.delete(id);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async removeAllTaskLeads(taskId: string): Promise<boolean> {
+    for (const [id, tl] of this.taskLeadsMap.entries()) {
+      if (tl.task_id === taskId) {
+        this.taskLeadsMap.delete(id);
+      }
+    }
+    return true;
+  }
+
+  async getTaskUpdates(taskId: string): Promise<TaskUpdateRecord[]> {
+    return Array.from(this.taskUpdatesMap.values())
+      .filter(u => u.task_id === taskId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  async createTaskUpdate(update: InsertTaskUpdate): Promise<TaskUpdateRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newUpdate: TaskUpdateRecord = {
+      id,
+      task_id: update.task_id,
+      user_id: update.user_id,
+      update_type: update.update_type,
+      old_value: update.old_value ?? null,
+      new_value: update.new_value ?? null,
+      description: update.description ?? null,
+      created_at: now,
+    };
+    this.taskUpdatesMap.set(id, newUpdate);
+    return newUpdate;
   }
 }
 
@@ -2922,6 +3085,191 @@ export class PgStorage implements IStorage {
       ...row,
       created_at: row.created_at?.toISOString() || row.created_at,
       updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  // ============================================================================
+  // TASKS
+  // ============================================================================
+  async getTask(id: string): Promise<TaskRecord | undefined> {
+    const result = await db.select().from(dbSchema.tasks)
+      .where(eq(dbSchema.tasks.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapTask(result[0]);
+  }
+
+  async getTasksByCompanyId(companyId: string, options?: { status?: string[]; assignedTo?: string; includeCompleted?: boolean }): Promise<TaskRecord[]> {
+    const conditions = [eq(dbSchema.tasks.company_id, companyId)];
+    
+    if (options?.status && options.status.length > 0) {
+      conditions.push(inArray(dbSchema.tasks.status, options.status));
+    } else if (options?.includeCompleted === false) {
+      conditions.push(inArray(dbSchema.tasks.status, ['pending', 'ongoing']));
+    }
+    
+    if (options?.assignedTo) {
+      conditions.push(eq(dbSchema.tasks.assigned_to_user_id, options.assignedTo));
+    }
+    
+    const result = await db.select().from(dbSchema.tasks)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.tasks.due_date));
+    return result.map(this.mapTask.bind(this));
+  }
+
+  async getTasksByUserId(userId: string, options?: { status?: string[]; includeCompleted?: boolean }): Promise<TaskRecord[]> {
+    const conditions = [eq(dbSchema.tasks.assigned_to_user_id, userId)];
+    
+    if (options?.status && options.status.length > 0) {
+      conditions.push(inArray(dbSchema.tasks.status, options.status));
+    } else if (options?.includeCompleted === false) {
+      conditions.push(inArray(dbSchema.tasks.status, ['pending', 'ongoing']));
+    }
+    
+    const result = await db.select().from(dbSchema.tasks)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.tasks.due_date));
+    return result.map(this.mapTask.bind(this));
+  }
+
+  async getOverdueAndTodayTasks(companyId: string): Promise<TaskRecord[]> {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    
+    const result = await db.select().from(dbSchema.tasks)
+      .where(and(
+        eq(dbSchema.tasks.company_id, companyId),
+        inArray(dbSchema.tasks.status, ['pending', 'ongoing']),
+        lte(dbSchema.tasks.due_date, today)
+      ))
+      .orderBy(dbSchema.tasks.due_date);
+    return result.map(this.mapTask.bind(this));
+  }
+
+  async createTask(task: InsertTask): Promise<TaskRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newTask = {
+      id,
+      company_id: task.company_id,
+      title: task.title,
+      description: task.description ?? null,
+      start_date: task.start_date ? new Date(task.start_date as any) : null,
+      due_date: task.due_date ? new Date(task.due_date as any) : null,
+      status: task.status ?? 'pending',
+      user_remarks: task.user_remarks ?? null,
+      admin_remarks: task.admin_remarks ?? null,
+      assigned_to_user_id: task.assigned_to_user_id,
+      created_by_user_id: task.created_by_user_id,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.tasks).values(newTask);
+    return this.mapTask(newTask as any);
+  }
+
+  async updateTask(id: string, updates: Partial<TaskRecord>): Promise<TaskRecord | undefined> {
+    const now = new Date();
+    const updateData: any = { ...updates, updated_at: now };
+    if (updates.start_date) updateData.start_date = new Date(updates.start_date as any);
+    if (updates.due_date) updateData.due_date = new Date(updates.due_date as any);
+    
+    await db.update(dbSchema.tasks)
+      .set(updateData)
+      .where(eq(dbSchema.tasks.id, id));
+    return this.getTask(id);
+  }
+
+  async deleteTask(id: string): Promise<boolean> {
+    await db.delete(dbSchema.tasks).where(eq(dbSchema.tasks.id, id));
+    return true;
+  }
+
+  private mapTask(row: any): TaskRecord {
+    return {
+      ...row,
+      start_date: row.start_date?.toISOString() || row.start_date,
+      due_date: row.due_date?.toISOString() || row.due_date,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  // ============================================================================
+  // TASK LEADS
+  // ============================================================================
+  async getTaskLeads(taskId: string): Promise<TaskLeadRecord[]> {
+    const result = await db.select().from(dbSchema.taskLeads)
+      .where(eq(dbSchema.taskLeads.task_id, taskId));
+    return result.map(this.mapTaskLead.bind(this));
+  }
+
+  async addTaskLead(taskLead: InsertTaskLead): Promise<TaskLeadRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newTaskLead = {
+      id,
+      task_id: taskLead.task_id,
+      lead_id: taskLead.lead_id,
+      created_at: now,
+    };
+    await db.insert(dbSchema.taskLeads).values(newTaskLead);
+    return this.mapTaskLead(newTaskLead as any);
+  }
+
+  async removeTaskLead(taskId: string, leadId: string): Promise<boolean> {
+    await db.delete(dbSchema.taskLeads)
+      .where(and(
+        eq(dbSchema.taskLeads.task_id, taskId),
+        eq(dbSchema.taskLeads.lead_id, leadId)
+      ));
+    return true;
+  }
+
+  async removeAllTaskLeads(taskId: string): Promise<boolean> {
+    await db.delete(dbSchema.taskLeads)
+      .where(eq(dbSchema.taskLeads.task_id, taskId));
+    return true;
+  }
+
+  private mapTaskLead(row: any): TaskLeadRecord {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  // ============================================================================
+  // TASK UPDATES (Activity History)
+  // ============================================================================
+  async getTaskUpdates(taskId: string): Promise<TaskUpdateRecord[]> {
+    const result = await db.select().from(dbSchema.taskUpdates)
+      .where(eq(dbSchema.taskUpdates.task_id, taskId))
+      .orderBy(desc(dbSchema.taskUpdates.created_at));
+    return result.map(this.mapTaskUpdate.bind(this));
+  }
+
+  async createTaskUpdate(update: InsertTaskUpdate): Promise<TaskUpdateRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newUpdate = {
+      id,
+      task_id: update.task_id,
+      user_id: update.user_id,
+      update_type: update.update_type,
+      old_value: update.old_value ?? null,
+      new_value: update.new_value ?? null,
+      description: update.description ?? null,
+      created_at: now,
+    };
+    await db.insert(dbSchema.taskUpdates).values(newUpdate);
+    return this.mapTaskUpdate(newUpdate as any);
+  }
+
+  private mapTaskUpdate(row: any): TaskUpdateRecord {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
     };
   }
 }

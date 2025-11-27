@@ -20,6 +20,11 @@ export interface Company {
       webhook_received?: boolean;
       user_joined?: boolean;
     };
+    task_notification_settings?: {
+      enabled?: boolean;
+      times?: string[]; // Array of times in HH:MM format, e.g., ["09:00", "16:00", "18:00"]
+      timezone?: string; // IANA timezone, e.g., "Asia/Kolkata"
+    };
   };
   status: "active" | "suspended" | "trial";
   created_at: string;
@@ -40,6 +45,11 @@ export const insertCompanySchema = z.object({
       lead_updated: z.boolean().optional(),
       webhook_received: z.boolean().optional(),
       user_joined: z.boolean().optional(),
+    }).optional(),
+    task_notification_settings: z.object({
+      enabled: z.boolean().optional(),
+      times: z.array(z.string()).optional(),
+      timezone: z.string().optional(),
     }).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),
@@ -1038,4 +1048,123 @@ export function getDefaultAttendanceRules(companyId: string): InsertAttendanceRu
       config: {},
     },
   ];
+}
+
+// ============================================================================
+// TASKS SYSTEM
+// ============================================================================
+export type TaskStatus = "pending" | "ongoing" | "completed";
+
+export interface Task {
+  id: string;
+  company_id: string;
+  title: string;
+  description: string | null;
+  start_date: string | null;
+  due_date: string | null;
+  status: TaskStatus;
+  user_remarks: string | null;
+  admin_remarks: string | null;
+  assigned_to_user_id: string;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const tasks = pgTable('tasks', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 500 }).notNull(),
+  description: text('description'),
+  start_date: timestamp('start_date'),
+  due_date: timestamp('due_date'),
+  status: varchar('status', { length: 50 }).notNull().default('pending'), // 'pending', 'ongoing', 'completed'
+  user_remarks: text('user_remarks'),
+  admin_remarks: text('admin_remarks'),
+  assigned_to_user_id: varchar('assigned_to_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type TaskRecord = typeof tasks.$inferSelect;
+export type InsertTask = typeof tasks.$inferInsert;
+
+export const insertTaskSchema = createInsertSchema(tasks).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertTaskData = z.infer<typeof insertTaskSchema>;
+
+// ============================================================================
+// TASK LEADS (Junction table for linking tasks to leads)
+// ============================================================================
+export interface TaskLead {
+  id: string;
+  task_id: string;
+  lead_id: string;
+  created_at: string;
+}
+
+export const taskLeads = pgTable('task_leads', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  task_id: varchar('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type TaskLeadRecord = typeof taskLeads.$inferSelect;
+export type InsertTaskLead = typeof taskLeads.$inferInsert;
+
+export const insertTaskLeadSchema = createInsertSchema(taskLeads).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertTaskLeadData = z.infer<typeof insertTaskLeadSchema>;
+
+// ============================================================================
+// TASK UPDATES (Activity history with audit trail)
+// ============================================================================
+export interface TaskUpdate {
+  id: string;
+  task_id: string;
+  user_id: string;
+  update_type: "status_change" | "remarks_change" | "details_change" | "lead_linked" | "lead_unlinked" | "created";
+  old_value: Record<string, any> | null;
+  new_value: Record<string, any> | null;
+  description: string | null;
+  created_at: string;
+}
+
+export const taskUpdates = pgTable('task_updates', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  task_id: varchar('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  update_type: varchar('update_type', { length: 50 }).notNull(), // 'status_change', 'remarks_change', 'details_change', 'lead_linked', 'lead_unlinked', 'created'
+  old_value: json('old_value').$type<Record<string, any> | null>(),
+  new_value: json('new_value').$type<Record<string, any> | null>(),
+  description: text('description'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type TaskUpdateRecord = typeof taskUpdates.$inferSelect;
+export type InsertTaskUpdate = typeof taskUpdates.$inferInsert;
+
+export const insertTaskUpdateSchema = createInsertSchema(taskUpdates).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertTaskUpdateData = z.infer<typeof insertTaskUpdateSchema>;
+
+// ============================================================================
+// TASK NOTIFICATION SETTINGS (Company-level Configuration)
+// ============================================================================
+export interface TaskNotificationSettings {
+  enabled: boolean;
+  times: string[]; // Array of times in HH:MM format, e.g., ["09:00", "16:00", "18:00"]
+  timezone: string; // IANA timezone, e.g., "Asia/Kolkata"
 }

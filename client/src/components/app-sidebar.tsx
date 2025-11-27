@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -96,6 +96,12 @@ export function AppSidebar() {
       url: "/",
       icon: LayoutGrid,
       testId: "link-sheets",
+    },
+    {
+      title: "Tasks",
+      url: "/tasks",
+      icon: CheckSquare,
+      testId: "link-tasks",
     },
     {
       title: "Attendance",
