@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Filter,
   X,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1084,7 +1085,7 @@ function TasksGrid({
             <th className="text-left p-3 font-medium text-sm w-[120px]">Status</th>
             <th className="text-left p-3 font-medium text-sm w-[150px]">Assigned To</th>
             <th className="text-left p-3 font-medium text-sm w-[120px]">Due Date</th>
-            <th className="text-left p-3 font-medium text-sm w-[120px]">Created</th>
+            <th className="text-center p-3 font-medium text-sm w-[100px]">Updates</th>
             <th className="text-center p-3 font-medium text-sm w-[80px]">Actions</th>
           </tr>
         </thead>
@@ -1146,8 +1147,17 @@ function TasksGrid({
                   <span className="text-muted-foreground">-</span>
                 )}
               </td>
-              <td className="p-3 text-sm text-muted-foreground">
-                {format(parseISO(task.created_at), "MMM d, yyyy")}
+              <td className="p-3 text-center">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => onView(task)}
+                  className="gap-1"
+                  data-testid={`button-view-updates-${task.id}`}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  <span className="text-xs">View</span>
+                </Button>
               </td>
               <td className="p-3 text-center">
                 <DropdownMenu>
