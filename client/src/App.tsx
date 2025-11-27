@@ -21,7 +21,6 @@ import Login from "@/pages/login";
 import Landing from "@/pages/landing";
 import Signup from "@/pages/signup";
 import Onboarding from "@/pages/onboarding";
-import InviteAccept from "@/pages/invite-accept";
 import Dashboard from "@/pages/dashboard";
 import Reports from "@/pages/reports";
 import TeamPerformance from "@/pages/team-performance";
@@ -63,7 +62,6 @@ function Router() {
       {/* Public routes */}
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
-      <Route path="/invite/:code" component={InviteAccept} />
       <Route path="/impersonate" component={Impersonate} />
       
       {/* Landing page - public, but redirect if authenticated */}
