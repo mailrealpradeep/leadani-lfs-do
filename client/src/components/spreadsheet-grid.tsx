@@ -132,8 +132,8 @@ export function SpreadsheetGrid({
   const activeSheetIds = isMultiMode ? selectedSheetIds : [];
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [sortColumn, setSortColumn] = useState<string | null>("lead_date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [editingCell, setEditingCell] = useState<{ leadId: string; field: string; originalValue?: any } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [datePickerOpen, setDatePickerOpen] = useState<{ leadId: string; field: string } | null>(null);
@@ -452,10 +452,11 @@ export function SpreadsheetGrid({
       setHiddenColumns(new Set()); // No hidden columns in multi-mode
     }
     
-    // Reset filters when switching sheets
+    // Reset filters and sort to defaults when switching sheets
     setColumnFilters({});
-    setSortColumn(null);
-    setSortDirection("asc");
+    // Default sort: lead_date descending (newest first), falls back gracefully if column doesn't exist
+    setSortColumn("lead_date");
+    setSortDirection("desc");
   }, [activeSheetId, isMultiMode]);
 
   // Reset view-specific state when switching between mobile and desktop
