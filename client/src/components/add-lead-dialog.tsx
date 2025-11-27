@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -18,34 +18,57 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
-import type { Lead, CustomColumn } from "@shared/schema";
+import type { Lead, CustomColumn, Sheet } from "@shared/schema";
 
 interface AddLeadDialogProps {
   sheetId: string;
+  sheetIds?: string[];
+  isMultiSheetMode?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProps) {
+export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false, open, onOpenChange }: AddLeadDialogProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [formData, setFormData] = useState<Record<string, any>>({});
+  const [selectedSheetId, setSelectedSheetId] = useState<string>(sheetId);
+
+  const { data: sheets = [] } = useQuery<Sheet[]>({
+    queryKey: ["/api/sheets"],
+    enabled: open && isMultiSheetMode,
+  });
+
+  const availableSheets = sheets.filter(s => sheetIds.includes(s.id));
+
+  useEffect(() => {
+    if (isMultiSheetMode && sheetIds.length > 0 && !sheetIds.includes(selectedSheetId)) {
+      setSelectedSheetId(sheetIds[0]);
+    } else if (!isMultiSheetMode) {
+      setSelectedSheetId(sheetId);
+    }
+  }, [isMultiSheetMode, sheetIds, sheetId, selectedSheetId]);
+
+  const activeSheetId = isMultiSheetMode ? selectedSheetId : sheetId;
 
   const { data: columns = [] } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/sheets", sheetId, "columns"],
-    enabled: open,
+    queryKey: ["/api/sheets", activeSheetId, "columns"],
+    enabled: open && !!activeSheetId,
   });
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest<Lead>("POST", `/api/sheets/${sheetId}/leads`, {
-        sheet_id: sheetId,
+      return await apiRequest<Lead>("POST", `/api/sheets/${activeSheetId}/leads`, {
+        sheet_id: activeSheetId,
         owner_user_id: user?.id,
         custom_fields: formData,
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+      if (isMultiSheetMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/paginated"] });
+      }
       onOpenChange(false);
       setFormData({});
       toast({
@@ -210,6 +233,26 @@ export function AddLeadDialog({ sheetId, open, onOpenChange }: AddLeadDialogProp
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
+          {isMultiSheetMode && availableSheets.length > 1 && (
+            <div className="space-y-2 pb-4 border-b mb-4">
+              <Label htmlFor="sheet-selector">Sheet *</Label>
+              <Select
+                value={selectedSheetId}
+                onValueChange={setSelectedSheetId}
+              >
+                <SelectTrigger data-testid="select-sheet">
+                  <SelectValue placeholder="Select sheet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableSheets.map((sheet) => (
+                    <SelectItem key={sheet.id} value={sheet.id}>
+                      {sheet.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
             {sortedColumns.map((col) => renderField(col))}
           </div>

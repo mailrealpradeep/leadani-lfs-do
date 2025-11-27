@@ -113,38 +113,45 @@ export default function Dashboard() {
         )}
       </div>
 
-      {selectedSheetId && (
+      <LeadDetailDrawer
+        leadId={selectedLeadId}
+        open={isLeadDetailOpen}
+        onOpenChange={setIsLeadDetailOpen}
+      />
+
+      {(selectedSheetId || (isMultiSheetMode && selectedSheetIds.length > 0)) && (
         <>
-          <LeadDetailDrawer
-            leadId={selectedLeadId}
-            open={isLeadDetailOpen}
-            onOpenChange={setIsLeadDetailOpen}
-          />
-          <DropdownManagerModal
-            sheetId={selectedSheetId}
-            columnKey={dropdownColumn}
-            open={isDropdownManagerOpen}
-            onOpenChange={setIsDropdownManagerOpen}
-          />
-          <ColumnsDialog
-            sheetId={selectedSheetId}
-            open={isColumnVisibilityOpen}
-            onOpenChange={setIsColumnVisibilityOpen}
-          />
+          {selectedSheetId && (
+            <>
+              <DropdownManagerModal
+                sheetId={selectedSheetId}
+                columnKey={dropdownColumn}
+                open={isDropdownManagerOpen}
+                onOpenChange={setIsDropdownManagerOpen}
+              />
+              <ColumnsDialog
+                sheetId={selectedSheetId}
+                open={isColumnVisibilityOpen}
+                onOpenChange={setIsColumnVisibilityOpen}
+              />
+              <ImportDialog
+                sheetId={selectedSheetId}
+                open={isImportOpen}
+                onOpenChange={setIsImportOpen}
+              />
+              <DeletedLeadsDialog
+                sheetId={selectedSheetId}
+                open={isDeletedLeadsOpen}
+                onOpenChange={setIsDeletedLeadsOpen}
+              />
+            </>
+          )}
           <AddLeadDialog
-            sheetId={selectedSheetId}
+            sheetId={selectedSheetId || (selectedSheetIds.length > 0 ? selectedSheetIds[0] : "")}
+            sheetIds={selectedSheetIds}
+            isMultiSheetMode={isMultiSheetMode}
             open={isAddLeadOpen}
             onOpenChange={setIsAddLeadOpen}
-          />
-          <ImportDialog
-            sheetId={selectedSheetId}
-            open={isImportOpen}
-            onOpenChange={setIsImportOpen}
-          />
-          <DeletedLeadsDialog
-            sheetId={selectedSheetId}
-            open={isDeletedLeadsOpen}
-            onOpenChange={setIsDeletedLeadsOpen}
           />
         </>
       )}
