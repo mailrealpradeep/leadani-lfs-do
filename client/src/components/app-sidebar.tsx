@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useDashboard } from "./dashboard-context";
-import { SheetSelector } from "./sheet-selector";
+import { MultiSheetSelector } from "./multi-sheet-selector";
 import { Input } from "@/components/ui/input";
 import {
   Sidebar,
@@ -40,6 +40,10 @@ export function AppSidebar() {
   const {
     selectedSheetId,
     setSelectedSheetId,
+    selectedSheetIds,
+    setSelectedSheetIds,
+    isMultiSheetMode,
+    setIsMultiSheetMode,
     searchQuery,
     setSearchQuery,
     actions,
@@ -188,11 +192,15 @@ export function AppSidebar() {
                 <SidebarGroupLabel className="px-4">Current Sheet</SidebarGroupLabel>
                 <SidebarGroupContent className="px-2">
                   <div className="space-y-2">
-                    <SheetSelector
+                    <MultiSheetSelector
                       selectedSheetId={selectedSheetId}
+                      selectedSheetIds={selectedSheetIds}
+                      isMultiMode={isMultiSheetMode}
                       onSheetSelect={setSelectedSheetId}
+                      onMultiSheetSelect={setSelectedSheetIds}
+                      onMultiModeChange={setIsMultiSheetMode}
                     />
-                    {selectedSheetId && (
+                    {(selectedSheetId || (isMultiSheetMode && selectedSheetIds.length > 0)) && (
                       <div className="flex flex-col gap-2">
                         <Button
                           onClick={actions.onAddLead}
@@ -253,7 +261,7 @@ export function AppSidebar() {
                 </SidebarGroupContent>
               </SidebarGroup>
 
-              {selectedSheetId && (
+              {(selectedSheetId || (isMultiSheetMode && selectedSheetIds.length > 0)) && (
                 <SidebarGroup>
                   <SidebarGroupLabel className="px-4">Filter & Search</SidebarGroupLabel>
                   <SidebarGroupContent className="px-2">
