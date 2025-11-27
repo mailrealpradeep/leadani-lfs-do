@@ -166,10 +166,11 @@ export default function Tasks() {
     due_date: "",
     assigned_to_user_id: "",
     admin_remarks: "",
+    user_remarks: "",
   });
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery<Task[]>({
-    queryKey: ["/api/tasks", statusFilter === "active" ? "" : "includeCompleted=true"],
+    queryKey: ["/api/tasks", { statusFilter, assignedFilter }],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (statusFilter === "active") {
@@ -178,8 +179,15 @@ export default function Tasks() {
         params.set("status", statusFilter);
       }
       params.set("includeCompleted", statusFilter === "all" || statusFilter === "completed" ? "true" : "false");
+      if (assignedFilter !== "all") {
+        params.set("assignedTo", assignedFilter);
+      }
+      const token = localStorage.getItem("auth_token");
       const response = await fetch(`/api/tasks?${params.toString()}`, {
         credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!response.ok) throw new Error("Failed to fetch tasks");
       return response.json();
@@ -199,8 +207,12 @@ export default function Tasks() {
     queryKey: ["/api/tasks", selectedTask?.id, "updates"],
     queryFn: async () => {
       if (!selectedTask) return [];
+      const token = localStorage.getItem("auth_token");
       const response = await fetch(`/api/tasks/${selectedTask.id}/updates`, {
         credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!response.ok) throw new Error("Failed to fetch task updates");
       return response.json();
@@ -208,12 +220,8 @@ export default function Tasks() {
     enabled: !!selectedTask && isViewDialogOpen,
   });
 
-  const filteredTasks = useMemo(() => {
-    let filtered = tasks;
-    if (assignedFilter !== "all") {
-      filtered = filtered.filter(t => t.assigned_to_user_id === assignedFilter);
-    }
-    return filtered.sort((a, b) => {
+  const sortedTasks = useMemo(() => {
+    return [...tasks].sort((a, b) => {
       if (a.due_date && b.due_date) {
         return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
       }
@@ -221,7 +229,7 @@ export default function Tasks() {
       if (b.due_date) return 1;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
-  }, [tasks, assignedFilter]);
+  }, [tasks]);
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -277,6 +285,7 @@ export default function Tasks() {
       due_date: "",
       assigned_to_user_id: user?.id || "",
       admin_remarks: "",
+      user_remarks: "",
     });
   };
 
@@ -299,6 +308,8 @@ export default function Tasks() {
       updateData.due_date = formData.due_date || null;
       updateData.assigned_to_user_id = formData.assigned_to_user_id;
       updateData.admin_remarks = formData.admin_remarks;
+    } else {
+      updateData.user_remarks = formData.user_remarks;
     }
     
     updateMutation.mutate({ taskId: selectedTask.id, data: updateData });
@@ -322,6 +333,7 @@ export default function Tasks() {
       due_date: task.due_date || "",
       assigned_to_user_id: task.assigned_to_user_id,
       admin_remarks: task.admin_remarks || "",
+      user_remarks: task.user_remarks || "",
     });
     setIsEditDialogOpen(true);
   };
@@ -427,7 +439,7 @@ export default function Tasks() {
           )}
         </div>
 
-        {filteredTasks.length === 0 ? (
+        {sortedTasks.length === 0 ? (
           <Card className="flex-1">
             <CardContent className="flex flex-col items-center justify-center h-full py-12">
               <CheckSquare className="h-12 w-12 text-muted-foreground mb-4" />
@@ -454,7 +466,7 @@ export default function Tasks() {
         ) : isMobile ? (
           <ScrollArea className="flex-1">
             <div className="space-y-3 pb-20">
-              {filteredTasks.map(task => (
+              {sortedTasks.map(task => (
                 <TaskCard 
                   key={task.id} 
                   task={task} 
@@ -472,7 +484,7 @@ export default function Tasks() {
         ) : (
           <div className="flex-1 min-h-0 border rounded-lg overflow-hidden">
             <TasksGrid 
-              tasks={filteredTasks}
+              tasks={sortedTasks}
               isAdmin={isAdmin}
               onView={openViewDialog}
               onEdit={openEditDialog}
@@ -770,9 +782,20 @@ export default function Tasks() {
               </>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  As a user, you can update the status of your tasks using the dropdown in the task list.
+                <p className="text-sm text-muted-foreground mb-4">
+                  You can update your remarks below. Use the status dropdown in the task list to change status.
                 </p>
+                <div className="space-y-2">
+                  <Label htmlFor="user-remarks">Your Remarks</Label>
+                  <Textarea
+                    id="user-remarks"
+                    value={formData.user_remarks}
+                    onChange={(e) => setFormData(prev => ({ ...prev, user_remarks: e.target.value }))}
+                    placeholder="Add your notes or updates about this task"
+                    rows={3}
+                    data-testid="input-user-remarks"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -780,15 +803,13 @@ export default function Tasks() {
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Cancel
             </Button>
-            {isAdmin && (
-              <Button 
-                onClick={handleEditTask} 
-                disabled={updateMutation.isPending}
-                data-testid="button-update-task"
-              >
-                {updateMutation.isPending ? "Saving..." : "Save Changes"}
-              </Button>
-            )}
+            <Button 
+              onClick={handleEditTask} 
+              disabled={updateMutation.isPending}
+              data-testid="button-update-task"
+            >
+              {updateMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
