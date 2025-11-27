@@ -734,8 +734,8 @@ function SortableColumnItem({
                   {typeLabels[column.type]}
                 </Badge>
                 {((SYSTEM_COLUMN_KEYS as readonly string[]).includes(column.column_key) || column.config?.is_system_column) && (
-                  <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
-                    Required
+                  <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                    System
                   </Badge>
                 )}
               </div>

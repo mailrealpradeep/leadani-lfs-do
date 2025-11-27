@@ -484,8 +484,8 @@ export interface GlobalReportSummary {
 // ============================================================================
 // UTILITY: Default Columns for New Companies
 // ============================================================================
-// System column keys that cannot be deleted
-export const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no"] as const;
+// System column keys that cannot be deleted - these are always present for all companies
+export const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at"] as const;
 
 export function getDefaultColumnsForCompany(companyId: string): InsertCustomColumn[] {
   return [
@@ -510,11 +510,20 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
     {
       company_id: companyId,
       sheet_id: null,
+      name: "Created At",
+      column_key: "created_at",
+      type: "date" as const,
+      config: { required: true, is_system_column: true },
+      order_index: 2,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
       name: "Phone",
       column_key: "phone",
       type: "text" as const,
       config: {},
-      order_index: 2,
+      order_index: 3,
     },
     {
       company_id: companyId,
@@ -523,7 +532,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "email",
       type: "text" as const,
       config: {},
-      order_index: 3,
+      order_index: 4,
     },
     {
       company_id: companyId,
@@ -534,7 +543,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       config: {
         dropdown_options: ["New", "Contacted", "Qualified", "Closed", "Lost"],
       },
-      order_index: 4,
+      order_index: 5,
     },
     {
       company_id: companyId,
@@ -545,7 +554,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       config: {
         dropdown_options: ["High", "Medium", "Low"],
       },
-      order_index: 5,
+      order_index: 6,
     },
     {
       company_id: companyId,
@@ -554,7 +563,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "notes",
       type: "text" as const,
       config: {},
-      order_index: 6,
+      order_index: 7,
     },
   ];
 }

@@ -3257,6 +3257,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   // CUSTOM COLUMNS (Company-Scoped)
   // ============================================================================
+  
+  // System columns that must exist for every company
+  const SYSTEM_COLUMNS = [
+    { name: "Full Name", column_key: "full_name", type: "text" as const, order_index: 0 },
+    { name: "Mobile No", column_key: "mobile_no", type: "mobile" as const, order_index: 1 },
+    { name: "Created At", column_key: "created_at", type: "date" as const, order_index: 2 },
+  ];
+
   // Get company-wide columns (and optionally sheet-specific overrides)
   app.get("/api/company/columns", authMiddleware, async (req: AuthRequest, res) => {
     try {
@@ -3268,7 +3276,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? req.query.company_id as string
         : req.companyId!;
 
-      const columns = await storage.getCompanyColumns(companyId);
+      let columns = await storage.getCompanyColumns(companyId);
+      
+      // Ensure all system columns exist for this company
+      const existingKeys = new Set(columns.map(c => c.column_key));
+      const missingSystemCols = SYSTEM_COLUMNS.filter(s => !existingKeys.has(s.column_key));
+      
+      if (missingSystemCols.length > 0) {
+        // For each missing system column, insert at its correct order_index
+        // and shift only the columns that would be displaced
+        for (const sysCol of missingSystemCols) {
+          // Double-check to avoid race condition duplicates
+          const currentColumns = await storage.getCompanyColumns(companyId);
+          const alreadyExists = currentColumns.some(c => c.column_key === sysCol.column_key);
+          
+          if (!alreadyExists) {
+            // Shift columns that are at or after the target position
+            // Sort in DESCENDING order to avoid transient unique constraint violations
+            const columnsToShift = currentColumns
+              .filter(c => c.order_index >= sysCol.order_index)
+              .sort((a, b) => b.order_index - a.order_index);
+            
+            for (const col of columnsToShift) {
+              await storage.updateCustomColumn(col.id, { 
+                order_index: col.order_index + 1 
+              });
+            }
+            
+            // Insert the system column at its designated position
+            await storage.createCustomColumn({
+              company_id: companyId,
+              sheet_id: null,
+              name: sysCol.name,
+              column_key: sysCol.column_key,
+              type: sysCol.type,
+              config: { required: true, is_system_column: true },
+              order_index: sysCol.order_index,
+            });
+          }
+        }
+        
+        // Refetch with updated order
+        columns = await storage.getCompanyColumns(companyId);
+      }
+      
       res.json(columns);
     } catch (error: any) {
       console.error("Get company columns error:", error);
@@ -3421,7 +3472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // System column keys that cannot be deleted or have their core properties modified
-  const PROTECTED_SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no"];
+  const PROTECTED_SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at"];
   
   // Update company column (Company Admin only)
   app.patch("/api/company/columns/:columnId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
