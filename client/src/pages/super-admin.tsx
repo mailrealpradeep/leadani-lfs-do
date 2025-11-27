@@ -12,7 +12,6 @@ import {
   Search,
   UserCheck,
   UserX,
-  LogIn,
   RefreshCw,
   TrendingUp,
   AlertCircle,
@@ -20,6 +19,7 @@ import {
   Key,
   Copy,
   Check,
+  Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -104,12 +104,12 @@ export default function SuperAdmin() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedUser, setSelectedUser] = useState<UserWithCompany | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<CompanyWithStats | null>(null);
-  const [isImpersonateDialogOpen, setIsImpersonateDialogOpen] = useState(false);
   const [isSuspendDialogOpen, setIsSuspendDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isResetPasswordDialogOpen, setIsResetPasswordDialogOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [isCompanySuspendDialogOpen, setIsCompanySuspendDialogOpen] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
 
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
@@ -219,46 +219,18 @@ export default function SuperAdmin() {
     },
   });
 
-  const impersonateMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      return await apiRequest<{ code: string; user: any }>("POST", `/api/super-admin/impersonate/${userId}`);
-    },
-    onSuccess: (data) => {
-      const impersonateUrl = `${window.location.origin}/impersonate?code=${data.code}`;
-      const newWindow = window.open(impersonateUrl, "_blank", "noopener,noreferrer");
-      
-      if (newWindow) {
-        toast({
-          title: "New window opened",
-          description: `Viewing ${selectedUser?.name}'s account in a new window.`,
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Popup blocked",
-          description: "Please allow popups for this site.",
-        });
-      }
-      
-      setIsImpersonateDialogOpen(false);
-      setSelectedUser(null);
-    },
-    onError: (error: any) => {
-      toast({
-        variant: "destructive",
-        title: "Impersonation failed",
-        description: error.message,
-      });
-    },
-  });
-
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, type: "email" | "password") => {
     navigator.clipboard.writeText(text);
-    setCopiedPassword(true);
-    setTimeout(() => setCopiedPassword(false), 2000);
+    if (type === "email") {
+      setCopiedEmail(true);
+      setTimeout(() => setCopiedEmail(false), 2000);
+    } else {
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 2000);
+    }
     toast({
       title: "Copied",
-      description: "Password copied to clipboard.",
+      description: `${type === "email" ? "Email" : "Password"} copied to clipboard.`,
     });
   };
 
@@ -492,18 +464,6 @@ export default function SuperAdmin() {
                               {u.email !== SUPER_ADMIN_EMAIL && (
                                 <>
                                   <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setSelectedUser(u);
-                                      setIsImpersonateDialogOpen(true);
-                                    }}
-                                    data-testid={`button-login-as-${u.id}`}
-                                  >
-                                    <LogIn className="h-3 w-3 mr-1" />
-                                    Login
-                                  </Button>
-                                  <Button
                                     variant={u.is_active ? "outline" : "default"}
                                     size="sm"
                                     onClick={() => {
@@ -641,42 +601,6 @@ export default function SuperAdmin() {
         </Tabs>
       </div>
 
-      {/* Impersonate Dialog */}
-      <Dialog open={isImpersonateDialogOpen} onOpenChange={setIsImpersonateDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Login as User</DialogTitle>
-            <DialogDescription>
-              You are about to log in as <strong>{selectedUser?.name}</strong> ({selectedUser?.email}).
-              This action will be logged.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <div className="bg-blue-500/10 text-blue-600 dark:text-blue-400 p-3 rounded-lg text-sm">
-              <AlertCircle className="h-4 w-4 inline mr-2" />
-              A new browser window will open with this user's account.
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsImpersonateDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (selectedUser) {
-                  impersonateMutation.mutate(selectedUser.id);
-                }
-              }}
-              disabled={impersonateMutation.isPending}
-              data-testid="button-confirm-login"
-            >
-              <LogIn className="h-4 w-4 mr-2" />
-              {impersonateMutation.isPending ? "Opening..." : "Login as User"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Suspend User Dialog */}
       <AlertDialog open={isSuspendDialogOpen} onOpenChange={setIsSuspendDialogOpen}>
         <AlertDialogContent>
@@ -737,70 +661,99 @@ export default function SuperAdmin() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Reset Password Dialog */}
+      {/* Reset Password / Get Credentials Dialog */}
       <Dialog open={isResetPasswordDialogOpen} onOpenChange={(open) => {
         setIsResetPasswordDialogOpen(open);
         if (!open) {
           setNewPassword("");
+          setCopiedEmail(false);
+          setCopiedPassword(false);
         }
       }}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Reset Password</DialogTitle>
+            <DialogTitle>User Credentials</DialogTitle>
             <DialogDescription>
-              Reset password for <strong>{selectedUser?.name}</strong> ({selectedUser?.email})
+              Get login credentials for <strong>{selectedUser?.name}</strong>
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            {newPassword ? (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  New temporary password generated:
-                </p>
-                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                  <code className="flex-1 font-mono text-sm">{newPassword}</code>
+          <div className="py-4 space-y-4">
+            {/* Email - always shown */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Mail className="h-4 w-4 text-muted-foreground" />
+                Email
+              </label>
+              <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                <code className="flex-1 font-mono text-sm">{selectedUser?.email}</code>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => copyToClipboard(selectedUser?.email || "", "email")}
+                  data-testid="button-copy-email"
+                >
+                  {copiedEmail ? (
+                    <Check className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* Password - shown after generation */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Key className="h-4 w-4 text-muted-foreground" />
+                Password
+              </label>
+              {newPassword ? (
+                <>
+                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                    <code className="flex-1 font-mono text-sm">{newPassword}</code>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => copyToClipboard(newPassword, "password")}
+                      data-testid="button-copy-password"
+                    >
+                      {copiedPassword ? (
+                        <Check className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Use these credentials to log in. User should change password after login.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg border-2 border-dashed">
+                    <span className="flex-1 text-sm text-muted-foreground">Click "Generate Password" to create new credentials</span>
+                  </div>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => copyToClipboard(newPassword)}
-                    data-testid="button-copy-password"
+                    onClick={() => {
+                      if (selectedUser) {
+                        resetPasswordMutation.mutate(selectedUser.id);
+                      }
+                    }}
+                    disabled={resetPasswordMutation.isPending}
+                    className="w-full"
+                    data-testid="button-confirm-reset-password"
                   >
-                    {copiedPassword ? (
-                      <Check className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
+                    <Key className="h-4 w-4 mr-2" />
+                    {resetPasswordMutation.isPending ? "Generating..." : "Generate Password"}
                   </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Share this password with the user. They should change it after logging in.
-                </p>
-              </div>
-            ) : (
-              <div className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 p-3 rounded-lg text-sm">
-                <AlertCircle className="h-4 w-4 inline mr-2" />
-                This will generate a new temporary password for the user.
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsResetPasswordDialogOpen(false)}>
-              {newPassword ? "Close" : "Cancel"}
+              {newPassword ? "Done" : "Cancel"}
             </Button>
-            {!newPassword && (
-              <Button
-                onClick={() => {
-                  if (selectedUser) {
-                    resetPasswordMutation.mutate(selectedUser.id);
-                  }
-                }}
-                disabled={resetPasswordMutation.isPending}
-                data-testid="button-confirm-reset-password"
-              >
-                <Key className="h-4 w-4 mr-2" />
-                {resetPasswordMutation.isPending ? "Generating..." : "Generate Password"}
-              </Button>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
