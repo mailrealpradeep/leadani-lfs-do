@@ -6900,7 +6900,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create task (admins can assign to anyone, users can only create for themselves)
   app.post("/api/tasks", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { title, description, start_date, due_date, assigned_to_user_id, admin_remarks, lead_ids } = req.body;
+      const { title, description, priority, start_date, due_date, assigned_to_user_id, admin_remarks, lead_ids } = req.body;
       
       if (!title || title.trim().length === 0) {
         return res.status(400).json({ error: "Title is required" });
@@ -6919,10 +6919,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assignedTo = assigned_to_user_id;
       }
       
+      // Validate priority
+      const validPriorities = ['low', 'medium', 'high'];
+      const taskPriority = validPriorities.includes(priority) ? priority : 'medium';
+      
       const task = await storage.createTask({
         company_id: req.companyId!,
         title: title.trim(),
         description: description?.trim() || null,
+        priority: taskPriority,
         start_date: start_date || null,
         due_date: due_date || null,
         status: "pending",
@@ -6978,7 +6983,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/tasks/:taskId", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const { taskId } = req.params;
-      const { title, description, start_date, due_date, status, user_remarks, admin_remarks, assigned_to_user_id } = req.body;
+      const { title, description, priority, start_date, due_date, status, user_remarks, admin_remarks, assigned_to_user_id } = req.body;
       
       const existing = await storage.getTask(taskId);
       if (!existing) {
@@ -6996,7 +7001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(403).json({ error: "Access denied" });
         }
         // Users can only update status and user_remarks
-        if (title !== undefined || description !== undefined || start_date !== undefined || 
+        if (title !== undefined || description !== undefined || priority !== undefined || start_date !== undefined || 
             due_date !== undefined || admin_remarks !== undefined || assigned_to_user_id !== undefined) {
           return res.status(403).json({ error: "You can only update status and user remarks" });
         }
@@ -7012,6 +7017,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (description !== undefined && description !== existing.description) {
         updates.description = description?.trim() || null;
         changes.push("Description updated");
+      }
+      if (priority !== undefined && priority !== existing.priority) {
+        const validPriorities = ['low', 'medium', 'high'];
+        if (validPriorities.includes(priority)) {
+          updates.priority = priority;
+          changes.push(`Priority changed from "${existing.priority}" to "${priority}"`);
+        }
       }
       if (start_date !== undefined && start_date !== existing.start_date) {
         updates.start_date = start_date || null;
@@ -7184,6 +7196,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(enrichedUpdates);
     } catch (error: any) {
       console.error("Get task updates error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Add task update/comment (both admins and assigned users can add comments)
+  app.post("/api/tasks/:taskId/updates", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { taskId } = req.params;
+      const { comment } = req.body;
+      
+      if (!comment || comment.trim().length === 0) {
+        return res.status(400).json({ error: "Comment is required" });
+      }
+      
+      const task = await storage.getTask(taskId);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      if (task.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const isAdmin = req.userRole === "company_admin" || req.userRole === "super_admin";
+      // Only admins or the assigned user can add comments
+      if (!isAdmin && task.assigned_to_user_id !== req.userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const update = await storage.createTaskUpdate({
+        task_id: taskId,
+        user_id: req.userId!,
+        update_type: "comment",
+        old_value: null,
+        new_value: { comment: comment.trim() },
+        description: comment.trim(),
+      });
+      
+      // Get user name for response
+      const user = await storage.getUser(req.userId!);
+      
+      // Emit socket event for real-time update
+      io.to(`company-${req.companyId}`).emit("task:update-added", {
+        taskId,
+        updateId: update.id,
+        userId: req.userId,
+      });
+      
+      res.status(201).json({
+        ...update,
+        user_name: user?.name || "Unknown",
+      });
+    } catch (error: any) {
+      console.error("Add task update error:", error);
       res.status(500).json({ error: error.message });
     }
   });

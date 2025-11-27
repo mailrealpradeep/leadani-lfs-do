@@ -68,6 +68,7 @@ interface Task {
   company_id: string;
   title: string;
   description: string | null;
+  priority: "low" | "medium" | "high";
   start_date: string | null;
   due_date: string | null;
   status: "pending" | "ongoing" | "completed";
@@ -121,6 +122,18 @@ const STATUS_LABELS: Record<string, string> = {
   completed: "Completed",
 };
 
+const PRIORITY_COLORS: Record<string, string> = {
+  low: "bg-gray-500/10 text-gray-600 dark:text-gray-400",
+  medium: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+  high: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
 function getDueDateClass(dueDate: string | null, status: string): string {
   if (!dueDate || status === "completed") return "";
   const due = parseISO(dueDate);
@@ -162,12 +175,15 @@ export default function Tasks() {
   const [formData, setFormData] = useState({
     title: "",
     description: "",
+    priority: "medium" as "low" | "medium" | "high",
     start_date: "",
     due_date: "",
     assigned_to_user_id: "",
     admin_remarks: "",
     user_remarks: "",
   });
+  
+  const [newComment, setNewComment] = useState("");
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks", { statusFilter, assignedFilter }],
@@ -277,16 +293,46 @@ export default function Tasks() {
     },
   });
 
+  const addCommentMutation = useMutation({
+    mutationFn: async ({ taskId, comment }: { taskId: string; comment: string }) => {
+      return await apiRequest("POST", `/api/tasks/${taskId}/updates`, { comment });
+    },
+    onSuccess: (_, variables) => {
+      if (variables.taskId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks", variables.taskId, "updates"] });
+      }
+      setNewComment("");
+      toast({ title: "Update added", description: "Your update has been added" });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  const handleAddComment = () => {
+    if (!selectedTask) return;
+    
+    const commentText = newComment.trim();
+    if (!commentText) {
+      toast({ variant: "destructive", title: "Error", description: "Please enter an update" });
+      return;
+    }
+    
+    addCommentMutation.mutate({ taskId: selectedTask.id, comment: commentText });
+  };
+
   const resetForm = () => {
     setFormData({
       title: "",
       description: "",
+      priority: "medium",
       start_date: "",
       due_date: "",
       assigned_to_user_id: user?.id || "",
       admin_remarks: "",
       user_remarks: "",
     });
+    setNewComment("");
   };
 
   const handleCreateTask = () => {
@@ -304,6 +350,7 @@ export default function Tasks() {
     if (isAdmin) {
       updateData.title = formData.title;
       updateData.description = formData.description;
+      updateData.priority = formData.priority;
       updateData.start_date = formData.start_date || null;
       updateData.due_date = formData.due_date || null;
       updateData.assigned_to_user_id = formData.assigned_to_user_id;
@@ -329,6 +376,7 @@ export default function Tasks() {
     setFormData({
       title: task.title,
       description: task.description || "",
+      priority: task.priority || "medium",
       start_date: task.start_date || "",
       due_date: task.due_date || "",
       assigned_to_user_id: task.assigned_to_user_id,
@@ -527,6 +575,22 @@ export default function Tasks() {
                 data-testid="input-task-description"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="priority">Priority</Label>
+              <Select 
+                value={formData.priority} 
+                onValueChange={(value: "low" | "medium" | "high") => setFormData(prev => ({ ...prev, priority: value }))}
+              >
+                <SelectTrigger data-testid="select-task-priority">
+                  <SelectValue placeholder="Select priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="start_date">Start Date</Label>
@@ -599,10 +663,13 @@ export default function Tasks() {
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 flex-wrap">
               {selectedTask?.title}
               <Badge className={STATUS_COLORS[selectedTask?.status || "pending"]}>
                 {STATUS_LABELS[selectedTask?.status || "pending"]}
+              </Badge>
+              <Badge className={PRIORITY_COLORS[selectedTask?.priority || "medium"]}>
+                {PRIORITY_LABELS[selectedTask?.priority || "medium"]} Priority
               </Badge>
             </DialogTitle>
           </DialogHeader>
@@ -668,16 +735,41 @@ export default function Tasks() {
                 </div>
               )}
 
-              {taskUpdates.length > 0 && (
-                <div>
-                  <Label className="text-muted-foreground text-xs mb-2 block">Activity History</Label>
-                  <ScrollArea className="h-[200px] border rounded-lg p-3">
+              {canEditTask(selectedTask) && (
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground text-xs">Add Update</Label>
+                  <div className="flex gap-2">
+                    <Textarea
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      placeholder="Add an update or comment..."
+                      rows={2}
+                      className="flex-1"
+                      data-testid="input-task-comment"
+                    />
+                    <Button 
+                      onClick={handleAddComment}
+                      disabled={addCommentMutation.isPending || !newComment.trim()}
+                      size="sm"
+                      className="self-end"
+                      data-testid="button-add-comment"
+                    >
+                      {addCommentMutation.isPending ? "Adding..." : "Add"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <Label className="text-muted-foreground text-xs mb-2 block">Updates & Activity</Label>
+                <ScrollArea className="h-[200px] border rounded-lg p-3">
+                  {taskUpdates.length > 0 ? (
                     <div className="space-y-3">
                       {taskUpdates.map(update => (
                         <div key={update.id} className="text-sm border-b pb-2 last:border-0">
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-2">
                             <span className="font-medium">{update.user_name}</span>
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
                               {format(parseISO(update.created_at), "MMM d, h:mm a")}
                             </span>
                           </div>
@@ -685,9 +777,11 @@ export default function Tasks() {
                         </div>
                       ))}
                     </div>
-                  </ScrollArea>
-                </div>
-              )}
+                  ) : (
+                    <p className="text-muted-foreground text-sm text-center py-4">No updates yet</p>
+                  )}
+                </ScrollArea>
+              </div>
             </div>
           )}
           <DialogFooter>
@@ -733,6 +827,22 @@ export default function Tasks() {
                     rows={3}
                     data-testid="input-edit-task-description"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-priority">Priority</Label>
+                  <Select 
+                    value={formData.priority} 
+                    onValueChange={(value: "low" | "medium" | "high") => setFormData(prev => ({ ...prev, priority: value }))}
+                  >
+                    <SelectTrigger data-testid="select-edit-task-priority">
+                      <SelectValue placeholder="Select priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -858,13 +968,20 @@ function TaskCard({
   canDelete: boolean;
 }) {
   return (
-    <Card className="hover-elevate" data-testid={`card-task-${task.id}`}>
+    <Card 
+      className="hover-elevate cursor-pointer" 
+      data-testid={`card-task-${task.id}`}
+      onClick={onView}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <Badge className={STATUS_COLORS[task.status]} variant="secondary">
                 {STATUS_LABELS[task.status]}
+              </Badge>
+              <Badge className={PRIORITY_COLORS[task.priority || "medium"]} variant="secondary">
+                {PRIORITY_LABELS[task.priority || "medium"]}
               </Badge>
               {task.due_date && (
                 <Badge variant={getDueDateBadgeVariant(task.due_date, task.status)}>
@@ -873,7 +990,7 @@ function TaskCard({
                 </Badge>
               )}
             </div>
-            <h3 className="font-medium truncate" onClick={onView} style={{ cursor: "pointer" }}>
+            <h3 className="font-medium truncate">
               {task.title}
             </h3>
             {task.description && (
@@ -888,26 +1005,26 @@ function TaskCard({
           </div>
           
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
               <Button variant="ghost" size="icon" data-testid={`button-task-menu-${task.id}`}>
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onView}>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onView(); }}>
                 <Eye className="h-4 w-4 mr-2" />
                 View Details
               </DropdownMenuItem>
               {canEdit && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => onStatusChange("pending")} disabled={task.status === "pending"}>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onStatusChange("pending"); }} disabled={task.status === "pending"}>
                     Set as Pending
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onStatusChange("ongoing")} disabled={task.status === "ongoing"}>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onStatusChange("ongoing"); }} disabled={task.status === "ongoing"}>
                     Set as Ongoing
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onStatusChange("completed")} disabled={task.status === "completed"}>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onStatusChange("completed"); }} disabled={task.status === "completed"}>
                     Mark Completed
                   </DropdownMenuItem>
                 </>
@@ -915,7 +1032,7 @@ function TaskCard({
               {isAdmin && canEdit && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={onEdit}>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit(); }}>
                     <Edit className="h-4 w-4 mr-2" />
                     Edit Task
                   </DropdownMenuItem>
@@ -924,7 +1041,7 @@ function TaskCard({
               {canDelete && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDelete(); }} className="text-destructive">
                     <Trash2 className="h-4 w-4 mr-2" />
                     Delete Task
                   </DropdownMenuItem>

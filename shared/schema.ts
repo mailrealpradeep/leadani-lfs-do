@@ -1054,12 +1054,14 @@ export function getDefaultAttendanceRules(companyId: string): InsertAttendanceRu
 // TASKS SYSTEM
 // ============================================================================
 export type TaskStatus = "pending" | "ongoing" | "completed";
+export type TaskPriority = "low" | "medium" | "high";
 
 export interface Task {
   id: string;
   company_id: string;
   title: string;
   description: string | null;
+  priority: TaskPriority;
   start_date: string | null;
   due_date: string | null;
   status: TaskStatus;
@@ -1076,6 +1078,7 @@ export const tasks = pgTable('tasks', {
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   title: varchar('title', { length: 500 }).notNull(),
   description: text('description'),
+  priority: varchar('priority', { length: 20 }).notNull().default('medium'), // 'low', 'medium', 'high'
   start_date: timestamp('start_date'),
   due_date: timestamp('due_date'),
   status: varchar('status', { length: 50 }).notNull().default('pending'), // 'pending', 'ongoing', 'completed'
@@ -1132,11 +1135,12 @@ export interface TaskUpdate {
   id: string;
   task_id: string;
   user_id: string;
-  update_type: "status_change" | "remarks_change" | "details_change" | "lead_linked" | "lead_unlinked" | "created";
+  update_type: "status_change" | "remarks_change" | "details_change" | "lead_linked" | "lead_unlinked" | "created" | "comment";
   old_value: Record<string, any> | null;
   new_value: Record<string, any> | null;
   description: string | null;
   created_at: string;
+  user_name?: string;
 }
 
 export const taskUpdates = pgTable('task_updates', {
