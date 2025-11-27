@@ -135,6 +135,7 @@ export function SpreadsheetGrid({
     selectedSheetIds,
     pagination,
     setPagination,
+    thoughtFilter,
   } = useDashboard();
   
   const isMultiMode = isMultiSheetMode && selectedSheetIds.length > 0;
@@ -179,6 +180,14 @@ export function SpreadsheetGrid({
     enabled: !!activeSheetId && !isMultiMode,
   });
 
+  // Company-level columns for multi-sheet mode - fetch first so buildBackendFilters can use it
+  const { data: companyColumns = [], isLoading: isLoadingCompanyColumns, error: companyColumnsError } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/company/columns"],
+    enabled: isMultiMode,
+    staleTime: 30000,
+    retry: 2,
+  });
+
   // Multi-sheet mode data fetching - server-side filtering, sorting, and pagination
   // Build filters object for backend - convert frontend filter format to backend format
   const buildBackendFilters = () => {
@@ -195,8 +204,8 @@ export function SpreadsheetGrid({
       } 
       // Handle dropdown exact match filters
       else if (typeof value === 'string') {
-        // Check if this column is a dropdown type
-        const col = customColumns.find(c => c.column_key === key);
+        // Check if this column is a dropdown type - use companyColumns directly
+        const col = companyColumns.find(c => c.column_key === key);
         if (col?.type === 'dropdown') {
           filters[key] = { value: value, exactMatch: true };
         } else {
@@ -207,6 +216,10 @@ export function SpreadsheetGrid({
     if (searchQuery) {
       filters.search = searchQuery;
     }
+    // Add thought filter for Sure/May Be leads
+    if (thoughtFilter) {
+      filters.thought = thoughtFilter;
+    }
     return filters;
   };
   
@@ -215,7 +228,7 @@ export function SpreadsheetGrid({
     isLoading: isLoadingMultiLeads,
     isFetching: isFetchingMultiLeads,
   } = useQuery<PaginatedLeadsResponse>({
-    queryKey: ["/api/leads/query", activeSheetIds, pagination.page, pagination.limit, searchQuery, columnFilters, sortColumn, sortDirection],
+    queryKey: ["/api/leads/query", activeSheetIds, pagination.page, pagination.limit, searchQuery, columnFilters, sortColumn, sortDirection, thoughtFilter],
     queryFn: async () => {
       const response = await apiRequest<PaginatedLeadsResponse>("POST", "/api/leads/query", {
         sheetIds: activeSheetIds,
@@ -228,14 +241,6 @@ export function SpreadsheetGrid({
       return response;
     },
     enabled: isMultiMode && activeSheetIds.length > 0,
-  });
-
-  // Company-level columns for multi-sheet mode
-  const { data: companyColumns = [], isLoading: isLoadingCompanyColumns, error: companyColumnsError } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/company/columns"],
-    enabled: isMultiMode,
-    staleTime: 30000,
-    retry: 2,
   });
 
   // Update pagination state when multi-sheet data changes
@@ -262,7 +267,7 @@ export function SpreadsheetGrid({
         totalPages: pagination.totalPages,
       });
     }
-  }, [activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, isMultiMode]);
+  }, [activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, isMultiMode, thoughtFilter]);
 
   // Unified data access
   const leads = isMultiMode ? (multiSheetData?.leads || []) : singleSheetLeads;
@@ -762,9 +767,15 @@ export function SpreadsheetGrid({
 
   // In multi-mode, server handles filtering/sorting; in single-mode, do it client-side
   const filteredAndSortedLeads = isMultiMode
-    ? leads // Server already filtered and sorted
+    ? leads // Server handles thought filter now
     : leads
         .filter((lead) => {
+          // Thought filter - filter by Sure/May Be status
+          if (thoughtFilter) {
+            const leadThought = (lead.meta as any)?.thought;
+            if (leadThought !== thoughtFilter) return false;
+          }
+          
           // Search query filter - search across all custom fields
           if (searchQuery) {
             const query = searchQuery.toLowerCase();

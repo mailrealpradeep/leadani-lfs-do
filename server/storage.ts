@@ -1972,6 +1972,19 @@ export class PgStorage implements IStorage {
     for (const [key, value] of Object.entries(filters)) {
       if (value === null || value === undefined || value === '') continue;
       
+      // Handle thought filter (meta field)
+      if (key === 'thought' && typeof value === 'string') {
+        conditions.push(drizzleSql`${dbSchema.leads.meta}->>'thought' = ${value}`);
+        continue;
+      }
+      
+      // Handle search filter (search across all custom_fields)
+      if (key === 'search' && typeof value === 'string') {
+        const searchTerm = '%' + value + '%';
+        conditions.push(drizzleSql`${dbSchema.leads.custom_fields}::text ILIKE ${searchTerm}`);
+        continue;
+      }
+      
       // Handle date range filters (object with from/to)
       if (typeof value === 'object' && value !== null && 'from' in value && 'to' in value) {
         const dateFilter = value as { from: string; to: string; type?: string };

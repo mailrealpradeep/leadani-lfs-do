@@ -22,6 +22,8 @@ interface DashboardContextType {
   setCategoryFilter: (filter: "all" | "hot" | "warm" | "cold") => void;
   activeQuickFilter: string | null;
   setActiveQuickFilter: (filter: string | null) => void;
+  thoughtFilter: "sure" | "maybe" | null;
+  setThoughtFilter: (filter: "sure" | "maybe" | null) => void;
   quickFilterHandlers: {
     onApplyFilter?: (filterId: string, filterConfig: any) => void;
     onClearAllFilters?: () => void;
@@ -53,6 +55,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"all" | "hot" | "warm" | "cold">("all");
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
+  const [thoughtFilter, setThoughtFilter] = useState<"sure" | "maybe" | null>(null);
   const [quickFilterHandlers, setQuickFilterHandlers] = useState<DashboardContextType["quickFilterHandlers"]>({});
   const [actions, setActions] = useState<DashboardContextType["actions"]>({});
 
@@ -73,6 +76,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         setCategoryFilter,
         activeQuickFilter,
         setActiveQuickFilter,
+        thoughtFilter,
+        setThoughtFilter,
         quickFilterHandlers,
         setQuickFilterHandlers,
         actions,
@@ -102,6 +107,8 @@ export function useDashboard() {
       setCategoryFilter: () => {},
       activeQuickFilter: null,
       setActiveQuickFilter: () => {},
+      thoughtFilter: null,
+      setThoughtFilter: () => {},
       quickFilterHandlers: {},
       setQuickFilterHandlers: () => {},
       actions: {},
