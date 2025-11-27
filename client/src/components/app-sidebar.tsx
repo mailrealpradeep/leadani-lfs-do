@@ -306,6 +306,17 @@ export function AppSidebar() {
         </SidebarContent>
 
         <SidebarFooter className="p-4 border-t">
+          {sessionStorage.getItem("impersonating") === "true" && (
+            <div className="mb-3 p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <span className="inline-block w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                Viewing as another user
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Click "End Session" below to close
+              </p>
+            </div>
+          )}
           <div className="flex items-center gap-3 mb-3">
             <Avatar className="h-8 w-8">
               <AvatarFallback className="text-xs">
@@ -343,10 +354,10 @@ export function AppSidebar() {
               variant="outline"
               size="sm"
               onClick={logout}
-              className={user?.email === "mailrealpradeep@gmail.com" ? "flex-1" : "w-full"}
+              className={user?.email === "mailrealpradeep@gmail.com" && sessionStorage.getItem("impersonating") !== "true" ? "flex-1" : "w-full"}
               data-testid="button-logout"
             >
-              Sign out
+              {sessionStorage.getItem("impersonating") === "true" ? "End Session" : "Sign out"}
             </Button>
           </div>
         </SidebarFooter>

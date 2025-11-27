@@ -7603,6 +7603,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Impersonate User
+  // Store for short-lived impersonation codes (code -> { token, user, company, expires })
+  const impersonationCodes = new Map<string, { token: string; user: any; company: any; expires: number }>();
+  
+  // Clean up expired codes periodically
+  setInterval(() => {
+    const now = Date.now();
+    for (const [code, data] of impersonationCodes) {
+      if (data.expires < now) {
+        impersonationCodes.delete(code);
+      }
+    }
+  }, 60000); // Clean up every minute
+
   app.post("/api/super-admin/impersonate/:userId", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
     try {
       const { userId } = req.params;
@@ -7637,17 +7650,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Generate token for the impersonated user
-      const token = generateToken(targetUser);
+      const token = generateToken(targetUser.id, targetUser.role, targetUser.company_id);
       
       const { password_hash, ...userWithoutPassword } = targetUser;
       
-      res.json({
+      // Generate a short-lived code instead of returning the token directly
+      const code = crypto.randomBytes(32).toString("hex");
+      impersonationCodes.set(code, {
         token,
         user: userWithoutPassword,
         company,
+        expires: Date.now() + 60000, // 1 minute expiration
+      });
+      
+      res.json({
+        code,
+        user: userWithoutPassword,
       });
     } catch (error: any) {
       console.error("Impersonate user error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Endpoint to redeem impersonation code for token
+  app.post("/api/impersonate/redeem", async (req, res) => {
+    try {
+      const { code } = req.body;
+      
+      if (!code || typeof code !== "string") {
+        return res.status(400).json({ error: "Invalid code" });
+      }
+      
+      const data = impersonationCodes.get(code);
+      
+      if (!data) {
+        return res.status(404).json({ error: "Invalid or expired code" });
+      }
+      
+      if (data.expires < Date.now()) {
+        impersonationCodes.delete(code);
+        return res.status(404).json({ error: "Code expired" });
+      }
+      
+      // Delete the code after use (one-time use)
+      impersonationCodes.delete(code);
+      
+      res.json({
+        token: data.token,
+        user: data.user,
+        company: data.company,
+      });
+    } catch (error: any) {
+      console.error("Redeem impersonation code error:", error);
       res.status(500).json({ error: error.message });
     }
   });

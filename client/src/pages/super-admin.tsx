@@ -214,17 +214,27 @@ export default function SuperAdmin() {
 
   const impersonateMutation = useMutation({
     mutationFn: async (userId: string) => {
-      return await apiRequest<{ token: string; user: any }>("POST", `/api/super-admin/impersonate/${userId}`);
+      return await apiRequest<{ code: string; user: any }>("POST", `/api/super-admin/impersonate/${userId}`);
     },
     onSuccess: (data) => {
-      localStorage.setItem("auth_token", data.token);
-      localStorage.setItem("impersonating", "true");
-      localStorage.setItem("original_admin_email", user?.email || "");
-      toast({
-        title: "Impersonation started",
-        description: `You are now logged in as ${selectedUser?.name}`,
-      });
-      setLocation("/");
+      const impersonateUrl = `${window.location.origin}/impersonate?code=${data.code}`;
+      
+      const newWindow = window.open(impersonateUrl, "_blank", "noopener,noreferrer");
+      
+      if (newWindow) {
+        toast({
+          title: "New window opened",
+          description: `Viewing ${selectedUser?.name}'s account in a new window. Your admin session remains active here.`,
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Popup blocked",
+          description: "Please allow popups for this site to view user accounts in new windows.",
+        });
+      }
+      
+      setIsImpersonateDialogOpen(false);
     },
     onError: (error: any) => {
       toast({
@@ -819,9 +829,9 @@ export default function SuperAdmin() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <div className="bg-amber-500/10 text-amber-600 dark:text-amber-400 p-3 rounded-lg text-sm">
+            <div className="bg-blue-500/10 text-blue-600 dark:text-blue-400 p-3 rounded-lg text-sm">
               <AlertCircle className="h-4 w-4 inline mr-2" />
-              You will be logged in as this user and see their data. To return to your admin account, log out and log back in.
+              A new browser window will open with this user's account. Your admin session will remain active in this window.
             </div>
           </div>
           <DialogFooter>
@@ -835,9 +845,10 @@ export default function SuperAdmin() {
                 }
               }}
               disabled={impersonateMutation.isPending}
+              data-testid="button-confirm-impersonate"
             >
               <LogIn className="h-4 w-4 mr-2" />
-              {impersonateMutation.isPending ? "Logging in..." : "Login as User"}
+              {impersonateMutation.isPending ? "Opening..." : "Open in New Window"}
             </Button>
           </DialogFooter>
         </DialogContent>

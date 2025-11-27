@@ -26,7 +26,10 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem("auth_token"));
+  const [token, setToken] = useState<string | null>(() => 
+    sessionStorage.getItem("auth_token") || localStorage.getItem("auth_token")
+  );
+  const [isImpersonating] = useState(() => sessionStorage.getItem("impersonating") === "true");
 
   const { data, isLoading, isError } = useQuery<AuthMeResponse>({
     queryKey: ["/api/auth/me"],
@@ -47,6 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return response;
     },
     onSuccess: (response) => {
+      localStorage.removeItem("impersonating");
+      localStorage.removeItem("impersonated_user_name");
+      localStorage.removeItem("impersonated_user_email");
       setToken(response.token);
       localStorage.setItem("auth_token", response.token);
       queryClient.setQueryData(["/api/auth/me"], {
@@ -82,18 +88,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setToken(null);
+    
+    if (isImpersonating) {
+      sessionStorage.removeItem("auth_token");
+      sessionStorage.removeItem("impersonating");
+      sessionStorage.removeItem("impersonated_user_name");
+      sessionStorage.removeItem("impersonated_user_email");
+      queryClient.clear();
+      window.close();
+      return;
+    }
+    
     localStorage.removeItem("auth_token");
+    localStorage.removeItem("impersonating");
+    localStorage.removeItem("impersonated_user_name");
+    localStorage.removeItem("impersonated_user_email");
+    sessionStorage.removeItem("auth_token");
+    sessionStorage.removeItem("impersonating");
+    sessionStorage.removeItem("impersonated_user_name");
+    sessionStorage.removeItem("impersonated_user_email");
     queryClient.clear();
     window.location.href = "/login";
   };
 
   useEffect(() => {
-    if (token) {
+    if (token && !isImpersonating) {
       localStorage.setItem("auth_token", token);
-    } else {
+    } else if (!token) {
       localStorage.removeItem("auth_token");
     }
-  }, [token]);
+  }, [token, isImpersonating]);
 
   const user = data?.user || null;
   const company = data?.company || null;

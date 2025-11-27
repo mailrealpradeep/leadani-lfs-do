@@ -31,6 +31,7 @@ import AuditLogs from "@/pages/audit";
 import Attendance from "@/pages/attendance";
 import Tasks from "@/pages/tasks";
 import SuperAdmin from "@/pages/super-admin";
+import Impersonate from "@/pages/impersonate";
 
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => JSX.Element; adminOnly?: boolean }) {
   const { isAuthenticated, isSuperAdmin, isCompanyAdmin, isLoading } = useAuth();
@@ -63,6 +64,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
       <Route path="/invite/:code" component={InviteAccept} />
+      <Route path="/impersonate" component={Impersonate} />
       
       {/* Landing page - public, but redirect if authenticated */}
       <Route path="/">
