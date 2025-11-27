@@ -21,6 +21,7 @@ interface AuthContextType {
   isSuperAdmin: boolean;
   isCompanyAdmin: boolean;
   isRegularUser: boolean;
+  isImpersonating: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,7 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => 
     sessionStorage.getItem("auth_token") || localStorage.getItem("auth_token")
   );
-  const [isImpersonating] = useState(() => sessionStorage.getItem("impersonating") === "true");
+  const [isImpersonating, setIsImpersonating] = useState(() => 
+    sessionStorage.getItem("impersonating") === "true" || localStorage.getItem("impersonating") === "true"
+  );
 
   const { data, isLoading, isError } = useQuery<AuthMeResponse>({
     queryKey: ["/api/auth/me"],
@@ -88,17 +91,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setToken(null);
+    setIsImpersonating(false);
     
-    if (isImpersonating) {
-      sessionStorage.removeItem("auth_token");
-      sessionStorage.removeItem("impersonating");
-      sessionStorage.removeItem("impersonated_user_name");
-      sessionStorage.removeItem("impersonated_user_email");
-      queryClient.clear();
-      window.close();
-      return;
-    }
-    
+    // Clear all auth-related storage from both localStorage and sessionStorage
     localStorage.removeItem("auth_token");
     localStorage.removeItem("impersonating");
     localStorage.removeItem("impersonated_user_name");
@@ -141,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isSuperAdmin: user?.role === "super_admin",
         isCompanyAdmin: user?.role === "company_admin",
         isRegularUser: user?.role === "user",
+        isImpersonating,
       }}
     >
       {children}

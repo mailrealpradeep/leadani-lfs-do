@@ -147,6 +147,33 @@ function DashboardHeader() {
   );
 }
 
+function ImpersonationBanner() {
+  const { logout, isImpersonating } = useAuth();
+  const impersonatedUserName = localStorage.getItem("impersonated_user_name");
+  const impersonatedUserEmail = localStorage.getItem("impersonated_user_email");
+  
+  if (!isImpersonating) return null;
+  
+  return (
+    <div className="bg-amber-500 text-amber-950 px-4 py-2 flex items-center justify-between gap-2 text-sm font-medium shrink-0">
+      <div className="flex items-center gap-2">
+        <span>Viewing as:</span>
+        <span className="font-bold">{impersonatedUserName || "User"}</span>
+        {impersonatedUserEmail && (
+          <span className="opacity-75">({impersonatedUserEmail})</span>
+        )}
+      </div>
+      <button
+        onClick={logout}
+        className="bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+        data-testid="button-exit-impersonation"
+      >
+        Exit & Return to Login
+      </button>
+    </div>
+  );
+}
+
 function AppLayout() {
   const { isAuthenticated, isLoading } = useAuth();
   const shouldShowInstall = useShouldShowInstallPrompt();
@@ -175,13 +202,16 @@ function AppLayout() {
   return (
     <DashboardProvider>
       <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-        <div className="flex h-screen w-full">
-          <AppSidebar />
-          <div className="flex flex-col flex-1 min-w-0">
-            <DashboardHeader />
-            <main className="flex-1 overflow-hidden">
-              <Router />
-            </main>
+        <div className="flex flex-col h-screen w-full">
+          <ImpersonationBanner />
+          <div className="flex flex-1 min-h-0">
+            <AppSidebar />
+            <div className="flex flex-col flex-1 min-w-0">
+              <DashboardHeader />
+              <main className="flex-1 overflow-hidden">
+                <Router />
+              </main>
+            </div>
           </div>
         </div>
         {shouldShowInstall && <PWAInstallPrompt forceMobile />}

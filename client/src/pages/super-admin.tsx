@@ -20,6 +20,7 @@ import {
   Copy,
   Check,
   Mail,
+  LogIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -111,6 +112,7 @@ export default function SuperAdmin() {
   const [isCompanySuspendDialogOpen, setIsCompanySuspendDialogOpen] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
+  const [isImpersonating, setIsImpersonating] = useState(false);
 
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
@@ -218,6 +220,56 @@ export default function SuperAdmin() {
       });
     },
   });
+
+  const handleLoginAsUser = async (targetUser: UserWithCompany) => {
+    try {
+      setIsImpersonating(true);
+      
+      // Step 1: Get impersonation code from backend
+      const codeResponse = await apiRequest<{ code: string; user: any }>(
+        "POST",
+        `/api/super-admin/impersonate/${targetUser.id}`
+      );
+      
+      // Step 2: Redeem the code for a token
+      const tokenResponse = await apiRequest<{ token: string; user: any; company: any }>(
+        "POST",
+        "/api/impersonate/redeem",
+        { code: codeResponse.code }
+      );
+      
+      // Step 3: Clear only auth-related storage, preserve other preferences (theme, etc.)
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("impersonating");
+      localStorage.removeItem("impersonated_user_name");
+      localStorage.removeItem("impersonated_user_email");
+      sessionStorage.removeItem("auth_token");
+      sessionStorage.removeItem("impersonating");
+      sessionStorage.removeItem("impersonated_user_name");
+      sessionStorage.removeItem("impersonated_user_email");
+      queryClient.clear();
+      
+      // Step 4: Store the new token and impersonation flags in BOTH storages for consistency
+      localStorage.setItem("auth_token", tokenResponse.token);
+      localStorage.setItem("impersonating", "true");
+      localStorage.setItem("impersonated_user_name", targetUser.name);
+      localStorage.setItem("impersonated_user_email", targetUser.email);
+      sessionStorage.setItem("impersonating", "true");
+      sessionStorage.setItem("impersonated_user_name", targetUser.name);
+      sessionStorage.setItem("impersonated_user_email", targetUser.email);
+      
+      // Step 5: Hard reload the page - this forces complete fresh start
+      window.location.href = "/";
+      
+    } catch (error: any) {
+      setIsImpersonating(false);
+      toast({
+        variant: "destructive",
+        title: "Failed to login as user",
+        description: error.message || "Could not impersonate user",
+      });
+    }
+  };
 
   const copyToClipboard = (text: string, type: "email" | "password") => {
     navigator.clipboard.writeText(text);
@@ -463,6 +515,16 @@ export default function SuperAdmin() {
                             <div className="flex items-center justify-end gap-1">
                               {u.email !== SUPER_ADMIN_EMAIL && (
                                 <>
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={() => handleLoginAsUser(u)}
+                                    disabled={isImpersonating || !u.is_active}
+                                    data-testid={`button-login-as-${u.id}`}
+                                  >
+                                    <LogIn className="h-3 w-3 mr-1" />
+                                    {isImpersonating ? "Logging in..." : "Login As"}
+                                  </Button>
                                   <Button
                                     variant={u.is_active ? "outline" : "default"}
                                     size="sm"
