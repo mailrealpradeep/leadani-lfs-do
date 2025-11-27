@@ -1652,9 +1652,26 @@ export class PgStorage implements IStorage {
     // Add filter conditions
     for (const [key, value] of Object.entries(filters)) {
       if (value === null || value === undefined || value === '') continue;
-      if (typeof value === 'string') {
+      
+      // Handle date range filters (object with from/to)
+      if (typeof value === 'object' && value !== null && 'from' in value && 'to' in value) {
+        const dateFilter = value as { from: string; to: string; type?: string };
+        if (dateFilter.from && dateFilter.to) {
+          conditions.push(drizzleSql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
+          conditions.push(drizzleSql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
+        }
+      }
+      // Handle dropdown exact match (object with exactMatch flag)
+      else if (typeof value === 'object' && value !== null && 'exactMatch' in value) {
+        const exactFilter = value as { value: string; exactMatch: boolean };
+        conditions.push(drizzleSql`${dbSchema.leads.custom_fields}->>${key} = ${exactFilter.value}`);
+      }
+      // Handle simple string filter (substring match)
+      else if (typeof value === 'string') {
         conditions.push(drizzleSql`${dbSchema.leads.custom_fields}->>${key} ILIKE ${'%' + value + '%'}`);
-      } else {
+      } 
+      // Handle other values as exact match
+      else {
         conditions.push(drizzleSql`${dbSchema.leads.custom_fields}->>${key} = ${String(value)}`);
       }
     }
