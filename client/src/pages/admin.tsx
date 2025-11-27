@@ -942,15 +942,15 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
       )}
 
       <Dialog open={assignDialogOpen} onOpenChange={handleDialogClose}>
-        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Assign Users to Sheet</DialogTitle>
             <DialogDescription>
               Select users to give them access. {filteredAvailableUsers.length} of {availableUsers.length} user(s) shown.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="flex flex-col gap-4 min-h-0 flex-1">
+          <div className="flex flex-col gap-4 min-h-0 flex-1 overflow-hidden">
             <div className="flex items-center gap-2 shrink-0">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -973,47 +973,49 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
               </Select>
             </div>
 
-            <ScrollArea className="flex-1 min-h-0 max-h-[50vh]">
-              <div className="space-y-2 pr-4">
-                {filteredAvailableUsers.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-sm text-muted-foreground">
-                      {searchQuery
-                        ? "No users match your search"
-                        : "All users are already assigned to this sheet"}
-                    </p>
-                  </div>
-                ) : (
-                  filteredAvailableUsers.map((user) => (
-                    <div
-                      key={user.id}
-                      className="flex items-center justify-between gap-2 p-3 border rounded-lg hover-elevate"
-                    >
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <Avatar className="h-9 w-9 shrink-0">
-                          <AvatarFallback className="text-xs">
-                            {user.name?.slice(0, 2).toUpperCase() || "??"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium truncate">{user.name}</div>
-                          <div className="text-xs text-muted-foreground truncate">{user.email}</div>
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => assignMutation.mutate({ user_id: user.id, role: selectedRole })}
-                        disabled={assignMutation.isPending}
-                        data-testid={`button-assign-${user.id}`}
-                      >
-                        <UserPlus className="h-4 w-4 mr-1" />
-                        Assign
-                      </Button>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ScrollArea className="h-full max-h-[50vh]">
+                <div className="space-y-2 pr-4">
+                  {filteredAvailableUsers.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-sm text-muted-foreground">
+                        {searchQuery
+                          ? "No users match your search"
+                          : "All users are already assigned to this sheet"}
+                      </p>
                     </div>
-                  ))
-                )}
-              </div>
-            </ScrollArea>
+                  ) : (
+                    filteredAvailableUsers.map((user) => (
+                      <div
+                        key={user.id}
+                        className="flex items-center justify-between gap-2 p-3 border rounded-lg hover-elevate"
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <Avatar className="h-9 w-9 shrink-0">
+                            <AvatarFallback className="text-xs">
+                              {user.name?.slice(0, 2).toUpperCase() || "??"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium truncate">{user.name}</div>
+                            <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => assignMutation.mutate({ user_id: user.id, role: selectedRole })}
+                          disabled={assignMutation.isPending}
+                          data-testid={`button-assign-${user.id}`}
+                        >
+                          <UserPlus className="h-4 w-4 mr-1" />
+                          Assign
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
