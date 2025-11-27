@@ -169,22 +169,51 @@ export function SpreadsheetGrid({
     enabled: !!activeSheetId && !isMultiMode,
   });
 
-  // Multi-sheet mode data fetching
-  // Note: Backend supports pagination and search, but not column filters or per-column sorting
+  // Multi-sheet mode data fetching - server-side filtering, sorting, and pagination
+  // Build filters object for backend - convert frontend filter format to backend format
+  const buildBackendFilters = () => {
+    const filters: Record<string, any> = {};
+    for (const [key, value] of Object.entries(columnFilters)) {
+      if (value === null || value === undefined || value === '') continue;
+      
+      // Handle date range filters
+      if (typeof value === 'object' && 'from' in value && 'to' in value) {
+        const dateFilter = value as DateFilterValue | null;
+        if (dateFilter && dateFilter.from && dateFilter.to) {
+          filters[key] = { from: dateFilter.from, to: dateFilter.to, type: 'date_range' };
+        }
+      } 
+      // Handle dropdown exact match filters
+      else if (typeof value === 'string') {
+        // Check if this column is a dropdown type
+        const col = customColumns.find(c => c.column_key === key);
+        if (col?.type === 'dropdown') {
+          filters[key] = { value: value, exactMatch: true };
+        } else {
+          filters[key] = value; // String filter (ILIKE search)
+        }
+      }
+    }
+    if (searchQuery) {
+      filters.search = searchQuery;
+    }
+    return filters;
+  };
+  
   const { 
     data: multiSheetData, 
     isLoading: isLoadingMultiLeads,
     isFetching: isFetchingMultiLeads,
   } = useQuery<PaginatedLeadsResponse>({
-    queryKey: ["/api/leads/query", activeSheetIds, pagination.page, pagination.limit, searchQuery],
+    queryKey: ["/api/leads/query", activeSheetIds, pagination.page, pagination.limit, searchQuery, columnFilters, sortColumn, sortDirection],
     queryFn: async () => {
       const response = await apiRequest<PaginatedLeadsResponse>("POST", "/api/leads/query", {
         sheetIds: activeSheetIds,
         page: pagination.page,
         limit: pagination.limit,
-        sortBy: "created_at",
-        sortOrder: "desc",
-        ...(searchQuery ? { search: searchQuery } : {}),
+        sortBy: sortColumn || "created_at",
+        sortOrder: sortColumn ? sortDirection : "desc",
+        filters: buildBackendFilters(),
       });
       return response;
     },
@@ -209,7 +238,9 @@ export function SpreadsheetGrid({
     }
   }, [multiSheetData, isMultiMode, setPagination]);
 
-  // Reset to page 1 when sheet selection or search changes in multi-mode
+  // Reset to page 1 when sheet selection, search, filters, or sort changes in multi-mode
+  // Use JSON.stringify for stable dependency reference of columnFilters
+  const columnFiltersKey = JSON.stringify(columnFilters);
   useEffect(() => {
     if (isMultiMode) {
       setPagination({
@@ -219,7 +250,7 @@ export function SpreadsheetGrid({
         totalPages: pagination.totalPages,
       });
     }
-  }, [activeSheetIds.length, searchQuery, isMultiMode]);
+  }, [activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, isMultiMode]);
 
   // Unified data access
   const leads = isMultiMode ? (multiSheetData?.leads || []) : singleSheetLeads;
