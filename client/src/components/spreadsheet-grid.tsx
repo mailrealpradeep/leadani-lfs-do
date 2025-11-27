@@ -221,9 +221,11 @@ export function SpreadsheetGrid({
   });
 
   // Company-level columns for multi-sheet mode
-  const { data: companyColumns = [], isLoading: isLoadingCompanyColumns } = useQuery<CustomColumn[]>({
+  const { data: companyColumns = [], isLoading: isLoadingCompanyColumns, error: companyColumnsError } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
     enabled: isMultiMode,
+    staleTime: 30000,
+    retry: 2,
   });
 
   // Update pagination state when multi-sheet data changes
@@ -256,6 +258,18 @@ export function SpreadsheetGrid({
   const leads = isMultiMode ? (multiSheetData?.leads || []) : singleSheetLeads;
   const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
   const sheetNamesMap = multiSheetData?.sheetNames || {};
+
+  // Debug logging for column rendering issue
+  if (isMultiMode) {
+    console.log('[SpreadsheetGrid Debug]', {
+      isMultiMode,
+      companyColumnsLength: companyColumns.length,
+      customColumnsLength: customColumns.length,
+      companyColumnsError: companyColumnsError?.message,
+      isLoadingCompanyColumns,
+      sampleColumn: customColumns[0],
+    });
+  }
 
   const { data: allSheets = [] } = useQuery<any[]>({
     queryKey: ["/api/sheets"],
@@ -1127,6 +1141,34 @@ export function SpreadsheetGrid({
     );
   }
 
+  // Show error state if company columns failed to load in multi-sheet mode
+  if (isMultiMode && companyColumnsError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 space-y-4 text-center">
+        <div className="text-muted-foreground">
+          Failed to load column configuration for combined view.
+        </div>
+        <Button 
+          variant="outline" 
+          onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/company/columns"] })}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  // Ensure columns are loaded before rendering the grid in multi-sheet mode
+  if (isMultiMode && companyColumns.length === 0 && !isLoadingCompanyColumns) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 space-y-4 text-center">
+        <div className="text-muted-foreground">
+          No columns configured for combined view. Please set up columns in Admin Console.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {/* Update Dialogs */}
@@ -1550,9 +1592,9 @@ export function SpreadsheetGrid({
                       <div className="w-full h-full group-hover:bg-primary transition-colors" />
                     </div>
                     
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1" data-testid={`column-header-${col.key}`}>
                       <div className="flex items-center gap-1">
-                        <span>{col.label}</span>
+                        <span data-testid={`column-label-${col.key}`}>{col.label}</span>
                         {/* Sort button - works in both single and multi-sheet mode */}
                         {col.sortable && (
                           <Button

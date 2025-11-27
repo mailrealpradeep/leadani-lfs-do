@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { FileSpreadsheet } from "lucide-react";
 import { useDashboard } from "@/components/dashboard-context";
 import { SpreadsheetGrid } from "@/components/spreadsheet-grid";
-import { MultiSheetGrid } from "@/components/multi-sheet-grid";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { DropdownManagerModal } from "@/components/dropdown-manager-modal";
 import { AddLeadDialog } from "@/components/add-lead-dialog";
@@ -89,9 +88,11 @@ export default function Dashboard() {
     <div className="flex flex-col h-full">
       <div ref={containerRef} className="flex-1 p-4 overflow-hidden">
         {isMultiSheetMode && selectedSheetIds.length > 0 ? (
-          <MultiSheetGrid
+          <SpreadsheetGrid
             sheetIds={selectedSheetIds}
             onOpenLeadDetail={handleOpenLeadDetail}
+            onOpenDropdownManager={handleOpenDropdownManager}
+            onScroll={handleGridScroll}
           />
         ) : selectedSheetId ? (
           <SpreadsheetGrid
