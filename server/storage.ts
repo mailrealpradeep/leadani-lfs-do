@@ -227,6 +227,7 @@ export interface IStorage {
   getPendingForceExitsByCompanyId(companyId: string): Promise<AttendanceEntryRecord[]>;
   createAttendanceEntry(entry: InsertAttendanceEntry): Promise<AttendanceEntryRecord>;
   updateAttendanceEntry(id: string, updates: Partial<AttendanceEntryRecord>): Promise<AttendanceEntryRecord | undefined>;
+  deleteAttendanceEntry(id: string): Promise<boolean>;
   cleanupOldSelfieUrls(daysOld: number): Promise<number>;
 
   // Attendance Rules
@@ -1336,6 +1337,10 @@ export class MemStorage implements IStorage {
     const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
     this.attendanceEntries.set(id, updated);
     return updated;
+  }
+
+  async deleteAttendanceEntry(id: string): Promise<boolean> {
+    return this.attendanceEntries.delete(id);
   }
 
   async cleanupOldSelfieUrls(daysOld: number): Promise<number> {
@@ -2833,6 +2838,11 @@ export class PgStorage implements IStorage {
       .set({ ...updates, updated_at: now } as any)
       .where(eq(dbSchema.attendanceEntries.id, id));
     return this.getAttendanceEntry(id);
+  }
+
+  async deleteAttendanceEntry(id: string): Promise<boolean> {
+    await db.delete(dbSchema.attendanceEntries).where(eq(dbSchema.attendanceEntries.id, id));
+    return true;
   }
 
   async cleanupOldSelfieUrls(daysOld: number): Promise<number> {

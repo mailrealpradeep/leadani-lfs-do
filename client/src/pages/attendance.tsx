@@ -103,6 +103,11 @@ export default function Attendance() {
     enabled: isAdmin,
   });
 
+  const { data: todayAllEntries = [], isLoading: loadingTodayAll } = useQuery<AttendanceEntry[]>({
+    queryKey: ["/api/attendance/today/all"],
+    enabled: isAdmin,
+  });
+
   const entryMutation = useMutation({
     mutationFn: async (data: { location?: any; selfie_url?: string }) => {
       return await apiRequest("POST", "/api/attendance/entry", data);
@@ -250,6 +255,31 @@ export default function Attendance() {
       toast({
         variant: "destructive",
         title: "Failed to Delete Rule",
+        description: error.message,
+      });
+    },
+  });
+
+  const clearAttendanceMutation = useMutation({
+    mutationFn: async ({ entryId, action }: { entryId: string; action: "delete" | "clear_exit" }) => {
+      return await apiRequest("POST", `/api/attendance/${entryId}/clear`, { action });
+    },
+    onSuccess: (_, { action }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/today/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/pending-reviews"] });
+      toast({
+        title: action === "delete" ? "Entry Deleted" : "Exit Cleared",
+        description: action === "delete" 
+          ? "The attendance entry has been deleted." 
+          : "The exit time has been cleared. User can now record exit again.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to Clear Attendance",
         description: error.message,
       });
     },
@@ -504,6 +534,103 @@ export default function Attendance() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Today's Attendance
+                </CardTitle>
+                <CardDescription>View and manage today's attendance entries for all team members</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingTodayAll ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : todayAllEntries.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No attendance entries today</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {todayAllEntries.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="p-4 rounded-lg border bg-card"
+                        data-testid={`today-entry-${entry.id}`}
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <div className="font-medium">{entry.user_name}</div>
+                            <div className="text-sm text-muted-foreground">{entry.user_email}</div>
+                          </div>
+                          <Badge variant={entry.exit_time ? "default" : "secondary"}>
+                            {entry.exit_time ? "Completed" : "In Progress"}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm mb-3">
+                          <div className="flex items-center gap-1">
+                            <LogIn className="h-4 w-4 text-green-500" />
+                            Entry: {format(parseISO(entry.entry_time), "h:mm a")}
+                          </div>
+                          {entry.exit_time && (
+                            <div className="flex items-center gap-1">
+                              <LogOut className="h-4 w-4 text-blue-500" />
+                              Exit: {format(parseISO(entry.exit_time), "h:mm a")}
+                              {entry.exit_type === "forced" && (
+                                <Badge variant="secondary" className="ml-1">Force</Badge>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          {entry.exit_time && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => clearAttendanceMutation.mutate({ entryId: entry.id, action: "clear_exit" })}
+                              disabled={clearAttendanceMutation.isPending}
+                              data-testid={`button-clear-exit-${entry.id}`}
+                            >
+                              {clearAttendanceMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <X className="h-4 w-4 mr-1" />
+                                  Clear Exit
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to delete the entire attendance entry for ${entry.user_name}?`)) {
+                                clearAttendanceMutation.mutate({ entryId: entry.id, action: "delete" });
+                              }
+                            }}
+                            disabled={clearAttendanceMutation.isPending}
+                            data-testid={`button-delete-entry-${entry.id}`}
+                          >
+                            {clearAttendanceMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Delete Entry
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
                   <AlertTriangle className="h-5 w-5 text-amber-500" />
                   Force Exit Review Queue
                 </CardTitle>
@@ -617,6 +744,10 @@ export default function Attendance() {
                             {rule.rule_type === "min_leads" && `Minimum ${rule.config.min_count || 1} leads`}
                             {rule.rule_type === "min_hours" && `Minimum ${rule.config.min_hours || 8} hours`}
                             {rule.rule_type === "min_updates" && `Minimum ${rule.config.min_count || 1} updates`}
+                            {rule.rule_type === "nfdt_not_empty" && "All leads must have NFDT filled"}
+                            {rule.rule_type === "nfdt_not_past" && "No leads with past NFDT dates"}
+                            {rule.rule_type === "tomorrow_visits_updated" && "Tomorrow's visits must be updated today"}
+                            {rule.rule_type === "today_leads_updated" && "All leads received today must be updated"}
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -781,6 +912,10 @@ export default function Attendance() {
                   <SelectItem value="min_leads">Minimum Leads Added</SelectItem>
                   <SelectItem value="min_hours">Minimum Hours Worked</SelectItem>
                   <SelectItem value="min_updates">Minimum Lead Updates</SelectItem>
+                  <SelectItem value="nfdt_not_empty">NFDT Not Empty</SelectItem>
+                  <SelectItem value="nfdt_not_past">NFDT Not Past Date</SelectItem>
+                  <SelectItem value="tomorrow_visits_updated">Tomorrow Visits Updated</SelectItem>
+                  <SelectItem value="today_leads_updated">Today's Leads Updated</SelectItem>
                 </SelectContent>
               </Select>
             </div>

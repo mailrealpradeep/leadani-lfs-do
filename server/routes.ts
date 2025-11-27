@@ -6274,6 +6274,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (totalUpdatesToday < minCount) {
           blockingReasons.push(`Minimum ${minCount} lead updates required (you have ${totalUpdatesToday})`);
         }
+      } else if (rule.rule_type === "nfdt_not_empty") {
+        // Check if all user's leads have NFDT filled
+        // config.column_key specifies which column to check (defaults to detecting NFDT column)
+        const config = rule.config as { column_key?: string };
+        const sheets = await storage.getSheetsByUserId(userId);
+        
+        let leadsWithEmptyNFDT = 0;
+        for (const sheet of sheets) {
+          const columns = await storage.getCustomColumns(sheet.id);
+          // Find NFDT column - match patterns: nfdt, next_follow, followup_date
+          const nfdtColumn = config.column_key 
+            ? columns.find(c => c.column_key === config.column_key)
+            : columns.find(c => 
+                /nfdt|next_follow|followup_date/i.test(c.column_key) ||
+                /nfdt|next follow/i.test(c.name)
+              );
+          
+          if (nfdtColumn) {
+            const leads = await storage.getLeadsBySheetId(sheet.id);
+            const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
+            for (const lead of userLeads) {
+              const customFields = lead.custom_fields || {};
+              const nfdtValue = customFields[nfdtColumn.column_key];
+              if (!nfdtValue || nfdtValue === "") {
+                leadsWithEmptyNFDT++;
+              }
+            }
+          }
+        }
+        
+        if (leadsWithEmptyNFDT > 0) {
+          blockingReasons.push(`${leadsWithEmptyNFDT} lead(s) have empty NFDT (Next Follow-up Date)`);
+        }
+      } else if (rule.rule_type === "nfdt_not_past") {
+        // Check if all user's leads have NFDT not in the past
+        const config = rule.config as { column_key?: string };
+        const sheets = await storage.getSheetsByUserId(userId);
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        
+        let leadsWithPastNFDT = 0;
+        for (const sheet of sheets) {
+          const columns = await storage.getCustomColumns(sheet.id);
+          const nfdtColumn = config.column_key 
+            ? columns.find(c => c.column_key === config.column_key)
+            : columns.find(c => 
+                /nfdt|next_follow|followup_date/i.test(c.column_key) ||
+                /nfdt|next follow/i.test(c.name)
+              );
+          
+          if (nfdtColumn) {
+            const leads = await storage.getLeadsBySheetId(sheet.id);
+            const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
+            for (const lead of userLeads) {
+              const customFields = lead.custom_fields || {};
+              const nfdtValue = customFields[nfdtColumn.column_key];
+              if (nfdtValue) {
+                const nfdtDate = new Date(nfdtValue);
+                if (nfdtDate < now) {
+                  leadsWithPastNFDT++;
+                }
+              }
+            }
+          }
+        }
+        
+        if (leadsWithPastNFDT > 0) {
+          blockingReasons.push(`${leadsWithPastNFDT} lead(s) have past NFDT dates that need updating`);
+        }
+      } else if (rule.rule_type === "tomorrow_visits_updated") {
+        // Check if leads with tomorrow's visit/NFDT have been updated today
+        const config = rule.config as { column_key?: string };
+        const sheets = await storage.getSheetsByUserId(userId);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const dayAfterTomorrow = new Date(tomorrow);
+        dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+        
+        let tomorrowLeadsNotUpdated = 0;
+        for (const sheet of sheets) {
+          const columns = await storage.getCustomColumns(sheet.id);
+          const nfdtColumn = config.column_key 
+            ? columns.find(c => c.column_key === config.column_key)
+            : columns.find(c => 
+                /nfdt|next_follow|followup_date|visit/i.test(c.column_key) ||
+                /nfdt|next follow|visit/i.test(c.name)
+              );
+          
+          if (nfdtColumn) {
+            const leads = await storage.getLeadsBySheetId(sheet.id);
+            const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
+            for (const lead of userLeads) {
+              const customFields = lead.custom_fields || {};
+              const nfdtValue = customFields[nfdtColumn.column_key];
+              if (nfdtValue) {
+                const nfdtDate = new Date(nfdtValue);
+                // Check if NFDT is tomorrow
+                if (nfdtDate >= tomorrow && nfdtDate < dayAfterTomorrow) {
+                  // Check if lead was updated today
+                  const updates = await storage.getLeadUpdates(lead.id);
+                  const updatedToday = updates.some((u: any) => {
+                    const updatedAt = new Date(u.updated_at);
+                    return updatedAt >= today;
+                  });
+                  if (!updatedToday) {
+                    tomorrowLeadsNotUpdated++;
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        if (tomorrowLeadsNotUpdated > 0) {
+          blockingReasons.push(`${tomorrowLeadsNotUpdated} lead(s) scheduled for tomorrow need to be updated today`);
+        }
+      } else if (rule.rule_type === "today_leads_updated") {
+        // Check if all leads assigned/created today have been updated
+        const sheets = await storage.getSheetsByUserId(userId);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        let todayLeadsNotUpdated = 0;
+        for (const sheet of sheets) {
+          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
+          
+          for (const lead of userLeads) {
+            const createdAt = new Date(lead.created_at);
+            // Check if lead was created/assigned today
+            if (createdAt >= today) {
+              // Check if lead has any updates today
+              const updates = await storage.getLeadUpdates(lead.id);
+              const hasUpdateToday = updates.some((u: any) => {
+                const updatedAt = new Date(u.updated_at);
+                return updatedAt >= today;
+              });
+              if (!hasUpdateToday) {
+                todayLeadsNotUpdated++;
+              }
+            }
+          }
+        }
+        
+        if (todayLeadsNotUpdated > 0) {
+          blockingReasons.push(`${todayLeadsNotUpdated} lead(s) received today need to be updated before exit`);
+        }
       }
     }
     
@@ -6430,6 +6579,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin: Clear attendance entry or reset exit (admin only)
+  app.post("/api/attendance/:entryId/clear", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { entryId } = req.params;
+      const { action } = req.body; // "delete" = remove entire entry, "clear_exit" = just clear exit time
+      
+      const entry = await storage.getAttendanceEntry(entryId);
+      if (!entry) {
+        return res.status(404).json({ error: "Attendance entry not found" });
+      }
+      if (entry.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      if (action === "delete") {
+        // Delete the entire attendance entry
+        await storage.deleteAttendanceEntry(entryId);
+        
+        // Emit socket event
+        io.to(`company-${req.companyId}`).emit("attendance:cleared", {
+          entryId,
+          action: "delete",
+          clearedBy: req.userId,
+        });
+        
+        res.json({ success: true, message: "Attendance entry deleted" });
+      } else if (action === "clear_exit") {
+        // Just clear the exit time so user can exit again
+        const updated = await storage.updateAttendanceEntry(entryId, {
+          exit_time: null as any,
+          exit_type: null,
+          force_exit_reason: null,
+          force_exit_blocking_reasons: null,
+          review_status: null,
+          reviewed_by_user_id: null,
+          reviewed_at: null as any,
+          review_notes: null,
+        });
+        
+        // Emit socket event
+        io.to(`company-${req.companyId}`).emit("attendance:cleared", {
+          entryId,
+          action: "clear_exit",
+          clearedBy: req.userId,
+        });
+        
+        res.json(updated);
+      } else {
+        return res.status(400).json({ error: "Action must be 'delete' or 'clear_exit'" });
+      }
+    } catch (error: any) {
+      console.error("Clear attendance error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Admin: Get today's attendance for all company users
+  app.get("/api/attendance/today/all", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const entries = await storage.getAttendanceEntriesByCompanyId(req.companyId!, today, tomorrow);
+      
+      // Enrich with user names
+      const users = await storage.getUsersByCompanyId(req.companyId!);
+      const userMap = new Map(users.map(u => [u.id, u]));
+      
+      const enrichedEntries = entries.map(entry => ({
+        ...entry,
+        user_name: userMap.get(entry.user_id)?.name || "Unknown",
+        user_email: userMap.get(entry.user_id)?.email || "",
+      }));
+      
+      res.json(enrichedEntries);
+    } catch (error: any) {
+      console.error("Get today's company attendance error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // ATTENDANCE RULES (Admin only)
   // ============================================================================
@@ -6454,7 +6686,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Rule type and name are required" });
       }
       
-      const validTypes = ["min_leads", "min_hours", "min_updates"];
+      const validTypes = [
+        "min_leads",           // Minimum leads added today
+        "min_hours",           // Minimum hours worked
+        "min_updates",         // Minimum lead updates today
+        "nfdt_not_empty",      // All user's leads must have NFDT filled
+        "nfdt_not_past",       // All user's leads must have NFDT not in the past
+        "tomorrow_visits_updated", // Leads with tomorrow's visit date must be updated today
+        "today_leads_updated", // All leads assigned today must have an update today
+      ];
       if (!validTypes.includes(rule_type)) {
         return res.status(400).json({ error: "Invalid rule type" });
       }
