@@ -218,6 +218,11 @@ export function MultiSheetSelector({
                     <DropdownMenuItem
                       key={sheet.id}
                       onClick={() => handleSheetClick(sheet.id)}
+                      onSelect={(e) => {
+                        if (isMultiMode) {
+                          e.preventDefault();
+                        }
+                      }}
                       data-testid={`sheet-option-${sheet.id}`}
                     >
                       <div className="flex items-center justify-between w-full">
@@ -253,6 +258,11 @@ export function MultiSheetSelector({
                     <DropdownMenuItem
                       key={sheet.id}
                       onClick={() => handleSheetClick(sheet.id)}
+                      onSelect={(e) => {
+                        if (isMultiMode) {
+                          e.preventDefault();
+                        }
+                      }}
                       data-testid={`sheet-option-${sheet.id}`}
                     >
                       <div className="flex items-center justify-between w-full">
