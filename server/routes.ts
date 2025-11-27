@@ -2550,6 +2550,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update lead thought status (Sure/Maybe/Clear)
+  app.patch("/api/leads/:id/thought", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      // Get sheet to access company_id
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      // Check if user has access to the lead's sheet
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Check if user has edit permission (not just view)
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+        const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
+        if (sheetUser && sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Viewers cannot modify lead thoughts" });
+        }
+      }
+
+      // Validate thought value
+      const { thought } = req.body;
+      if (thought !== null && thought !== "sure" && thought !== "maybe") {
+        return res.status(400).json({ error: "Invalid thought value. Must be 'sure', 'maybe', or null" });
+      }
+
+      // Update lead meta with thought (null-safe spread)
+      const updatedMeta = { ...(lead.meta ?? {}), thought: thought || undefined };
+      if (!thought) {
+        delete updatedMeta.thought;
+      }
+      
+      const updated = await storage.updateLead(req.params.id, { meta: updatedMeta });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: sheet.company_id,
+        action: "update",
+        model: "lead",
+        model_id: req.params.id,
+        payload: { thought },
+      });
+
+      // Realtime update
+      const io = app.get("io") as SocketIOServer;
+      io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", updated);
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update lead thought error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.delete("/api/leads/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const lead = await storage.getLead(req.params.id);

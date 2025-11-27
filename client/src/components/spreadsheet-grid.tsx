@@ -29,6 +29,9 @@ import {
   MessageCircle,
   Clock,
   Loader2,
+  Star,
+  HelpCircle,
+  XCircle,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -49,6 +52,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   Select,
   SelectContent,
@@ -368,6 +378,27 @@ export function SpreadsheetGrid({
       toast({
         title: "Transfer failed",
         description: error.message || "Failed to transfer leads",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Lead thought mutation - for marking leads as "sure" or "maybe"
+  const updateLeadThoughtMutation = useMutation({
+    mutationFn: async ({ leadId, thought }: { leadId: string; thought: "sure" | "maybe" | null }) => {
+      return await apiRequest("PATCH", `/api/leads/${leadId}/thought`, { thought });
+    },
+    onSuccess: () => {
+      if (isMultiMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update lead thought",
         variant: "destructive",
       });
     },
@@ -1395,13 +1426,21 @@ export function SpreadsheetGrid({
                       )}
                     </div>
                   ) : (
-                    filteredAndSortedLeads.map((lead) => (
+                    filteredAndSortedLeads.map((lead) => {
+                      const mobileLeadThought = lead.meta?.thought as "sure" | "maybe" | undefined;
+                      const mobileThoughtClass = mobileLeadThought === "sure" 
+                        ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800" 
+                        : mobileLeadThought === "maybe" 
+                        ? "bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800" 
+                        : "bg-card";
+                      
+                      return (
                       <div
                         key={lead.id}
                         className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${
                           invalidLeadIds.has(lead.id) 
                             ? "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800" 
-                            : "bg-card"
+                            : mobileThoughtClass
                         }`}
                         data-testid={`card-lead-${lead.id}`}
                         onClick={() => onOpenLeadDetail(lead.id)}
@@ -1411,15 +1450,23 @@ export function SpreadsheetGrid({
                         }
                       >
                         <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex-1 min-w-0">
-                            {titleColumns.map((col) => {
-                              const value = getLeadValue(lead, col.key);
-                              return value ? (
-                                <p key={col.key} className="text-sm truncate">
-                                  <span className="font-medium">{value}</span>
-                                </p>
-                              ) : null;
-                            })}
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            {mobileLeadThought === "sure" && (
+                              <Star className="h-5 w-5 text-emerald-500 fill-emerald-500 flex-shrink-0" />
+                            )}
+                            {mobileLeadThought === "maybe" && (
+                              <HelpCircle className="h-5 w-5 text-amber-500 flex-shrink-0" />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              {titleColumns.map((col) => {
+                                const value = getLeadValue(lead, col.key);
+                                return value ? (
+                                  <p key={col.key} className="text-sm truncate">
+                                    <span className="font-medium">{value}</span>
+                                  </p>
+                                ) : null;
+                              })}
+                            </div>
                           </div>
                         </div>
                         
@@ -1527,7 +1574,8 @@ export function SpreadsheetGrid({
                           </div>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -1687,39 +1735,54 @@ export function SpreadsheetGrid({
                   No leads found. {categoryFilter !== "all" ? `Try changing the filter.` : `Add your first lead to get started.`}
                 </div>
               ) : (
-                filteredAndSortedLeads.map((lead) => (
-                  <div
-                    key={lead.id}
-                    className={`hover-elevate grid border-b ${
-                      invalidLeadIds.has(lead.id) 
-                        ? "bg-red-50 dark:bg-red-950/20" 
-                        : ""
-                    }`}
-                    style={{ 
-                      gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
-                    }}
-                    data-testid={`row-lead-${lead.id}`}
-                    title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
-                      ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
-                      : undefined
-                    }
-                  >
-                    {/* Checkbox Cell */}
-                    <div className="border-r px-3 py-2 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={selectedRows.has(lead.id)}
-                        onCheckedChange={(checked) => {
-                          const newSelected = new Set(selectedRows);
-                          if (checked) {
-                            newSelected.add(lead.id);
-                          } else {
-                            newSelected.delete(lead.id);
+                filteredAndSortedLeads.map((lead) => {
+                  const leadThought = lead.meta?.thought as "sure" | "maybe" | undefined;
+                  const thoughtRowClass = leadThought === "sure" 
+                    ? "bg-emerald-50 dark:bg-emerald-950/20" 
+                    : leadThought === "maybe" 
+                    ? "bg-amber-50 dark:bg-amber-950/20" 
+                    : "";
+                  
+                  return (
+                    <ContextMenu key={lead.id}>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          className={`hover-elevate grid border-b ${
+                            invalidLeadIds.has(lead.id) 
+                              ? "bg-red-50 dark:bg-red-950/20" 
+                              : thoughtRowClass
+                          }`}
+                          style={{ 
+                            gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
+                          }}
+                          data-testid={`row-lead-${lead.id}`}
+                          title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                            ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
+                            : undefined
                           }
-                          setSelectedRows(newSelected);
-                        }}
-                        data-testid={`checkbox-select-${lead.id}`}
-                      />
-                    </div>
+                        >
+                          {/* Checkbox Cell with Thought Icon */}
+                          <div className="border-r px-2 py-2 flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            {leadThought === "sure" && (
+                              <Star className="h-4 w-4 text-emerald-500 fill-emerald-500" />
+                            )}
+                            {leadThought === "maybe" && (
+                              <HelpCircle className="h-4 w-4 text-amber-500" />
+                            )}
+                            <Checkbox
+                              checked={selectedRows.has(lead.id)}
+                              onCheckedChange={(checked) => {
+                                const newSelected = new Set(selectedRows);
+                                if (checked) {
+                                  newSelected.add(lead.id);
+                                } else {
+                                  newSelected.delete(lead.id);
+                                }
+                                setSelectedRows(newSelected);
+                              }}
+                              data-testid={`checkbox-select-${lead.id}`}
+                            />
+                          </div>
                     
                     {/* Data Cells */}
                     {visibleColumns.map((col) => {
@@ -1942,8 +2005,39 @@ export function SpreadsheetGrid({
                       </div>
                     </div>
                   </div>
-                ))
-              )}
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    onClick={() => updateLeadThoughtMutation.mutate({ leadId: lead.id, thought: "sure" })}
+                    data-testid={`context-mark-sure-${lead.id}`}
+                  >
+                    <Star className="h-4 w-4 mr-2 text-emerald-500" />
+                    Mark as Sure
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onClick={() => updateLeadThoughtMutation.mutate({ leadId: lead.id, thought: "maybe" })}
+                    data-testid={`context-mark-maybe-${lead.id}`}
+                  >
+                    <HelpCircle className="h-4 w-4 mr-2 text-amber-500" />
+                    Mark as May Be
+                  </ContextMenuItem>
+                  {leadThought && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        onClick={() => updateLeadThoughtMutation.mutate({ leadId: lead.id, thought: null })}
+                        data-testid={`context-clear-thought-${lead.id}`}
+                      >
+                        <XCircle className="h-4 w-4 mr-2 text-muted-foreground" />
+                        Clear Thought
+                      </ContextMenuItem>
+                    </>
+                  )}
+                </ContextMenuContent>
+              </ContextMenu>
+              );
+            })
+          )}
             </div>
           </div>
           
