@@ -96,13 +96,16 @@ Socket.io facilitates real-time synchronization by allowing clients to subscribe
     - UI shows "Required" badge and hides delete button for system columns
     - New companies get these columns with is_system_column: true in config
 *   **Multi-Sheet Selection with Pagination**: Admin-only feature for viewing combined leads from multiple sheets
-    - MultiSheetSelector component in sidebar provides checkbox dropdown for selecting multiple sheets
-    - MultiSheetGrid component displays combined leads with "Sheet" column showing source sheet name
-    - Server-side pagination via POST /api/leads/query endpoint with sheetIds, page, limit, sortBy, sortOrder, and filters
-    - Pagination component with page navigation and page size selector (25/50/100 rows)
-    - DashboardContext manages isMultiSheetMode, selectedSheetIds, and pagination state
+    - MultiSheetSelector component in sidebar provides drawer with checkboxes for selecting multiple sheets
+    - Unified SpreadsheetGrid component handles both single-sheet and multi-sheet modes
+    - Multi-sheet mode adds "Sheet" column as first column with badge styling
+    - Server-side pagination via POST /api/leads/query endpoint with sheetIds, page, limit, sortBy, sortOrder
+    - Multi-sheet mode supports global search but disables column filters and per-column sorting (backend limitation)
+    - Fixed sort order: newest leads first (created_at desc)
+    - Pagination controls at bottom: page navigation (First/Prev/Next/Last) and page size selector (25/50/100 rows)
+    - DashboardContext manages isMultiSheetMode, selectedSheetIds, pagination state
     - AddLeadDialog shows sheet selector dropdown when in multi-sheet mode
-    - Storage layer getLeadsBySheetIds handles pagination, sorting, and filtering across multiple sheets
+    - Storage layer getLeadsBySheetIds handles pagination and search across multiple sheets
     - Designed for large datasets (10k-100k leads) with efficient server-side processing
 
 ## External Dependencies

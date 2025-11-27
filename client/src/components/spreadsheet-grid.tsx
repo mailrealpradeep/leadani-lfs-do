@@ -28,6 +28,7 @@ import {
   Zap,
   MessageCircle,
   Clock,
+  Loader2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -87,16 +88,28 @@ import { MobileFilterSheet } from "./mobile-filter-sheet";
 import { DateRangeFilter, type DateFilterValue } from "./filters/date-range-filter";
 import { DropdownFilter } from "./filters/dropdown-filter";
 import { validateLeadAgainstRules } from "@shared/validator";
+import { Pagination } from "./pagination";
 
 interface SpreadsheetGridProps {
-  sheetId: string;
+  sheetId?: string;
+  sheetIds?: string[];
   onOpenLeadDetail: (leadId: string) => void;
   onOpenDropdownManager: (columnKey: string) => void;
   onScroll?: (scrollTop: number, scrollingDown: boolean) => void;
 }
 
+interface PaginatedLeadsResponse {
+  leads: Lead[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  sheetNames: Record<string, string>;
+}
+
 export function SpreadsheetGrid({
   sheetId,
+  sheetIds,
   onOpenLeadDetail,
   onOpenDropdownManager,
   onScroll,
@@ -108,7 +121,15 @@ export function SpreadsheetGrid({
     categoryFilter,
     setActiveQuickFilter,
     setQuickFilterHandlers,
+    isMultiSheetMode,
+    selectedSheetIds,
+    pagination,
+    setPagination,
   } = useDashboard();
+  
+  const isMultiMode = isMultiSheetMode && selectedSheetIds.length > 0;
+  const activeSheetId = sheetId || "";
+  const activeSheetIds = isMultiMode ? selectedSheetIds : [];
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [sortColumn, setSortColumn] = useState<string | null>(null);
@@ -137,23 +158,81 @@ export function SpreadsheetGrid({
   const resizeStartWidth = useRef<number>(0);
   const hasMovedRef = useRef<boolean>(false);
 
-  const { data: leads = [], isLoading: isLoadingLeads } = useQuery<Lead[]>({
-    queryKey: ["/api/sheets", sheetId, "leads"],
-    enabled: !!sheetId,
+  // Single-sheet mode data fetching
+  const { data: singleSheetLeads = [], isLoading: isLoadingSingleLeads } = useQuery<Lead[]>({
+    queryKey: ["/api/sheets", activeSheetId, "leads"],
+    enabled: !!activeSheetId && !isMultiMode,
   });
 
-  const { data: customColumns = [], isLoading: isLoadingColumns } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/sheets", sheetId, "columns"],
-    enabled: !!sheetId,
+  const { data: singleSheetColumns = [], isLoading: isLoadingSingleColumns } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/sheets", activeSheetId, "columns"],
+    enabled: !!activeSheetId && !isMultiMode,
   });
+
+  // Multi-sheet mode data fetching
+  // Note: Backend supports pagination and search, but not column filters or per-column sorting
+  const { 
+    data: multiSheetData, 
+    isLoading: isLoadingMultiLeads,
+    isFetching: isFetchingMultiLeads,
+  } = useQuery<PaginatedLeadsResponse>({
+    queryKey: ["/api/leads/query", activeSheetIds, pagination.page, pagination.limit, searchQuery],
+    queryFn: async () => {
+      const response = await apiRequest<PaginatedLeadsResponse>("POST", "/api/leads/query", {
+        sheetIds: activeSheetIds,
+        page: pagination.page,
+        limit: pagination.limit,
+        sortBy: "created_at",
+        sortOrder: "desc",
+        ...(searchQuery ? { search: searchQuery } : {}),
+      });
+      return response;
+    },
+    enabled: isMultiMode && activeSheetIds.length > 0,
+  });
+
+  // Company-level columns for multi-sheet mode
+  const { data: companyColumns = [], isLoading: isLoadingCompanyColumns } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/company/columns"],
+    enabled: isMultiMode,
+  });
+
+  // Update pagination state when multi-sheet data changes
+  useEffect(() => {
+    if (multiSheetData && isMultiMode) {
+      setPagination({
+        page: multiSheetData.page,
+        limit: multiSheetData.limit,
+        total: multiSheetData.total,
+        totalPages: multiSheetData.totalPages,
+      });
+    }
+  }, [multiSheetData, isMultiMode, setPagination]);
+
+  // Reset to page 1 when sheet selection or search changes in multi-mode
+  useEffect(() => {
+    if (isMultiMode) {
+      setPagination({
+        page: 1,
+        limit: pagination.limit,
+        total: pagination.total,
+        totalPages: pagination.totalPages,
+      });
+    }
+  }, [activeSheetIds.length, searchQuery, isMultiMode]);
+
+  // Unified data access
+  const leads = isMultiMode ? (multiSheetData?.leads || []) : singleSheetLeads;
+  const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
+  const sheetNamesMap = multiSheetData?.sheetNames || {};
 
   const { data: allSheets = [] } = useQuery<any[]>({
     queryKey: ["/api/sheets"],
   });
 
   const { data: validationRules = [] } = useQuery<ValidationRule[]>({
-    queryKey: ["/api/sheets", sheetId, "validation-rules"],
-    enabled: !!sheetId,
+    queryKey: ["/api/sheets", activeSheetId, "validation-rules"],
+    enabled: !!activeSheetId && !isMultiMode,
   });
 
   // Load company settings (for mobile card columns)
@@ -162,19 +241,19 @@ export function SpreadsheetGrid({
     enabled: isMobile,
   });
 
-  // Load column width preferences
+  // Load column width preferences (only in single-sheet mode)
   const { data: columnPreferences = {} } = useQuery<Record<string, number>>({
-    queryKey: ["/api/sheets", sheetId, "column-preferences"],
-    enabled: !!sheetId,
+    queryKey: ["/api/sheets", activeSheetId, "column-preferences"],
+    enabled: !!activeSheetId && !isMultiMode,
   });
 
-  // Save column width preferences mutation
+  // Save column width preferences mutation (only in single-sheet mode)
   const saveColumnPreferencesMutation = useMutation({
     mutationFn: async (preferences: Record<string, number>) => {
-      return await apiRequest("POST", `/api/sheets/${sheetId}/column-preferences`, { preferences });
+      return await apiRequest("POST", `/api/sheets/${activeSheetId}/column-preferences`, { preferences });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "column-preferences"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "column-preferences"] });
     },
     onError: (error: any) => {
       console.error("Failed to save column preferences:", error);
@@ -186,14 +265,20 @@ export function SpreadsheetGrid({
     },
   });
 
-  const isLoading = isLoadingLeads || isLoadingColumns;
+  const isLoading = isMultiMode 
+    ? (isLoadingMultiLeads || isLoadingCompanyColumns)
+    : (isLoadingSingleLeads || isLoadingSingleColumns);
 
   const updateLeadMutation = useMutation({
     mutationFn: async ({ leadId, customFields }: { leadId: string; customFields: Record<string, any> }) => {
       return await apiRequest("PATCH", `/api/leads/${leadId}`, { custom_fields: customFields });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      if (isMultiMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+      }
     },
   });
 
@@ -202,7 +287,11 @@ export function SpreadsheetGrid({
       await Promise.all(leadIds.map((id) => apiRequest("DELETE", `/api/leads/${id}`, {})));
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      if (isMultiMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+      }
       setSelectedRows(new Set());
       toast({
         title: "Leads deleted",
@@ -217,7 +306,11 @@ export function SpreadsheetGrid({
     },
     onSuccess: (data: any, variables) => {
       // Invalidate both source and target sheets
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      if (isMultiMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", variables.targetSheetId, "leads"] });
       setSelectedRows(new Set());
       setTransferDialogOpen(false);
@@ -307,14 +400,18 @@ export function SpreadsheetGrid({
 
   // Load hidden columns for current sheet and reset column filters on sheet change  
   useEffect(() => {
-    const stored = localStorage.getItem(`hiddenColumns_${sheetId}`);
-    setHiddenColumns(stored ? new Set(JSON.parse(stored)) : new Set());
+    if (!isMultiMode && activeSheetId) {
+      const stored = localStorage.getItem(`hiddenColumns_${activeSheetId}`);
+      setHiddenColumns(stored ? new Set(JSON.parse(stored)) : new Set());
+    } else {
+      setHiddenColumns(new Set()); // No hidden columns in multi-mode
+    }
     
     // Reset filters when switching sheets
     setColumnFilters({});
     setSortColumn(null);
     setSortDirection("asc");
-  }, [sheetId]);
+  }, [activeSheetId, isMultiMode]);
 
   // Reset view-specific state when switching between mobile and desktop
   const prevIsMobileRef = useRef<boolean | null>(null);
@@ -464,8 +561,11 @@ export function SpreadsheetGrid({
     }
   };
 
-  // Get value from lead's custom_fields
+  // Get value from lead's custom_fields (or sheet name for multi-mode)
   const getLeadValue = (lead: Lead, columnKey: string) => {
+    if (columnKey === "__sheet_name__") {
+      return sheetNamesMap[lead.sheet_id] || "Unknown";
+    }
     return lead.custom_fields[columnKey];
   };
 
@@ -554,7 +654,7 @@ export function SpreadsheetGrid({
   };
 
   // Convert CustomColumn to display columns (must be before filteredAndSortedLeads)
-  const columns = customColumns
+  const baseColumns = customColumns
     .sort((a, b) => a.order_index - b.order_index)
     .map((col) => ({
       key: col.column_key,
@@ -565,6 +665,22 @@ export function SpreadsheetGrid({
       type: col.type,
       config: col.config,
     }));
+
+  // Add Sheet column as first column in multi-mode
+  const columns = isMultiMode
+    ? [
+        {
+          key: "__sheet_name__",
+          label: "Sheet",
+          width: "140px",
+          sortable: true,
+          dropdown: false,
+          type: "text" as const,
+          config: {},
+        },
+        ...baseColumns,
+      ]
+    : baseColumns;
 
   // Set default sort to Lead Date (new to old) on first load
   useEffect(() => {
@@ -582,101 +698,104 @@ export function SpreadsheetGrid({
     }
   }, [customColumns, sortColumn]);
 
-  const filteredAndSortedLeads = leads
-    .filter((lead) => {
-      // Search query filter - search across all custom fields
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchesSearch = Object.values(lead.custom_fields).some(value => 
-          String(value || "").toLowerCase().includes(query)
-        );
-        if (!matchesSearch) return false;
-      }
-      
-      // Column filters
-      for (const [columnKey, filterValue] of Object.entries(columnFilters)) {
-        if (!filterValue) continue;
-        
-        const cellValue = getLeadValue(lead, columnKey);
-        const column = columns.find(c => c.key === columnKey);
-        
-        // Date range filter
-        if (typeof filterValue === "object" && "type" in filterValue && filterValue.from && filterValue.to) {
-          if (!cellValue) return false;
+  // In multi-mode, server handles filtering/sorting; in single-mode, do it client-side
+  const filteredAndSortedLeads = isMultiMode
+    ? leads // Server already filtered and sorted
+    : leads
+        .filter((lead) => {
+          // Search query filter - search across all custom fields
+          if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            const matchesSearch = Object.values(lead.custom_fields).some(value => 
+              String(value || "").toLowerCase().includes(query)
+            );
+            if (!matchesSearch) return false;
+          }
           
-          try {
-            // Parse the cell value as a date (supports dd/MM/yyyy, ISO strings, etc.)
-            let cellDate: Date;
-            if (typeof cellValue === "string") {
-              // Try to parse as dd/MM/yyyy first
-              const parts = cellValue.split("/");
-              if (parts.length === 3) {
-                const [day, month, year] = parts;
-                cellDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-              } else {
-                cellDate = parseISO(cellValue);
-              }
-            } else {
-              cellDate = new Date(cellValue);
-            }
+          // Column filters
+          for (const [columnKey, filterValue] of Object.entries(columnFilters)) {
+            if (!filterValue) continue;
             
-            if (!isWithinInterval(cellDate, { start: filterValue.from, end: filterValue.to })) {
-              return false;
+            const cellValue = getLeadValue(lead, columnKey);
+            const column = columns.find(c => c.key === columnKey);
+            
+            // Date range filter
+            if (typeof filterValue === "object" && "type" in filterValue && filterValue.from && filterValue.to) {
+              if (!cellValue) return false;
+              
+              try {
+                // Parse the cell value as a date (supports dd/MM/yyyy, ISO strings, etc.)
+                let cellDate: Date;
+                if (typeof cellValue === "string") {
+                  // Try to parse as dd/MM/yyyy first
+                  const parts = cellValue.split("/");
+                  if (parts.length === 3) {
+                    const [day, month, year] = parts;
+                    cellDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                  } else {
+                    cellDate = parseISO(cellValue);
+                  }
+                } else {
+                  cellDate = new Date(cellValue);
+                }
+                
+                if (!isWithinInterval(cellDate, { start: filterValue.from, end: filterValue.to })) {
+                  return false;
+                }
+              } catch (e) {
+                return false;
+              }
             }
-          } catch (e) {
-            return false;
+            // Dropdown filter (string) - exact match
+            else if (typeof filterValue === "string" && column?.type === "dropdown") {
+              const cellValueStr = String(cellValue || "");
+              if (cellValueStr !== filterValue) {
+                return false;
+              }
+            }
+            // Text filter (string) - substring match
+            else if (typeof filterValue === "string") {
+              const cellValueStr = String(cellValue || "").toLowerCase();
+              const filter = filterValue.toLowerCase();
+              if (!cellValueStr.includes(filter)) {
+                return false;
+              }
+            }
           }
-        }
-        // Dropdown filter (string) - exact match
-        else if (typeof filterValue === "string" && column?.type === "dropdown") {
-          const cellValueStr = String(cellValue || "");
-          if (cellValueStr !== filterValue) {
-            return false;
+          
+          return true;
+        })
+        .sort((a, b) => {
+          if (!sortColumn) return 0;
+          const aVal = getLeadValue(a, sortColumn);
+          const bVal = getLeadValue(b, sortColumn);
+          
+          // Get the column to check its type
+          const column = customColumns.find(col => col.column_key === sortColumn);
+          const columnType = column?.type;
+          
+          // Handle numeric types (number and percentage)
+          if (columnType === "number" || columnType === "percentage") {
+            const aNum = aVal != null && aVal !== "" ? parseFloat(String(aVal)) : -Infinity;
+            const bNum = bVal != null && bVal !== "" ? parseFloat(String(bVal)) : -Infinity;
+            const comparison = aNum > bNum ? 1 : aNum < bNum ? -1 : 0;
+            return sortDirection === "asc" ? comparison : -comparison;
           }
-        }
-        // Text filter (string) - substring match
-        else if (typeof filterValue === "string") {
-          const cellValueStr = String(cellValue || "").toLowerCase();
-          const filter = filterValue.toLowerCase();
-          if (!cellValueStr.includes(filter)) {
-            return false;
+          
+          // Handle date types
+          if (columnType === "date") {
+            const aDate = aVal ? new Date(aVal).getTime() : -Infinity;
+            const bDate = bVal ? new Date(bVal).getTime() : -Infinity;
+            const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
+            return sortDirection === "asc" ? comparison : -comparison;
           }
-        }
-      }
-      
-      return true;
-    })
-    .sort((a, b) => {
-      if (!sortColumn) return 0;
-      const aVal = getLeadValue(a, sortColumn);
-      const bVal = getLeadValue(b, sortColumn);
-      
-      // Get the column to check its type
-      const column = customColumns.find(col => col.column_key === sortColumn);
-      const columnType = column?.type;
-      
-      // Handle numeric types (number and percentage)
-      if (columnType === "number" || columnType === "percentage") {
-        const aNum = aVal != null && aVal !== "" ? parseFloat(String(aVal)) : -Infinity;
-        const bNum = bVal != null && bVal !== "" ? parseFloat(String(bVal)) : -Infinity;
-        const comparison = aNum > bNum ? 1 : aNum < bNum ? -1 : 0;
-        return sortDirection === "asc" ? comparison : -comparison;
-      }
-      
-      // Handle date types
-      if (columnType === "date") {
-        const aDate = aVal ? new Date(aVal).getTime() : -Infinity;
-        const bDate = bVal ? new Date(bVal).getTime() : -Infinity;
-        const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
-        return sortDirection === "asc" ? comparison : -comparison;
-      }
-      
-      // Handle other types as strings
-      const aStr = String(aVal || "");
-      const bStr = String(bVal || "");
-      const comparison = aStr > bStr ? 1 : aStr < bStr ? -1 : 0;
-      return sortDirection === "asc" ? comparison : -comparison;
-    });
+          
+          // Handle other types as strings
+          const aStr = String(aVal || "");
+          const bStr = String(bVal || "");
+          const comparison = aStr > bStr ? 1 : aStr < bStr ? -1 : 0;
+          return sortDirection === "asc" ? comparison : -comparison;
+        });
 
   const visibleColumns = columns.filter((col) => !hiddenColumns.has(col.key));
 
@@ -689,6 +808,22 @@ export function SpreadsheetGrid({
     }, 0);
     return checkboxWidth + columnsWidth + actionsWidth;
   };
+
+  // Pagination handlers for multi-sheet mode
+  const handlePageChange = useCallback((newPage: number) => {
+    setPagination({
+      ...pagination,
+      page: newPage,
+    });
+  }, [pagination, setPagination]);
+
+  const handleLimitChange = useCallback((newLimit: number) => {
+    setPagination({
+      ...pagination,
+      page: 1,
+      limit: newLimit,
+    });
+  }, [pagination, setPagination]);
 
   const toggleColumnVisibility = (columnKey: string) => {
     setHiddenColumns((prev) => {
@@ -983,7 +1118,7 @@ export function SpreadsheetGrid({
       {selectedLeadForEdit && (
         <LeadEditDialog
           leadId={selectedLeadForEdit}
-          sheetId={sheetId}
+          sheetId={leads.find(l => l.id === selectedLeadForEdit)?.sheet_id || activeSheetId}
           open={editDialogOpen}
           onOpenChange={(open) => {
             setEditDialogOpen(open);
@@ -1327,9 +1462,25 @@ export function SpreadsheetGrid({
         })()
       ) : (
         /* Desktop Grid View with Sticky Header */
-        <div className="border rounded-lg h-full flex flex-col">
-          {/* Horizontal and Vertical Scroll Container */}
-          <div className="overflow-x-auto overflow-y-auto flex-1" ref={containerRef}>
+        <div className="flex flex-col h-full">
+          {/* Multi-sheet mode header */}
+          {isMultiMode && (
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm text-muted-foreground">
+                {pagination.total.toLocaleString()} leads from {activeSheetIds.length} sheets
+              </div>
+              {isFetchingMultiLeads && (
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Updating...
+                </div>
+              )}
+            </div>
+          )}
+          
+          <div className="border rounded-lg flex-1 flex flex-col overflow-hidden">
+            {/* Horizontal and Vertical Scroll Container */}
+            <div className="overflow-x-auto overflow-y-auto flex-1" ref={containerRef}>
             <div style={{ minWidth: `${calculateTableWidth()}px` }}>
               {/* Sticky Header */}
               <div 
@@ -1371,7 +1522,8 @@ export function SpreadsheetGrid({
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
                         <span>{col.label}</span>
-                        {col.sortable && (
+                        {/* Sort button - only in single-sheet mode */}
+                        {col.sortable && !isMultiMode && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1391,61 +1543,64 @@ export function SpreadsheetGrid({
                           </Button>
                         )}
                       </div>
-                      <div className="relative">
-                        {col.type === "date" ? (
-                          <DateRangeFilter
-                            value={columnFilters[col.key] as DateFilterValue}
-                            onChange={(value) =>
-                              setColumnFilters((prev) => ({
-                                ...prev,
-                                [col.key]: value,
-                              }))
-                            }
-                          />
-                        ) : col.type === "dropdown" ? (
-                          <DropdownFilter
-                            value={columnFilters[col.key] as string | null}
-                            onChange={(value) =>
-                              setColumnFilters((prev) => ({
-                                ...prev,
-                                [col.key]: value,
-                              }))
-                            }
-                            options={getDropdownOptionsForColumn(col.key)}
-                          />
-                        ) : (
-                          <>
-                            <Input
-                              placeholder="Filter..."
-                              value={(columnFilters[col.key] as string) || ""}
-                              onChange={(e) =>
+                      {/* Column filters - only in single-sheet mode (multi-mode uses server-side pagination) */}
+                      {!isMultiMode && (
+                        <div className="relative">
+                          {col.type === "date" ? (
+                            <DateRangeFilter
+                              value={columnFilters[col.key] as DateFilterValue}
+                              onChange={(value) =>
                                 setColumnFilters((prev) => ({
                                   ...prev,
-                                  [col.key]: e.target.value,
+                                  [col.key]: value,
                                 }))
                               }
-                              className="h-7 text-xs"
-                              data-testid={`input-filter-${col.key}`}
                             />
-                            {columnFilters[col.key] && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                                onClick={() =>
-                                  setColumnFilters((prev) => {
-                                    const next = { ...prev };
-                                    delete next[col.key];
-                                    return next;
-                                  })
+                          ) : col.type === "dropdown" ? (
+                            <DropdownFilter
+                              value={columnFilters[col.key] as string | null}
+                              onChange={(value) =>
+                                setColumnFilters((prev) => ({
+                                  ...prev,
+                                  [col.key]: value,
+                                }))
+                              }
+                              options={getDropdownOptionsForColumn(col.key)}
+                            />
+                          ) : (
+                            <>
+                              <Input
+                                placeholder="Filter..."
+                                value={(columnFilters[col.key] as string) || ""}
+                                onChange={(e) =>
+                                  setColumnFilters((prev) => ({
+                                    ...prev,
+                                    [col.key]: e.target.value,
+                                  }))
                                 }
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            )}
-                          </>
-                        )}
-                      </div>
+                                className="h-7 text-xs"
+                                data-testid={`input-filter-${col.key}`}
+                              />
+                              {columnFilters[col.key] && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
+                                  onClick={() =>
+                                    setColumnFilters((prev) => {
+                                      const next = { ...prev };
+                                      delete next[col.key];
+                                      return next;
+                                    })
+                                  }
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1719,6 +1874,70 @@ export function SpreadsheetGrid({
               )}
             </div>
           </div>
+          
+          {/* Pagination for multi-sheet mode */}
+          {isMultiMode && pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between border-t bg-background px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Rows per page:</span>
+                <select
+                  className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                  value={pagination.limit}
+                  onChange={(e) => handleLimitChange(Number(e.target.value))}
+                  data-testid="select-page-size"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+              
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-muted-foreground">
+                  Page {pagination.page} of {pagination.totalPages}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(1)}
+                    disabled={pagination.page === 1}
+                    data-testid="button-first-page"
+                  >
+                    First
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(pagination.page - 1)}
+                    disabled={pagination.page === 1}
+                    data-testid="button-prev-page"
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(pagination.page + 1)}
+                    disabled={pagination.page === pagination.totalPages}
+                    data-testid="button-next-page"
+                  >
+                    Next
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(pagination.totalPages)}
+                    disabled={pagination.page === pagination.totalPages}
+                    data-testid="button-last-page"
+                  >
+                    Last
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         </div>
       )}
 
