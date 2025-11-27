@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -46,11 +46,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Redirect, useLocation } from "wouter";
 
 interface SuperAdminStats {
@@ -96,6 +91,11 @@ export default function SuperAdmin() {
   const [selectedUser, setSelectedUser] = useState<UserWithCompany | null>(null);
   const [isImpersonateDialogOpen, setIsImpersonateDialogOpen] = useState(false);
   const [isToggleStatusDialogOpen, setIsToggleStatusDialogOpen] = useState(false);
+
+  // Reset expanded companies when search query changes to avoid stale view state
+  useEffect(() => {
+    setExpandedCompanies(new Set());
+  }, [searchQuery]);
 
   // Check if user is authorized - must be done before hooks but after auth check
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
@@ -261,38 +261,38 @@ export default function SuperAdmin() {
 
   const UserRow = ({ u, showCompany = false }: { u: UserWithCompany; showCompany?: boolean }) => (
     <div 
-      className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover-elevate transition-colors"
+      className="flex items-center justify-between p-3 rounded-lg bg-muted/40 hover:bg-muted/60 transition-colors border border-transparent hover:border-border"
       data-testid={`row-user-${u.id}`}
     >
-      <div className="flex items-center gap-3">
-        <Avatar className="h-8 w-8">
-          <AvatarFallback className="text-xs">
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        <Avatar className="h-9 w-9 flex-shrink-0">
+          <AvatarFallback className="text-xs bg-primary/10 text-primary font-medium">
             {u.name?.substring(0, 2).toUpperCase() || "??"}
           </AvatarFallback>
         </Avatar>
-        <div>
-          <p className="font-medium text-sm">{u.name}</p>
-          <p className="text-xs text-muted-foreground">{u.email}</p>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-sm truncate">{u.name}</p>
+          <p className="text-xs text-muted-foreground truncate">{u.email}</p>
           {showCompany && u.company_name && (
-            <p className="text-xs text-muted-foreground">{u.company_name}</p>
+            <p className="text-xs text-muted-foreground truncate">{u.company_name}</p>
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <Badge variant="outline" className="text-xs">
-          {u.role === "super_admin" ? "Super Admin" : 
-           u.role === "company_admin" ? "Admin" : "User"}
-        </Badge>
-        <Badge variant={u.is_active ? "default" : "secondary"} className="text-xs">
-          {u.is_active ? "Active" : "Inactive"}
-        </Badge>
-        <div className="flex gap-1 ml-2">
+      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        <div className="hidden sm:flex items-center gap-1.5">
+          <Badge variant="outline" className="text-xs">
+            {u.role === "super_admin" ? "Super Admin" : 
+             u.role === "company_admin" ? "Admin" : "User"}
+          </Badge>
+          <Badge variant={u.is_active ? "default" : "secondary"} className="text-xs">
+            {u.is_active ? "Active" : "Inactive"}
+          </Badge>
+        </div>
+        <div className="flex gap-1">
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={() => {
               setSelectedUser(u);
               setIsToggleStatusDialogOpen(true);
             }}
@@ -300,24 +300,20 @@ export default function SuperAdmin() {
             data-testid={`button-toggle-user-${u.id}`}
           >
             {u.is_active ? (
-              <UserX className="h-3.5 w-3.5" />
+              <UserX className="h-4 w-4" />
             ) : (
-              <UserCheck className="h-3.5 w-3.5" />
+              <UserCheck className="h-4 w-4" />
             )}
           </Button>
           {u.email !== SUPER_ADMIN_EMAIL && (
             <Button
               variant="default"
               size="sm"
-              className="h-7 px-2"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleQuickImpersonate(u);
-              }}
+              onClick={() => handleQuickImpersonate(u)}
               title="Login as this user for support"
               data-testid={`button-impersonate-${u.id}`}
             >
-              <LogIn className="h-3.5 w-3.5 mr-1" />
+              <LogIn className="h-4 w-4 mr-1.5" />
               Support
             </Button>
           )}
@@ -331,89 +327,96 @@ export default function SuperAdmin() {
     const companyUsers = getUsersForCompany(company.id);
     
     return (
-      <Collapsible open={isExpanded} onOpenChange={() => toggleCompanyExpanded(company.id)}>
-        <Card className="overflow-hidden">
-          <CollapsibleTrigger asChild>
-            <CardHeader 
-              className="cursor-pointer hover-elevate transition-colors"
-              data-testid={`card-company-${company.id}`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {isExpanded ? (
-                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-primary" />
-                    <div>
-                      <CardTitle className="text-base">{company.name}</CardTitle>
-                      <CardDescription className="text-xs mt-0.5">
-                        Created {format(parseISO(company.created_at), "MMM d, yyyy")}
-                      </CardDescription>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Users className="h-4 w-4" />
-                      {company.userCount}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <FileSpreadsheet className="h-4 w-4" />
-                      {company.sheetCount}
-                    </span>
-                    <span>{company.leadCount} leads</span>
-                  </div>
-                  <Badge variant={company.is_active ? "default" : "secondary"}>
-                    {company.is_active ? "Active" : "Inactive"}
-                  </Badge>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleCompanyStatusMutation.mutate({
-                        companyId: company.id,
-                        isActive: !company.is_active
-                      });
-                    }}
-                    disabled={toggleCompanyStatusMutation.isPending}
-                    data-testid={`button-toggle-company-${company.id}`}
-                  >
-                    {company.is_active ? "Disable" : "Enable"}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="pt-0 border-t">
-              <div className="pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Users ({companyUsers.length})
-                  </h4>
-                </div>
-                {companyUsers.length > 0 ? (
-                  <div className="space-y-2">
-                    {companyUsers.map((u) => (
-                      <UserRow key={u.id} u={u} />
-                    ))}
-                  </div>
+      <Card className="overflow-visible">
+        <button
+          type="button"
+          onClick={() => toggleCompanyExpanded(company.id)}
+          className="w-full text-left p-4 md:p-6 rounded-t-lg transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          data-testid={`card-company-${company.id}`}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center">
+                {isExpanded ? (
+                  <ChevronDown className="h-5 w-5 text-primary" />
                 ) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No users in this company
-                  </p>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
                 )}
               </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
+              <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Building2 className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold text-base truncate">{company.name}</h3>
+                <p className="text-xs text-muted-foreground">
+                  Created {format(parseISO(company.created_at), "MMM d, yyyy")}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="hidden sm:flex items-center gap-4 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5 bg-muted/50 px-2 py-1 rounded">
+                  <Users className="h-3.5 w-3.5" />
+                  <span className="font-medium">{company.userCount}</span>
+                </span>
+                <span className="flex items-center gap-1.5 bg-muted/50 px-2 py-1 rounded">
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  <span className="font-medium">{company.sheetCount}</span>
+                </span>
+                <span className="flex items-center gap-1.5 bg-muted/50 px-2 py-1 rounded">
+                  <span className="font-medium">{company.leadCount}</span>
+                  <span>leads</span>
+                </span>
+              </div>
+              <Badge variant={company.is_active ? "default" : "secondary"} className="flex-shrink-0">
+                {company.is_active ? "Active" : "Inactive"}
+              </Badge>
+            </div>
+          </div>
+        </button>
+        
+        {/* Action buttons - separate from clickable header */}
+        <div className="px-4 md:px-6 pb-2 flex items-center gap-2 border-b">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => toggleCompanyStatusMutation.mutate({
+              companyId: company.id,
+              isActive: !company.is_active
+            })}
+            disabled={toggleCompanyStatusMutation.isPending}
+            data-testid={`button-toggle-company-${company.id}`}
+          >
+            {company.is_active ? "Disable Company" : "Enable Company"}
+          </Button>
+          <span className="text-xs text-muted-foreground sm:hidden">
+            {company.userCount} users, {company.sheetCount} sheets, {company.leadCount} leads
+          </span>
+        </div>
+
+        {/* Expandable user list */}
+        {isExpanded && (
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                Users in {company.name} ({companyUsers.length})
+              </h4>
+            </div>
+            {companyUsers.length > 0 ? (
+              <div className="space-y-2">
+                {companyUsers.map((u) => (
+                  <UserRow key={u.id} u={u} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-6 bg-muted/30 rounded-lg">
+                No users in this company yet
+              </p>
+            )}
+          </CardContent>
+        )}
+      </Card>
     );
   };
 
