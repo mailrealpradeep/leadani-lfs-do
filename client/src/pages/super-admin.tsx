@@ -122,7 +122,7 @@ interface WebhookLogEntry {
   created_at: string;
 }
 
-const SUPER_ADMIN_EMAIL = "mailrealpradeep@gmail.com";
+const SUPER_ADMIN_EMAIL = "adminleadani@leadani.com";
 
 export default function SuperAdmin() {
   const { user, isLoading } = useAuth();

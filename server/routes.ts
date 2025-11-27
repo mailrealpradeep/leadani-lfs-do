@@ -159,6 +159,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   });
 
+  // Bootstrap: Ensure Super Admin account exists on startup
+  const SUPER_ADMIN_EMAIL_BOOTSTRAP = "adminleadani@leadani.com";
+  const SUPER_ADMIN_PASSWORD = "thleadani";
+  const SUPER_ADMIN_NAME = "Super Admin";
+  
+  try {
+    const existingAdmin = await storage.getUserByEmail(SUPER_ADMIN_EMAIL_BOOTSTRAP);
+    if (!existingAdmin) {
+      console.log("Creating Super Admin account...");
+      const passwordHash = await bcrypt.hash(SUPER_ADMIN_PASSWORD, 10);
+      await storage.createUser({
+        email: SUPER_ADMIN_EMAIL_BOOTSTRAP,
+        name: SUPER_ADMIN_NAME,
+        password_hash: passwordHash,
+        role: "super_admin",
+        company_id: undefined, // No company association for Super Admin
+      });
+      console.log("Super Admin account created successfully");
+    } else if (existingAdmin.role !== "super_admin") {
+      // Fix role if incorrect
+      console.log("Fixing Super Admin account role...");
+      await storage.updateUser(existingAdmin.id, { role: "super_admin" });
+      console.log("Super Admin account role fixed");
+    } else {
+      console.log("Super Admin account already exists with correct role");
+    }
+  } catch (error) {
+    console.error("Failed to bootstrap Super Admin account:", error);
+  }
+
   // Socket.io connection handling with company isolation
   io.on("connection", (socket) => {
     console.log("Socket connected:", socket.id);
@@ -7379,7 +7409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   // SUPER ADMIN PANEL
   // ============================================================================
-  const SUPER_ADMIN_EMAIL = "mailrealpradeep@gmail.com";
+  const SUPER_ADMIN_EMAIL = "adminleadani@leadani.com";
   
   // Middleware to check if user is the super admin by email
   const requireSuperAdminByEmail = async (req: AuthRequest, res: any, next: any) => {

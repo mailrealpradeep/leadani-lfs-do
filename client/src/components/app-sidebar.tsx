@@ -336,7 +336,7 @@ export function AppSidebar() {
             </div>
           </div>
           <div className="flex gap-2">
-            {user?.email === "mailrealpradeep@gmail.com" && (
+            {user?.email === "adminleadani@leadani.com" && (
               <Button
                 variant="outline"
                 size="sm"
@@ -354,7 +354,7 @@ export function AppSidebar() {
               variant="outline"
               size="sm"
               onClick={logout}
-              className={user?.email === "mailrealpradeep@gmail.com" && sessionStorage.getItem("impersonating") !== "true" ? "flex-1" : "w-full"}
+              className={user?.email === "adminleadani@leadani.com" && sessionStorage.getItem("impersonating") !== "true" ? "flex-1" : "w-full"}
               data-testid="button-logout"
             >
               {sessionStorage.getItem("impersonating") === "true" ? "End Session" : "Sign out"}
