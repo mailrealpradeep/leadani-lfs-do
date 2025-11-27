@@ -546,14 +546,14 @@ export default function Tasks() {
       </div>
 
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Create New Task</DialogTitle>
             <DialogDescription>
               Add a new task {isAdmin ? "for yourself or assign it to a team member" : "for yourself"}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 overflow-y-auto space-y-4 py-4 px-1">
             <div className="space-y-2">
               <Label htmlFor="title">Title *</Label>
               <Input
@@ -571,7 +571,7 @@ export default function Tasks() {
                 value={formData.description}
                 onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                 placeholder="Enter task description"
-                rows={3}
+                rows={2}
                 data-testid="input-task-description"
               />
             </div>
@@ -591,7 +591,7 @@ export default function Tasks() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="start_date">Start Date</Label>
                 <Input
@@ -645,7 +645,7 @@ export default function Tasks() {
               </>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
               Cancel
             </Button>
@@ -662,38 +662,38 @@ export default function Tasks() {
 
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 flex-wrap">
-              {selectedTask?.title}
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="text-lg leading-tight">{selectedTask?.title}</DialogTitle>
+            <div className="flex items-center gap-2 flex-wrap mt-2">
               <Badge className={STATUS_COLORS[selectedTask?.status || "pending"]}>
                 {STATUS_LABELS[selectedTask?.status || "pending"]}
               </Badge>
               <Badge className={PRIORITY_COLORS[selectedTask?.priority || "medium"]}>
                 {PRIORITY_LABELS[selectedTask?.priority || "medium"]} Priority
               </Badge>
-            </DialogTitle>
+            </div>
           </DialogHeader>
           {selectedTask && (
-            <div className="flex-1 overflow-y-auto space-y-6 py-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="flex-1 overflow-y-auto space-y-4 py-4 px-1">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-muted-foreground text-xs">Assigned To</Label>
-                  <p className="font-medium">{selectedTask.assigned_to_name}</p>
+                  <p className="font-medium text-sm">{selectedTask.assigned_to_name}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground text-xs">Created By</Label>
-                  <p className="font-medium">{selectedTask.created_by_name}</p>
+                  <p className="font-medium text-sm">{selectedTask.created_by_name}</p>
                 </div>
                 {selectedTask.start_date && (
                   <div>
                     <Label className="text-muted-foreground text-xs">Start Date</Label>
-                    <p>{format(parseISO(selectedTask.start_date), "MMM d, yyyy")}</p>
+                    <p className="text-sm">{format(parseISO(selectedTask.start_date), "MMM d, yyyy")}</p>
                   </div>
                 )}
                 {selectedTask.due_date && (
                   <div>
                     <Label className="text-muted-foreground text-xs">Due Date</Label>
-                    <p className={getDueDateClass(selectedTask.due_date, selectedTask.status)}>
+                    <p className={`text-sm ${getDueDateClass(selectedTask.due_date, selectedTask.status)}`}>
                       {format(parseISO(selectedTask.due_date), "MMM d, yyyy")}
                     </p>
                   </div>
@@ -703,21 +703,21 @@ export default function Tasks() {
               {selectedTask.description && (
                 <div>
                   <Label className="text-muted-foreground text-xs">Description</Label>
-                  <p className="whitespace-pre-wrap mt-1">{selectedTask.description}</p>
+                  <p className="whitespace-pre-wrap mt-1 text-sm">{selectedTask.description}</p>
                 </div>
               )}
 
               {selectedTask.admin_remarks && (
                 <div className="p-3 bg-muted/50 rounded-lg">
                   <Label className="text-muted-foreground text-xs">Admin Remarks</Label>
-                  <p className="whitespace-pre-wrap mt-1">{selectedTask.admin_remarks}</p>
+                  <p className="whitespace-pre-wrap mt-1 text-sm">{selectedTask.admin_remarks}</p>
                 </div>
               )}
 
               {selectedTask.user_remarks && (
                 <div className="p-3 bg-muted/50 rounded-lg">
                   <Label className="text-muted-foreground text-xs">User Remarks</Label>
-                  <p className="whitespace-pre-wrap mt-1">{selectedTask.user_remarks}</p>
+                  <p className="whitespace-pre-wrap mt-1 text-sm">{selectedTask.user_remarks}</p>
                 </div>
               )}
 
@@ -726,7 +726,7 @@ export default function Tasks() {
                   <Label className="text-muted-foreground text-xs mb-2 block">Linked Leads</Label>
                   <div className="flex flex-wrap gap-2">
                     {selectedTask.linked_leads.map(lead => (
-                      <Badge key={lead.id} variant="outline">
+                      <Badge key={lead.id} variant="outline" className="text-xs">
                         <Link2 className="h-3 w-3 mr-1" />
                         {lead.full_name}
                       </Badge>
@@ -738,7 +738,7 @@ export default function Tasks() {
               {canEditTask(selectedTask) && (
                 <div className="space-y-2">
                   <Label className="text-muted-foreground text-xs">Add Update</Label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Textarea
                       value={newComment}
                       onChange={(e) => setNewComment(e.target.value)}
@@ -751,10 +751,10 @@ export default function Tasks() {
                       onClick={handleAddComment}
                       disabled={addCommentMutation.isPending || !newComment.trim()}
                       size="sm"
-                      className="self-end"
+                      className="self-end sm:self-end w-full sm:w-auto"
                       data-testid="button-add-comment"
                     >
-                      {addCommentMutation.isPending ? "Adding..." : "Add"}
+                      {addCommentMutation.isPending ? "Adding..." : "Add Update"}
                     </Button>
                   </div>
                 </div>
@@ -762,18 +762,18 @@ export default function Tasks() {
 
               <div>
                 <Label className="text-muted-foreground text-xs mb-2 block">Updates & Activity</Label>
-                <ScrollArea className="h-[200px] border rounded-lg p-3">
+                <ScrollArea className="h-[150px] sm:h-[180px] border rounded-lg p-3">
                   {taskUpdates.length > 0 ? (
                     <div className="space-y-3">
                       {taskUpdates.map(update => (
                         <div key={update.id} className="text-sm border-b pb-2 last:border-0">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium">{update.user_name}</span>
+                            <span className="font-medium text-xs sm:text-sm">{update.user_name}</span>
                             <span className="text-xs text-muted-foreground whitespace-nowrap">
                               {format(parseISO(update.created_at), "MMM d, h:mm a")}
                             </span>
                           </div>
-                          <p className="text-muted-foreground">{update.description}</p>
+                          <p className="text-muted-foreground text-xs sm:text-sm">{update.description}</p>
                         </div>
                       ))}
                     </div>
@@ -784,7 +784,7 @@ export default function Tasks() {
               </div>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
               Close
             </Button>
@@ -802,11 +802,11 @@ export default function Tasks() {
       </Dialog>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Edit Task</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 overflow-y-auto space-y-4 py-4 px-1">
             {isAdmin ? (
               <>
                 <div className="space-y-2">
@@ -824,7 +824,7 @@ export default function Tasks() {
                     id="edit-description"
                     value={formData.description}
                     onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    rows={3}
+                    rows={2}
                     data-testid="input-edit-task-description"
                   />
                 </div>
@@ -844,7 +844,7 @@ export default function Tasks() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label htmlFor="edit-start_date">Start Date</Label>
                     <Input
@@ -909,7 +909,7 @@ export default function Tasks() {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Cancel
             </Button>
