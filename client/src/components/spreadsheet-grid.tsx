@@ -2,6 +2,23 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   Plus,
   Trash2,
   Search,
@@ -32,6 +49,7 @@ import {
   Star,
   HelpCircle,
   XCircle,
+  GripVertical,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -115,6 +133,67 @@ interface PaginatedLeadsResponse {
   limit: number;
   totalPages: number;
   sheetNames: Record<string, string>;
+}
+
+// Sortable Column Header component for drag-and-drop reordering
+interface SortableColumnHeaderProps {
+  columnKey: string;
+  children: React.ReactNode;
+  width: string;
+  onResizeStart: (e: React.MouseEvent, columnKey: string) => void;
+  isDraggingEnabled: boolean;
+}
+
+function SortableColumnHeader({ columnKey, children, width, onResizeStart, isDraggingEnabled }: SortableColumnHeaderProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: columnKey, disabled: !isDraggingEnabled });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : undefined,
+    width,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide relative"
+    >
+      {/* Drag Handle */}
+      {isDraggingEnabled && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="absolute left-0 top-0 bottom-0 w-4 cursor-grab active:cursor-grabbing flex items-center justify-center hover:bg-muted/50 z-10"
+          data-testid={`drag-handle-${columnKey}`}
+        >
+          <GripVertical className="h-3 w-3 text-muted-foreground" />
+        </div>
+      )}
+      
+      {/* Resize Handle */}
+      <div
+        className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary z-30 group"
+        onMouseDown={(e) => onResizeStart(e, columnKey)}
+        data-testid={`resize-handle-${columnKey}`}
+      >
+        <div className="w-full h-full group-hover:bg-primary transition-colors" />
+      </div>
+      
+      <div className={isDraggingEnabled ? "pl-4" : ""}>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export function SpreadsheetGrid({
@@ -324,6 +403,80 @@ export function SpreadsheetGrid({
       });
     },
   });
+
+  // User sheet view (column order and hidden columns) - only in single-sheet mode
+  const { data: userSheetView } = useQuery<{ column_order: string[]; hidden_columns: string[] }>({
+    queryKey: ["/api/sheets", activeSheetId, "view"],
+    enabled: !!activeSheetId && !isMultiMode,
+  });
+
+  // Column order state (derived from user sheet view or default)
+  const [customColumnOrder, setCustomColumnOrder] = useState<string[]>([]);
+
+  // Reset column order and hidden columns when sheet changes
+  const prevSheetIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeSheetId && activeSheetId !== prevSheetIdRef.current) {
+      // Reset to empty state when navigating to a new sheet
+      // The actual values will be loaded from userSheetView query
+      setCustomColumnOrder([]);
+      setHiddenColumns(new Set());
+      prevSheetIdRef.current = activeSheetId;
+    }
+  }, [activeSheetId]);
+
+  // Sync column order from user sheet view when it loads
+  useEffect(() => {
+    if (userSheetView?.column_order && userSheetView.column_order.length > 0) {
+      setCustomColumnOrder(userSheetView.column_order);
+    } else if (userSheetView) {
+      // User has view but no custom order - reset to empty
+      setCustomColumnOrder([]);
+    }
+  }, [userSheetView?.column_order, activeSheetId]);
+
+  // Sync hidden columns from user sheet view when it loads
+  useEffect(() => {
+    if (userSheetView?.hidden_columns && userSheetView.hidden_columns.length > 0) {
+      setHiddenColumns(new Set(userSheetView.hidden_columns));
+    } else if (userSheetView) {
+      // User has view but no hidden columns - reset to empty
+      setHiddenColumns(new Set());
+    }
+  }, [userSheetView?.hidden_columns, activeSheetId]);
+
+  // Save user sheet view mutation
+  const saveUserSheetViewMutation = useMutation({
+    mutationFn: async ({ columnOrder, hiddenColumns }: { columnOrder: string[]; hiddenColumns: string[] }) => {
+      return await apiRequest("PUT", `/api/sheets/${activeSheetId}/view`, { 
+        column_order: columnOrder, 
+        hidden_columns: hiddenColumns 
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "view"] });
+    },
+    onError: (error: any) => {
+      console.error("Failed to save column view:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save column view preferences",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // dnd-kit sensors for column reordering
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const isLoading = isMultiMode 
     ? (isLoadingMultiLeads || isLoadingCompanyColumns)
@@ -764,6 +917,56 @@ export function SpreadsheetGrid({
       ]
     : baseColumns;
 
+  // Apply custom column ordering (only in single-sheet mode)
+  const orderedColumns = useMemo(() => {
+    if (isMultiMode || customColumnOrder.length === 0) {
+      return columns;
+    }
+    
+    // Create a map for quick lookup
+    const columnMap = new Map(columns.map(col => [col.key, col]));
+    
+    // Build ordered array from custom order, then append any new columns not in the order
+    const orderedArr: typeof columns = [];
+    const usedKeys = new Set<string>();
+    
+    for (const key of customColumnOrder) {
+      const col = columnMap.get(key);
+      if (col) {
+        orderedArr.push(col);
+        usedKeys.add(key);
+      }
+    }
+    
+    // Append any columns not in custom order
+    for (const col of columns) {
+      if (!usedKeys.has(col.key)) {
+        orderedArr.push(col);
+      }
+    }
+    
+    return orderedArr;
+  }, [columns, customColumnOrder, isMultiMode]);
+
+  // Handle column drag end
+  const handleColumnDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id) {
+      const oldIndex = orderedColumns.findIndex((col) => col.key === active.id);
+      const newIndex = orderedColumns.findIndex((col) => col.key === over.id);
+      
+      const newOrder = arrayMove(orderedColumns.map(c => c.key), oldIndex, newIndex);
+      setCustomColumnOrder(newOrder);
+      
+      // Save to backend
+      saveUserSheetViewMutation.mutate({
+        columnOrder: newOrder,
+        hiddenColumns: Array.from(hiddenColumns),
+      });
+    }
+  };
+
 
   // In multi-mode, server handles filtering/sorting; in single-mode, do it client-side
   const filteredAndSortedLeads = isMultiMode
@@ -881,7 +1084,8 @@ export function SpreadsheetGrid({
           return effectiveSortDirection === "asc" ? comparison : -comparison;
         });
 
-  const visibleColumns = columns.filter((col) => !hiddenColumns.has(col.key));
+  // Use ordered columns for visible columns (respecting user's custom order)
+  const visibleColumns = orderedColumns.filter((col) => !hiddenColumns.has(col.key));
 
   // Calculate total table width: checkbox (50px) + all visible columns + actions (150px)
   const calculateTableWidth = () => {
@@ -909,6 +1113,7 @@ export function SpreadsheetGrid({
     });
   }, [pagination, setPagination]);
 
+  // Toggle column visibility and save to backend
   const toggleColumnVisibility = (columnKey: string) => {
     setHiddenColumns((prev) => {
       const next = new Set(prev);
@@ -917,6 +1122,15 @@ export function SpreadsheetGrid({
       } else {
         next.add(columnKey);
       }
+      
+      // Save to backend (only in single-sheet mode)
+      if (!isMultiMode && activeSheetId) {
+        saveUserSheetViewMutation.mutate({
+          columnOrder: customColumnOrder.length > 0 ? customColumnOrder : orderedColumns.map(c => c.key),
+          hiddenColumns: Array.from(next),
+        });
+      }
+      
       return next;
     });
   };
@@ -1239,33 +1453,76 @@ export function SpreadsheetGrid({
         />
       )}
 
-      {selectedRows.size > 0 && (
-        <div className="flex items-center gap-2 mb-4">
-          <Badge variant="secondary" data-testid="text-selected-count">
-            {selectedRows.size} selected
-          </Badge>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setTransferDialogOpen(true)}
-            data-testid="button-transfer-selected"
-            className="min-h-[44px]"
-          >
-            <ArrowRightLeft className="h-4 w-4 mr-2" />
-            Transfer
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => deleteLeadsMutation.mutate(Array.from(selectedRows))}
-            data-testid="button-delete-selected"
-            className="min-h-[44px]"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete
-          </Button>
-        </div>
-      )}
+      {/* Toolbar with actions */}
+      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+        {/* Left side - selection actions */}
+        {selectedRows.size > 0 && (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" data-testid="text-selected-count">
+              {selectedRows.size} selected
+            </Badge>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setTransferDialogOpen(true)}
+              data-testid="button-transfer-selected"
+              className="min-h-[44px]"
+            >
+              <ArrowRightLeft className="h-4 w-4 mr-2" />
+              Transfer
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => deleteLeadsMutation.mutate(Array.from(selectedRows))}
+              data-testid="button-delete-selected"
+              className="min-h-[44px]"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </Button>
+          </div>
+        )}
+        
+        {/* Right side - column visibility toggle (desktop only) */}
+        {!isMobile && !isMultiMode && (
+          <div className="flex items-center gap-2 ml-auto">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" data-testid="button-column-visibility">
+                  <Settings2 className="h-4 w-4 mr-2" />
+                  Columns
+                  {hiddenColumns.size > 0 && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      {hiddenColumns.size} hidden
+                    </Badge>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
+                {orderedColumns.map((col) => (
+                  <DropdownMenuItem
+                    key={col.key}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleColumnVisibility(col.key);
+                    }}
+                    className="flex items-center justify-between cursor-pointer"
+                    data-testid={`toggle-column-${col.key}`}
+                  >
+                    <span className="truncate">{col.label}</span>
+                    {hiddenColumns.has(col.key) ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+      </div>
 
       {/* Conditionally render mobile or desktop view based on viewport */}
       {isMobile ? (
@@ -1609,132 +1866,137 @@ export function SpreadsheetGrid({
           
           <div className="border rounded-lg flex-1 flex flex-col overflow-hidden">
             {/* Horizontal and Vertical Scroll Container */}
-            <div className="overflow-x-auto overflow-y-auto flex-1" ref={containerRef}>
+            <div className="overflow-x-auto overflow-y-auto flex-1 spreadsheet-scroll-container" ref={containerRef}>
             <div style={{ minWidth: `${calculateTableWidth()}px` }}>
-              {/* Sticky Header */}
-              <div 
-                className="sticky top-0 z-20 bg-background border-b-2 grid"
-                style={{ 
-                  gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
-                }}
+              {/* Sticky Header with Drag and Drop */}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleColumnDragEnd}
               >
-                {/* Checkbox Column Header */}
-                <div className="border-b border-r px-3 py-3 flex items-center justify-center">
-                  <Checkbox
-                    checked={selectedRows.size === leads.length && leads.length > 0}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setSelectedRows(new Set(leads.map((l) => l.id)));
-                      } else {
-                        setSelectedRows(new Set());
-                      }
-                    }}
-                    data-testid="checkbox-select-all"
-                  />
-                </div>
-                
-                {/* Column Headers */}
-                {visibleColumns.map((col) => (
-                  <div
-                    key={col.key}
-                    className="border-b border-r px-3 py-2 font-medium text-xs uppercase tracking-wide relative"
+                <div 
+                  className="sticky top-0 z-20 bg-background border-b-2 grid"
+                  style={{ 
+                    gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
+                  }}
+                >
+                  {/* Checkbox Column Header */}
+                  <div className="border-b border-r px-3 py-3 flex items-center justify-center">
+                    <Checkbox
+                      checked={selectedRows.size === leads.length && leads.length > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedRows(new Set(leads.map((l) => l.id)));
+                        } else {
+                          setSelectedRows(new Set());
+                        }
+                      }}
+                      data-testid="checkbox-select-all"
+                    />
+                  </div>
+                  
+                  {/* Column Headers - Sortable */}
+                  <SortableContext 
+                    items={visibleColumns.map(c => c.key)} 
+                    strategy={horizontalListSortingStrategy}
                   >
-                    {/* Resize Handle */}
-                    <div
-                      className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary z-30 group"
-                      onMouseDown={(e) => handleResizeStart(e, col.key)}
-                      data-testid={`resize-handle-${col.key}`}
-                    >
-                      <div className="w-full h-full group-hover:bg-primary transition-colors" />
-                    </div>
-                    
-                    <div className="flex flex-col gap-1" data-testid={`column-header-${col.key}`}>
-                      <div className="flex items-center gap-1">
-                        <span data-testid={`column-label-${col.key}`}>{col.label}</span>
-                        {/* Sort button - works in both single and multi-sheet mode */}
-                        {col.sortable && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5"
-                            onClick={() => toggleSort(col.key)}
-                            data-testid={`button-sort-${col.key}`}
-                          >
-                            {sortColumn === col.key ? (
-                              sortDirection === "asc" ? (
-                                <ChevronUp className="h-3 w-3" />
-                              ) : (
-                                <ChevronDown className="h-3 w-3" />
-                              )
-                            ) : (
-                              <ChevronDown className="h-3 w-3 opacity-30" />
-                            )}
-                          </Button>
-                        )}
-                      </div>
-                      {/* Column filters - works in both single and multi-sheet mode */}
-                      <div className="relative">
-                        {col.type === "date" ? (
-                          <DateRangeFilter
-                            value={columnFilters[col.key] as DateFilterValue}
-                            onChange={(value) =>
-                              setColumnFilters((prev) => ({
-                                ...prev,
-                                [col.key]: value,
-                              }))
-                            }
-                          />
-                        ) : col.type === "dropdown" ? (
-                          <DropdownFilter
-                            value={columnFilters[col.key] as string | null}
-                            onChange={(value) =>
-                              setColumnFilters((prev) => ({
-                                ...prev,
-                                [col.key]: value,
-                              }))
-                            }
-                            options={getDropdownOptionsForColumn(col.key)}
-                          />
-                        ) : (
-                          <>
-                            <Input
-                              placeholder="Filter..."
-                              value={(columnFilters[col.key] as string) || ""}
-                              onChange={(e) =>
-                                setColumnFilters((prev) => ({
-                                  ...prev,
-                                  [col.key]: e.target.value,
-                                }))
-                              }
-                              className="h-7 text-xs"
-                              data-testid={`input-filter-${col.key}`}
-                            />
-                            {columnFilters[col.key] && (
+                    {visibleColumns.map((col) => (
+                      <SortableColumnHeader
+                        key={col.key}
+                        columnKey={col.key}
+                        width={col.width}
+                        onResizeStart={handleResizeStart}
+                        isDraggingEnabled={!isMultiMode}
+                      >
+                        <div className="flex flex-col gap-1" data-testid={`column-header-${col.key}`}>
+                          <div className="flex items-center gap-1">
+                            <span data-testid={`column-label-${col.key}`}>{col.label}</span>
+                            {/* Sort button - works in both single and multi-sheet mode */}
+                            {col.sortable && (
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                                onClick={() =>
-                                  setColumnFilters((prev) => {
-                                    const next = { ...prev };
-                                    delete next[col.key];
-                                    return next;
-                                  })
-                                }
+                                className="h-5 w-5"
+                                onClick={() => toggleSort(col.key)}
+                                data-testid={`button-sort-${col.key}`}
                               >
-                                <X className="h-3 w-3" />
+                                {sortColumn === col.key ? (
+                                  sortDirection === "asc" ? (
+                                    <ChevronUp className="h-3 w-3" />
+                                  ) : (
+                                    <ChevronDown className="h-3 w-3" />
+                                  )
+                                ) : (
+                                  <ChevronDown className="h-3 w-3 opacity-30" />
+                                )}
                               </Button>
                             )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                
-                {/* Actions Column Header */}
-                <div className="border-b px-3 py-2"></div>
-              </div>
+                          </div>
+                          {/* Column filters - works in both single and multi-sheet mode */}
+                          <div className="relative">
+                            {col.type === "date" ? (
+                              <DateRangeFilter
+                                value={columnFilters[col.key] as DateFilterValue}
+                                onChange={(value) =>
+                                  setColumnFilters((prev) => ({
+                                    ...prev,
+                                    [col.key]: value,
+                                  }))
+                                }
+                              />
+                            ) : col.type === "dropdown" ? (
+                              <DropdownFilter
+                                value={columnFilters[col.key] as string | null}
+                                onChange={(value) =>
+                                  setColumnFilters((prev) => ({
+                                    ...prev,
+                                    [col.key]: value,
+                                  }))
+                                }
+                                options={getDropdownOptionsForColumn(col.key)}
+                              />
+                            ) : (
+                              <>
+                                <Input
+                                  placeholder="Filter..."
+                                  value={(columnFilters[col.key] as string) || ""}
+                                  onChange={(e) =>
+                                    setColumnFilters((prev) => ({
+                                      ...prev,
+                                      [col.key]: e.target.value,
+                                    }))
+                                  }
+                                  className="h-7 text-xs"
+                                  data-testid={`input-filter-${col.key}`}
+                                />
+                                {columnFilters[col.key] && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
+                                    onClick={() =>
+                                      setColumnFilters((prev) => {
+                                        const next = { ...prev };
+                                        delete next[col.key];
+                                        return next;
+                                      })
+                                    }
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </SortableColumnHeader>
+                    ))}
+                  </SortableContext>
+                  
+                  {/* Actions Column Header */}
+                  <div className="border-b px-3 py-2"></div>
+                </div>
+              </DndContext>
 
               {/* Table Body */}
               {filteredAndSortedLeads.length === 0 ? (
@@ -1940,14 +2202,60 @@ export function SpreadsheetGrid({
                             />
                           )
                         ) : (
-                          <span className={`text-sm flex items-center gap-1 ${col.width === "260px" || col.key === "name" ? "break-words w-full" : ""} ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
-                            {isPastNFDT && <Clock className="h-3 w-3 flex-shrink-0" />}
-                            {col.type === "date" && value
-                              ? format(new Date(value), "dd/MM/yy")
-                              : col.type === "percentage" && value != null && value !== ""
-                              ? `${value}%`
-                              : value || "-"}
-                          </span>
+                          <div className="flex items-center gap-1.5 w-full">
+                            <span className={`text-sm flex items-center gap-1 flex-1 min-w-0 ${col.width === "260px" || col.key === "name" ? "break-words" : ""} ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
+                              {isPastNFDT && <Clock className="h-3 w-3 flex-shrink-0" />}
+                              {col.type === "date" && value
+                                ? format(new Date(value), "dd/MM/yy")
+                                : col.type === "percentage" && value != null && value !== ""
+                                ? `${value}%`
+                                : value || "-"}
+                            </span>
+                            {/* Call/WhatsApp icons for mobile/phone columns */}
+                            {(col.type === "mobile" || 
+                              col.key.toLowerCase().includes("mobile") || 
+                              col.key.toLowerCase().includes("phone") ||
+                              col.key.toLowerCase().includes("whatsapp")) && value && (
+                              <div className="flex items-center gap-0.5 flex-shrink-0">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.location.href = `tel:${value}`;
+                                      }}
+                                      data-testid={`button-call-${lead.id}-${col.key}`}
+                                    >
+                                      <Phone className="h-3.5 w-3.5 text-green-600" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">Call</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const cleanNumber = String(value).replace(/[\s-]/g, '');
+                                        const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
+                                        window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                                      }}
+                                      data-testid={`button-whatsapp-${lead.id}-${col.key}`}
+                                    >
+                                      <MessageCircle className="h-3.5 w-3.5 text-green-500" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">WhatsApp</TooltipContent>
+                                </Tooltip>
+                              </div>
+                            )}
+                          </div>
                         )}
                         </div>
                       );

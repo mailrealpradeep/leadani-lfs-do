@@ -1252,3 +1252,37 @@ export interface TaskNotificationSettings {
   times: string[]; // Array of times in HH:MM format, e.g., ["09:00", "16:00", "18:00"]
   timezone: string; // IANA timezone, e.g., "Asia/Kolkata"
 }
+
+// ============================================================================
+// USER SHEET VIEWS (Personal Column Order & Visibility Preferences)
+// ============================================================================
+export interface UserSheetView {
+  id: string;
+  user_id: string;
+  sheet_id: string;
+  column_order: string[]; // Array of column_keys in user's preferred order
+  hidden_columns: string[]; // Array of column_keys user wants to hide
+  created_at: string;
+  updated_at: string;
+}
+
+export const userSheetViews = pgTable('user_sheet_views', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  column_order: json('column_order').$type<string[]>().default([]),
+  hidden_columns: json('hidden_columns').$type<string[]>().default([]),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type UserSheetViewRecord = typeof userSheetViews.$inferSelect;
+export type InsertUserSheetView = typeof userSheetViews.$inferInsert;
+
+export const insertUserSheetViewSchema = createInsertSchema(userSheetViews).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertUserSheetViewData = z.infer<typeof insertUserSheetViewSchema>;

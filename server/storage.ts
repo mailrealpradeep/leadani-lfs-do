@@ -54,6 +54,8 @@ import type {
   TaskUpdate,
   TaskUpdateRecord,
   InsertTaskUpdate,
+  UserSheetView,
+  UserSheetViewRecord,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -264,6 +266,10 @@ export interface IStorage {
   // Task Updates (activity history)
   getTaskUpdates(taskId: string): Promise<TaskUpdateRecord[]>;
   createTaskUpdate(update: InsertTaskUpdate): Promise<TaskUpdateRecord>;
+
+  // User Sheet Views (Personal Column Preferences)
+  getUserSheetView(userId: string, sheetId: string): Promise<UserSheetViewRecord | undefined>;
+  upsertUserSheetView(userId: string, sheetId: string, columnOrder: string[], hiddenColumns: string[]): Promise<UserSheetViewRecord>;
 }
 
 export class MemStorage implements IStorage {
@@ -1557,6 +1563,43 @@ export class MemStorage implements IStorage {
     };
     this.taskUpdatesMap.set(id, newUpdate);
     return newUpdate;
+  }
+
+  // User Sheet Views (Personal Column Preferences)
+  private userSheetViewsMap: Map<string, UserSheetViewRecord> = new Map();
+
+  async getUserSheetView(userId: string, sheetId: string): Promise<UserSheetViewRecord | undefined> {
+    const key = `${userId}_${sheetId}`;
+    return this.userSheetViewsMap.get(key);
+  }
+
+  async upsertUserSheetView(userId: string, sheetId: string, columnOrder: string[], hiddenColumns: string[]): Promise<UserSheetViewRecord> {
+    const key = `${userId}_${sheetId}`;
+    const now = new Date().toISOString();
+    const existing = this.userSheetViewsMap.get(key);
+    
+    if (existing) {
+      const updated: UserSheetViewRecord = {
+        ...existing,
+        column_order: columnOrder,
+        hidden_columns: hiddenColumns,
+        updated_at: now,
+      };
+      this.userSheetViewsMap.set(key, updated);
+      return updated;
+    }
+
+    const newView: UserSheetViewRecord = {
+      id: randomUUID(),
+      user_id: userId,
+      sheet_id: sheetId,
+      column_order: columnOrder,
+      hidden_columns: hiddenColumns,
+      created_at: now,
+      updated_at: now,
+    };
+    this.userSheetViewsMap.set(key, newView);
+    return newView;
   }
 }
 
@@ -3285,6 +3328,62 @@ export class PgStorage implements IStorage {
     return {
       ...row,
       created_at: row.created_at?.toISOString() || row.created_at,
+    };
+  }
+
+  // ============================================================================
+  // USER SHEET VIEWS (Personal Column Preferences)
+  // ============================================================================
+  async getUserSheetView(userId: string, sheetId: string): Promise<UserSheetViewRecord | undefined> {
+    const result = await db.select().from(dbSchema.userSheetViews)
+      .where(and(
+        eq(dbSchema.userSheetViews.user_id, userId),
+        eq(dbSchema.userSheetViews.sheet_id, sheetId)
+      ));
+    if (result.length === 0) return undefined;
+    return this.mapUserSheetView(result[0]);
+  }
+
+  async upsertUserSheetView(userId: string, sheetId: string, columnOrder: string[], hiddenColumns: string[]): Promise<UserSheetViewRecord> {
+    const now = new Date();
+    const existing = await this.getUserSheetView(userId, sheetId);
+    
+    if (existing) {
+      await db.update(dbSchema.userSheetViews)
+        .set({
+          column_order: columnOrder,
+          hidden_columns: hiddenColumns,
+          updated_at: now,
+        })
+        .where(and(
+          eq(dbSchema.userSheetViews.user_id, userId),
+          eq(dbSchema.userSheetViews.sheet_id, sheetId)
+        ));
+      const updated = await this.getUserSheetView(userId, sheetId);
+      return updated!;
+    }
+
+    const id = randomUUID();
+    const newView = {
+      id,
+      user_id: userId,
+      sheet_id: sheetId,
+      column_order: columnOrder,
+      hidden_columns: hiddenColumns,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.userSheetViews).values(newView);
+    return this.mapUserSheetView(newView as any);
+  }
+
+  private mapUserSheetView(row: any): UserSheetViewRecord {
+    return {
+      ...row,
+      column_order: row.column_order || [],
+      hidden_columns: row.hidden_columns || [],
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
     };
   }
 }

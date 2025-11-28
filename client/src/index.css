@@ -302,4 +302,36 @@
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
   }
+
+  /* Visible scrollbars for spreadsheet grid */
+  .spreadsheet-scroll-container {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+
+  .spreadsheet-scroll-container::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .spreadsheet-scroll-container::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.3);
+    border-radius: 5px;
+  }
+
+  .spreadsheet-scroll-container::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.4);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .spreadsheet-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.6);
+    background-clip: padding-box;
+  }
+
+  .spreadsheet-scroll-container::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }

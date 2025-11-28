@@ -2088,6 +2088,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // USER SHEET VIEW (Personal Column Order & Visibility)
+  // ============================================================================
+  
+  // GET /api/sheets/:sheetId/view - Get user's personal view settings for a sheet
+  app.get("/api/sheets/:sheetId/view", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
+    try {
+      const view = await storage.getUserSheetView(req.userId!, req.params.sheetId);
+      res.json(view || { column_order: [], hidden_columns: [] });
+    } catch (error: any) {
+      console.error("Get user sheet view error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // PUT /api/sheets/:sheetId/view - Save user's personal view settings for a sheet
+  app.put("/api/sheets/:sheetId/view", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
+    try {
+      const { column_order, hidden_columns } = req.body;
+      
+      // Validate input
+      if (!Array.isArray(column_order)) {
+        return res.status(400).json({ error: "column_order must be an array" });
+      }
+      if (!Array.isArray(hidden_columns)) {
+        return res.status(400).json({ error: "hidden_columns must be an array" });
+      }
+      
+      const view = await storage.upsertUserSheetView(
+        req.userId!, 
+        req.params.sheetId, 
+        column_order, 
+        hidden_columns
+      );
+      
+      res.json(view);
+    } catch (error: any) {
+      console.error("Save user sheet view error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SHEET USER ASSIGNMENT (Company Admin)
   // ============================================================================
   app.get("/api/admin/sheets/:sheetId/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
