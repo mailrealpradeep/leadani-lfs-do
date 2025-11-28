@@ -472,29 +472,36 @@ export function AppSidebar() {
             </SheetDescription>
           </SheetHeader>
           <div className="mt-6 space-y-1 max-h-[calc(100vh-180px)] overflow-y-auto">
-            {columnVisibilityConfig?.columns.map((col) => (
-              <div
-                key={col.key}
-                className="flex items-center justify-between py-2 px-2 rounded-md hover-elevate"
-                data-testid={`toggle-column-${col.key}`}
-              >
-                <div className="flex items-center gap-2">
-                  {columnVisibilityConfig.hiddenColumns.has(col.key) ? (
-                    <EyeOff className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <Eye className="h-4 w-4 text-primary" />
-                  )}
-                  <span className={columnVisibilityConfig.hiddenColumns.has(col.key) ? "text-muted-foreground" : ""}>
-                    {col.label}
-                  </span>
+            {columnVisibilityConfig?.columns && columnVisibilityConfig.columns.length > 0 ? (
+              columnVisibilityConfig.columns.map((col) => (
+                <div
+                  key={col.key}
+                  className="flex items-center justify-between py-2 px-2 rounded-md hover-elevate"
+                  data-testid={`toggle-column-${col.key}`}
+                >
+                  <div className="flex items-center gap-2">
+                    {columnVisibilityConfig.hiddenColumns.has(col.key) ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-primary" />
+                    )}
+                    <span className={columnVisibilityConfig.hiddenColumns.has(col.key) ? "text-muted-foreground" : ""}>
+                      {col.label}
+                    </span>
+                  </div>
+                  <Switch
+                    checked={!columnVisibilityConfig.hiddenColumns.has(col.key)}
+                    onCheckedChange={() => columnVisibilityConfig.toggleColumn(col.key)}
+                    data-testid={`switch-column-${col.key}`}
+                  />
                 </div>
-                <Switch
-                  checked={!columnVisibilityConfig.hiddenColumns.has(col.key)}
-                  onCheckedChange={() => columnVisibilityConfig.toggleColumn(col.key)}
-                  data-testid={`switch-column-${col.key}`}
-                />
+              ))
+            ) : (
+              <div className="text-center py-8 text-muted-foreground" data-testid="text-no-columns">
+                <p>No columns available.</p>
+                <p className="text-sm mt-1">Please wait for the sheet to load or select a different sheet.</p>
               </div>
-            ))}
+            )}
           </div>
         </SheetContent>
       </SheetUI>

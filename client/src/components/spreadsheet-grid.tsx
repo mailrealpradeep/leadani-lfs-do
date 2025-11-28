@@ -27,9 +27,6 @@ import {
   MoreHorizontal,
   ChevronUp,
   ChevronDown,
-  Settings2,
-  Eye,
-  EyeOff,
   Flame,
   X,
   Edit2,
@@ -1115,7 +1112,7 @@ export function SpreadsheetGrid({
   }, [pagination, setPagination]);
 
   // Toggle column visibility and save to backend
-  const toggleColumnVisibility = (columnKey: string) => {
+  const toggleColumnVisibility = useCallback((columnKey: string) => {
     setHiddenColumns((prev) => {
       const next = new Set(prev);
       if (next.has(columnKey)) {
@@ -1134,21 +1131,23 @@ export function SpreadsheetGrid({
       
       return next;
     });
-  };
+  }, [isMultiMode, activeSheetId, customColumnOrder, orderedColumns, saveUserSheetViewMutation]);
 
   // Pass column visibility config to dashboard context for sidebar
   useEffect(() => {
-    if (!isMultiMode) {
+    if (!isMultiMode && orderedColumns.length > 0) {
       setColumnVisibilityConfig({
         columns: orderedColumns.map(col => ({ key: col.key, label: col.label })),
         hiddenColumns,
         toggleColumn: toggleColumnVisibility,
       });
+    } else if (isMultiMode) {
+      setColumnVisibilityConfig(null);
     }
     return () => {
       setColumnVisibilityConfig(null);
     };
-  }, [orderedColumns, hiddenColumns, isMultiMode, setColumnVisibilityConfig]);
+  }, [orderedColumns, hiddenColumns, isMultiMode, setColumnVisibilityConfig, toggleColumnVisibility]);
 
   // Quick filter handlers - comprehensive implementation supporting all operators and logical operations
   const applyQuickFilter = useCallback((filterId: string, filterConfig: any) => {
@@ -1496,45 +1495,6 @@ export function SpreadsheetGrid({
               <Trash2 className="h-4 w-4 mr-2" />
               Delete
             </Button>
-          </div>
-        )}
-        
-        {/* Right side - column visibility toggle (desktop only) */}
-        {!isMobile && !isMultiMode && (
-          <div className="flex items-center gap-2 ml-auto">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" data-testid="button-column-visibility">
-                  <Settings2 className="h-4 w-4 mr-2" />
-                  Columns
-                  {hiddenColumns.size > 0 && (
-                    <Badge variant="secondary" className="ml-2 text-xs">
-                      {hiddenColumns.size} hidden
-                    </Badge>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-                {orderedColumns.map((col) => (
-                  <DropdownMenuItem
-                    key={col.key}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      toggleColumnVisibility(col.key);
-                    }}
-                    className="flex items-center justify-between cursor-pointer"
-                    data-testid={`toggle-column-${col.key}`}
-                  >
-                    <span className="truncate">{col.label}</span>
-                    {hiddenColumns.has(col.key) ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         )}
       </div>
