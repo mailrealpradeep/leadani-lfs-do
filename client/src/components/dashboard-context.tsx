@@ -7,6 +7,12 @@ interface PaginationState {
   totalPages: number;
 }
 
+interface ColumnVisibilityConfig {
+  columns: Array<{ key: string; label: string }>;
+  hiddenColumns: Set<string>;
+  toggleColumn: (key: string) => void;
+}
+
 interface DashboardContextType {
   selectedSheetId: string | null;
   setSelectedSheetId: (id: string | null) => void;
@@ -38,6 +44,10 @@ interface DashboardContextType {
     onExport?: () => void;
   };
   setActions: (actions: DashboardContextType["actions"]) => void;
+  columnVisibilityConfig: ColumnVisibilityConfig | null;
+  setColumnVisibilityConfig: (config: ColumnVisibilityConfig | null) => void;
+  isColumnVisibilityOpen: boolean;
+  setIsColumnVisibilityOpen: (open: boolean) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
@@ -58,6 +68,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [thoughtFilter, setThoughtFilter] = useState<"sure" | "maybe" | null>(null);
   const [quickFilterHandlers, setQuickFilterHandlers] = useState<DashboardContextType["quickFilterHandlers"]>({});
   const [actions, setActions] = useState<DashboardContextType["actions"]>({});
+  const [columnVisibilityConfig, setColumnVisibilityConfig] = useState<ColumnVisibilityConfig | null>(null);
+  const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
 
   return (
     <DashboardContext.Provider
@@ -82,6 +94,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         setQuickFilterHandlers,
         actions,
         setActions,
+        columnVisibilityConfig,
+        setColumnVisibilityConfig,
+        isColumnVisibilityOpen,
+        setIsColumnVisibilityOpen,
       }}
     >
       {children}
@@ -113,6 +129,10 @@ export function useDashboard() {
       setQuickFilterHandlers: () => {},
       actions: {},
       setActions: () => {},
+      columnVisibilityConfig: null as ColumnVisibilityConfig | null,
+      setColumnVisibilityConfig: () => {},
+      isColumnVisibilityOpen: false,
+      setIsColumnVisibilityOpen: () => {},
     };
   }
   return context;
