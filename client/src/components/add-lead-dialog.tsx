@@ -218,6 +218,34 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
         );
 
       case "date":
+      case "datetime":
+        const isCreatedAt = col.column_key === "created_at";
+        // For created_at, display as formatted datetime string
+        const displayValue = isCreatedAt && value ? 
+          new Date(value).toLocaleString() : 
+          (col.type === "datetime" && value ? new Date(value).toLocaleString() : value || "");
+        
+        // created_at should always be read-only with datetime display
+        if (isCreatedAt) {
+          return (
+            <div key={col.id} className="space-y-2">
+              <Label htmlFor={col.column_key}>
+                {col.name} (Auto-set)
+              </Label>
+              <Input
+                id={col.column_key}
+                type="text"
+                value={displayValue}
+                readOnly
+                disabled
+                className="bg-muted cursor-not-allowed"
+                data-testid={`input-${col.column_key}`}
+              />
+            </div>
+          );
+        }
+        
+        // Regular date/datetime fields
         return (
           <div key={col.id} className="space-y-2">
             <Label htmlFor={col.column_key}>
@@ -225,32 +253,9 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
             </Label>
             <Input
               id={col.column_key}
-              type="date"
+              type={col.type === "datetime" ? "datetime-local" : "date"}
               value={value}
               onChange={(e) => handleChange(col.column_key, e.target.value)}
-              data-testid={`input-${col.column_key}`}
-            />
-          </div>
-        );
-
-      case "datetime":
-        const isCreatedAtDatetime = col.column_key === "created_at";
-        // Format ISO string to display format
-        const displayValue = isCreatedAtDatetime && value ? 
-          new Date(value).toLocaleString() : 
-          (value ? new Date(value).toLocaleString() : "");
-        return (
-          <div key={col.id} className="space-y-2">
-            <Label htmlFor={col.column_key}>
-              {col.name} {isCreatedAtDatetime && "(Auto-set)"}
-            </Label>
-            <Input
-              id={col.column_key}
-              type="text"
-              value={displayValue}
-              readOnly={isCreatedAtDatetime}
-              disabled={isCreatedAtDatetime}
-              className={isCreatedAtDatetime ? "bg-muted cursor-not-allowed" : ""}
               data-testid={`input-${col.column_key}`}
             />
           </div>
