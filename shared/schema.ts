@@ -800,6 +800,12 @@ export const company_webhooks = pgTable('company_webhooks', {
   is_active: boolean('is_active').notNull().default(true),
   last_allocated_sheet_id: varchar('last_allocated_sheet_id').references(() => sheets.id, { onDelete: 'set null' }),
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  // New columns for match-and-update functionality
+  match_mode: varchar('match_mode', { length: 50 }).notNull().default('create_only'), // 'create_only', 'match_and_update', 'match_and_add_update', 'match_or_create'
+  match_field: varchar('match_field', { length: 255 }).default('mobile_no'), // column_key to match against (e.g., 'mobile_no', 'whatsapp_no')
+  update_field_mappings: json('update_field_mappings').$type<Array<{source_field: string; target_column: string}>>().default([]),
+  no_match_action: varchar('no_match_action', { length: 50 }).default('create_lead'), // 'create_lead', 'ignore', 'log_only'
+  source_label: varchar('source_label', { length: 100 }), // e.g., 'WhatsApp', 'Website', 'Facebook'
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -869,6 +875,103 @@ export type InsertWebhookAllocationRule = typeof webhook_allocation_rules.$infer
 
 export type WebhookRequest = typeof webhook_requests.$inferSelect;
 export type InsertWebhookRequest = typeof webhook_requests.$inferInsert;
+
+// ============================================================================
+// OUTGOING WEBHOOKS (Send data out when events happen)
+// ============================================================================
+
+// Event types that can trigger outgoing webhooks
+export type OutgoingWebhookEvent = 
+  | "lead_created"
+  | "lead_updated"
+  | "field_changed"
+  | "lead_update_added"
+  | "lead_transferred"
+  | "lead_deleted";
+
+// Condition for field-based triggers (e.g., when Status changes from Talk to Visit)
+export interface FieldCondition {
+  field: string;      // column_key of the field to monitor
+  from_value?: string | null; // "any" if null/undefined
+  to_value?: string | null;   // "any" if null/undefined
+}
+
+export const outgoing_webhooks = pgTable('outgoing_webhooks', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  url: text('url').notNull(),
+  secret: varchar('secret', { length: 255 }), // for signing payloads (HMAC)
+  events: json('events').$type<OutgoingWebhookEvent[]>().default([]).notNull(),
+  // Field conditions for "field_changed" event - when specific field changes from X to Y
+  field_conditions: json('field_conditions').$type<FieldCondition[]>().default([]),
+  // Filter to specific sheets (empty = all sheets)
+  sheet_ids: json('sheet_ids').$type<string[]>().default([]),
+  // Select which fields to include in payload (empty = all fields)
+  selected_fields: json('selected_fields').$type<string[]>().default([]),
+  // Custom headers for authentication (e.g., {"Authorization": "Bearer xxx"})
+  headers: json('headers').$type<Record<string, string>>().default({}),
+  is_active: boolean('is_active').notNull().default(true),
+  retry_count: integer('retry_count').notNull().default(3),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type OutgoingWebhook = typeof outgoing_webhooks.$inferSelect;
+export type InsertOutgoingWebhook = typeof outgoing_webhooks.$inferInsert;
+
+export const insertOutgoingWebhookSchema = createInsertSchema(outgoing_webhooks).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertOutgoingWebhookData = z.infer<typeof insertOutgoingWebhookSchema>;
+
+// ============================================================================
+// OUTGOING WEBHOOK EXECUTION LOGS
+// ============================================================================
+export const outgoing_webhook_logs = pgTable('outgoing_webhook_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  webhook_id: varchar('webhook_id').notNull().references(() => outgoing_webhooks.id, { onDelete: 'cascade' }),
+  event_type: varchar('event_type', { length: 50 }).notNull(),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  payload_sent: json('payload_sent').$type<Record<string, any>>().default({}).notNull(),
+  response_status: integer('response_status'), // HTTP status code
+  response_body: text('response_body'),
+  status: varchar('status', { length: 50 }).notNull(), // 'success', 'failed', 'pending'
+  error_message: text('error_message'),
+  retry_attempt: integer('retry_attempt').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type OutgoingWebhookLog = typeof outgoing_webhook_logs.$inferSelect;
+export type InsertOutgoingWebhookLog = typeof outgoing_webhook_logs.$inferInsert;
+
+// ============================================================================
+// INCOMING WEBHOOK ENHANCEMENT (Match existing leads and update them)
+// ============================================================================
+// Extend company_webhooks with additional columns for match-and-update functionality
+
+// Match modes for incoming webhooks
+export type IncomingWebhookMatchMode = 
+  | "create_only"       // Always create new lead (current behavior)
+  | "match_and_update"  // Find lead by phone, update fields
+  | "match_and_add_update" // Find lead by phone, add Lead Update
+  | "match_or_create";  // Find lead, update if found, create if not
+
+// No-match actions
+export type NoMatchAction = 
+  | "create_lead"  // Create a new lead
+  | "ignore"       // Do nothing
+  | "log_only";    // Just log the request
+
+// This interface defines the update_field_mappings JSON structure
+export interface UpdateFieldMapping {
+  source_field: string;    // field from incoming webhook payload
+  target_column: string;   // column_key in lead's custom_fields
+}
 
 // ============================================================================
 // REPORTS
