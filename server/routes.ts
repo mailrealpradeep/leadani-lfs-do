@@ -653,126 +653,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: errorMessage });
       }
 
-      // Check for duplicate lead based on mobile_no
-      const mobileNo = leadData.mobile_no;
+      // Enhanced match-and-update logic based on webhook configuration
+      const matchMode = webhook.match_mode || "create_only";
+      const matchField = webhook.match_field || "mobile_no";
+      const matchValue = leadData[matchField];
+      const noMatchAction = webhook.no_match_action || "create_lead";
+      const updateFieldMappings = webhook.update_field_mappings || [];
+      const sourceLabel = webhook.source_label || "Webhook";
+      const today = new Date().toISOString().split('T')[0];
+      
       let lead: Lead;
+      let existingLead: Lead | undefined = undefined;
       let isDuplicate = false;
       let isTransferred = false;
+      let isUpdateAdded = false;
       let previousOwnerName = "";
       let oldSheetId: string | null = null;
 
-      if (mobileNo) {
-        const existingLead = await storage.findLeadByMobileNo(webhook.company_id, mobileNo);
-        
-        if (existingLead) {
-          isDuplicate = true;
-          const today = new Date().toISOString().split('T')[0];
-          
-          // Restore if soft-deleted
-          if (existingLead.deleted_at) {
-            await storage.restoreLead(existingLead.id);
-            await storage.createLeadUpdate({
-              lead_id: existingLead.id,
-              update_via: "webhook",
-              update_on: today,
-              remark: "Restored due to new lead receipt via webhook",
-              created_by_user_id: webhook.created_by_user_id,
-            });
-          }
-          
-          // Merge new data with existing lead (only update non-empty fields)
-          const mergedCustomFields = { ...existingLead.custom_fields };
-          for (const [key, value] of Object.entries(leadData)) {
-            if (value !== undefined && value !== null && value !== "") {
-              mergedCustomFields[key] = value;
-            }
-          }
-          // Always update lead_date to today
-          mergedCustomFields.lead_date = today;
-          
-          // Update the existing lead
-          const updated = await storage.updateLead(existingLead.id, {
-            custom_fields: mergedCustomFields,
-            deleted_at: null, // Ensure it's not soft-deleted
-          });
-          
-          if (!updated) {
-            errorMessage = "Failed to update existing lead";
-            return res.status(500).json({ error: errorMessage });
-          }
-          
-          lead = updated;
-          
-          // Check if lead needs to be transferred to different sheet
-          if (existingLead.sheet_id !== targetSheetId) {
-            // Save old sheet ID for Socket.io events
-            oldSheetId = existingLead.sheet_id;
-            
-            // Get previous owner info
-            const previousOwner = await storage.getUser(existingLead.owner_user_id);
-            previousOwnerName = previousOwner?.name || "Unknown";
-            const newOwner = webhookCreator;
-            
-            // Transfer the lead to new sheet
-            await storage.updateLead(existingLead.id, {
-              sheet_id: targetSheetId,
-              owner_user_id: webhook.created_by_user_id,
-            });
-            
-            isTransferred = true;
-            
-            // Create transfer update
-            await storage.createLeadUpdate({
-              lead_id: existingLead.id,
-              update_via: "transfer",
-              update_on: today,
-              remark: `Repeat Lead: Transferred from ${previousOwnerName} to ${newOwner.name}`,
-              created_by_user_id: webhook.created_by_user_id,
-            });
-            
-            // Get updated lead after transfer
-            const transferredLead = await storage.getLead(existingLead.id);
-            if (transferredLead) {
-              lead = transferredLead;
-            }
-          }
-          
-          // Create repeat lead update
-          await storage.createLeadUpdate({
-            lead_id: existingLead.id,
-            update_via: "webhook",
-            update_on: today,
-            remark: `Repeat lead received via webhook on ${today}`,
-            created_by_user_id: webhook.created_by_user_id,
-          });
-          
-          createdLeadId = existingLead.id;
-        } else {
-          // No duplicate - create new lead
-          lead = await storage.createLead({
-            sheet_id: targetSheetId,
-            owner_user_id: webhook.created_by_user_id,
-            custom_fields: {
-              name: leadData.name || "",
-              mobile_no: leadData.mobile_no || "",
-              whatsapp: leadData.whatsapp || leadData.mobile_no || "",
-              lang: leadData.lang || "",
-              occupation: leadData.occupation || "",
-              qualification: leadData.qualification || "",
-              lead_date: leadData.lead_date || new Date().toISOString().split('T')[0],
-              lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
-              lead_status: leadData.lead_status || "New",
-              visit_status: leadData.visit_status || "Not Visited",
-              ...leadData,
-            },
-            meta: leadData.meta || {},
-          });
-          
-          createdLeadId = lead.id;
-        }
-      } else {
-        // No mobile_no provided - create new lead
-        lead = await storage.createLead({
+      // Helper function to create a new lead
+      const createNewLead = async () => {
+        return await storage.createLead({
           sheet_id: targetSheetId,
           owner_user_id: webhook.created_by_user_id,
           custom_fields: {
@@ -782,7 +682,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             lang: leadData.lang || "",
             occupation: leadData.occupation || "",
             qualification: leadData.qualification || "",
-            lead_date: leadData.lead_date || new Date().toISOString().split('T')[0],
+            lead_date: leadData.lead_date || today,
             lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
             lead_status: leadData.lead_status || "New",
             visit_status: leadData.visit_status || "Not Visited",
@@ -790,8 +690,194 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
           meta: leadData.meta || {},
         });
+      };
+
+      // Step 1: Check for existing lead if not create_only mode
+      if (matchMode !== "create_only" && matchValue) {
+        existingLead = await storage.findLeadByField(webhook.company_id, matchField, String(matchValue));
+      }
+
+      if (existingLead) {
+        isDuplicate = true;
         
-        createdLeadId = lead.id;
+        // Restore if soft-deleted
+        if (existingLead.deleted_at) {
+          await storage.restoreLead(existingLead.id);
+          await storage.createLeadUpdate({
+            lead_id: existingLead.id,
+            update_via: "webhook",
+            update_on: today,
+            remark: `Restored due to new lead receipt via ${sourceLabel}`,
+            created_by_user_id: webhook.created_by_user_id,
+          });
+        }
+
+        // Step 2: Handle based on match_mode
+        if (matchMode === "match_and_update" || matchMode === "match_or_create") {
+          // Update lead fields based on field mappings or merge all data
+          const mergedCustomFields = { ...existingLead.custom_fields };
+          
+          if (updateFieldMappings.length > 0) {
+            // Use specific field mappings for updates
+            for (const mapping of updateFieldMappings) {
+              const sourceValue = getNestedValue(incomingData, mapping.source_field);
+              if (sourceValue !== undefined && sourceValue !== null && sourceValue !== "") {
+                mergedCustomFields[mapping.target_column] = sourceValue;
+              }
+            }
+          } else {
+            // Merge all incoming fields (default behavior)
+            for (const [key, value] of Object.entries(leadData)) {
+              if (value !== undefined && value !== null && value !== "") {
+                mergedCustomFields[key] = value;
+              }
+            }
+          }
+          
+          // Always update lead_date to today
+          mergedCustomFields.lead_date = today;
+          
+          const updated = await storage.updateLead(existingLead.id, {
+            custom_fields: mergedCustomFields,
+            deleted_at: null,
+          });
+          
+          if (!updated) {
+            errorMessage = "Failed to update existing lead";
+            return res.status(500).json({ error: errorMessage });
+          }
+          
+          lead = updated;
+          
+          // Create update log
+          await storage.createLeadUpdate({
+            lead_id: existingLead.id,
+            update_via: "webhook",
+            update_on: today,
+            remark: `Lead updated via ${sourceLabel}`,
+            created_by_user_id: webhook.created_by_user_id,
+          });
+          
+        } else if (matchMode === "match_and_add_update") {
+          // Just add a Lead Update without modifying the lead fields
+          lead = existingLead;
+          isUpdateAdded = true;
+          
+          // Build update remark from incoming data
+          const updateParts: string[] = [];
+          if (updateFieldMappings.length > 0) {
+            for (const mapping of updateFieldMappings) {
+              const sourceValue = getNestedValue(incomingData, mapping.source_field);
+              if (sourceValue !== undefined && sourceValue !== null && sourceValue !== "") {
+                updateParts.push(`${mapping.target_column}: ${sourceValue}`);
+              }
+            }
+          } else {
+            // Include all mapped fields in the update
+            for (const [key, value] of Object.entries(leadData)) {
+              if (value !== undefined && value !== null && value !== "" && key !== matchField) {
+                updateParts.push(`${key}: ${value}`);
+              }
+            }
+          }
+          
+          const updateRemark = updateParts.length > 0 
+            ? `${sourceLabel} update: ${updateParts.join(", ")}` 
+            : `New activity from ${sourceLabel}`;
+          
+          await storage.createLeadUpdate({
+            lead_id: existingLead.id,
+            update_via: "webhook",
+            update_on: today,
+            remark: updateRemark,
+            created_by_user_id: webhook.created_by_user_id,
+          });
+        } else {
+          // Fallback for any other mode with existing lead
+          lead = existingLead;
+        }
+        
+        // Check if lead needs to be transferred to different sheet
+        if (existingLead.sheet_id !== targetSheetId) {
+          oldSheetId = existingLead.sheet_id;
+          
+          const previousOwner = await storage.getUser(existingLead.owner_user_id);
+          previousOwnerName = previousOwner?.name || "Unknown";
+          
+          await storage.updateLead(existingLead.id, {
+            sheet_id: targetSheetId,
+            owner_user_id: webhook.created_by_user_id,
+          });
+          
+          isTransferred = true;
+          
+          await storage.createLeadUpdate({
+            lead_id: existingLead.id,
+            update_via: "transfer",
+            update_on: today,
+            remark: `Repeat Lead: Transferred from ${previousOwnerName} to ${webhookCreator.name}`,
+            created_by_user_id: webhook.created_by_user_id,
+          });
+          
+          const transferredLead = await storage.getLead(existingLead.id);
+          if (transferredLead) {
+            lead = transferredLead;
+          }
+        }
+        
+        createdLeadId = existingLead.id;
+        
+      } else {
+        // No matching lead found - handle based on no_match_action
+        if (matchMode === "create_only" || noMatchAction === "create_lead") {
+          // Create new lead
+          lead = await createNewLead();
+          createdLeadId = lead.id;
+        } else if (noMatchAction === "ignore") {
+          // Silently ignore - return success without creating anything
+          requestStatus = "success";
+          await storage.createWebhookRequest({
+            webhook_id: webhook.id,
+            status: "success",
+            payload: req.body,
+            headers: req.headers as any,
+            error_message: null,
+            lead_id: null,
+            allocated_sheet_id: null,
+          });
+          alreadyLogged = true;
+          
+          return res.status(200).json({
+            success: true,
+            message: `No matching lead found for ${matchField}=${matchValue}. Ignored as configured.`,
+            matched: false,
+            action: "ignored"
+          });
+        } else if (noMatchAction === "log_only") {
+          // Log the request but don't create a lead
+          requestStatus = "success";
+          await storage.createWebhookRequest({
+            webhook_id: webhook.id,
+            status: "success",
+            payload: req.body,
+            headers: req.headers as any,
+            error_message: `No match found for ${matchField}=${matchValue}`,
+            lead_id: null,
+            allocated_sheet_id: targetSheetId,
+          });
+          alreadyLogged = true;
+          
+          return res.status(200).json({
+            success: true,
+            message: `No matching lead found for ${matchField}=${matchValue}. Logged for review.`,
+            matched: false,
+            action: "logged"
+          });
+        } else {
+          // Default: create new lead
+          lead = await createNewLead();
+          createdLeadId = lead.id;
+        }
       }
 
       // Update webhook's last allocated sheet for round-robin
@@ -834,11 +920,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Build response message based on what happened
       let message = "Lead created successfully";
+      let action = "created";
+      
       if (isDuplicate) {
-        if (isTransferred) {
-          message = `Duplicate lead updated and transferred to ${webhookCreator.name}`;
+        if (isUpdateAdded) {
+          action = "update_added";
+          message = isTransferred 
+            ? `Update added to existing lead and transferred to ${webhookCreator.name}`
+            : "Update added to existing lead";
+        } else if (isTransferred) {
+          action = "updated_and_transferred";
+          message = `Lead updated and transferred to ${webhookCreator.name}`;
         } else {
-          message = "Duplicate lead updated successfully";
+          action = "updated";
+          message = "Lead updated successfully";
         }
       }
       
@@ -848,6 +943,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sheet_id: targetSheetId,
         is_duplicate: isDuplicate,
         is_transferred: isTransferred,
+        is_update_added: isUpdateAdded,
+        action,
         message
       });
     } catch (error: any) {

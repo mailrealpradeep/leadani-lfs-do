@@ -135,6 +135,7 @@ export interface IStorage {
   getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult>;
   getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]>;
   findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined>;
+  findLeadByField(companyId: string, fieldKey: string, fieldValue: string): Promise<Lead | undefined>;
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined>;
   deleteLead(id: string, userId: string): Promise<boolean>;
@@ -774,6 +775,18 @@ export class MemStorage implements IStorage {
     return Array.from(this.leads.values()).find((lead) => 
       sheetIds.has(lead.sheet_id) && 
       lead.custom_fields?.mobile_no === mobileNo
+    );
+  }
+
+  async findLeadByField(companyId: string, fieldKey: string, fieldValue: string): Promise<Lead | undefined> {
+    // Get all sheets for this company
+    const companySheets = Array.from(this.sheets.values()).filter((s) => s.company_id === companyId);
+    const sheetIds = new Set(companySheets.map((s) => s.id));
+    
+    // Search for lead with matching field value in any of the company's sheets (including soft-deleted)
+    return Array.from(this.leads.values()).find((lead) => 
+      sheetIds.has(lead.sheet_id) && 
+      lead.custom_fields?.[fieldKey] === fieldValue
     );
   }
 
@@ -2183,6 +2196,27 @@ export class PgStorage implements IStorage {
         and(
           eq(dbSchema.sheets.company_id, companyId),
           drizzleSql`${dbSchema.leads.custom_fields}->>'mobile_no' = ${mobileNo}`
+        )
+      )
+      .limit(1);
+    
+    if (result.length === 0) return undefined;
+    return this.mapLead(result[0].lead);
+  }
+
+  async findLeadByField(companyId: string, fieldKey: string, fieldValue: string): Promise<Lead | undefined> {
+    // Find lead by any custom field across all sheets in the company (including soft-deleted)
+    // Use jsonb_extract_path_text for proper key parameterization
+    const result = await db
+      .select({
+        lead: dbSchema.leads,
+      })
+      .from(dbSchema.leads)
+      .innerJoin(dbSchema.sheets, eq(dbSchema.leads.sheet_id, dbSchema.sheets.id))
+      .where(
+        and(
+          eq(dbSchema.sheets.company_id, companyId),
+          drizzleSql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}, ${fieldKey}) = ${fieldValue}`
         )
       )
       .limit(1);
