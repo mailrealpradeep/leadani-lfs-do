@@ -215,6 +215,7 @@ export function SpreadsheetGrid({
     pagination,
     setPagination,
     thoughtFilter,
+    setColumnVisibilityConfig,
   } = useDashboard();
   
   const isMultiMode = isMultiSheetMode && selectedSheetIds.length > 0;
@@ -1134,6 +1135,20 @@ export function SpreadsheetGrid({
       return next;
     });
   };
+
+  // Pass column visibility config to dashboard context for sidebar
+  useEffect(() => {
+    if (!isMultiMode) {
+      setColumnVisibilityConfig({
+        columns: orderedColumns.map(col => ({ key: col.key, label: col.label })),
+        hiddenColumns,
+        toggleColumn: toggleColumnVisibility,
+      });
+    }
+    return () => {
+      setColumnVisibilityConfig(null);
+    };
+  }, [orderedColumns, hiddenColumns, isMultiMode, setColumnVisibilityConfig]);
 
   // Quick filter handlers - comprehensive implementation supporting all operators and logical operations
   const applyQuickFilter = useCallback((filterId: string, filterConfig: any) => {
