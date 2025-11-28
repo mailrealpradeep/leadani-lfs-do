@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -168,6 +168,12 @@ export function AppSidebar() {
           url: "/admin",
           icon: Users,
           testId: "link-admin",
+        },
+        {
+          title: "Outgoing Webhooks",
+          url: "/outgoing-webhooks",
+          icon: Send,
+          testId: "link-outgoing-webhooks",
         },
       ]
     : [];

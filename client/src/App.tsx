@@ -26,6 +26,7 @@ import Reports from "@/pages/reports";
 import TeamPerformance from "@/pages/team-performance";
 import Admin from "@/pages/admin";
 import Webhooks from "@/pages/webhooks";
+import OutgoingWebhooks from "@/pages/outgoing-webhooks";
 import AuditLogs from "@/pages/audit";
 import Attendance from "@/pages/attendance";
 import Tasks from "@/pages/tasks";
@@ -87,6 +88,9 @@ function Router() {
       </Route>
       <Route path="/webhooks">
         {() => <ProtectedRoute component={Webhooks} />}
+      </Route>
+      <Route path="/outgoing-webhooks">
+        {() => <ProtectedRoute component={OutgoingWebhooks} adminOnly />}
       </Route>
       <Route path="/attendance">
         {() => <ProtectedRoute component={Attendance} />}
