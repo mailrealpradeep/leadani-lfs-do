@@ -1467,10 +1467,9 @@ export function SpreadsheetGrid({
         />
       )}
 
-      {/* Toolbar with actions */}
-      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
-        {/* Left side - selection actions */}
-        {selectedRows.size > 0 && (
+      {/* Toolbar with actions - only render when selections exist */}
+      {selectedRows.size > 0 && (
+        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Badge variant="secondary" data-testid="text-selected-count">
               {selectedRows.size} selected
@@ -1496,8 +1495,8 @@ export function SpreadsheetGrid({
               Delete
             </Button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Conditionally render mobile or desktop view based on viewport */}
       {isMobile ? (
