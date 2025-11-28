@@ -2764,10 +2764,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   // LEADS
   // ============================================================================
+  
+  // Helper to inject lead.created_at into custom_fields for proper grid display/sorting
+  const injectCreatedAtToCustomFields = (lead: any) => {
+    return {
+      ...lead,
+      custom_fields: {
+        ...lead.custom_fields,
+        created_at: lead.created_at || lead.custom_fields?.created_at,
+      },
+    };
+  };
+  
   app.get("/api/sheets/:id/leads", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
       const leads = await storage.getLeadsBySheetId(req.params.id);
-      res.json(leads);
+      // Inject created_at into custom_fields for each lead
+      const enrichedLeads = leads.map(injectCreatedAtToCustomFields);
+      res.json(enrichedLeads);
     } catch (error: any) {
       console.error("Get leads error:", error);
       res.status(500).json({ error: error.message });
@@ -2814,8 +2828,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Inject created_at into custom_fields for each lead
+      const enrichedLeads = result.leads.map(injectCreatedAtToCustomFields);
+      
       res.json({
         ...result,
+        leads: enrichedLeads,
         sheetNames: sheetMap,
         requestedSheetIds: sheetIds,
         accessibleSheetIds,
