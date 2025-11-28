@@ -60,6 +60,11 @@ import type {
   InsertOutgoingWebhook,
   OutgoingWebhookLog,
   InsertOutgoingWebhookLog,
+  CallSessionRecord,
+  InsertCallSession,
+  LeadPhoneIndexRecord,
+  InsertLeadPhoneIndex,
+  MobileLeadLookupResult,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -291,6 +296,26 @@ export interface IStorage {
   // User Sheet Views (Personal Column Preferences)
   getUserSheetView(userId: string, sheetId: string): Promise<UserSheetViewRecord | undefined>;
   upsertUserSheetView(userId: string, sheetId: string, columnOrder: string[], hiddenColumns: string[]): Promise<UserSheetViewRecord>;
+
+  // Mobile Call Integration - Call Sessions
+  getCallSession(id: string): Promise<CallSessionRecord | undefined>;
+  getCallSessionsByUserId(userId: string, limit?: number): Promise<CallSessionRecord[]>;
+  getCallSessionsByLeadId(leadId: string, limit?: number): Promise<CallSessionRecord[]>;
+  getCallSessionsByCompanyId(companyId: string, limit?: number): Promise<CallSessionRecord[]>;
+  createCallSession(session: InsertCallSession): Promise<CallSessionRecord>;
+  updateCallSession(id: string, updates: Partial<CallSessionRecord>): Promise<CallSessionRecord | undefined>;
+  deleteCallSession(id: string): Promise<boolean>;
+
+  // Mobile Call Integration - Lead Phone Index
+  getLeadPhoneIndex(id: string): Promise<LeadPhoneIndexRecord | undefined>;
+  findLeadsByPhone(companyId: string, normalizedPhone: string): Promise<LeadPhoneIndexRecord[]>;
+  getPhoneIndexByLeadId(leadId: string): Promise<LeadPhoneIndexRecord[]>;
+  createLeadPhoneIndex(entry: InsertLeadPhoneIndex): Promise<LeadPhoneIndexRecord>;
+  deleteLeadPhoneIndexByLeadId(leadId: string): Promise<boolean>;
+  syncLeadPhoneIndex(leadId: string, sheetId: string, companyId: string, phoneNumbers: Array<{phone: string; type: string; isPrimary: boolean}>): Promise<void>;
+
+  // Mobile Call Integration - Enhanced lookups
+  lookupLeadsByPhone(companyId: string, phone: string): Promise<MobileLeadLookupResult[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -1676,6 +1701,118 @@ export class MemStorage implements IStorage {
     };
     this.userSheetViewsMap.set(key, newView);
     return newView;
+  }
+
+  // ============================================================================
+  // MOBILE CALL INTEGRATION - Stub implementations for MemStorage
+  // ============================================================================
+  private callSessionsMap: Map<string, CallSessionRecord> = new Map();
+  private leadPhoneIndexMap: Map<string, LeadPhoneIndexRecord> = new Map();
+
+  async getCallSession(id: string): Promise<CallSessionRecord | undefined> {
+    return this.callSessionsMap.get(id);
+  }
+
+  async getCallSessionsByUserId(userId: string, limit: number = 50): Promise<CallSessionRecord[]> {
+    return Array.from(this.callSessionsMap.values())
+      .filter(s => s.user_id === userId)
+      .slice(0, limit);
+  }
+
+  async getCallSessionsByLeadId(leadId: string, limit: number = 50): Promise<CallSessionRecord[]> {
+    return Array.from(this.callSessionsMap.values())
+      .filter(s => s.lead_id === leadId)
+      .slice(0, limit);
+  }
+
+  async getCallSessionsByCompanyId(companyId: string, limit: number = 100): Promise<CallSessionRecord[]> {
+    return Array.from(this.callSessionsMap.values())
+      .filter(s => s.company_id === companyId)
+      .slice(0, limit);
+  }
+
+  async createCallSession(session: InsertCallSession): Promise<CallSessionRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newSession: CallSessionRecord = {
+      ...session,
+      id,
+      started_at: session.started_at as any,
+      ended_at: session.ended_at as any,
+      created_at: now as any,
+      updated_at: now as any,
+    } as CallSessionRecord;
+    this.callSessionsMap.set(id, newSession);
+    return newSession;
+  }
+
+  async updateCallSession(id: string, updates: Partial<CallSessionRecord>): Promise<CallSessionRecord | undefined> {
+    const existing = this.callSessionsMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updated_at: new Date().toISOString() as any };
+    this.callSessionsMap.set(id, updated);
+    return updated;
+  }
+
+  async deleteCallSession(id: string): Promise<boolean> {
+    return this.callSessionsMap.delete(id);
+  }
+
+  async getLeadPhoneIndex(id: string): Promise<LeadPhoneIndexRecord | undefined> {
+    return this.leadPhoneIndexMap.get(id);
+  }
+
+  async findLeadsByPhone(companyId: string, normalizedPhone: string): Promise<LeadPhoneIndexRecord[]> {
+    return Array.from(this.leadPhoneIndexMap.values())
+      .filter(i => i.company_id === companyId && i.normalized_phone === normalizedPhone);
+  }
+
+  async getPhoneIndexByLeadId(leadId: string): Promise<LeadPhoneIndexRecord[]> {
+    return Array.from(this.leadPhoneIndexMap.values())
+      .filter(i => i.lead_id === leadId);
+  }
+
+  async createLeadPhoneIndex(entry: InsertLeadPhoneIndex): Promise<LeadPhoneIndexRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newEntry: LeadPhoneIndexRecord = {
+      ...entry,
+      id,
+      created_at: now as any,
+      updated_at: now as any,
+    } as LeadPhoneIndexRecord;
+    this.leadPhoneIndexMap.set(id, newEntry);
+    return newEntry;
+  }
+
+  async deleteLeadPhoneIndexByLeadId(leadId: string): Promise<boolean> {
+    for (const [id, entry] of this.leadPhoneIndexMap) {
+      if (entry.lead_id === leadId) {
+        this.leadPhoneIndexMap.delete(id);
+      }
+    }
+    return true;
+  }
+
+  async syncLeadPhoneIndex(leadId: string, sheetId: string, companyId: string, phoneNumbers: Array<{phone: string; type: string; isPrimary: boolean}>): Promise<void> {
+    await this.deleteLeadPhoneIndexByLeadId(leadId);
+    for (const phoneInfo of phoneNumbers) {
+      if (phoneInfo.phone && phoneInfo.phone.trim()) {
+        await this.createLeadPhoneIndex({
+          company_id: companyId,
+          lead_id: leadId,
+          sheet_id: sheetId,
+          normalized_phone: phoneInfo.phone,
+          phone_type: phoneInfo.type,
+          is_primary: phoneInfo.isPrimary,
+        });
+      }
+    }
+  }
+
+  async lookupLeadsByPhone(companyId: string, phone: string): Promise<MobileLeadLookupResult[]> {
+    // Simplified implementation for MemStorage
+    return [];
   }
 }
 
@@ -3621,6 +3758,261 @@ export class PgStorage implements IStorage {
       created_at: row.created_at?.toISOString() || row.created_at,
       updated_at: row.updated_at?.toISOString() || row.updated_at,
     };
+  }
+
+  // ============================================================================
+  // MOBILE CALL INTEGRATION - Call Sessions
+  // ============================================================================
+  async getCallSession(id: string): Promise<CallSessionRecord | undefined> {
+    const result = await db.select().from(dbSchema.call_sessions).where(eq(dbSchema.call_sessions.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapCallSession(result[0]);
+  }
+
+  async getCallSessionsByUserId(userId: string, limit: number = 50): Promise<CallSessionRecord[]> {
+    const result = await db.select().from(dbSchema.call_sessions)
+      .where(eq(dbSchema.call_sessions.user_id, userId))
+      .orderBy(desc(dbSchema.call_sessions.started_at))
+      .limit(limit);
+    return result.map(r => this.mapCallSession(r));
+  }
+
+  async getCallSessionsByLeadId(leadId: string, limit: number = 50): Promise<CallSessionRecord[]> {
+    const result = await db.select().from(dbSchema.call_sessions)
+      .where(eq(dbSchema.call_sessions.lead_id, leadId))
+      .orderBy(desc(dbSchema.call_sessions.started_at))
+      .limit(limit);
+    return result.map(r => this.mapCallSession(r));
+  }
+
+  async getCallSessionsByCompanyId(companyId: string, limit: number = 100): Promise<CallSessionRecord[]> {
+    const result = await db.select().from(dbSchema.call_sessions)
+      .where(eq(dbSchema.call_sessions.company_id, companyId))
+      .orderBy(desc(dbSchema.call_sessions.started_at))
+      .limit(limit);
+    return result.map(r => this.mapCallSession(r));
+  }
+
+  async createCallSession(session: InsertCallSession): Promise<CallSessionRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newSession = {
+      ...session,
+      id,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.call_sessions).values(newSession);
+    const created = await this.getCallSession(id);
+    return created!;
+  }
+
+  async updateCallSession(id: string, updates: Partial<CallSessionRecord>): Promise<CallSessionRecord | undefined> {
+    const existing = await this.getCallSession(id);
+    if (!existing) return undefined;
+    
+    await db.update(dbSchema.call_sessions)
+      .set({
+        ...updates,
+        updated_at: new Date(),
+      })
+      .where(eq(dbSchema.call_sessions.id, id));
+    
+    return this.getCallSession(id);
+  }
+
+  async deleteCallSession(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.call_sessions).where(eq(dbSchema.call_sessions.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  private mapCallSession(row: any): CallSessionRecord {
+    return {
+      ...row,
+      started_at: row.started_at?.toISOString() || row.started_at,
+      ended_at: row.ended_at?.toISOString() || row.ended_at,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  // ============================================================================
+  // MOBILE CALL INTEGRATION - Lead Phone Index
+  // ============================================================================
+  async getLeadPhoneIndex(id: string): Promise<LeadPhoneIndexRecord | undefined> {
+    const result = await db.select().from(dbSchema.lead_phone_index).where(eq(dbSchema.lead_phone_index.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapLeadPhoneIndex(result[0]);
+  }
+
+  async findLeadsByPhone(companyId: string, normalizedPhone: string): Promise<LeadPhoneIndexRecord[]> {
+    const result = await db.select().from(dbSchema.lead_phone_index)
+      .where(and(
+        eq(dbSchema.lead_phone_index.company_id, companyId),
+        eq(dbSchema.lead_phone_index.normalized_phone, normalizedPhone)
+      ));
+    return result.map(r => this.mapLeadPhoneIndex(r));
+  }
+
+  async getPhoneIndexByLeadId(leadId: string): Promise<LeadPhoneIndexRecord[]> {
+    const result = await db.select().from(dbSchema.lead_phone_index)
+      .where(eq(dbSchema.lead_phone_index.lead_id, leadId));
+    return result.map(r => this.mapLeadPhoneIndex(r));
+  }
+
+  async createLeadPhoneIndex(entry: InsertLeadPhoneIndex): Promise<LeadPhoneIndexRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newEntry = {
+      ...entry,
+      id,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.lead_phone_index).values(newEntry);
+    const created = await this.getLeadPhoneIndex(id);
+    return created!;
+  }
+
+  async deleteLeadPhoneIndexByLeadId(leadId: string): Promise<boolean> {
+    await db.delete(dbSchema.lead_phone_index).where(eq(dbSchema.lead_phone_index.lead_id, leadId));
+    return true;
+  }
+
+  async syncLeadPhoneIndex(leadId: string, sheetId: string, companyId: string, phoneNumbers: Array<{phone: string; type: string; isPrimary: boolean}>): Promise<void> {
+    // Delete existing entries for this lead
+    await this.deleteLeadPhoneIndexByLeadId(leadId);
+    
+    // Create new entries for each phone number
+    for (const phoneInfo of phoneNumbers) {
+      if (phoneInfo.phone && phoneInfo.phone.trim()) {
+        await this.createLeadPhoneIndex({
+          company_id: companyId,
+          lead_id: leadId,
+          sheet_id: sheetId,
+          normalized_phone: phoneInfo.phone,
+          phone_type: phoneInfo.type,
+          is_primary: phoneInfo.isPrimary,
+        });
+      }
+    }
+  }
+
+  private mapLeadPhoneIndex(row: any): LeadPhoneIndexRecord {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  // ============================================================================
+  // MOBILE CALL INTEGRATION - Enhanced Lead Lookups
+  // ============================================================================
+  async lookupLeadsByPhone(companyId: string, phone: string): Promise<MobileLeadLookupResult[]> {
+    // Normalize phone number (keep only digits, last 10 for mobile)
+    const normalizedPhone = this.normalizePhoneNumber(phone);
+    
+    // First, try the phone index for fast lookup
+    const phoneIndexMatches = await this.findLeadsByPhone(companyId, normalizedPhone);
+    
+    const results: MobileLeadLookupResult[] = [];
+    
+    for (const indexEntry of phoneIndexMatches) {
+      // Get full lead details
+      const lead = await this.getLead(indexEntry.lead_id);
+      if (!lead || lead.deleted_at) continue;
+      
+      // Get sheet info
+      const sheet = await this.getSheet(indexEntry.sheet_id);
+      if (!sheet) continue;
+      
+      // Get owner info
+      const owner = await this.getUser(lead.owner_user_id);
+      
+      // Get lead updates
+      const leadUpdates = await this.getLeadUpdates(lead.id);
+      
+      results.push({
+        lead_id: lead.id,
+        sheet_id: sheet.id,
+        sheet_name: sheet.name,
+        owner_user_id: lead.owner_user_id,
+        owner_name: owner?.name || "Unknown",
+        custom_fields: lead.custom_fields,
+        lead_updates: leadUpdates,
+        matched_phone: normalizedPhone,
+        phone_type: indexEntry.phone_type,
+      });
+    }
+    
+    // If no matches from index, fallback to direct search in custom_fields
+    if (results.length === 0) {
+      const fallbackResults = await this.fallbackPhoneLookup(companyId, normalizedPhone);
+      results.push(...fallbackResults);
+    }
+    
+    return results;
+  }
+
+  private async fallbackPhoneLookup(companyId: string, normalizedPhone: string): Promise<MobileLeadLookupResult[]> {
+    // Get all sheets for the company
+    const sheets = await this.getSheetsByCompanyId(companyId);
+    const results: MobileLeadLookupResult[] = [];
+    
+    for (const sheet of sheets) {
+      // Get leads for this sheet - search for phone numbers in custom_fields
+      // This is less efficient but serves as fallback when index isn't populated
+      const leads = await db.select().from(dbSchema.leads)
+        .where(and(
+          eq(dbSchema.leads.sheet_id, sheet.id),
+          isNull(dbSchema.leads.deleted_at)
+        ));
+      
+      for (const lead of leads) {
+        const customFields = lead.custom_fields as Record<string, any>;
+        
+        // Check common phone fields
+        const phoneFields = ['mobile_no', 'whatsapp_no', 'alternate_mobile', 'phone', 'mobile'];
+        for (const field of phoneFields) {
+          const fieldValue = customFields[field];
+          if (fieldValue) {
+            const normalizedFieldValue = this.normalizePhoneNumber(String(fieldValue));
+            if (normalizedFieldValue === normalizedPhone || normalizedPhone.endsWith(normalizedFieldValue) || normalizedFieldValue.endsWith(normalizedPhone)) {
+              const owner = await this.getUser(lead.owner_user_id);
+              const leadUpdates = await this.getLeadUpdates(lead.id);
+              
+              results.push({
+                lead_id: lead.id,
+                sheet_id: sheet.id,
+                sheet_name: sheet.name,
+                owner_user_id: lead.owner_user_id,
+                owner_name: owner?.name || "Unknown",
+                custom_fields: lead.custom_fields as Record<string, any>,
+                lead_updates: leadUpdates,
+                matched_phone: normalizedPhone,
+                phone_type: field,
+              });
+              break; // Found match for this lead, move to next
+            }
+          }
+        }
+      }
+    }
+    
+    return results;
+  }
+
+  private normalizePhoneNumber(phone: string): string {
+    // Remove all non-digit characters
+    const digits = phone.replace(/\D/g, '');
+    
+    // If number is longer than 10 digits, take the last 10 (mobile number without country code)
+    if (digits.length > 10) {
+      return digits.slice(-10);
+    }
+    
+    return digits;
   }
 }
 

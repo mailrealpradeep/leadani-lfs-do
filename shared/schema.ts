@@ -1389,3 +1389,160 @@ export const insertUserSheetViewSchema = createInsertSchema(userSheetViews).omit
 });
 
 export type InsertUserSheetViewData = z.infer<typeof insertUserSheetViewSchema>;
+
+// ============================================================================
+// MOBILE CALL INTEGRATION - Call Sessions
+// ============================================================================
+export type CallDirection = "incoming" | "outgoing";
+export type CallSessionStatus = "ringing" | "answered" | "missed" | "rejected" | "completed";
+
+export interface CallSession {
+  id: string;
+  company_id: string;
+  user_id: string; // the app user who made/received the call
+  lead_id: string | null; // matched lead (can be null if no match)
+  sheet_id: string | null; // sheet of the matched lead
+  direction: CallDirection;
+  caller_number: string;
+  callee_number: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  status: CallSessionStatus;
+  recording_url: string | null;
+  notes: Record<string, any> | null;
+  lead_update_id: string | null; // reference to lead_update created
+  created_at: string;
+  updated_at: string;
+}
+
+export const call_sessions = pgTable('call_sessions', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'set null' }),
+  direction: varchar('direction', { length: 20 }).notNull(), // 'incoming' | 'outgoing'
+  caller_number: varchar('caller_number', { length: 50 }).notNull(),
+  callee_number: varchar('callee_number', { length: 50 }).notNull(),
+  started_at: timestamp('started_at').notNull(),
+  ended_at: timestamp('ended_at'),
+  duration_seconds: integer('duration_seconds'),
+  status: varchar('status', { length: 20 }).notNull().default('completed'), // 'ringing', 'answered', 'missed', 'rejected', 'completed'
+  recording_url: text('recording_url'),
+  notes: json('notes').$type<Record<string, any>>(),
+  lead_update_id: varchar('lead_update_id').references(() => lead_updates.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type CallSessionRecord = typeof call_sessions.$inferSelect;
+export type InsertCallSession = typeof call_sessions.$inferInsert;
+
+export const insertCallSessionSchema = createInsertSchema(call_sessions).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertCallSessionData = z.infer<typeof insertCallSessionSchema>;
+
+// ============================================================================
+// MOBILE CALL INTEGRATION - Lead Phone Index (for fast lookups)
+// ============================================================================
+export interface LeadPhoneIndex {
+  id: string;
+  company_id: string;
+  lead_id: string;
+  sheet_id: string;
+  normalized_phone: string; // normalized phone number (digits only, no country code variance)
+  phone_type: string; // 'mobile_no', 'whatsapp_no', 'alternate_mobile', etc.
+  is_primary: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const lead_phone_index = pgTable('lead_phone_index', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  normalized_phone: varchar('normalized_phone', { length: 20 }).notNull(),
+  phone_type: varchar('phone_type', { length: 50 }).notNull().default('mobile_no'),
+  is_primary: boolean('is_primary').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type LeadPhoneIndexRecord = typeof lead_phone_index.$inferSelect;
+export type InsertLeadPhoneIndex = typeof lead_phone_index.$inferInsert;
+
+export const insertLeadPhoneIndexSchema = createInsertSchema(lead_phone_index).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertLeadPhoneIndexData = z.infer<typeof insertLeadPhoneIndexSchema>;
+
+// ============================================================================
+// MOBILE API SCHEMAS
+// ============================================================================
+
+// Phone lookup request/response
+export const mobileCallLookupSchema = z.object({
+  phone: z.string().min(1, "Phone number is required"),
+});
+
+export type MobileCallLookupRequest = z.infer<typeof mobileCallLookupSchema>;
+
+// Lead lookup result with full details for mobile card view
+export interface MobileLeadLookupResult {
+  lead_id: string;
+  sheet_id: string;
+  sheet_name: string;
+  owner_user_id: string;
+  owner_name: string;
+  custom_fields: Record<string, any>;
+  lead_updates: LeadUpdate[];
+  matched_phone: string;
+  phone_type: string;
+}
+
+// Call session creation from mobile app
+export const createCallSessionSchema = z.object({
+  direction: z.enum(["incoming", "outgoing"]),
+  caller_number: z.string().min(1, "Caller number is required"),
+  callee_number: z.string().min(1, "Callee number is required"),
+  started_at: z.string(), // ISO timestamp
+  ended_at: z.string().nullable().optional(),
+  duration_seconds: z.number().nullable().optional(),
+  status: z.enum(["ringing", "answered", "missed", "rejected", "completed"]).default("completed"),
+  lead_id: z.string().nullable().optional(), // manually linked lead
+  notes: z.record(z.any()).nullable().optional(),
+  create_lead_update: z.boolean().default(true), // whether to create a LeadUpdate entry
+  lead_update_remark: z.string().optional(), // custom remark for lead update
+});
+
+export type CreateCallSessionRequest = z.infer<typeof createCallSessionSchema>;
+
+// Update call session
+export const updateCallSessionSchema = z.object({
+  lead_id: z.string().nullable().optional(), // re-link to different lead
+  notes: z.record(z.any()).nullable().optional(),
+  recording_url: z.string().nullable().optional(),
+  duration_seconds: z.number().nullable().optional(),
+  ended_at: z.string().nullable().optional(),
+  status: z.enum(["ringing", "answered", "missed", "rejected", "completed"]).optional(),
+});
+
+export type UpdateCallSessionRequest = z.infer<typeof updateCallSessionSchema>;
+
+// Mobile lead quick update
+export const mobileLeadUpdateSchema = z.object({
+  custom_fields: z.record(z.any()).optional(),
+  update_via: z.enum(["whatsapp", "call", "transfer"]).default("call"),
+  remark: z.string().optional(),
+});
+
+export type MobileLeadUpdateRequest = z.infer<typeof mobileLeadUpdateSchema>;
