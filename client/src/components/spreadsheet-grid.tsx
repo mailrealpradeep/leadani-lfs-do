@@ -1866,7 +1866,7 @@ export function SpreadsheetGrid({
           
           <div className="border rounded-lg flex-1 flex flex-col overflow-hidden">
             {/* Horizontal and Vertical Scroll Container */}
-            <div className="overflow-x-auto overflow-y-auto flex-1 spreadsheet-scroll-container" ref={containerRef}>
+            <div className="overflow-x-scroll overflow-y-auto flex-1 spreadsheet-scroll-container" ref={containerRef}>
             <div style={{ minWidth: `${calculateTableWidth()}px` }}>
               {/* Sticky Header with Drag and Drop */}
               <DndContext
