@@ -1067,8 +1067,8 @@ export function SpreadsheetGrid({
             return effectiveSortDirection === "asc" ? comparison : -comparison;
           }
           
-          // Handle date types
-          if (columnType === "date") {
+          // Handle date and datetime types
+          if (columnType === "date" || columnType === "datetime") {
             const aDate = aVal ? new Date(aVal).getTime() : -Infinity;
             const bDate = bVal ? new Date(bVal).getTime() : -Infinity;
             const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
@@ -1720,8 +1720,8 @@ export function SpreadsheetGrid({
                               >
                                 <span className="text-muted-foreground">{col.label}:</span>
                                 <p className={`truncate ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
-                                  {col.type === "date" && value 
-                                    ? format(new Date(value), "dd/MM/yy")
+                                  {(col.type === "date" || col.type === "datetime") && value 
+                                    ? format(new Date(value), col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy")
                                     : value || "—"}
                                 </p>
                               </div>
@@ -2173,8 +2173,8 @@ export function SpreadsheetGrid({
                           <div className="flex items-center gap-1.5 w-full">
                             <span className={`text-sm flex items-center gap-1 flex-1 min-w-0 ${col.width === "260px" || col.key === "name" ? "break-words" : ""} ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
                               {isPastNFDT && <Clock className="h-3 w-3 flex-shrink-0" />}
-                              {col.type === "date" && value
-                                ? format(new Date(value), "dd/MM/yy")
+                              {(col.type === "date" || col.type === "datetime") && value
+                                ? format(new Date(value), col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy")
                                 : col.type === "percentage" && value != null && value !== ""
                                 ? `${value}%`
                                 : value || "-"}
