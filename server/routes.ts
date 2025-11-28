@@ -8328,6 +8328,530 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // MOBILE CALL INTEGRATION APIs
+  // ============================================================================
+  
+  // Helper: Normalize phone number for consistent matching
+  function normalizePhoneNumber(phone: string): string {
+    if (!phone) return '';
+    const digits = phone.replace(/\D/g, '');
+    // Take last 10 digits for mobile number (removes country code)
+    return digits.length > 10 ? digits.slice(-10) : digits;
+  }
+  
+  // Helper: Extract phone numbers from lead custom_fields
+  function extractPhoneNumbers(customFields: Record<string, any>): Array<{phone: string; type: string; isPrimary: boolean}> {
+    const phoneFields = ['mobile_no', 'whatsapp_no', 'alternate_mobile', 'phone', 'mobile'];
+    const phoneNumbers: Array<{phone: string; type: string; isPrimary: boolean}> = [];
+    
+    for (const field of phoneFields) {
+      const value = customFields[field];
+      if (value && String(value).trim()) {
+        const normalized = normalizePhoneNumber(String(value));
+        if (normalized.length >= 7) { // Valid phone number length
+          phoneNumbers.push({
+            phone: normalized,
+            type: field,
+            isPrimary: field === 'mobile_no', // Primary phone is mobile_no
+          });
+        }
+      }
+    }
+    
+    return phoneNumbers;
+  }
+  
+  // GET /api/mobile/call-lookup - Lookup leads by phone number (Truecaller-style)
+  app.get("/api/mobile/call-lookup", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { phone } = req.query;
+      
+      if (!phone || typeof phone !== 'string') {
+        return res.status(400).json({ error: "Phone number is required" });
+      }
+      
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const results = await storage.lookupLeadsByPhone(req.companyId, phone);
+      
+      res.json({
+        matches: results,
+        matched_count: results.length,
+        phone_normalized: normalizePhoneNumber(phone),
+      });
+    } catch (error: any) {
+      console.error("Mobile call lookup error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/mobile/call-sessions - Log a call session
+  app.post("/api/mobile/call-sessions", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { 
+        phone_number, 
+        direction, // 'incoming' or 'outgoing'
+        lead_id, // optional - if already matched
+        started_at,
+        ended_at,
+        duration_seconds,
+        status, // 'completed', 'missed', 'declined', 'no_answer'
+        notes,
+      } = req.body;
+      
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      if (!phone_number || !direction) {
+        return res.status(400).json({ error: "phone_number and direction are required" });
+      }
+      
+      const normalizedPhone = normalizePhoneNumber(phone_number);
+      
+      // Auto-match lead if not provided
+      let matchedLeadId = lead_id;
+      let matchedSheetId: string | null = null;
+      
+      if (!matchedLeadId) {
+        const matches = await storage.lookupLeadsByPhone(req.companyId, phone_number);
+        if (matches.length === 1) {
+          // Auto-match single result
+          matchedLeadId = matches[0].lead_id;
+          matchedSheetId = matches[0].sheet_id;
+        }
+        // Multiple matches: leave lead_id null, client shows selection dialog
+      } else {
+        // Get the sheet_id from provided lead
+        const lead = await storage.getLead(matchedLeadId);
+        matchedSheetId = lead?.sheet_id || null;
+      }
+      
+      // Determine caller/callee based on direction
+      const isOutgoing = direction === 'outgoing';
+      const callerNum = isOutgoing ? 'user' : normalizedPhone;
+      const calleeNum = isOutgoing ? normalizedPhone : 'user';
+      
+      // Create call session
+      const callSession = await storage.createCallSession({
+        company_id: req.companyId,
+        user_id: req.userId,
+        lead_id: matchedLeadId || null,
+        sheet_id: matchedSheetId,
+        direction,
+        caller_number: callerNum,
+        callee_number: calleeNum,
+        started_at: started_at ? new Date(started_at) : new Date(),
+        ended_at: ended_at ? new Date(ended_at) : null,
+        duration_seconds: duration_seconds || null,
+        status: status || 'completed',
+        notes: notes ? { text: notes } : null,
+        recording_url: null,
+      });
+      
+      // If matched to a lead, create a lead_update entry for timeline visibility
+      if (matchedLeadId) {
+        const durationText = duration_seconds 
+          ? `${Math.floor(duration_seconds / 60)}m ${duration_seconds % 60}s` 
+          : 'Unknown duration';
+        
+        const callDescription = `${direction === 'incoming' ? 'Received' : 'Made'} call - ${status || 'completed'} (${durationText})`;
+        
+        await storage.createLeadUpdate({
+          lead_id: matchedLeadId,
+          update_via: 'call',
+          update_on: new Date().toISOString(),
+          remark: notes ? `${callDescription}: ${notes}` : callDescription,
+          created_by_user_id: req.userId,
+        });
+      }
+      
+      res.status(201).json(callSession);
+    } catch (error: any) {
+      console.error("Create call session error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/mobile/call-sessions/:id/recording - Upload call recording
+  app.post("/api/mobile/call-sessions/:id/recording", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { recording_data, filename } = req.body; // Base64 encoded audio
+      
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const callSession = await storage.getCallSession(id);
+      if (!callSession) {
+        return res.status(404).json({ error: "Call session not found" });
+      }
+      
+      if (callSession.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      if (!recording_data) {
+        return res.status(400).json({ error: "Recording data is required" });
+      }
+      
+      // Upload to Replit Object Storage
+      const { ObjectStorage } = await import('./objectStorage');
+      const objectStorage = new ObjectStorage();
+      
+      const recordingFilename = filename || `call_${id}_${Date.now()}.wav`;
+      const recordingPath = `call_recordings/${req.companyId}/${recordingFilename}`;
+      
+      // Convert base64 to buffer and upload
+      const buffer = Buffer.from(recording_data, 'base64');
+      await objectStorage.upload(recordingPath, buffer);
+      
+      // Get the public URL
+      const recordingUrl = await objectStorage.getPublicUrl(recordingPath);
+      
+      // Update call session with recording URL
+      const updatedSession = await storage.updateCallSession(id, { recording_url: recordingUrl });
+      
+      res.json({
+        call_session: updatedSession,
+        recording_url: recordingUrl,
+      });
+    } catch (error: any) {
+      console.error("Upload call recording error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // PATCH /api/mobile/call-sessions/:id - Update call session (notes, re-link lead)
+  app.patch("/api/mobile/call-sessions/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { notes, lead_id, status } = req.body;
+      
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const callSession = await storage.getCallSession(id);
+      if (!callSession) {
+        return res.status(404).json({ error: "Call session not found" });
+      }
+      
+      if (callSession.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const updates: Record<string, any> = {};
+      
+      if (notes !== undefined) updates.notes = notes;
+      if (status !== undefined) updates.status = status;
+      
+      // Handle re-linking to a different lead
+      if (lead_id !== undefined) {
+        const oldLeadId = callSession.lead_id;
+        
+        if (lead_id) {
+          const newLead = await storage.getLead(lead_id);
+          if (!newLead) {
+            return res.status(404).json({ error: "Lead not found" });
+          }
+          updates.lead_id = lead_id;
+          updates.sheet_id = newLead.sheet_id;
+        } else {
+          updates.lead_id = null;
+          updates.sheet_id = null;
+        }
+        
+        // Create lead_update entry if linking to new lead
+        if (lead_id && lead_id !== oldLeadId) {
+          const durationText = callSession.duration_seconds 
+            ? `${Math.floor(callSession.duration_seconds / 60)}m ${callSession.duration_seconds % 60}s` 
+            : 'Unknown duration';
+          
+          const callDescription = `${callSession.direction === 'incoming' ? 'Received' : 'Made'} call - ${callSession.status || 'completed'} (${durationText})`;
+          
+          await storage.createLeadUpdate({
+            lead_id: lead_id,
+            update_via: 'call',
+            update_on: new Date().toISOString(),
+            remark: notes ? `${callDescription}: ${notes}` : callDescription,
+            created_by_user_id: req.userId,
+          });
+        }
+      }
+      
+      const updatedSession = await storage.updateCallSession(id, updates);
+      res.json(updatedSession);
+    } catch (error: any) {
+      console.error("Update call session error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // GET /api/mobile/call-sessions - Get call sessions (by lead or user's calls)
+  app.get("/api/mobile/call-sessions", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { lead_id, limit } = req.query;
+      
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const limitNum = Math.min(parseInt(String(limit)) || 50, 100);
+      
+      let sessions;
+      if (lead_id && typeof lead_id === 'string') {
+        // Get calls for specific lead
+        sessions = await storage.getCallSessionsByLeadId(lead_id, limitNum);
+      } else {
+        // Get user's recent calls
+        sessions = await storage.getCallSessionsByUserId(req.userId, limitNum);
+      }
+      
+      // Filter by company (in case of unauthorized access attempt)
+      const filtered = sessions.filter(s => s.company_id === req.companyId);
+      
+      res.json({
+        call_sessions: filtered,
+        count: filtered.length,
+      });
+    } catch (error: any) {
+      console.error("Get call sessions error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // GET /api/mobile/call-sessions/:id - Get single call session
+  app.get("/api/mobile/call-sessions/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const session = await storage.getCallSession(id);
+      if (!session) {
+        return res.status(404).json({ error: "Call session not found" });
+      }
+      
+      if (session.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(session);
+    } catch (error: any) {
+      console.error("Get call session error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // PATCH /api/mobile/leads/:id - Quick lead update from mobile app
+  app.patch("/api/mobile/leads/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { custom_fields, update_note } = req.body;
+      
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const lead = await storage.getLead(id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      // Verify lead belongs to user's company via sheet
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet || sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Merge custom_fields
+      const oldCustomFields = { ...lead.custom_fields };
+      const newCustomFields = { ...lead.custom_fields, ...custom_fields };
+      
+      // Update lead
+      const updatedLead = await storage.updateLead(id, { custom_fields: newCustomFields });
+      
+      // Create lead_update entries for changed fields
+      const changedFieldDescriptions: string[] = [];
+      for (const [key, newValue] of Object.entries(custom_fields)) {
+        const oldValue = oldCustomFields[key];
+        if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+          changedFieldDescriptions.push(`${key}: ${oldValue || '(empty)'} → ${newValue || '(empty)'}`);
+        }
+      }
+      
+      // Create a single lead_update for all changed fields
+      if (changedFieldDescriptions.length > 0) {
+        await storage.createLeadUpdate({
+          lead_id: id,
+          update_via: 'call', // Using 'call' as mobile updates are typically from call app
+          update_on: new Date().toISOString(),
+          remark: update_note || `Mobile update: ${changedFieldDescriptions.join(', ')}`,
+          created_by_user_id: req.userId,
+        });
+      }
+      
+      // Sync phone index if phone fields changed
+      const phoneFields = ['mobile_no', 'whatsapp_no', 'alternate_mobile', 'phone', 'mobile'];
+      const phoneFieldsChanged = phoneFields.some(f => custom_fields[f] !== undefined);
+      if (phoneFieldsChanged && updatedLead) {
+        const phoneNumbers = extractPhoneNumbers(updatedLead.custom_fields);
+        await storage.syncLeadPhoneIndex(id, lead.sheet_id, req.companyId, phoneNumbers);
+      }
+      
+      // Trigger outgoing webhooks for mobile update - simplified call signature
+      if (updatedLead) {
+        const oldFlatFields = flattenLeadFields(lead);
+        const newFlatFields = flattenLeadFields(updatedLead);
+        const changedFields = getChangedFields(oldFlatFields, newFlatFields);
+        
+        if (changedFields.length > 0) {
+          // Note: triggerOutgoingWebhooks signature may vary - check implementation
+          try {
+            await triggerOutgoingWebhooks(
+              req.companyId,
+              'on_lead_update'
+            );
+          } catch (webhookError) {
+            console.error("Outgoing webhook error (non-fatal):", webhookError);
+          }
+        }
+      }
+      
+      res.json(updatedLead);
+    } catch (error: any) {
+      console.error("Mobile lead update error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/mobile/leads/:id/quick-update - Add a quick note/update to lead timeline
+  app.post("/api/mobile/leads/:id/quick-update", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { note, update_type } = req.body;
+      
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      if (!note) {
+        return res.status(400).json({ error: "Note is required" });
+      }
+      
+      const lead = await storage.getLead(id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      // Verify lead belongs to user's company via sheet
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet || sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Create lead update entry
+      const leadUpdate = await storage.createLeadUpdate({
+        lead_id: id,
+        update_via: 'call', // Mobile app updates
+        update_on: new Date().toISOString(),
+        remark: note,
+        created_by_user_id: req.userId,
+      });
+      
+      res.status(201).json(leadUpdate);
+    } catch (error: any) {
+      console.error("Mobile quick update error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // GET /api/mobile/leads/:id - Get lead details with updates (for mobile view)
+  app.get("/api/mobile/leads/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const lead = await storage.getLead(id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      // Verify lead belongs to user's company via sheet
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet || sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Get lead updates
+      const leadUpdates = await storage.getLeadUpdates(id);
+      
+      // Get call sessions for this lead
+      const callSessions = await storage.getCallSessionsByLeadId(id, 20);
+      
+      // Get owner info
+      const owner = await storage.getUser(lead.owner_user_id);
+      
+      res.json({
+        lead,
+        sheet_name: sheet.name,
+        owner_name: owner?.name || "Unknown",
+        lead_updates: leadUpdates,
+        call_sessions: callSessions,
+      });
+    } catch (error: any) {
+      console.error("Get mobile lead error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/mobile/sync-phone-index - Rebuild phone index for company (admin only)
+  app.post("/api/mobile/sync-phone-index", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      // Get all sheets for the company
+      const sheets = await storage.getSheetsByCompanyId(req.companyId);
+      let processedLeads = 0;
+      let indexedPhones = 0;
+      
+      for (const sheet of sheets) {
+        const leads = await storage.getLeadsBySheetId(sheet.id);
+        
+        for (const lead of leads) {
+          if (!lead.deleted_at) {
+            const phoneNumbers = extractPhoneNumbers(lead.custom_fields);
+            await storage.syncLeadPhoneIndex(lead.id, sheet.id, req.companyId, phoneNumbers);
+            processedLeads++;
+            indexedPhones += phoneNumbers.length;
+          }
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: `Rebuilt phone index: ${processedLeads} leads processed, ${indexedPhones} phone numbers indexed`,
+        processed_leads: processedLeads,
+        indexed_phones: indexedPhones,
+      });
+    } catch (error: any) {
+      console.error("Sync phone index error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
