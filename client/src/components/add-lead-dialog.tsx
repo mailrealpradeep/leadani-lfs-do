@@ -53,10 +53,11 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
 
   useEffect(() => {
     if (open) {
-      const today = new Date().toISOString().split('T')[0];
+      // Use full ISO timestamp for created_at (with timezone)
+      const now = new Date().toISOString();
       setFormData(prev => ({
         ...prev,
-        created_at: today,
+        created_at: now,
       }));
     } else {
       setFormData({});
@@ -217,20 +218,39 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
         );
 
       case "date":
-        const isCreatedAt = col.column_key === "created_at";
         return (
           <div key={col.id} className="space-y-2">
             <Label htmlFor={col.column_key}>
-              {col.name} {isCreatedAt && "(Auto-set)"}
+              {col.name}
             </Label>
             <Input
               id={col.column_key}
               type="date"
               value={value}
-              onChange={(e) => !isCreatedAt && handleChange(col.column_key, e.target.value)}
-              readOnly={isCreatedAt}
-              disabled={isCreatedAt}
-              className={isCreatedAt ? "bg-muted cursor-not-allowed" : ""}
+              onChange={(e) => handleChange(col.column_key, e.target.value)}
+              data-testid={`input-${col.column_key}`}
+            />
+          </div>
+        );
+
+      case "datetime":
+        const isCreatedAtDatetime = col.column_key === "created_at";
+        // Format ISO string to display format
+        const displayValue = isCreatedAtDatetime && value ? 
+          new Date(value).toLocaleString() : 
+          (value ? new Date(value).toLocaleString() : "");
+        return (
+          <div key={col.id} className="space-y-2">
+            <Label htmlFor={col.column_key}>
+              {col.name} {isCreatedAtDatetime && "(Auto-set)"}
+            </Label>
+            <Input
+              id={col.column_key}
+              type="text"
+              value={displayValue}
+              readOnly={isCreatedAtDatetime}
+              disabled={isCreatedAtDatetime}
+              className={isCreatedAtDatetime ? "bg-muted cursor-not-allowed" : ""}
               data-testid={`input-${col.column_key}`}
             />
           </div>
