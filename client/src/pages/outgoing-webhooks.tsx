@@ -119,7 +119,13 @@ export default function OutgoingWebhooks() {
     queryKey: ["/api/admin/company/outgoing-webhooks", webhookForLogs?.id, "logs"],
     queryFn: async () => {
       if (!webhookForLogs) return [];
-      const response = await fetch(`/api/admin/company/outgoing-webhooks/${webhookForLogs.id}/logs?limit=50`);
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(`/api/admin/company/outgoing-webhooks/${webhookForLogs.id}/logs?limit=50`, {
+        credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
       if (!response.ok) throw new Error("Failed to fetch logs");
       return response.json();
     },
