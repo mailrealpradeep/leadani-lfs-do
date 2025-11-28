@@ -14,14 +14,6 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { CustomColumn } from "@shared/schema";
 
-const FIXED_COLUMNS = [
-  { column_key: "name", name: "Name", type: "text" },
-  { column_key: "email", name: "Email", type: "text" },
-  { column_key: "phone", name: "Phone", type: "mobile" },
-  { column_key: "source", name: "Source", type: "text" },
-  { column_key: "status", name: "Status", type: "text" },
-] as const;
-
 const OPERATORS_BY_TYPE: Record<string, Array<{ value: string; label: string }>> = {
   text: [
     { value: "equals", label: "Equals" },
@@ -121,19 +113,16 @@ export function FilterConditionBuilder({
   onLogicalOperatorChange,
   showLogicalOperator = true
 }: FilterConditionBuilderProps) {
-  const { data: customColumns = [] } = useQuery<CustomColumn[]>({
+  const { data: companyColumns = [] } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
   });
 
-  const allColumns = [
-    ...FIXED_COLUMNS,
-    ...customColumns.map((col) => ({
-      column_key: col.column_key,
-      name: col.name,
-      type: col.type,
-      config: col.config,
-    })),
-  ];
+  const allColumns = companyColumns.map((col) => ({
+    column_key: col.column_key,
+    name: col.name,
+    type: col.type,
+    config: col.config,
+  }));
 
   const addCondition = () => {
     onChange([
@@ -191,7 +180,7 @@ export function FilterConditionBuilder({
   };
 
   const getDropdownOptions = (columnKey: string) => {
-    const column = customColumns.find((col) => col.column_key === columnKey);
+    const column = companyColumns.find((col) => col.column_key === columnKey);
     return column?.config?.dropdown_options || [];
   };
 
@@ -274,25 +263,16 @@ export function FilterConditionBuilder({
                       <SelectValue placeholder="Select column" />
                     </SelectTrigger>
                     <SelectContent>
-                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                        Fixed Columns
-                      </div>
-                      {FIXED_COLUMNS.map((col) => (
-                        <SelectItem key={col.column_key} value={col.column_key}>
-                          {col.name}
-                        </SelectItem>
-                      ))}
-                      {customColumns.length > 0 && (
-                        <>
-                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground border-t mt-1">
-                            Custom Columns
-                          </div>
-                          {customColumns.map((col) => (
-                            <SelectItem key={col.column_key} value={col.column_key}>
-                              {col.name}
-                            </SelectItem>
-                          ))}
-                        </>
+                      {companyColumns.length === 0 ? (
+                        <div className="px-2 py-3 text-sm text-muted-foreground text-center">
+                          No columns available
+                        </div>
+                      ) : (
+                        companyColumns.map((col) => (
+                          <SelectItem key={col.column_key} value={col.column_key}>
+                            {col.name}
+                          </SelectItem>
+                        ))
                       )}
                     </SelectContent>
                   </Select>

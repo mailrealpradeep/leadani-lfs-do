@@ -125,23 +125,26 @@ function generateMockValue(fieldKey: string, fieldType?: string): string {
   return 'Sample Value';
 }
 
-// Rate limiters
+// Rate limiters - disable trust proxy validation for Replit deployment
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5,
   message: "Too many login attempts, please try again later",
+  validate: { trustProxy: false },
 });
 
 const webhookLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 30,
   message: "Too many webhook requests",
+  validate: { trustProxy: false },
 });
 
 const signupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
   message: "Too many signup attempts, please try again later",
+  validate: { trustProxy: false },
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
