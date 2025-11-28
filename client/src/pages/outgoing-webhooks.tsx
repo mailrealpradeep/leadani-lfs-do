@@ -51,7 +51,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { OutgoingWebhook, Sheet, CustomColumn, FieldCondition, OutgoingWebhookEvent } from "@shared/schema";
+import type { OutgoingWebhook, OutgoingWebhookLog, Sheet, CustomColumn, FieldCondition, OutgoingWebhookEvent } from "@shared/schema";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { History, AlertCircle, CheckCircle2, Clock, XCircle } from "lucide-react";
 
 const EVENT_OPTIONS: { value: OutgoingWebhookEvent; label: string; description: string }[] = [
   { value: "lead_created", label: "Lead Created", description: "When a new lead is added to any sheet" },
@@ -83,6 +85,7 @@ export default function OutgoingWebhooks() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [configureDialogOpen, setConfigureDialogOpen] = useState(false);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
+  const [webhookForLogs, setWebhookForLogs] = useState<OutgoingWebhook | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedWebhook, setSelectedWebhook] = useState<OutgoingWebhook | null>(null);
   const [webhookToDelete, setWebhookToDelete] = useState<OutgoingWebhook | null>(null);
@@ -110,6 +113,17 @@ export default function OutgoingWebhooks() {
 
   const { data: columns = [] } = useQuery<CustomColumn[]>({
     queryKey: ["/api/columns"],
+  });
+
+  const { data: logs = [], isLoading: logsLoading, refetch: refetchLogs } = useQuery<OutgoingWebhookLog[]>({
+    queryKey: ["/api/admin/company/outgoing-webhooks", webhookForLogs?.id, "logs"],
+    queryFn: async () => {
+      if (!webhookForLogs) return [];
+      const response = await fetch(`/api/admin/company/outgoing-webhooks/${webhookForLogs.id}/logs?limit=50`);
+      if (!response.ok) throw new Error("Failed to fetch logs");
+      return response.json();
+    },
+    enabled: !!webhookForLogs && logsDialogOpen,
   });
 
   const dropdownColumns = columns.filter((col) => col.type === "dropdown");
@@ -340,6 +354,37 @@ export default function OutgoingWebhooks() {
     });
   };
 
+  const handleViewLogs = (webhook: OutgoingWebhook) => {
+    setWebhookForLogs(webhook);
+    setLogsDialogOpen(true);
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "success":
+        return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+      case "failed":
+        return <XCircle className="h-4 w-4 text-destructive" />;
+      case "pending":
+        return <Clock className="h-4 w-4 text-yellow-500" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "success":
+        return <Badge variant="default" className="bg-green-500">Success</Badge>;
+      case "failed":
+        return <Badge variant="destructive">Failed</Badge>;
+      case "pending":
+        return <Badge variant="outline" className="border-yellow-500 text-yellow-600">Pending</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
   const getEventBadge = (event: OutgoingWebhookEvent) => {
     const option = EVENT_OPTIONS.find((o) => o.value === event);
     return option?.label || event;
@@ -421,6 +466,14 @@ export default function OutgoingWebhooks() {
                           data-testid={`button-test-${webhook.id}`}
                         >
                           <PlayCircle className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleViewLogs(webhook)}
+                          data-testid={`button-logs-${webhook.id}`}
+                        >
+                          <History className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -817,6 +870,134 @@ export default function OutgoingWebhooks() {
           <p className="text-sm">{testResult?.message}</p>
           <DialogFooter>
             <Button onClick={() => setTestResultOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={logsDialogOpen} onOpenChange={(open) => {
+        setLogsDialogOpen(open);
+        if (!open) setWebhookForLogs(null);
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Execution Logs: {webhookForLogs?.name}
+            </DialogTitle>
+            <DialogDescription>
+              View recent webhook execution history and debug issues
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Showing last {logs.length} executions
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetchLogs()}
+              disabled={logsLoading}
+              data-testid="button-refresh-logs"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${logsLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+          <ScrollArea className="h-[60vh]">
+            {logsLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-20" />
+                ))}
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium" data-testid="text-no-logs">No execution logs yet</p>
+                <p className="text-sm mt-2">
+                  Logs will appear here after the webhook is triggered
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 pr-4">
+                {logs.map((log) => (
+                  <Card key={log.id} data-testid={`card-log-${log.id}`} className="overflow-hidden">
+                    <CardHeader className="py-3 px-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          {getStatusIcon(log.status)}
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="outline" className="text-xs" data-testid={`badge-event-${log.id}`}>
+                                {getEventBadge(log.event_type as OutgoingWebhookEvent)}
+                              </Badge>
+                              {getStatusBadge(log.status)}
+                              {log.retry_attempt > 0 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Retry #{log.retry_attempt}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {format(new Date(log.created_at), "PPpp")}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          {log.response_status ? (
+                            <Badge 
+                              variant={log.response_status >= 200 && log.response_status < 300 ? "default" : "destructive"}
+                              className={log.response_status >= 200 && log.response_status < 300 ? "bg-green-500" : ""}
+                            >
+                              HTTP {log.response_status}
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">No Response</Badge>
+                          )}
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="py-2 px-4 space-y-2 border-t bg-muted/30">
+                      {log.error_message && (
+                        <div className="text-sm">
+                          <span className="text-destructive font-medium">Error: </span>
+                          <span className="text-muted-foreground">{log.error_message}</span>
+                        </div>
+                      )}
+                      {log.lead_id && (
+                        <div className="text-sm">
+                          <span className="font-medium">Lead ID: </span>
+                          <code className="text-xs bg-muted px-1 py-0.5 rounded">{log.lead_id}</code>
+                        </div>
+                      )}
+                      <details className="text-sm">
+                        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                          View Payload Sent
+                        </summary>
+                        <pre className="mt-2 p-3 bg-muted rounded-md text-xs overflow-x-auto max-h-40">
+                          {JSON.stringify(log.payload_sent, null, 2)}
+                        </pre>
+                      </details>
+                      {log.response_body && (
+                        <details className="text-sm">
+                          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                            View Response Body
+                          </summary>
+                          <pre className="mt-2 p-3 bg-muted rounded-md text-xs overflow-x-auto max-h-40">
+                            {log.response_body}
+                          </pre>
+                        </details>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+          <DialogFooter>
+            <Button onClick={() => setLogsDialogOpen(false)} data-testid="button-close-logs">
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
