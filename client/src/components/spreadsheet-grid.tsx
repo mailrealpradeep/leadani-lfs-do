@@ -2211,49 +2211,30 @@ export function SpreadsheetGrid({
                                 ? `${value}%`
                                 : value || "-"}
                             </span>
-                            {/* Call/WhatsApp icons for mobile/phone columns */}
+                            {/* WhatsApp icon for mobile/phone/whatsapp columns */}
                             {(col.type === "mobile" || 
                               col.key.toLowerCase().includes("mobile") || 
                               col.key.toLowerCase().includes("phone") ||
                               col.key.toLowerCase().includes("whatsapp")) && value && (
-                              <div className="flex items-center gap-0.5 flex-shrink-0">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        window.location.href = `tel:${value}`;
-                                      }}
-                                      data-testid={`button-call-${lead.id}-${col.key}`}
-                                    >
-                                      <Phone className="h-3.5 w-3.5 text-green-600" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top">Call</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const cleanNumber = String(value).replace(/[\s-]/g, '');
-                                        const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
-                                        window.open(`https://wa.me/${formattedNumber}`, '_blank');
-                                      }}
-                                      data-testid={`button-whatsapp-${lead.id}-${col.key}`}
-                                    >
-                                      <MessageCircle className="h-3.5 w-3.5 text-green-500" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top">WhatsApp</TooltipContent>
-                                </Tooltip>
-                              </div>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 flex-shrink-0"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const cleanNumber = String(value).replace(/[\s-]/g, '');
+                                      const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
+                                      window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                                    }}
+                                    data-testid={`button-whatsapp-${lead.id}-${col.key}`}
+                                  >
+                                    <MessageCircle className="h-3.5 w-3.5 text-green-500" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">WhatsApp</TooltipContent>
+                              </Tooltip>
                             )}
                           </div>
                         )}
