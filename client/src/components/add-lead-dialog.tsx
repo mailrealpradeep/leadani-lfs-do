@@ -20,6 +20,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import type { Lead, CustomColumn, Sheet } from "@shared/schema";
 
+const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at"] as const;
+
 interface AddLeadDialogProps {
   sheetId: string;
   sheetIds?: string[];
@@ -48,6 +50,18 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
       setSelectedSheetId(sheetId);
     }
   }, [isMultiSheetMode, sheetIds, sheetId, selectedSheetId]);
+
+  useEffect(() => {
+    if (open) {
+      const today = new Date().toISOString().split('T')[0];
+      setFormData(prev => ({
+        ...prev,
+        created_at: today,
+      }));
+    } else {
+      setFormData({});
+    }
+  }, [open]);
 
   const activeSheetId = isMultiSheetMode ? selectedSheetId : sheetId;
 
@@ -89,13 +103,36 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate required fields (handle falsy values like false and 0 correctly)
-    const requiredColumns = columns.filter(col => col.config.required);
+    // Validate mandatory system columns first (Full Name, Mobile No)
+    const mandatoryFields = [
+      { key: "full_name", name: "Full Name" },
+      { key: "mobile_no", name: "Mobile No" },
+    ];
+    
+    const missingMandatory = mandatoryFields.filter(field => {
+      const value = formData[field.key];
+      if (value === null || value === undefined) return true;
+      if (typeof value === "string" && value.trim() === "") return true;
+      return false;
+    });
+    
+    if (missingMandatory.length > 0) {
+      toast({
+        title: "Missing mandatory fields",
+        description: `Please fill in: ${missingMandatory.map(f => f.name).join(", ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Validate other required fields (handle falsy values like false and 0 correctly)
+    const requiredColumns = columns.filter(col => 
+      col.config.required && 
+      !SYSTEM_COLUMN_KEYS.includes(col.column_key as typeof SYSTEM_COLUMN_KEYS[number])
+    );
     const missingFields = requiredColumns.filter(col => {
       const value = formData[col.column_key];
-      // Check for null/undefined (nullish), but allow false, 0, empty string
       if (value === null || value === undefined) return true;
-      // For text fields, check if they're just whitespace
       if (col.type === "text" && typeof value === "string" && value.trim() === "") return true;
       return false;
     });
@@ -121,20 +158,23 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
 
   const renderField = (col: CustomColumn) => {
     const value = formData[col.column_key] ?? "";
-    const required = col.config.required || false;
+    const isSystemColumn = SYSTEM_COLUMN_KEYS.includes(col.column_key as typeof SYSTEM_COLUMN_KEYS[number]);
+    const isMandatorySystemColumn = col.column_key === "full_name" || col.column_key === "mobile_no";
+    const required = col.config.required || isMandatorySystemColumn;
 
     switch (col.type) {
       case "text":
         return (
           <div key={col.id} className="space-y-2">
             <Label htmlFor={col.column_key}>
-              {col.name} {required && "*"}
+              {col.name} {required && <span className="text-destructive">*</span>}
             </Label>
             <Input
               id={col.column_key}
               value={value}
               onChange={(e) => handleChange(col.column_key, e.target.value)}
               required={required}
+              placeholder={isMandatorySystemColumn ? `Enter ${col.name}` : undefined}
               data-testid={`input-${col.column_key}`}
             />
           </div>
@@ -144,7 +184,7 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
         return (
           <div key={col.id} className="space-y-2">
             <Label htmlFor={col.column_key}>
-              {col.name} {required && "*"}
+              {col.name} {required && <span className="text-destructive">*</span>}
             </Label>
             <Input
               id={col.column_key}
@@ -152,23 +192,45 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
               value={value}
               onChange={(e) => handleChange(col.column_key, e.target.value)}
               required={required}
+              placeholder={isMandatorySystemColumn ? `Enter ${col.name}` : undefined}
+              data-testid={`input-${col.column_key}`}
+            />
+          </div>
+        );
+
+      case "mobile":
+        return (
+          <div key={col.id} className="space-y-2">
+            <Label htmlFor={col.column_key}>
+              {col.name} {required && <span className="text-destructive">*</span>}
+            </Label>
+            <Input
+              id={col.column_key}
+              type="tel"
+              value={value}
+              onChange={(e) => handleChange(col.column_key, e.target.value)}
+              required={required}
+              placeholder="Enter mobile number"
               data-testid={`input-${col.column_key}`}
             />
           </div>
         );
 
       case "date":
+        const isCreatedAt = col.column_key === "created_at";
         return (
           <div key={col.id} className="space-y-2">
             <Label htmlFor={col.column_key}>
-              {col.name} {required && "*"}
+              {col.name} {isCreatedAt && "(Auto-set)"}
             </Label>
             <Input
               id={col.column_key}
               type="date"
               value={value}
-              onChange={(e) => handleChange(col.column_key, e.target.value)}
-              required={required}
+              onChange={(e) => !isCreatedAt && handleChange(col.column_key, e.target.value)}
+              readOnly={isCreatedAt}
+              disabled={isCreatedAt}
+              className={isCreatedAt ? "bg-muted cursor-not-allowed" : ""}
               data-testid={`input-${col.column_key}`}
             />
           </div>
@@ -178,7 +240,7 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
         return (
           <div key={col.id} className="space-y-2">
             <Label htmlFor={col.column_key}>
-              {col.name} {required && "*"}
+              {col.name} {required && <span className="text-destructive">*</span>}
             </Label>
             <Select
               value={value}
@@ -221,7 +283,19 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
     }
   };
 
-  const sortedColumns = [...columns].sort((a, b) => a.order_index - b.order_index);
+  const sortedColumns = [...columns].sort((a, b) => {
+    const systemOrder = { full_name: 0, mobile_no: 1, created_at: 2 };
+    const aIsSystem = SYSTEM_COLUMN_KEYS.includes(a.column_key as typeof SYSTEM_COLUMN_KEYS[number]);
+    const bIsSystem = SYSTEM_COLUMN_KEYS.includes(b.column_key as typeof SYSTEM_COLUMN_KEYS[number]);
+    
+    if (aIsSystem && bIsSystem) {
+      return (systemOrder[a.column_key as keyof typeof systemOrder] ?? 99) - 
+             (systemOrder[b.column_key as keyof typeof systemOrder] ?? 99);
+    }
+    if (aIsSystem) return -1;
+    if (bIsSystem) return 1;
+    return a.order_index - b.order_index;
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

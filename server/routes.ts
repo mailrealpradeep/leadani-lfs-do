@@ -4078,7 +4078,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get company columns for this sheet's company
-      const columns = await storage.getCompanyColumns(sheet.company_id);
+      let columns = await storage.getCompanyColumns(sheet.company_id);
+      
+      // Ensure all system columns exist for this company (same logic as /api/company/columns)
+      const existingKeys = new Set(columns.map(c => c.column_key));
+      const missingSystemCols = SYSTEM_COLUMNS.filter(s => !existingKeys.has(s.column_key));
+      
+      if (missingSystemCols.length > 0) {
+        for (const sysCol of missingSystemCols) {
+          const currentColumns = await storage.getCompanyColumns(sheet.company_id);
+          const alreadyExists = currentColumns.some(c => c.column_key === sysCol.column_key);
+          
+          if (!alreadyExists) {
+            const columnsToShift = currentColumns
+              .filter(c => c.order_index >= sysCol.order_index)
+              .sort((a, b) => b.order_index - a.order_index);
+            
+            for (const col of columnsToShift) {
+              await storage.updateCustomColumn(col.id, { 
+                order_index: col.order_index + 1 
+              });
+            }
+            
+            await storage.createCustomColumn({
+              company_id: sheet.company_id,
+              sheet_id: null,
+              name: sysCol.name,
+              column_key: sysCol.column_key,
+              type: sysCol.type,
+              config: { required: true, is_system_column: true },
+              order_index: sysCol.order_index,
+            });
+          }
+        }
+        
+        columns = await storage.getCompanyColumns(sheet.company_id);
+      }
       
       // Separate company-wide columns and sheet-specific overrides
       const companyColumns = columns.filter(c => c.sheet_id === null);
@@ -4097,8 +4132,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         columnMap.set(col.column_key, col);
       });
       
-      // Return merged result
-      const mergedColumns = Array.from(columnMap.values());
+      // Return merged result sorted by order_index
+      const mergedColumns = Array.from(columnMap.values()).sort((a, b) => a.order_index - b.order_index);
       res.json(mergedColumns);
     } catch (error: any) {
       console.error("Get sheet columns error:", error);
