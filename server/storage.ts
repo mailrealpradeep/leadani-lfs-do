@@ -56,6 +56,10 @@ import type {
   InsertTaskUpdate,
   UserSheetView,
   UserSheetViewRecord,
+  OutgoingWebhook,
+  InsertOutgoingWebhook,
+  OutgoingWebhookLog,
+  InsertOutgoingWebhookLog,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -209,6 +213,22 @@ export interface IStorage {
   getWebhookRequests(webhookId: string): Promise<WebhookRequest[]>;
   getWebhookRequestsByCompanyId(companyId: string): Promise<WebhookRequest[]>;
   createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest>;
+
+  // Outgoing Webhooks
+  getOutgoingWebhook(id: string): Promise<OutgoingWebhook | undefined>;
+  getOutgoingWebhooksByCompanyId(companyId: string): Promise<OutgoingWebhook[]>;
+  getActiveOutgoingWebhooksByCompanyId(companyId: string): Promise<OutgoingWebhook[]>;
+  createOutgoingWebhook(webhook: InsertOutgoingWebhook): Promise<OutgoingWebhook>;
+  updateOutgoingWebhook(id: string, updates: Partial<OutgoingWebhook>): Promise<OutgoingWebhook | undefined>;
+  deleteOutgoingWebhook(id: string): Promise<boolean>;
+
+  // Outgoing Webhook Logs
+  getOutgoingWebhookLogs(webhookId: string, limit?: number): Promise<OutgoingWebhookLog[]>;
+  getOutgoingWebhookLogsByCompanyId(companyId: string, limit?: number): Promise<OutgoingWebhookLog[]>;
+  createOutgoingWebhookLog(log: InsertOutgoingWebhookLog): Promise<OutgoingWebhookLog>;
+
+  // Lead Search for Webhook Matching
+  findLeadsByFieldValue(companyId: string, fieldKey: string, value: string): Promise<Lead[]>;
 
   // Reports
   getReport(id: string): Promise<Report | undefined>;
@@ -1176,6 +1196,49 @@ export class MemStorage implements IStorage {
   
   async createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest> {
     throw new Error("Webhook management not supported in MemStorage");
+  }
+
+  // Outgoing Webhooks (stub implementations)
+  async getOutgoingWebhook(id: string): Promise<OutgoingWebhook | undefined> {
+    throw new Error("Outgoing webhook management not supported in MemStorage");
+  }
+
+  async getOutgoingWebhooksByCompanyId(companyId: string): Promise<OutgoingWebhook[]> {
+    return [];
+  }
+
+  async getActiveOutgoingWebhooksByCompanyId(companyId: string): Promise<OutgoingWebhook[]> {
+    return [];
+  }
+
+  async createOutgoingWebhook(webhook: InsertOutgoingWebhook): Promise<OutgoingWebhook> {
+    throw new Error("Outgoing webhook management not supported in MemStorage");
+  }
+
+  async updateOutgoingWebhook(id: string, updates: Partial<OutgoingWebhook>): Promise<OutgoingWebhook | undefined> {
+    throw new Error("Outgoing webhook management not supported in MemStorage");
+  }
+
+  async deleteOutgoingWebhook(id: string): Promise<boolean> {
+    throw new Error("Outgoing webhook management not supported in MemStorage");
+  }
+
+  // Outgoing Webhook Logs (stub implementations)
+  async getOutgoingWebhookLogs(webhookId: string, limit?: number): Promise<OutgoingWebhookLog[]> {
+    return [];
+  }
+
+  async getOutgoingWebhookLogsByCompanyId(companyId: string, limit?: number): Promise<OutgoingWebhookLog[]> {
+    return [];
+  }
+
+  async createOutgoingWebhookLog(log: InsertOutgoingWebhookLog): Promise<OutgoingWebhookLog> {
+    throw new Error("Outgoing webhook management not supported in MemStorage");
+  }
+
+  // Lead Search for Webhook Matching (stub implementation)
+  async findLeadsByFieldValue(companyId: string, fieldKey: string, value: string): Promise<Lead[]> {
+    return [];
   }
 
   // Reports
@@ -2755,6 +2818,145 @@ export class PgStorage implements IStorage {
     };
     await db.insert(dbSchema.webhook_requests).values(newRequest);
     return this.mapWebhookRequest(newRequest as any);
+  }
+
+  // Outgoing Webhooks
+  async getOutgoingWebhook(id: string): Promise<OutgoingWebhook | undefined> {
+    const result = await db.select().from(dbSchema.outgoing_webhooks).where(eq(dbSchema.outgoing_webhooks.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapOutgoingWebhook(result[0]);
+  }
+
+  async getOutgoingWebhooksByCompanyId(companyId: string): Promise<OutgoingWebhook[]> {
+    const result = await db.select().from(dbSchema.outgoing_webhooks)
+      .where(eq(dbSchema.outgoing_webhooks.company_id, companyId))
+      .orderBy(desc(dbSchema.outgoing_webhooks.created_at));
+    return result.map(this.mapOutgoingWebhook.bind(this));
+  }
+
+  async getActiveOutgoingWebhooksByCompanyId(companyId: string): Promise<OutgoingWebhook[]> {
+    const result = await db.select().from(dbSchema.outgoing_webhooks)
+      .where(and(
+        eq(dbSchema.outgoing_webhooks.company_id, companyId),
+        eq(dbSchema.outgoing_webhooks.is_active, true)
+      ))
+      .orderBy(desc(dbSchema.outgoing_webhooks.created_at));
+    return result.map(this.mapOutgoingWebhook.bind(this));
+  }
+
+  async createOutgoingWebhook(webhook: InsertOutgoingWebhook): Promise<OutgoingWebhook> {
+    const id = randomUUID();
+    const now = new Date();
+    const newWebhook = {
+      id,
+      ...webhook,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.outgoing_webhooks).values(newWebhook);
+    return this.mapOutgoingWebhook(newWebhook as any);
+  }
+
+  async updateOutgoingWebhook(id: string, updates: Partial<OutgoingWebhook>): Promise<OutgoingWebhook | undefined> {
+    const now = new Date();
+    const convertedUpdates: any = { ...updates, updated_at: now };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    await db.update(dbSchema.outgoing_webhooks).set(convertedUpdates).where(eq(dbSchema.outgoing_webhooks.id, id));
+    const result = await db.select().from(dbSchema.outgoing_webhooks).where(eq(dbSchema.outgoing_webhooks.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapOutgoingWebhook(result[0]);
+  }
+
+  async deleteOutgoingWebhook(id: string): Promise<boolean> {
+    await db.delete(dbSchema.outgoing_webhooks).where(eq(dbSchema.outgoing_webhooks.id, id));
+    return true;
+  }
+
+  // Outgoing Webhook Logs
+  async getOutgoingWebhookLogs(webhookId: string, limit: number = 100): Promise<OutgoingWebhookLog[]> {
+    const result = await db.select().from(dbSchema.outgoing_webhook_logs)
+      .where(eq(dbSchema.outgoing_webhook_logs.webhook_id, webhookId))
+      .orderBy(desc(dbSchema.outgoing_webhook_logs.created_at))
+      .limit(limit);
+    return result.map(this.mapOutgoingWebhookLog.bind(this));
+  }
+
+  async getOutgoingWebhookLogsByCompanyId(companyId: string, limit: number = 100): Promise<OutgoingWebhookLog[]> {
+    const result = await db
+      .select({ log: dbSchema.outgoing_webhook_logs })
+      .from(dbSchema.outgoing_webhook_logs)
+      .innerJoin(dbSchema.outgoing_webhooks, eq(dbSchema.outgoing_webhook_logs.webhook_id, dbSchema.outgoing_webhooks.id))
+      .where(eq(dbSchema.outgoing_webhooks.company_id, companyId))
+      .orderBy(desc(dbSchema.outgoing_webhook_logs.created_at))
+      .limit(limit);
+    return result.map((row) => this.mapOutgoingWebhookLog(row.log));
+  }
+
+  async createOutgoingWebhookLog(log: InsertOutgoingWebhookLog): Promise<OutgoingWebhookLog> {
+    const id = randomUUID();
+    const now = new Date();
+    const newLog = {
+      id,
+      ...log,
+      created_at: now,
+    };
+    await db.insert(dbSchema.outgoing_webhook_logs).values(newLog);
+    return this.mapOutgoingWebhookLog(newLog as any);
+  }
+
+  // Lead Search for Webhook Matching
+  async findLeadsByFieldValue(companyId: string, fieldKey: string, value: string): Promise<Lead[]> {
+    // First, get all sheets for this company
+    const sheets = await db.select().from(dbSchema.sheets)
+      .where(and(
+        eq(dbSchema.sheets.company_id, companyId),
+        isNull(dbSchema.sheets.deleted_at)
+      ));
+    
+    if (sheets.length === 0) return [];
+    const sheetIds = sheets.map(s => s.id);
+
+    // Get all leads from these sheets that are not deleted
+    const leads = await db.select().from(dbSchema.leads)
+      .where(and(
+        inArray(dbSchema.leads.sheet_id, sheetIds),
+        isNull(dbSchema.leads.deleted_at)
+      ));
+
+    // Filter leads where custom_fields[fieldKey] matches value
+    // Normalize phone numbers for matching
+    const normalizedValue = value.replace(/[\s\-\+]/g, '');
+    
+    return leads
+      .filter(lead => {
+        const fieldValue = lead.custom_fields?.[fieldKey];
+        if (!fieldValue) return false;
+        
+        // Normalize for phone number matching
+        const normalizedFieldValue = String(fieldValue).replace(/[\s\-\+]/g, '');
+        return normalizedFieldValue === normalizedValue || 
+               normalizedFieldValue.endsWith(normalizedValue) ||
+               normalizedValue.endsWith(normalizedFieldValue);
+      })
+      .map(this.mapLead.bind(this));
+  }
+
+  // Mapping functions for outgoing webhooks
+  private mapOutgoingWebhook(row: any): OutgoingWebhook {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+      updated_at: row.updated_at?.toISOString() || row.updated_at,
+    };
+  }
+
+  private mapOutgoingWebhookLog(row: any): OutgoingWebhookLog {
+    return {
+      ...row,
+      created_at: row.created_at?.toISOString() || row.created_at,
+    };
   }
 
   // Mapping functions for webhook entities

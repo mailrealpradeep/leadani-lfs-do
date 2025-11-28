@@ -1841,6 +1841,330 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // OUTGOING WEBHOOKS (Send data out when events happen)
+  // ============================================================================
+
+  // Get all outgoing webhooks for the company
+  app.get("/api/admin/company/outgoing-webhooks", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const webhooks = await storage.getOutgoingWebhooksByCompanyId(req.companyId);
+      res.json(webhooks);
+    } catch (error: any) {
+      console.error("Get outgoing webhooks error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get a specific outgoing webhook
+  app.get("/api/admin/company/outgoing-webhooks/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getOutgoingWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Outgoing webhook not found" });
+      }
+
+      // Company admins can only view webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot view webhooks from other companies" });
+      }
+
+      res.json(webhook);
+    } catch (error: any) {
+      console.error("Get outgoing webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new outgoing webhook
+  app.post("/api/admin/company/outgoing-webhooks", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { 
+        name, 
+        url, 
+        events, 
+        field_conditions, 
+        sheet_ids, 
+        selected_fields, 
+        headers, 
+        is_active 
+      } = req.body;
+
+      if (!name || !url) {
+        return res.status(400).json({ error: "Name and URL are required" });
+      }
+
+      if (!events || !Array.isArray(events) || events.length === 0) {
+        return res.status(400).json({ error: "At least one event is required" });
+      }
+
+      // Generate secret for signing payloads
+      const crypto = await import("crypto");
+      const secret = crypto.randomBytes(32).toString("hex");
+
+      const webhook = await storage.createOutgoingWebhook({
+        company_id: req.companyId,
+        name,
+        url,
+        secret,
+        events: events || [],
+        field_conditions: field_conditions || [],
+        sheet_ids: sheet_ids || [],
+        selected_fields: selected_fields || [],
+        headers: headers || {},
+        is_active: is_active ?? true,
+        retry_count: 3,
+        created_by_user_id: req.userId!,
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId,
+        action: "outgoing_webhook_created",
+        model: "OutgoingWebhook",
+        model_id: webhook.id,
+        payload: { name, url, events },
+      });
+
+      res.status(201).json(webhook);
+    } catch (error: any) {
+      console.error("Create outgoing webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update an outgoing webhook
+  app.put("/api/admin/company/outgoing-webhooks/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getOutgoingWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Outgoing webhook not found" });
+      }
+
+      // Company admins can only update webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update webhooks from other companies" });
+      }
+
+      const { 
+        name, 
+        url, 
+        events, 
+        field_conditions, 
+        sheet_ids, 
+        selected_fields, 
+        headers, 
+        is_active 
+      } = req.body;
+
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (url !== undefined) updates.url = url;
+      if (events !== undefined) updates.events = events;
+      if (field_conditions !== undefined) updates.field_conditions = field_conditions;
+      if (sheet_ids !== undefined) updates.sheet_ids = sheet_ids;
+      if (selected_fields !== undefined) updates.selected_fields = selected_fields;
+      if (headers !== undefined) updates.headers = headers;
+      if (is_active !== undefined) updates.is_active = is_active;
+
+      const updatedWebhook = await storage.updateOutgoingWebhook(req.params.id, updates);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "outgoing_webhook_updated",
+        model: "OutgoingWebhook",
+        model_id: req.params.id,
+        payload: { name: updatedWebhook?.name, changes: Object.keys(updates) },
+      });
+
+      res.json(updatedWebhook);
+    } catch (error: any) {
+      console.error("Update outgoing webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete an outgoing webhook
+  app.delete("/api/admin/company/outgoing-webhooks/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getOutgoingWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Outgoing webhook not found" });
+      }
+
+      // Company admins can only delete webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete webhooks from other companies" });
+      }
+
+      await storage.deleteOutgoingWebhook(req.params.id);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "outgoing_webhook_deleted",
+        model: "OutgoingWebhook",
+        model_id: req.params.id,
+        payload: { name: webhook.name },
+      });
+
+      res.json({ message: "Outgoing webhook deleted" });
+    } catch (error: any) {
+      console.error("Delete outgoing webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get outgoing webhook logs
+  app.get("/api/admin/company/outgoing-webhooks/:id/logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getOutgoingWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Outgoing webhook not found" });
+      }
+
+      // Company admins can only view webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot view webhooks from other companies" });
+      }
+
+      const limit = parseInt(req.query.limit as string) || 100;
+      const logs = await storage.getOutgoingWebhookLogs(req.params.id, limit);
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Get outgoing webhook logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all outgoing webhook logs for the company
+  app.get("/api/admin/company/outgoing-webhook-logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const limit = parseInt(req.query.limit as string) || 100;
+      const logs = await storage.getOutgoingWebhookLogsByCompanyId(req.companyId, limit);
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Get outgoing webhook logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Test an outgoing webhook (send a test payload)
+  app.post("/api/admin/company/outgoing-webhooks/:id/test", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhook = await storage.getOutgoingWebhook(req.params.id);
+      
+      if (!webhook) {
+        return res.status(404).json({ error: "Outgoing webhook not found" });
+      }
+
+      // Company admins can only test webhooks from their company
+      if (webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot test webhooks from other companies" });
+      }
+
+      // Build test payload
+      const testPayload = {
+        event: "test",
+        timestamp: new Date().toISOString(),
+        webhook_id: webhook.id,
+        webhook_name: webhook.name,
+        test: true,
+        data: {
+          message: "This is a test webhook from LeadAni LFS",
+          lead: {
+            id: "test-lead-id",
+            full_name: "Test Lead",
+            mobile_no: "9876543210",
+            status: "New",
+          }
+        }
+      };
+
+      // Sign the payload
+      const crypto = await import("crypto");
+      const payloadString = JSON.stringify(testPayload);
+      const signature = webhook.secret 
+        ? crypto.createHmac("sha256", webhook.secret).update(payloadString).digest("hex")
+        : null;
+
+      // Send the request
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...((webhook.headers as Record<string, string>) || {}),
+      };
+      if (signature) {
+        headers["X-LeadAni-Signature"] = signature;
+      }
+
+      let responseStatus = 0;
+      let responseBody = "";
+      let status: "success" | "failed" = "failed";
+      let errorMessage: string | null = null;
+
+      try {
+        const response = await fetch(webhook.url, {
+          method: "POST",
+          headers,
+          body: payloadString,
+        });
+        
+        responseStatus = response.status;
+        responseBody = await response.text();
+        status = response.ok ? "success" : "failed";
+        if (!response.ok) {
+          errorMessage = `HTTP ${response.status}: ${responseBody.substring(0, 500)}`;
+        }
+      } catch (fetchError: any) {
+        errorMessage = fetchError.message;
+        responseBody = fetchError.message;
+      }
+
+      // Log the test
+      await storage.createOutgoingWebhookLog({
+        webhook_id: webhook.id,
+        event_type: "test",
+        lead_id: null,
+        payload_sent: testPayload,
+        response_status: responseStatus,
+        response_body: responseBody.substring(0, 5000),
+        status,
+        error_message: errorMessage,
+        retry_attempt: 0,
+      });
+
+      res.json({
+        success: status === "success",
+        response_status: responseStatus,
+        response_body: responseBody.substring(0, 1000),
+        error: errorMessage,
+      });
+    } catch (error: any) {
+      console.error("Test outgoing webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SHEETS
   // ============================================================================
   app.get("/api/sheets", authMiddleware, async (req: AuthRequest, res) => {
