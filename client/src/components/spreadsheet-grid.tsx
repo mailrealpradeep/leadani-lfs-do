@@ -2187,13 +2187,7 @@ export function SpreadsheetGrid({
                               onBlur={() => handleCellSave(lead)}
                               onKeyDown={(e) => handleCellKeyDown(e, lead)}
                               className={
-                                col.type === "mobile" || 
-                                col.label.toLowerCase().includes("whatsapp") || 
-                                col.label.toLowerCase().includes("phone") ||
-                                col.label.toLowerCase().includes("mobile") ||
-                                col.key.toLowerCase().includes("whatsapp") ||
-                                col.key.toLowerCase().includes("phone") ||
-                                col.key.toLowerCase().includes("mobile")
+                                col.type === "mobile"
                                   ? "h-8 min-w-[160px]" 
                                   : "h-8 min-w-[150px]"
                               }
@@ -2211,11 +2205,8 @@ export function SpreadsheetGrid({
                                 ? `${value}%`
                                 : value || "-"}
                             </span>
-                            {/* WhatsApp icon for mobile/phone/whatsapp columns */}
-                            {(col.type === "mobile" || 
-                              col.key.toLowerCase().includes("mobile") || 
-                              col.key.toLowerCase().includes("phone") ||
-                              col.key.toLowerCase().includes("whatsapp")) && value && (
+                            {/* WhatsApp icon for Mobile No field type only */}
+                            {col.type === "mobile" && value && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
