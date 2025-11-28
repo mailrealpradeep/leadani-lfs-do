@@ -34,7 +34,7 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 *   **Dynamic UI**: Customizable grid interface with dynamic column management, conditional validation, and "Next Follow-up Date Time" (NFDT) highlighting.
 *   **Mobile Experience**: Mobile-first design with specific layouts, configurable mobile lead cards, mobile lead editing, and mobile sort & filter functionalities.
 *   **Reporting & Analytics**: Comprehensive Reports section with a dynamic Report Builder, multi-sheet lead selection for admins, and a dedicated Team Performance section with drill-down capabilities.
-*   **Webhooks**: Integration for external systems to create leads via HTTP POST requests, including configurable field mapping and conditional allocation logic.
+*   **Webhooks**: Integration for external systems to create leads via HTTP POST requests, including configurable field mapping and conditional allocation logic with multi-condition support (AND/OR logic between conditions).
 *   **Self-Service Onboarding**: Multi-step flow for company registration, admin setup, and user invitations.
 *   **Attendance System**: Mobile-first PWA for daily entry/exit tracking with configurable exit rules (e.g., minimum leads/hours/updates, NFDT compliance), force exit requests with admin review, and attendance history.
 *   **Mandatory System Columns**: Protected "Full Name" and "Mobile No" columns with enforced configurations.

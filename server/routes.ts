@@ -1643,19 +1643,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Update allocation rules if provided
       if (allocation_rules) {
-        // Validate allocation rules
+        const VALUE_LESS_OPERATORS = ['is_empty', 'is_not_empty'];
+        const BETWEEN_OPERATORS = ['between', 'date_between'];
+        
+        // Helper to check if rule has valid conditions (new format or legacy)
+        const hasValidConditions = (rule: any): boolean => {
+          if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+            return rule.conditions.every((c: any) => {
+              if (!c.field || !c.operator) return false;
+              if (VALUE_LESS_OPERATORS.includes(c.operator)) return true;
+              if (BETWEEN_OPERATORS.includes(c.operator)) return !!(c.value && c.value2);
+              return !!c.value;
+            });
+          }
+          if (rule.condition_field && rule.condition_operator) {
+            if (VALUE_LESS_OPERATORS.includes(rule.condition_operator)) return true;
+            return !!rule.condition_value;
+          }
+          return false;
+        };
+        
+        // Helper to get condition group key
+        const getConditionGroupKey = (rule: any): { key: string; label: string } => {
+          if (rule.is_default) {
+            return { key: 'default', label: 'Default/Fallback Rules' };
+          }
+          if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+            const parts = rule.conditions.map((c: any) => {
+              const baseKey = `${c.field}|${c.operator}|${c.value || ''}`;
+              return BETWEEN_OPERATORS.includes(c.operator) && c.value2 
+                ? `${baseKey}|${c.value2}` 
+                : baseKey;
+            });
+            const label = rule.conditions.map((c: any) => {
+              if (VALUE_LESS_OPERATORS.includes(c.operator)) {
+                return `${c.field} ${c.operator}`;
+              }
+              if (BETWEEN_OPERATORS.includes(c.operator) && c.value2) {
+                return `${c.field} ${c.operator} "${c.value}" and "${c.value2}"`;
+              }
+              return `${c.field} ${c.operator} "${c.value}"`;
+            }).join(` ${(rule.logical_operator || 'and').toUpperCase()} `);
+            return { key: parts.join('::') + '::' + (rule.logical_operator || 'and'), label };
+          }
+          const condLabel = VALUE_LESS_OPERATORS.includes(rule.condition_operator || '')
+            ? `${rule.condition_field} ${rule.condition_operator}`
+            : `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`;
+          return {
+            key: `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value || ''}`,
+            label: condLabel
+          };
+        };
+
         // Filter out invalid rules
         const validRules = allocation_rules.filter((r: any) => {
-          // Must have sheet_id and percentage
           if (!r.sheet_id || r.percentage <= 0) return false;
-          
-          // If not default, must have complete condition
-          if (!r.is_default) {
-            if (!r.condition_field || !r.condition_operator || !r.condition_value) {
-              return false;
-            }
-          }
-          
+          if (!r.is_default && !hasValidConditions(r)) return false;
           return true;
         });
 
@@ -1667,22 +1710,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const groups: Record<string, { total: number, label: string }> = {};
         
         validRules.forEach((rule: any) => {
-          let groupKey: string;
-          let groupLabel: string;
-          
-          if (rule.is_default) {
-            groupKey = 'default';
-            groupLabel = 'Default/Fallback Rules';
-          } else {
-            groupKey = `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value}`;
-            groupLabel = `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`;
+          const { key, label } = getConditionGroupKey(rule);
+          if (!groups[key]) {
+            groups[key] = { total: 0, label };
           }
-          
-          if (!groups[groupKey]) {
-            groups[groupKey] = { total: 0, label: groupLabel };
-          }
-          
-          groups[groupKey].total += rule.percentage || 0;
+          groups[key].total += rule.percentage || 0;
         });
 
         // Check each group totals 100%
@@ -1701,7 +1733,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Delete existing rules
         await storage.deleteWebhookAllocationRulesByWebhookId(req.params.id);
         
-        // Create new validated rules
+        // Create new validated rules with support for multi-condition format
         for (const rule of validRules) {
           await storage.createWebhookAllocationRule({
             webhook_id: req.params.id,
@@ -1710,6 +1742,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             condition_field: rule.condition_field || null,
             condition_operator: rule.condition_operator || null,
             condition_value: rule.condition_value || null,
+            conditions: rule.conditions || null,
+            logical_operator: rule.logical_operator || 'and',
             is_default: rule.is_default || false,
             priority: rule.priority || 0,
           });

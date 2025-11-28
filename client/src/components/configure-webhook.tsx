@@ -29,6 +29,7 @@ interface WebhookCondition {
   field: string;
   operator: string;
   value: string;
+  value2?: string;
 }
 
 interface AllocationRule {
@@ -256,25 +257,53 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     return true;
   };
 
+  const VALUE_LESS_OPERATORS = ['is_empty', 'is_not_empty'];
+  const BETWEEN_OPERATORS = ['between', 'date_between'];
+  
   const hasValidConditions = (rule: AllocationRule): boolean => {
     if (rule.conditions && rule.conditions.length > 0) {
-      return rule.conditions.every(c => c.field && c.operator && c.value);
+      return rule.conditions.every(c => {
+        if (!c.field || !c.operator) return false;
+        if (VALUE_LESS_OPERATORS.includes(c.operator)) return true;
+        if (BETWEEN_OPERATORS.includes(c.operator)) return !!(c.value && c.value2);
+        return !!c.value;
+      });
     }
-    return !!(rule.condition_field && rule.condition_operator && rule.condition_value);
+    if (rule.condition_field && rule.condition_operator) {
+      if (VALUE_LESS_OPERATORS.includes(rule.condition_operator)) return true;
+      return !!rule.condition_value;
+    }
+    return false;
   };
-
+  
   const getConditionGroupKey = (rule: AllocationRule): { key: string; label: string } => {
     if (rule.is_default) {
       return { key: 'default', label: 'Default/Fallback Rules' };
     }
     if (rule.conditions && rule.conditions.length > 0) {
-      const parts = rule.conditions.map(c => `${c.field}|${c.operator}|${c.value}`);
-      const label = rule.conditions.map(c => `${c.field} ${c.operator} "${c.value}"`).join(` ${(rule.logical_operator || 'and').toUpperCase()} `);
+      const parts = rule.conditions.map(c => {
+        const baseKey = `${c.field}|${c.operator}|${c.value || ''}`;
+        return BETWEEN_OPERATORS.includes(c.operator) && c.value2 
+          ? `${baseKey}|${c.value2}` 
+          : baseKey;
+      });
+      const label = rule.conditions.map(c => {
+        if (VALUE_LESS_OPERATORS.includes(c.operator)) {
+          return `${c.field} ${c.operator}`;
+        }
+        if (BETWEEN_OPERATORS.includes(c.operator) && c.value2) {
+          return `${c.field} ${c.operator} "${c.value}" and "${c.value2}"`;
+        }
+        return `${c.field} ${c.operator} "${c.value}"`;
+      }).join(` ${(rule.logical_operator || 'and').toUpperCase()} `);
       return { key: parts.join('::') + '::' + (rule.logical_operator || 'and'), label };
     }
+    const condLabel = VALUE_LESS_OPERATORS.includes(rule.condition_operator || '')
+      ? `${rule.condition_field} ${rule.condition_operator}`
+      : `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`;
     return {
-      key: `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value}`,
-      label: `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`
+      key: `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value || ''}`,
+      label: condLabel
     };
   };
 
