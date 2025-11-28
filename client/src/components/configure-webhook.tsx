@@ -25,6 +25,14 @@ interface FieldMapping {
   sheet_column_key: string;
 }
 
+interface UpdateFieldMapping {
+  source_field: string;
+  target_column: string;
+}
+
+type MatchMode = 'create_only' | 'match_and_update' | 'match_and_add_update' | 'match_or_create';
+type NoMatchAction = 'create_lead' | 'ignore' | 'log_only';
+
 interface WebhookCondition {
   field: string;
   operator: string;
@@ -107,6 +115,14 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     { sheet_id: "", percentage: 100 },
   ]);
 
+  // Match Mode State
+  const [matchMode, setMatchMode] = useState<MatchMode>('create_only');
+  const [matchField, setMatchField] = useState<string>('mobile_no');
+  const [updateFieldMappings, setUpdateFieldMappings] = useState<UpdateFieldMapping[]>([
+    { source_field: "", target_column: "" },
+  ]);
+  const [noMatchAction, setNoMatchAction] = useState<NoMatchAction>('create_lead');
+
   // Fetch sheets for allocation
   const { data: sheets = [] } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -116,6 +132,10 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const { data: webhookDetails } = useQuery<{
     field_mappings: FieldMapping[];
     allocation_rules: AllocationRule[];
+    match_mode?: MatchMode;
+    match_field?: string;
+    update_field_mappings?: UpdateFieldMapping[];
+    no_match_action?: NoMatchAction;
   }>({
     queryKey: ["/api/admin/company/webhooks", webhook.id],
     enabled: !!webhook.id,
@@ -142,10 +162,30 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     if (webhookDetails?.allocation_rules && webhookDetails.allocation_rules.length > 0) {
       setAllocationRules(webhookDetails.allocation_rules);
     }
+    // Load match mode settings
+    if (webhookDetails?.match_mode) {
+      setMatchMode(webhookDetails.match_mode);
+    }
+    if (webhookDetails?.match_field) {
+      setMatchField(webhookDetails.match_field);
+    }
+    if (webhookDetails?.update_field_mappings && webhookDetails.update_field_mappings.length > 0) {
+      setUpdateFieldMappings(webhookDetails.update_field_mappings);
+    }
+    if (webhookDetails?.no_match_action) {
+      setNoMatchAction(webhookDetails.no_match_action);
+    }
   }, [webhookDetails]);
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { field_mappings?: FieldMapping[]; allocation_rules?: AllocationRule[] }) => {
+    mutationFn: async (data: { 
+      field_mappings?: FieldMapping[]; 
+      allocation_rules?: AllocationRule[];
+      match_mode?: MatchMode;
+      match_field?: string;
+      update_field_mappings?: UpdateFieldMapping[];
+      no_match_action?: NoMatchAction;
+    }) => {
       return apiRequest("PUT", `/api/admin/company/webhooks/${webhook.id}`, data);
     },
     onSuccess: () => {
@@ -239,6 +279,21 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       updated[ruleIndex].conditions![conditionIndex][field] = value;
     }
     setAllocationRules(updated);
+  };
+
+  // Update Field Mapping Handlers (for match mode)
+  const addUpdateFieldMapping = () => {
+    setUpdateFieldMappings([...updateFieldMappings, { source_field: "", target_column: "" }]);
+  };
+
+  const removeUpdateFieldMapping = (index: number) => {
+    setUpdateFieldMappings(updateFieldMappings.filter((_, i) => i !== index));
+  };
+
+  const updateUpdateFieldMapping = (index: number, field: keyof UpdateFieldMapping, value: string) => {
+    const updated = [...updateFieldMappings];
+    updated[index][field] = value;
+    setUpdateFieldMappings(updated);
   };
 
   // Validation
@@ -372,6 +427,24 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     updateMutation.mutate({ allocation_rules: validRules });
   };
 
+  const handleSaveMatchMode = () => {
+    // Filter out empty update field mappings - only include complete rows
+    const validUpdateMappings = updateFieldMappings.filter(
+      (m) => m.source_field.trim() && m.target_column.trim()
+    );
+
+    // Note: We allow saving with zero update mappings - the user may rely on
+    // default behaviors or configure mappings later. Empty/incomplete rows 
+    // are simply filtered out rather than blocking the save.
+
+    updateMutation.mutate({
+      match_mode: matchMode,
+      match_field: matchField,
+      update_field_mappings: validUpdateMappings, // Only send complete mappings, filter out empty rows
+      no_match_action: noMatchAction,
+    });
+  };
+
   const calculateConditionGroups = () => {
     const groups: Record<string, { rules: AllocationRule[], total: number, label: string }> = {};
     
@@ -407,12 +480,15 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-      <TabsList className="grid w-full grid-cols-2">
+      <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger value="mappings" data-testid="tab-mappings">
           Field Mappings
         </TabsTrigger>
         <TabsTrigger value="allocation" data-testid="tab-allocation">
           Allocation Rules
+        </TabsTrigger>
+        <TabsTrigger value="matchmode" data-testid="tab-matchmode">
+          Match Mode
         </TabsTrigger>
       </TabsList>
 
@@ -761,6 +837,157 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             data-testid="button-save-allocation"
           >
             {updateMutation.isPending ? "Saving..." : "Save Allocation"}
+          </Button>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="matchmode" className="space-y-4 py-2">
+        <Alert className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Configure how the webhook handles duplicate leads. Match mode allows updating existing leads instead of creating duplicates.
+          </AlertDescription>
+        </Alert>
+
+        {/* Match Mode Selection */}
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Match Mode</Label>
+          <Select value={matchMode} onValueChange={(value) => setMatchMode(value as MatchMode)}>
+            <SelectTrigger data-testid="select-match-mode">
+              <SelectValue placeholder="Select match mode" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="create_only">Create Only (default)</SelectItem>
+              <SelectItem value="match_and_update">Match and Update Fields</SelectItem>
+              <SelectItem value="match_and_add_update">Match and Add Lead Update</SelectItem>
+              <SelectItem value="match_or_create">Match or Create New</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {matchMode === 'create_only' && "Always create a new lead, even if a matching lead exists."}
+            {matchMode === 'match_and_update' && "Find a matching lead and update its fields. Optionally create if no match."}
+            {matchMode === 'match_and_add_update' && "Find a matching lead and add a Lead Update note. Optionally create if no match."}
+            {matchMode === 'match_or_create' && "Find a matching lead and update, or create new if no match found."}
+          </p>
+        </div>
+
+        {/* Match Field Selection */}
+        {matchMode !== 'create_only' && (
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Match Field</Label>
+            <Select value={matchField} onValueChange={setMatchField}>
+              <SelectTrigger data-testid="select-match-field">
+                <SelectValue placeholder="Select field to match on" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableCrmFields.map((field) => (
+                  <SelectItem key={field.key} value={field.key}>
+                    {field.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              The CRM field used to find matching leads (e.g., Mobile Number for phone-based matching).
+            </p>
+          </div>
+        )}
+
+        {/* Update Field Mappings */}
+        {(matchMode === 'match_and_update' || matchMode === 'match_or_create') && (
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Update Field Mappings</Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Map webhook fields to CRM fields that should be updated when a match is found.
+            </p>
+            
+            {updateFieldMappings.map((mapping, index) => (
+              <div key={index} className="flex items-end gap-2" data-testid={`update-mapping-row-${index}`}>
+                <div className="flex-1 min-w-0">
+                  <Label className="text-xs text-muted-foreground">Webhook Field</Label>
+                  <Input
+                    value={mapping.source_field}
+                    onChange={(e) => updateUpdateFieldMapping(index, "source_field", e.target.value)}
+                    placeholder="e.g., status, notes"
+                    className="w-full"
+                    data-testid={`input-update-source-${index}`}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <Label className="text-xs text-muted-foreground">CRM Field to Update</Label>
+                  <Select
+                    value={mapping.target_column}
+                    onValueChange={(value) => updateUpdateFieldMapping(index, "target_column", value)}
+                  >
+                    <SelectTrigger className="w-full" data-testid={`select-update-target-${index}`}>
+                      <SelectValue placeholder="Select CRM field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableCrmFields.map((field) => (
+                        <SelectItem key={field.key} value={field.key}>
+                          {field.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeUpdateFieldMapping(index)}
+                  disabled={updateFieldMappings.length === 1}
+                  data-testid={`button-remove-update-mapping-${index}`}
+                  className="flex-shrink-0"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addUpdateFieldMapping}
+              data-testid="button-add-update-mapping"
+              className="mt-2"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Update Mapping
+            </Button>
+          </div>
+        )}
+
+        {/* No Match Action */}
+        {matchMode !== 'create_only' && (
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">When No Match Found</Label>
+            <Select value={noMatchAction} onValueChange={(value) => setNoMatchAction(value as NoMatchAction)}>
+              <SelectTrigger data-testid="select-no-match-action">
+                <SelectValue placeholder="Select action" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="create_lead">Create New Lead</SelectItem>
+                <SelectItem value="ignore">Ignore (Skip)</SelectItem>
+                <SelectItem value="log_only">Log Only (No Action)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {noMatchAction === 'create_lead' && "If no matching lead is found, create a new lead with the webhook data."}
+              {noMatchAction === 'ignore' && "If no matching lead is found, silently ignore the webhook request."}
+              {noMatchAction === 'log_only' && "If no matching lead is found, log the request but take no action."}
+            </p>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-4 border-t mt-6">
+          <Button variant="outline" onClick={onClose} data-testid="button-cancel-matchmode">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveMatchMode}
+            disabled={updateMutation.isPending}
+            data-testid="button-save-matchmode"
+          >
+            {updateMutation.isPending ? "Saving..." : "Save Match Mode"}
           </Button>
         </div>
       </TabsContent>

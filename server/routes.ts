@@ -1718,12 +1718,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Cannot update webhooks from other companies" });
       }
 
-      const { name, is_active, field_mappings, allocation_rules } = req.body;
+      const { name, is_active, field_mappings, allocation_rules, match_mode, match_field, update_field_mappings, no_match_action } = req.body;
 
       // Update webhook basic info
       const updates: any = {};
       if (name !== undefined) updates.name = name;
       if (is_active !== undefined) updates.is_active = is_active;
+      if (match_mode !== undefined) updates.match_mode = match_mode;
+      if (match_field !== undefined) updates.match_field = match_field;
+      if (update_field_mappings !== undefined) updates.update_field_mappings = update_field_mappings;
+      if (no_match_action !== undefined) updates.no_match_action = no_match_action;
 
       const updatedWebhook = await storage.updateCompanyWebhook(req.params.id, updates);
 
