@@ -21,6 +21,7 @@ import {
   Check,
   Mail,
   LogIn,
+  Code,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +63,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Redirect } from "wouter";
+import { ApiDocumentation } from "@/components/api-documentation";
 
 interface SuperAdminStats {
   totalCompanies: number;
@@ -400,9 +402,9 @@ export default function SuperAdmin() {
           </div>
         )}
 
-        {/* Tabs for Users and Companies */}
+        {/* Tabs for Users, Companies, and API Docs */}
         <Tabs defaultValue="users" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid w-full max-w-lg grid-cols-3">
             <TabsTrigger value="users" data-testid="tab-users">
               <Users className="h-4 w-4 mr-2" />
               Users
@@ -410,6 +412,10 @@ export default function SuperAdmin() {
             <TabsTrigger value="companies" data-testid="tab-companies">
               <Building2 className="h-4 w-4 mr-2" />
               Companies
+            </TabsTrigger>
+            <TabsTrigger value="api-docs" data-testid="tab-api-docs">
+              <Code className="h-4 w-4 mr-2" />
+              API Docs
             </TabsTrigger>
           </TabsList>
 
@@ -659,6 +665,13 @@ export default function SuperAdmin() {
                 </Table>
               </ScrollArea>
             </Card>
+          </TabsContent>
+
+          {/* API Documentation Tab */}
+          <TabsContent value="api-docs" className="flex-1 min-h-0 mt-4">
+            <ScrollArea className="h-full">
+              <ApiDocumentation />
+            </ScrollArea>
           </TabsContent>
         </Tabs>
       </div>
