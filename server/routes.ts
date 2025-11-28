@@ -12,6 +12,7 @@ import { seedData } from "./seed";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { insertQuickFilterSchema, quickFilterConfigSchema } from "@shared/schema";
 import { notifyLeadAssigned, notifyLeadUpdated, notifyWebhookReceived, notifyUserJoined } from "./push-service";
+import { triggerOutgoingWebhooks, getChangedFields, flattenLeadFields } from "./webhook-trigger";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -2835,6 +2836,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const io = app.get("io") as SocketIOServer;
       io.to(`sheet:${req.params.id}`).emit("lead_created", lead);
 
+      // Trigger outgoing webhooks for lead_created event
+      triggerOutgoingWebhooks("lead_created", {
+        lead,
+        sheetId: req.params.id,
+        companyId: sheet.company_id,
+        userId: req.userId,
+      });
+
       res.status(201).json(lead);
     } catch (error: any) {
       console.error("Create lead error:", error);
@@ -2914,6 +2923,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Capture before state for webhook field change tracking
+      const beforeFields = flattenLeadFields(lead);
+
       const updated = await storage.updateLead(req.params.id, req.body);
 
       // Audit log with company_id
@@ -2945,6 +2957,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Realtime update
       const io = app.get("io") as SocketIOServer;
       io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", updated);
+
+      // Trigger outgoing webhooks for lead_updated and field_changed events
+      if (updated) {
+        const afterFields = flattenLeadFields(updated);
+        const changedFields = getChangedFields(beforeFields, afterFields);
+        
+        triggerOutgoingWebhooks("lead_updated", {
+          lead: updated,
+          sheetId: lead.sheet_id,
+          companyId: sheet.company_id,
+          userId: req.userId,
+          beforeFields,
+          afterFields,
+          changedFields,
+        });
+
+        if (changedFields.length > 0) {
+          triggerOutgoingWebhooks("field_changed", {
+            lead: updated,
+            sheetId: lead.sheet_id,
+            companyId: sheet.company_id,
+            userId: req.userId,
+            beforeFields,
+            afterFields,
+            changedFields,
+          });
+        }
+      }
 
       res.json(updated);
     } catch (error: any) {
@@ -3297,6 +3337,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const updatedLead = await storage.getLead(leadId);
           io.to(`sheet:${targetSheetId}`).emit("lead_created", updatedLead);
 
+          // Trigger outgoing webhooks for lead_transferred event
+          if (updatedLead) {
+            triggerOutgoingWebhooks("lead_transferred", {
+              lead: updatedLead,
+              sheetId: targetSheetId,
+              companyId: targetSheet.company_id,
+              userId: req.userId,
+            });
+          }
+
           results.push({ leadId, success: true });
         } catch (transferError: any) {
           console.error(`Failed to transfer lead ${leadId}:`, transferError);
@@ -3380,6 +3430,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Realtime update
       const io = app.get("io") as SocketIOServer;
       io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", lead);
+
+      // Trigger outgoing webhooks for lead_update_added event
+      triggerOutgoingWebhooks("lead_update_added", {
+        lead,
+        sheetId: lead.sheet_id,
+        companyId: sheet.company_id,
+        userId: req.userId,
+        updateText: update.remark || "",
+      });
 
       res.status(201).json(update);
     } catch (error: any) {
