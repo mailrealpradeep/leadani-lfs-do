@@ -1,11 +1,19 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useDashboard } from "./dashboard-context";
 import { MultiSheetSelector } from "./multi-sheet-selector";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet as SheetUI,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import {
   Sidebar,
   SidebarContent,
@@ -47,6 +55,9 @@ export function AppSidebar() {
     searchQuery,
     setSearchQuery,
     actions,
+    columnVisibilityConfig,
+    isColumnVisibilityOpen,
+    setIsColumnVisibilityOpen,
   } = useDashboard();
   const { toast } = useToast();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -262,6 +273,22 @@ export function AppSidebar() {
                           <FileUp className="h-4 w-4 mr-2" />
                           Import
                         </Button>
+                        {columnVisibilityConfig && !isMultiSheetMode && (
+                          <Button
+                            variant="outline"
+                            onClick={() => setIsColumnVisibilityOpen(true)}
+                            className="w-full justify-start"
+                            data-testid="button-view-hide-columns"
+                          >
+                            <Columns className="h-4 w-4 mr-2" />
+                            View/Hide Columns
+                            {columnVisibilityConfig.hiddenColumns.size > 0 && (
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                {columnVisibilityConfig.hiddenColumns.size} hidden
+                              </span>
+                            )}
+                          </Button>
+                        )}
                         {(isCompanyAdmin || isSuperAdmin) && (
                           <Button
                             variant="outline"
@@ -426,6 +453,51 @@ export function AppSidebar() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Column Visibility Sheet */}
+      <SheetUI open={isColumnVisibilityOpen} onOpenChange={setIsColumnVisibilityOpen}>
+        <SheetContent side="left" className="w-[320px] sm:w-[380px]">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Columns className="h-5 w-5" />
+              View/Hide Columns
+            </SheetTitle>
+            <SheetDescription>
+              Toggle column visibility. Hidden columns are excluded from the spreadsheet view.
+              {columnVisibilityConfig && columnVisibilityConfig.hiddenColumns.size > 0 && (
+                <span className="block mt-1 text-primary">
+                  {columnVisibilityConfig.hiddenColumns.size} column(s) currently hidden
+                </span>
+              )}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-1 max-h-[calc(100vh-180px)] overflow-y-auto">
+            {columnVisibilityConfig?.columns.map((col) => (
+              <div
+                key={col.key}
+                className="flex items-center justify-between py-2 px-2 rounded-md hover-elevate"
+                data-testid={`toggle-column-${col.key}`}
+              >
+                <div className="flex items-center gap-2">
+                  {columnVisibilityConfig.hiddenColumns.has(col.key) ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-primary" />
+                  )}
+                  <span className={columnVisibilityConfig.hiddenColumns.has(col.key) ? "text-muted-foreground" : ""}>
+                    {col.label}
+                  </span>
+                </div>
+                <Switch
+                  checked={!columnVisibilityConfig.hiddenColumns.has(col.key)}
+                  onCheckedChange={() => columnVisibilityConfig.toggleColumn(col.key)}
+                  data-testid={`switch-column-${col.key}`}
+                />
+              </div>
+            ))}
+          </div>
+        </SheetContent>
+      </SheetUI>
     </>
   );
 }
