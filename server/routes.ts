@@ -3598,6 +3598,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         operator,
         trigger_value,
         required_fields,
+        logical_operator: "and",
       });
 
       // Audit log
@@ -5051,22 +5052,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const { name, trigger_column_key, operator, trigger_value, required_fields } = req.body;
+      const { name, trigger_column_key, operator, trigger_value, required_fields, conditions, logical_operator } = req.body;
       
-      // Validate required fields
-      if (!name || !trigger_column_key || !operator || !trigger_value || !required_fields || !Array.isArray(required_fields) || required_fields.length === 0) {
-        return res.status(400).json({ error: "Missing required fields: name, trigger_column_key, operator, trigger_value, required_fields" });
+      // Support new multi-condition format or legacy single condition format
+      const hasNewFormat = conditions && Array.isArray(conditions) && conditions.length > 0;
+      const hasLegacyFormat = trigger_column_key && operator && trigger_value;
+      
+      if (!name) {
+        return res.status(400).json({ error: "Rule name is required" });
+      }
+      
+      if (!required_fields || !Array.isArray(required_fields) || required_fields.length === 0) {
+        return res.status(400).json({ error: "At least one required field must be specified" });
+      }
+      
+      if (!hasNewFormat && !hasLegacyFormat) {
+        return res.status(400).json({ error: "At least one condition is required (use either conditions array or trigger_column_key/operator/trigger_value)" });
       }
       
       // Create rule with company_id derived from the sheet
       const rule = await storage.createValidationRule({
-        company_id: sheet.company_id, // Derived from sheet, not from request
+        company_id: sheet.company_id,
         sheet_id: sheetId,
         name,
-        trigger_column_key,
-        operator,
-        trigger_value,
+        trigger_column_key: hasLegacyFormat ? trigger_column_key : (conditions?.[0]?.column_key || undefined),
+        operator: hasLegacyFormat ? operator : (conditions?.[0]?.operator || undefined),
+        trigger_value: hasLegacyFormat ? trigger_value : (conditions?.[0]?.value || undefined),
         required_fields,
+        conditions: hasNewFormat ? conditions : undefined,
+        logical_operator: (logical_operator || "and") as "and" | "or",
       });
       
       // Audit log

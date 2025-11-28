@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, Trash2, X, ChevronDown, ChevronUp } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,9 +21,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import type { ValidationRule, CustomColumn } from "@shared/schema";
+import type { ValidationRule, CustomColumn, ValidationCondition } from "@shared/schema";
+import { FilterConditionBuilder, type FilterCondition } from "@/components/filter-condition-builder";
 
 interface ValidationRulesManagerProps {
   sheetId: string;
@@ -33,11 +39,11 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [ruleName, setRuleName] = useState("");
-  const [triggerColumn, setTriggerColumn] = useState("");
-  const [operator, setOperator] = useState<"equals" | "in" | "not_equals" | "not_in">("equals");
-  const [triggerValue, setTriggerValue] = useState("");
+  const [conditions, setConditions] = useState<FilterCondition[]>([]);
+  const [logicalOperator, setLogicalOperator] = useState<"and" | "or">("and");
   const [requiredFields, setRequiredFields] = useState<string[]>([]);
   const [newRequiredField, setNewRequiredField] = useState("");
+  const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
 
   const { data: rules = [] } = useQuery<ValidationRule[]>({
     queryKey: ["/api/sheets", sheetId, "validation-rules"],
@@ -51,21 +57,23 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
 
   const createRuleMutation = useMutation({
     mutationFn: async () => {
+      const validationConditions: ValidationCondition[] = conditions.map(c => ({
+        column_key: c.column_key,
+        operator: c.operator as ValidationCondition["operator"],
+        value: c.value,
+        value2: c.value2,
+      }));
+
       return await apiRequest("POST", `/api/sheets/${sheetId}/validation-rules`, {
         name: ruleName,
-        trigger_column_key: triggerColumn,
-        operator,
-        trigger_value: triggerValue,
+        conditions: validationConditions,
+        logical_operator: logicalOperator,
         required_fields: requiredFields,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "validation-rules"] });
-      setRuleName("");
-      setTriggerColumn("");
-      setOperator("equals");
-      setTriggerValue("");
-      setRequiredFields([]);
+      resetForm();
       setOpen(false);
       toast({
         title: "Validation rule created",
@@ -101,6 +109,14 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
     },
   });
 
+  const resetForm = () => {
+    setRuleName("");
+    setConditions([]);
+    setLogicalOperator("and");
+    setRequiredFields([]);
+    setNewRequiredField("");
+  };
+
   const handleAddRequiredField = () => {
     if (newRequiredField && !requiredFields.includes(newRequiredField)) {
       setRequiredFields([...requiredFields, newRequiredField]);
@@ -112,17 +128,99 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
     setRequiredFields(requiredFields.filter(f => f !== field));
   };
 
+  const toggleRuleExpanded = (ruleId: string) => {
+    const newExpanded = new Set(expandedRules);
+    if (newExpanded.has(ruleId)) {
+      newExpanded.delete(ruleId);
+    } else {
+      newExpanded.add(ruleId);
+    }
+    setExpandedRules(newExpanded);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ruleName || !triggerColumn || !triggerValue || requiredFields.length === 0) {
+    
+    if (!ruleName) {
       toast({
         variant: "destructive",
         title: "Validation error",
-        description: "Please fill in all fields and add at least one required field",
+        description: "Rule name is required",
       });
       return;
     }
+
+    if (conditions.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Validation error",
+        description: "At least one condition is required",
+      });
+      return;
+    }
+
+    for (const condition of conditions) {
+      if (!condition.column_key || !condition.operator) {
+        toast({
+          variant: "destructive",
+          title: "Validation error",
+          description: "All conditions must have a column and operator selected",
+        });
+        return;
+      }
+    }
+
+    if (requiredFields.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Validation error",
+        description: "At least one required field must be added",
+      });
+      return;
+    }
+
     createRuleMutation.mutate();
+  };
+
+  const getOperatorLabel = (operator: string): string => {
+    const labels: Record<string, string> = {
+      equals: "equals",
+      not_equals: "does not equal",
+      contains: "contains",
+      not_contains: "does not contain",
+      starts_with: "starts with",
+      ends_with: "ends with",
+      in: "is one of",
+      not_in: "is not one of",
+      is_empty: "is empty",
+      is_not_empty: "is not empty",
+      greater_than: "is greater than",
+      less_than: "is less than",
+      greater_equal: "is at least",
+      less_equal: "is at most",
+      between: "is between",
+      date_equals: "equals",
+      date_not_equals: "does not equal",
+      date_before: "is before",
+      date_after: "is after",
+      date_between: "is between",
+    };
+    return labels[operator] || operator;
+  };
+
+  const formatConditionDisplay = (rule: ValidationRule): string => {
+    if (rule.conditions && rule.conditions.length > 0) {
+      const parts = rule.conditions.map(c => {
+        const colName = columns.find(col => col.column_key === c.column_key)?.name || c.column_key;
+        const opLabel = getOperatorLabel(c.operator);
+        const valueStr = c.value !== undefined && c.value !== null ? `"${c.value}"` : "";
+        return `${colName} ${opLabel} ${valueStr}`.trim();
+      });
+      const joinWord = (rule.logical_operator || "and").toUpperCase();
+      return parts.join(` ${joinWord} `);
+    }
+    const colName = columns.find(c => c.column_key === rule.trigger_column_key)?.name || rule.trigger_column_key;
+    return `${colName} ${getOperatorLabel(rule.operator)} "${rule.trigger_value}"`;
   };
 
   return (
@@ -137,45 +235,86 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
         <DialogHeader>
           <DialogTitle>Validation Rules</DialogTitle>
           <DialogDescription>
-            Create conditional validation rules. When a trigger condition is met, specified fields become required.
+            Create conditional validation rules. When conditions are met, specified fields become required.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Existing Rules */}
           {rules.length > 0 && (
             <div>
               <Label className="text-sm font-medium mb-2">Existing Rules</Label>
               <div className="space-y-2">
                 {rules.map((rule) => (
-                  <div
+                  <Collapsible
                     key={rule.id}
-                    className="flex items-center justify-between p-3 border rounded-lg"
-                    data-testid={`validation-rule-${rule.id}`}
+                    open={expandedRules.has(rule.id)}
+                    onOpenChange={() => toggleRuleExpanded(rule.id)}
                   >
-                    <div className="flex-1">
-                      <div className="font-medium">{rule.name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        When {rule.trigger_column_key} {rule.operator} "{rule.trigger_value}", 
-                        require: {Array.isArray(rule.required_fields) ? rule.required_fields.join(", ") : "N/A"}
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteRuleMutation.mutate(rule.id)}
-                      data-testid={`button-delete-rule-${rule.id}`}
+                    <div
+                      className="p-3 border rounded-lg"
+                      data-testid={`validation-rule-${rule.id}`}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium flex items-center gap-2">
+                            {rule.name}
+                            {rule.conditions && rule.conditions.length > 1 && (
+                              <Badge variant="secondary" className="text-xs">
+                                {rule.conditions.length} conditions
+                              </Badge>
+                            )}
+                            {rule.logical_operator && rule.conditions && rule.conditions.length > 1 && (
+                              <Badge variant="outline" className="text-xs">
+                                {rule.logical_operator.toUpperCase()}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-sm text-muted-foreground truncate">
+                            When: {formatConditionDisplay(rule)}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              {expandedRules.has(rule.id) ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </CollapsibleTrigger>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteRuleMutation.mutate(rule.id)}
+                            data-testid={`button-delete-rule-${rule.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <CollapsibleContent className="mt-2 pt-2 border-t">
+                        <div className="text-sm space-y-1">
+                          <div>
+                            <span className="text-muted-foreground">Required fields: </span>
+                            {Array.isArray(rule.required_fields) 
+                              ? rule.required_fields.map(f => 
+                                  columns.find(c => c.column_key === f)?.name || f
+                                ).join(", ")
+                              : "N/A"}
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </div>
+                  </Collapsible>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Create New Rule Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 pt-4 border-t">
+            <Label className="text-sm font-semibold">Create New Rule</Label>
+            
             <div className="space-y-2">
               <Label htmlFor="rule-name">Rule Name</Label>
               <Input
@@ -187,52 +326,16 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="trigger-column">Trigger Column</Label>
-                <Select value={triggerColumn} onValueChange={setTriggerColumn}>
-                  <SelectTrigger id="trigger-column" data-testid="select-trigger-column">
-                    <SelectValue placeholder="Select column" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columns.map((col) => (
-                      <SelectItem key={col.column_key} value={col.column_key}>
-                        {col.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="operator">Operator</Label>
-                <Select value={operator} onValueChange={(v: any) => setOperator(v)}>
-                  <SelectTrigger id="operator" data-testid="select-operator">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="equals">Equals</SelectItem>
-                    <SelectItem value="in">Contains</SelectItem>
-                    <SelectItem value="not_equals">Not Equals</SelectItem>
-                    <SelectItem value="not_in">Not Contains</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="trigger-value">Trigger Value</Label>
-                <Input
-                  id="trigger-value"
-                  value={triggerValue}
-                  onChange={(e) => setTriggerValue(e.target.value)}
-                  placeholder="e.g., Hot"
-                  data-testid="input-trigger-value"
-                />
-              </div>
-            </div>
+            <FilterConditionBuilder
+              conditions={conditions}
+              onChange={setConditions}
+              logicalOperator={logicalOperator}
+              onLogicalOperatorChange={setLogicalOperator}
+              showLogicalOperator={true}
+            />
 
             <div className="space-y-2">
-              <Label>Required Fields (when condition is met)</Label>
+              <Label>Required Fields (when conditions are met)</Label>
               <div className="flex gap-2">
                 <Select value={newRequiredField} onValueChange={setNewRequiredField}>
                   <SelectTrigger data-testid="select-required-field">

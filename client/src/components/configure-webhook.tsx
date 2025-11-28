@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle, Check } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -23,12 +25,20 @@ interface FieldMapping {
   sheet_column_key: string;
 }
 
+interface WebhookCondition {
+  field: string;
+  operator: string;
+  value: string;
+}
+
 interface AllocationRule {
   sheet_id: string;
   percentage: number;
   condition_field?: string | null;
   condition_operator?: string | null;
   condition_value?: string | null;
+  conditions?: WebhookCondition[];
+  logical_operator?: "and" | "or";
   is_default?: boolean;
   priority?: number;
 }
@@ -179,24 +189,53 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     setAllocationRules(allocationRules.filter((_, i) => i !== index));
   };
 
-  const updateAllocationRule = (index: number, field: keyof AllocationRule, value: string | number | boolean) => {
+  const updateAllocationRule = (index: number, field: keyof AllocationRule, value: string | number | boolean | WebhookCondition[] | "and" | "or") => {
     const updated = [...allocationRules];
     if (field === "percentage") {
       updated[index].percentage = Number(value);
     } else if (field === "is_default") {
       updated[index].is_default = Boolean(value);
-      // Clear condition fields when marking as default
       if (Boolean(value)) {
         updated[index].condition_field = null;
         updated[index].condition_operator = null;
         updated[index].condition_value = null;
+        updated[index].conditions = [];
       }
     } else if (field === "condition_field" || field === "condition_operator" || field === "condition_value") {
       updated[index][field] = value as string | null;
+    } else if (field === "conditions") {
+      updated[index].conditions = value as WebhookCondition[];
+    } else if (field === "logical_operator") {
+      updated[index].logical_operator = value as "and" | "or";
     } else if (field === "sheet_id") {
       updated[index].sheet_id = String(value);
     } else if (field === "priority") {
       updated[index].priority = Number(value);
+    }
+    setAllocationRules(updated);
+  };
+
+  const addConditionToRule = (ruleIndex: number) => {
+    const updated = [...allocationRules];
+    if (!updated[ruleIndex].conditions) {
+      updated[ruleIndex].conditions = [];
+    }
+    updated[ruleIndex].conditions!.push({ field: "", operator: "", value: "" });
+    setAllocationRules(updated);
+  };
+
+  const removeConditionFromRule = (ruleIndex: number, conditionIndex: number) => {
+    const updated = [...allocationRules];
+    if (updated[ruleIndex].conditions) {
+      updated[ruleIndex].conditions = updated[ruleIndex].conditions!.filter((_, i) => i !== conditionIndex);
+    }
+    setAllocationRules(updated);
+  };
+
+  const updateConditionInRule = (ruleIndex: number, conditionIndex: number, field: keyof WebhookCondition, value: string) => {
+    const updated = [...allocationRules];
+    if (updated[ruleIndex].conditions && updated[ruleIndex].conditions![conditionIndex]) {
+      updated[ruleIndex].conditions![conditionIndex][field] = value;
     }
     setAllocationRules(updated);
   };
@@ -217,19 +256,32 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     return true;
   };
 
+  const hasValidConditions = (rule: AllocationRule): boolean => {
+    if (rule.conditions && rule.conditions.length > 0) {
+      return rule.conditions.every(c => c.field && c.operator && c.value);
+    }
+    return !!(rule.condition_field && rule.condition_operator && rule.condition_value);
+  };
+
+  const getConditionGroupKey = (rule: AllocationRule): { key: string; label: string } => {
+    if (rule.is_default) {
+      return { key: 'default', label: 'Default/Fallback Rules' };
+    }
+    if (rule.conditions && rule.conditions.length > 0) {
+      const parts = rule.conditions.map(c => `${c.field}|${c.operator}|${c.value}`);
+      const label = rule.conditions.map(c => `${c.field} ${c.operator} "${c.value}"`).join(` ${(rule.logical_operator || 'and').toUpperCase()} `);
+      return { key: parts.join('::') + '::' + (rule.logical_operator || 'and'), label };
+    }
+    return {
+      key: `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value}`,
+      label: `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`
+    };
+  };
+
   const validateAllocationRules = () => {
-    // Filter to only valid rules
     const validRules = allocationRules.filter((r) => {
-      // Must have sheet_id and percentage
       if (!r.sheet_id || r.percentage <= 0) return false;
-      
-      // If not default, must have complete condition
-      if (!r.is_default) {
-        if (!r.condition_field || !r.condition_operator || !r.condition_value) {
-          return false;
-        }
-      }
-      
+      if (!r.is_default && !hasValidConditions(r)) return false;
       return true;
     });
     
@@ -242,29 +294,16 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       return false;
     }
 
-    // Group rules by condition and validate each group totals 100%
     const groups: Record<string, { total: number, label: string }> = {};
     
     validRules.forEach(rule => {
-      let groupKey: string;
-      let groupLabel: string;
-      
-      if (rule.is_default) {
-        groupKey = 'default';
-        groupLabel = 'Default/Fallback Rules';
-      } else {
-        groupKey = `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value}`;
-        groupLabel = `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`;
+      const { key, label } = getConditionGroupKey(rule);
+      if (!groups[key]) {
+        groups[key] = { total: 0, label };
       }
-      
-      if (!groups[groupKey]) {
-        groups[groupKey] = { total: 0, label: groupLabel };
-      }
-      
-      groups[groupKey].total += rule.percentage || 0;
+      groups[key].total += rule.percentage || 0;
     });
 
-    // Check each group totals 100%
     const invalidGroups = Object.entries(groups).filter(([_, group]) => group.total !== 100);
     
     if (invalidGroups.length > 0) {
@@ -295,39 +334,29 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const handleSaveAllocation = () => {
     if (!validateAllocationRules()) return;
 
-    // Use same filtering logic as validation
     const validRules = allocationRules.filter((r) => {
-      // Must have sheet_id and percentage
       if (!r.sheet_id || r.percentage <= 0) return false;
-      
-      // If not default, must have complete condition
-      if (!r.is_default) {
-        if (!r.condition_field || !r.condition_operator || !r.condition_value) {
-          return false;
-        }
-      }
-      
+      if (!r.is_default && !hasValidConditions(r)) return false;
       return true;
     });
     
     updateMutation.mutate({ allocation_rules: validRules });
   };
 
-  // Calculate percentage totals per condition group
   const calculateConditionGroups = () => {
     const groups: Record<string, { rules: AllocationRule[], total: number, label: string }> = {};
     
     allocationRules.forEach(rule => {
-      // Create a key for this condition group
       let groupKey: string;
       let groupLabel: string;
       
       if (rule.is_default) {
         groupKey = 'default';
         groupLabel = 'Default/Fallback Rules';
-      } else if (rule.condition_field && rule.condition_operator && rule.condition_value) {
-        groupKey = `${rule.condition_field}|${rule.condition_operator}|${rule.condition_value}`;
-        groupLabel = `${rule.condition_field} ${rule.condition_operator} "${rule.condition_value}"`;
+      } else if (hasValidConditions(rule)) {
+        const { key, label } = getConditionGroupKey(rule);
+        groupKey = key;
+        groupLabel = label;
       } else {
         groupKey = 'incomplete';
         groupLabel = 'Incomplete Rules';
@@ -466,7 +495,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
               {/* Condition Configuration */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <Label className="text-xs font-medium">Condition (optional)</Label>
+                  <Label className="text-xs font-medium">Conditions</Label>
                   <input
                     type="checkbox"
                     checked={rule.is_default === true}
@@ -478,41 +507,93 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                 </div>
                 
                 {!rule.is_default && (
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="flex-1 min-w-0">
-                      <Label className="text-xs text-muted-foreground">Webhook Field</Label>
-                      <Input
-                        value={rule.condition_field || ""}
-                        onChange={(e) => updateAllocationRule(index, "condition_field", e.target.value)}
-                        placeholder="e.g., language, source"
-                        className="w-full"
-                        data-testid={`input-condition-field-${index}`}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <Label className="text-xs text-muted-foreground">Operator</Label>
-                      <select
-                        value={rule.condition_operator || ""}
-                        onChange={(e) => updateAllocationRule(index, "condition_operator", e.target.value)}
-                        data-testid={`select-condition-operator-${index}`}
-                        className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">Select</option>
-                        <option value="equals">Equals</option>
-                        <option value="contains">Contains</option>
-                        <option value="starts_with">Starts With</option>
-                      </select>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <Label className="text-xs text-muted-foreground">Value</Label>
-                      <Input
-                        value={rule.condition_value || ""}
-                        onChange={(e) => updateAllocationRule(index, "condition_value", e.target.value)}
-                        placeholder="e.g., Telugu, Odia"
-                        className="w-full"
-                        data-testid={`input-condition-value-${index}`}
-                      />
-                    </div>
+                  <div className="space-y-3">
+                    {/* AND/OR Toggle */}
+                    {(rule.conditions?.length || 0) > 1 && (
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-muted-foreground">Match:</Label>
+                        <ToggleGroup
+                          type="single"
+                          value={rule.logical_operator || "and"}
+                          onValueChange={(value) => {
+                            if (value) updateAllocationRule(index, "logical_operator", value as "and" | "or");
+                          }}
+                          className="h-7"
+                        >
+                          <ToggleGroupItem value="and" className="h-7 px-3 text-xs">
+                            All (AND)
+                          </ToggleGroupItem>
+                          <ToggleGroupItem value="or" className="h-7 px-3 text-xs">
+                            Any (OR)
+                          </ToggleGroupItem>
+                        </ToggleGroup>
+                      </div>
+                    )}
+
+                    {/* Conditions List */}
+                    {(rule.conditions || []).map((condition, condIndex) => (
+                      <div key={condIndex} className="flex items-center gap-2">
+                        {condIndex > 0 && (
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {(rule.logical_operator || "and").toUpperCase()}
+                          </Badge>
+                        )}
+                        <div className="flex-1 grid grid-cols-3 gap-2">
+                          <Input
+                            value={condition.field}
+                            onChange={(e) => updateConditionInRule(index, condIndex, "field", e.target.value)}
+                            placeholder="e.g., language"
+                            className="w-full"
+                            data-testid={`input-condition-field-${index}-${condIndex}`}
+                          />
+                          <select
+                            value={condition.operator}
+                            onChange={(e) => updateConditionInRule(index, condIndex, "operator", e.target.value)}
+                            className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            data-testid={`select-condition-operator-${index}-${condIndex}`}
+                          >
+                            <option value="">Operator</option>
+                            <option value="equals">Equals</option>
+                            <option value="not_equals">Not Equals</option>
+                            <option value="contains">Contains</option>
+                            <option value="not_contains">Not Contains</option>
+                            <option value="starts_with">Starts With</option>
+                            <option value="ends_with">Ends With</option>
+                            <option value="greater_than">Greater Than</option>
+                            <option value="less_than">Less Than</option>
+                          </select>
+                          <Input
+                            value={condition.value}
+                            onChange={(e) => updateConditionInRule(index, condIndex, "value", e.target.value)}
+                            placeholder="Value"
+                            className="w-full"
+                            data-testid={`input-condition-value-${index}-${condIndex}`}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeConditionFromRule(index, condIndex)}
+                          className="shrink-0 h-8 w-8"
+                          data-testid={`button-remove-condition-${index}-${condIndex}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+
+                    {/* Add Condition Button */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addConditionToRule(index)}
+                      data-testid={`button-add-condition-${index}`}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add Condition
+                    </Button>
                   </div>
                 )}
               </div>

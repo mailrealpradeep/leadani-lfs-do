@@ -274,15 +274,35 @@ export type InsertCustomColumn = z.infer<typeof insertCustomColumnSchema>;
 // ============================================================================
 // VALIDATION RULES (Company-scoped Conditional Validations)
 // ============================================================================
+// Validation rule condition (reuses the filter condition format)
+export const validationConditionSchema = z.object({
+  column_key: z.string().min(1, "Column key is required"),
+  operator: z.enum([
+    "equals", "not_equals", "contains", "not_contains",
+    "starts_with", "ends_with", "in", "not_in", 
+    "is_empty", "is_not_empty",
+    "greater_than", "less_than", "greater_equal", "less_equal", "between",
+    "date_equals", "date_not_equals", "date_before", "date_after", "date_between"
+  ]),
+  value: z.union([z.string(), z.number(), z.array(z.string()), z.null()]).optional(),
+  value2: z.union([z.string(), z.number(), z.null()]).optional(), // For "between" operators
+});
+
+export type ValidationCondition = z.infer<typeof validationConditionSchema>;
+
 export interface ValidationRule {
   id: string;
   company_id: string; // company-scoped
   sheet_id: string | null; // optional: if specified, rule applies only to specific sheet
   name: string; // descriptive name like "NFDT required when Talked"
+  // Legacy single condition fields (deprecated, kept for backward compatibility)
   trigger_column_key: string; // column that triggers the rule (e.g., "lead_status")
   operator: "equals" | "in" | "not_equals" | "not_in"; // comparison operator
-  trigger_value: string | string[]; // value(s) that trigger the rule (e.g., "Talked" or ["Talked", "Visit Scheduled"])
-  required_fields: string[]; // fields that become required when triggered (e.g., ["nfdt", "visit_date"])
+  trigger_value: string | string[]; // value(s) that trigger the rule
+  // New multi-condition support
+  conditions?: ValidationCondition[]; // Multiple conditions
+  logical_operator?: "and" | "or"; // How conditions are combined (default: "and")
+  required_fields: string[]; // fields that become required when triggered
   created_at: string;
   updated_at: string;
 }
@@ -291,9 +311,13 @@ export const insertValidationRuleSchema = z.object({
   company_id: z.string(),
   sheet_id: z.string().nullable().optional(),
   name: z.string().min(1, "Rule name is required"),
-  trigger_column_key: z.string().min(1, "Trigger column is required"),
-  operator: z.enum(["equals", "in", "not_equals", "not_in"]),
-  trigger_value: z.union([z.string(), z.array(z.string())]),
+  // Legacy single condition (optional if conditions array is provided)
+  trigger_column_key: z.string().optional(),
+  operator: z.enum(["equals", "in", "not_equals", "not_in"]).optional(),
+  trigger_value: z.union([z.string(), z.array(z.string())]).optional(),
+  // New multi-condition support
+  conditions: z.array(validationConditionSchema).optional(),
+  logical_operator: z.enum(["and", "or"]).default("and"),
   required_fields: z.array(z.string()).min(1, "At least one required field must be specified"),
 });
 
@@ -303,15 +327,35 @@ export type InsertValidationRule = z.infer<typeof insertValidationRuleSchema>;
 // QUICK FILTERS (Company-wide Quick Filters)
 // ============================================================================
 
+// All available operators for conditions - unified across all features
+export const conditionOperators = [
+  // Text operators
+  "equals", "not_equals", "contains", "not_contains", 
+  "starts_with", "ends_with",
+  "in", "not_in", "is_empty", "is_not_empty",
+  // Number operators
+  "greater_than", "less_than", "greater_equal", "less_equal", "between",
+  // Date operators
+  "date_equals", "date_not_equals", "date_before", "date_after", 
+  "date_between", "date_within"
+] as const;
+
+export type ConditionOperator = typeof conditionOperators[number];
+
+// Relative date options for date filters
+export const relativeDateOptions = [
+  "today", "tomorrow", "yesterday", 
+  "this_week", "next_week", "last_week",
+  "this_month", "next_month", "last_month",
+  "last_7_days", "last_30_days", "last_90_days"
+] as const;
+
+export type RelativeDateOption = typeof relativeDateOptions[number];
+
 // Individual filter condition schema
 export const filterConditionSchema = z.object({
   column_key: z.string().min(1, "Column key is required"),
-  operator: z.enum([
-    "equals", "not_equals", "contains", "not_contains",
-    "in", "not_in", "is_empty", "is_not_empty",
-    "greater_than", "less_than", "greater_equal", "less_equal",
-    "date_equals", "date_before", "date_after", "date_between"
-  ]),
+  operator: z.enum(conditionOperators),
   value: z.union([
     z.string(),
     z.number(),
@@ -319,8 +363,13 @@ export const filterConditionSchema = z.object({
     z.array(z.string()),
     z.null()
   ]).optional(),
+  value2: z.union([  // Secondary value for "between" operators
+    z.string(),
+    z.number(),
+    z.null()
+  ]).optional(),
   value_type: z.enum(["text", "number", "date", "boolean", "array"]).optional(),
-  relative_date: z.enum(["today", "tomorrow", "yesterday", "this_week", "next_week", "this_month", "next_month"]).optional(),
+  relative_date: z.enum(relativeDateOptions).optional(),
 });
 
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
@@ -686,10 +735,12 @@ export const validation_rules = pgTable('validation_rules', {
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 255 }).notNull(),
-  trigger_column_key: varchar('trigger_column_key', { length: 255 }).notNull(),
-  operator: varchar('operator', { length: 50 }).notNull(),
-  trigger_value: json('trigger_value').$type<string | string[]>().notNull(),
+  trigger_column_key: varchar('trigger_column_key', { length: 255 }),
+  operator: varchar('operator', { length: 50 }),
+  trigger_value: json('trigger_value').$type<string | string[]>(),
   required_fields: json('required_fields').$type<string[]>().notNull(),
+  conditions: json('conditions').$type<ValidationCondition[]>(),
+  logical_operator: varchar('logical_operator', { length: 10 }).default('and'),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -761,14 +812,32 @@ export const webhook_field_mappings = pgTable('webhook_field_mappings', {
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Webhook allocation condition schema (for JSON storage)
+export const webhookConditionSchema = z.object({
+  field: z.string(), // e.g., "language", "data.0.value"
+  operator: z.enum([
+    "equals", "not_equals", "contains", "not_contains",
+    "starts_with", "ends_with", "in", "not_in",
+    "is_empty", "is_not_empty",
+    "greater_than", "less_than", "greater_equal", "less_equal"
+  ]),
+  value: z.union([z.string(), z.number(), z.array(z.string()), z.null()]).optional(),
+});
+
+export type WebhookCondition = z.infer<typeof webhookConditionSchema>;
+
 export const webhook_allocation_rules = pgTable('webhook_allocation_rules', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   webhook_id: varchar('webhook_id').notNull().references(() => company_webhooks.id, { onDelete: 'cascade' }),
   sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
   percentage: integer('percentage').notNull(),
+  // Legacy single condition fields (kept for backward compatibility)
   condition_field: varchar('condition_field', { length: 255 }), // e.g., "language", "data.0.value"
   condition_operator: varchar('condition_operator', { length: 50 }), // "equals", "contains", "starts_with"
   condition_value: varchar('condition_value', { length: 255 }), // e.g., "Telugu", "Odia"
+  // New multi-condition support
+  conditions: json('conditions').$type<WebhookCondition[]>().default([]),
+  logical_operator: varchar('logical_operator', { length: 10 }).default('and'), // "and" | "or"
   priority: integer('priority').notNull().default(0), // for ordering rules
   is_default: boolean('is_default').notNull().default(false), // fallback if no conditions match
   created_at: timestamp('created_at').defaultNow().notNull(),

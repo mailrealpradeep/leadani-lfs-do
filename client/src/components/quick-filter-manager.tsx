@@ -78,6 +78,7 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
   const [newFilterIcon, setNewFilterIcon] = useState<string | null>(null);
   const [newFilterColor, setNewFilterColor] = useState<string | null>(null);
   const [newFilterConditions, setNewFilterConditions] = useState<FilterCondition[]>([]);
+  const [newFilterLogicalOperator, setNewFilterLogicalOperator] = useState<"and" | "or">("and");
 
   // Edit mode state
   const [editingFilterId, setEditingFilterId] = useState<string | null>(null);
@@ -85,6 +86,7 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
   const [editFilterIcon, setEditFilterIcon] = useState<string | null>(null);
   const [editFilterColor, setEditFilterColor] = useState<string | null>(null);
   const [editFilterConditions, setEditFilterConditions] = useState<FilterCondition[]>([]);
+  const [editFilterLogicalOperator, setEditFilterLogicalOperator] = useState<"and" | "or">("and");
 
   const { data: quickFilters = [], isLoading } = useQuery<QuickFilter[]>({
     queryKey: ["/api/company/quick-filters"],
@@ -95,7 +97,7 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
       // Convert conditions array to filter_config object
       const filterConfig = {
         conditions: newFilterConditions,
-        logical_operator: "and" as const,
+        logical_operator: newFilterLogicalOperator,
         version: 1,
       };
 
@@ -205,6 +207,7 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
     setNewFilterIcon(null);
     setNewFilterColor(null);
     setNewFilterConditions([]);
+    setNewFilterLogicalOperator("and");
     setIsAdding(false);
   };
 
@@ -214,6 +217,7 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
     setEditFilterIcon(null);
     setEditFilterColor(null);
     setEditFilterConditions([]);
+    setEditFilterLogicalOperator("and");
   };
 
   const startEditing = (filter: QuickFilter) => {
@@ -223,6 +227,9 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
     setEditFilterColor(filter.color);
     // Convert filter_config to conditions array
     setEditFilterConditions(filter.filter_config?.conditions || []);
+    setEditFilterLogicalOperator(
+      (filter.filter_config?.logical_operator?.toLowerCase() as "and" | "or") || "and"
+    );
   };
 
   const handleSaveEdit = () => {
@@ -241,7 +248,7 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
     // Convert conditions array to filter_config object
     const filterConfig = {
       conditions: editFilterConditions,
-      logical_operator: "and" as const,
+      logical_operator: editFilterLogicalOperator,
       version: 1,
     };
 
@@ -404,6 +411,9 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
               <FilterConditionBuilder
                 conditions={newFilterConditions}
                 onChange={setNewFilterConditions}
+                logicalOperator={newFilterLogicalOperator}
+                onLogicalOperatorChange={setNewFilterLogicalOperator}
+                showLogicalOperator={true}
               />
 
               <div className="flex justify-end gap-2">
@@ -516,6 +526,9 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
                     <FilterConditionBuilder
                       conditions={editFilterConditions}
                       onChange={setEditFilterConditions}
+                      logicalOperator={editFilterLogicalOperator}
+                      onLogicalOperatorChange={setEditFilterLogicalOperator}
+                      showLogicalOperator={true}
                     />
 
                     <div className="flex justify-end gap-2">
