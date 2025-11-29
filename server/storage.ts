@@ -67,6 +67,12 @@ import type {
   MobileLeadLookupResult,
   ApiKeyRecord,
   InsertApiKey,
+  ActivityLogRecord,
+  InsertActivityLog,
+  ActivityLogFilters,
+  ActivityLogResponse,
+  ActivityLogStats,
+  ActivityLog,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -328,6 +334,11 @@ export interface IStorage {
   revokeApiKey(id: string): Promise<ApiKeyRecord | undefined>;
   updateApiKeyLastUsed(id: string): Promise<void>;
   findApiKeyByPrefix(prefix: string): Promise<ApiKeyRecord | undefined>;
+
+  // Activity Logs
+  createActivityLog(log: InsertActivityLog): Promise<ActivityLogRecord>;
+  getActivityLogs(filters: ActivityLogFilters): Promise<ActivityLogResponse>;
+  getActivityLogStats(companyId: string, sheetId?: string, dateFrom?: string, dateTo?: string): Promise<ActivityLogStats>;
 }
 
 export class MemStorage implements IStorage {
@@ -1879,13 +1890,26 @@ export class MemStorage implements IStorage {
   async findApiKeyByPrefix(prefix: string): Promise<ApiKeyRecord | undefined> {
     return Array.from(this.apiKeysMap.values()).find(k => k.key_prefix === prefix && k.is_active);
   }
+
+  // Activity Logs (stub - not implemented for MemStorage)
+  async createActivityLog(_log: InsertActivityLog): Promise<ActivityLogRecord> {
+    throw new Error("Activity logs not implemented in MemStorage");
+  }
+
+  async getActivityLogs(_filters: ActivityLogFilters): Promise<ActivityLogResponse> {
+    return { logs: [], total: 0, page: 1, limit: 50, total_pages: 0 };
+  }
+
+  async getActivityLogStats(_companyId: string, _sheetId?: string, _dateFrom?: string, _dateTo?: string): Promise<ActivityLogStats> {
+    return { total_actions: 0, actions_by_type: {}, actions_by_user: [], actions_today: 0, actions_this_week: 0 };
+  }
 }
 
 // ============================================================================
 // POSTGRESQL STORAGE (Permanent Database)
 // ============================================================================
 import { db } from "./db";
-import { eq, and, or, desc, asc, isNull, isNotNull, inArray, gte, lte, sql as drizzleSql } from "drizzle-orm";
+import { eq, and, or, desc, asc, isNull, isNotNull, inArray, gte, lte, sql, ilike } from "drizzle-orm";
 import * as dbSchema from "@shared/schema";
 import jwt from "jsonwebtoken";
 
@@ -2295,14 +2319,14 @@ export class PgStorage implements IStorage {
       
       // Handle thought filter (meta field)
       if (key === 'thought' && typeof value === 'string') {
-        conditions.push(drizzleSql`${dbSchema.leads.meta}->>'thought' = ${value}`);
+        conditions.push(sql`${dbSchema.leads.meta}->>'thought' = ${value}`);
         continue;
       }
       
       // Handle search filter (search across all custom_fields)
       if (key === 'search' && typeof value === 'string') {
         const searchTerm = '%' + value + '%';
-        conditions.push(drizzleSql`${dbSchema.leads.custom_fields}::text ILIKE ${searchTerm}`);
+        conditions.push(sql`${dbSchema.leads.custom_fields}::text ILIKE ${searchTerm}`);
         continue;
       }
       
@@ -2310,28 +2334,28 @@ export class PgStorage implements IStorage {
       if (typeof value === 'object' && value !== null && 'from' in value && 'to' in value) {
         const dateFilter = value as { from: string; to: string; type?: string };
         if (dateFilter.from && dateFilter.to) {
-          conditions.push(drizzleSql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
-          conditions.push(drizzleSql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
+          conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
+          conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
         }
       }
       // Handle dropdown exact match (object with exactMatch flag)
       else if (typeof value === 'object' && value !== null && 'exactMatch' in value) {
         const exactFilter = value as { value: string; exactMatch: boolean };
-        conditions.push(drizzleSql`${dbSchema.leads.custom_fields}->>${key} = ${exactFilter.value}`);
+        conditions.push(sql`${dbSchema.leads.custom_fields}->>${key} = ${exactFilter.value}`);
       }
       // Handle simple string filter (substring match)
       else if (typeof value === 'string') {
-        conditions.push(drizzleSql`${dbSchema.leads.custom_fields}->>${key} ILIKE ${'%' + value + '%'}`);
+        conditions.push(sql`${dbSchema.leads.custom_fields}->>${key} ILIKE ${'%' + value + '%'}`);
       } 
       // Handle other values as exact match
       else {
-        conditions.push(drizzleSql`${dbSchema.leads.custom_fields}->>${key} = ${String(value)}`);
+        conditions.push(sql`${dbSchema.leads.custom_fields}->>${key} = ${String(value)}`);
       }
     }
     
     // Get total count
     const countResult = await db
-      .select({ count: drizzleSql<number>`count(*)` })
+      .select({ count: sql<number>`count(*)` })
       .from(dbSchema.leads)
       .where(and(...conditions));
     const total = Number(countResult[0]?.count || 0);
@@ -2352,8 +2376,8 @@ export class PgStorage implements IStorage {
         : desc(dbSchema.leads.updated_at);
     } else if (sortBy) {
       orderClause = sortOrder === 'asc'
-        ? asc(drizzleSql`${dbSchema.leads.custom_fields}->>${sortBy}`)
-        : desc(drizzleSql`${dbSchema.leads.custom_fields}->>${sortBy}`);
+        ? asc(sql`${dbSchema.leads.custom_fields}->>${sortBy}`)
+        : desc(sql`${dbSchema.leads.custom_fields}->>${sortBy}`);
     } else {
       orderClause = desc(dbSchema.leads.created_at);
     }
@@ -2397,7 +2421,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(dbSchema.sheets.company_id, companyId),
-          drizzleSql`${dbSchema.leads.custom_fields}->>'mobile_no' = ${mobileNo}`
+          sql`${dbSchema.leads.custom_fields}->>'mobile_no' = ${mobileNo}`
         )
       )
       .limit(1);
@@ -2418,7 +2442,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(dbSchema.sheets.company_id, companyId),
-          drizzleSql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}, ${fieldKey}) = ${fieldValue}`
+          sql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}, ${fieldKey}) = ${fieldValue}`
         )
       )
       .limit(1);
@@ -2502,7 +2526,7 @@ export class PgStorage implements IStorage {
     const result = await db.delete(dbSchema.leads).where(
       and(
         isNotNull(dbSchema.leads.deleted_at),
-        drizzleSql`${dbSchema.leads.deleted_at} < ${thirtyDaysAgo}`
+        sql`${dbSchema.leads.deleted_at} < ${thirtyDaysAgo}`
       )
     );
     
@@ -2562,7 +2586,7 @@ export class PgStorage implements IStorage {
     const result = await db.select().from(dbSchema.custom_columns)
       .where(and(
         eq(dbSchema.custom_columns.company_id, sheet.company_id),
-        drizzleSql`(${dbSchema.custom_columns.sheet_id} = ${sheetId} OR ${dbSchema.custom_columns.sheet_id} IS NULL)`
+        sql`(${dbSchema.custom_columns.sheet_id} = ${sheetId} OR ${dbSchema.custom_columns.sheet_id} IS NULL)`
       ))
       .orderBy(dbSchema.custom_columns.order_index);
     
@@ -4170,6 +4194,239 @@ export class PgStorage implements IStorage {
       ));
     if (result.length === 0) return undefined;
     return this.mapApiKey(result[0]);
+  }
+
+  // =========================================================================
+  // Activity Logs
+  // =========================================================================
+  
+  private mapActivityLog(row: any): ActivityLogRecord {
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      sheet_id: row.sheet_id,
+      user_id: row.user_id,
+      actor_name: row.actor_name,
+      actor_email: row.actor_email,
+      actor_role: row.actor_role,
+      action: row.action,
+      target_type: row.target_type,
+      target_id: row.target_id,
+      target_name: row.target_name,
+      sheet_name: row.sheet_name,
+      summary: row.summary,
+      details: row.details,
+      source: row.source,
+      ip_address: row.ip_address,
+      occurred_at: row.occurred_at instanceof Date ? row.occurred_at : new Date(row.occurred_at),
+    };
+  }
+
+  async createActivityLog(log: InsertActivityLog): Promise<ActivityLogRecord> {
+    const id = randomUUID();
+    const newLog = {
+      id,
+      company_id: log.company_id,
+      sheet_id: log.sheet_id ?? null,
+      user_id: log.user_id ?? null,
+      actor_name: log.actor_name,
+      actor_email: log.actor_email ?? null,
+      actor_role: log.actor_role,
+      action: log.action,
+      target_type: log.target_type,
+      target_id: log.target_id ?? null,
+      target_name: log.target_name ?? null,
+      sheet_name: log.sheet_name ?? null,
+      summary: log.summary,
+      details: log.details ?? null,
+      source: log.source ?? 'ui',
+      ip_address: log.ip_address ?? null,
+    };
+    await db.insert(dbSchema.activity_logs).values(newLog);
+    const result = await db.select().from(dbSchema.activity_logs).where(eq(dbSchema.activity_logs.id, id));
+    if (result.length === 0) throw new Error("Failed to create activity log");
+    return this.mapActivityLog(result[0]);
+  }
+
+  async getActivityLogs(filters: ActivityLogFilters): Promise<ActivityLogResponse> {
+    const limit = filters.limit ?? 50;
+    // Support both page and offset - page takes precedence if provided
+    let offset = filters.offset ?? 0;
+    let page = 1;
+    if (filters.page !== undefined && filters.page > 0) {
+      page = filters.page;
+      offset = (page - 1) * limit;
+    } else {
+      page = Math.floor(offset / limit) + 1;
+    }
+    
+    // Build conditions array
+    const conditions: any[] = [];
+    
+    if (filters.company_id) {
+      conditions.push(eq(dbSchema.activity_logs.company_id, filters.company_id));
+    }
+    if (filters.sheet_id) {
+      conditions.push(eq(dbSchema.activity_logs.sheet_id, filters.sheet_id));
+    }
+    if (filters.user_id) {
+      conditions.push(eq(dbSchema.activity_logs.user_id, filters.user_id));
+    }
+    if (filters.action) {
+      if (Array.isArray(filters.action)) {
+        conditions.push(inArray(dbSchema.activity_logs.action, filters.action));
+      } else {
+        conditions.push(eq(dbSchema.activity_logs.action, filters.action));
+      }
+    }
+    if (filters.target_type) {
+      conditions.push(eq(dbSchema.activity_logs.target_type, filters.target_type));
+    }
+    if (filters.date_from) {
+      conditions.push(gte(dbSchema.activity_logs.occurred_at, new Date(filters.date_from)));
+    }
+    if (filters.date_to) {
+      conditions.push(lte(dbSchema.activity_logs.occurred_at, new Date(filters.date_to)));
+    }
+    if (filters.search) {
+      const searchTerm = `%${filters.search}%`;
+      conditions.push(
+        or(
+          ilike(dbSchema.activity_logs.summary, searchTerm),
+          ilike(dbSchema.activity_logs.target_name, searchTerm),
+          ilike(dbSchema.activity_logs.actor_name, searchTerm)
+        )
+      );
+    }
+    
+    // Build the query
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    
+    // Get total count
+    const countResult = await db.select({ count: sql<number>`count(*)` })
+      .from(dbSchema.activity_logs)
+      .where(whereClause);
+    const total = Number(countResult[0]?.count ?? 0);
+    
+    // Get paginated results
+    let query = db.select()
+      .from(dbSchema.activity_logs)
+      .where(whereClause)
+      .orderBy(desc(dbSchema.activity_logs.occurred_at))
+      .limit(limit)
+      .offset(offset);
+    
+    const rows = await query;
+    
+    const logs: ActivityLog[] = rows.map((row: any) => ({
+      id: row.id,
+      company_id: row.company_id,
+      sheet_id: row.sheet_id,
+      user_id: row.user_id,
+      actor_name: row.actor_name,
+      actor_email: row.actor_email,
+      actor_role: row.actor_role,
+      action: row.action,
+      target_type: row.target_type,
+      target_id: row.target_id,
+      target_name: row.target_name,
+      sheet_name: row.sheet_name,
+      summary: row.summary,
+      details: row.details,
+      source: row.source,
+      ip_address: row.ip_address,
+      occurred_at: row.occurred_at instanceof Date ? row.occurred_at.toISOString() : row.occurred_at,
+    }));
+    
+    return {
+      logs,
+      total,
+      page,
+      limit,
+      total_pages: Math.ceil(total / limit),
+    };
+  }
+
+  async getActivityLogStats(
+    companyId: string, 
+    sheetId?: string, 
+    dateFrom?: string, 
+    dateTo?: string
+  ): Promise<ActivityLogStats> {
+    const conditions: any[] = [eq(dbSchema.activity_logs.company_id, companyId)];
+    
+    if (sheetId) {
+      conditions.push(eq(dbSchema.activity_logs.sheet_id, sheetId));
+    }
+    if (dateFrom) {
+      conditions.push(gte(dbSchema.activity_logs.occurred_at, new Date(dateFrom)));
+    }
+    if (dateTo) {
+      conditions.push(lte(dbSchema.activity_logs.occurred_at, new Date(dateTo)));
+    }
+    
+    const whereClause = and(...conditions);
+    
+    // Total actions
+    const totalResult = await db.select({ count: sql<number>`count(*)` })
+      .from(dbSchema.activity_logs)
+      .where(whereClause);
+    const total_actions = Number(totalResult[0]?.count ?? 0);
+    
+    // Actions by type
+    const actionsByTypeResult = await db.select({
+      action: dbSchema.activity_logs.action,
+      count: sql<number>`count(*)`
+    })
+      .from(dbSchema.activity_logs)
+      .where(whereClause)
+      .groupBy(dbSchema.activity_logs.action);
+    
+    const actions_by_type: Record<string, number> = {};
+    for (const row of actionsByTypeResult) {
+      actions_by_type[row.action] = Number(row.count);
+    }
+    
+    // Actions by user
+    const actionsByUserResult = await db.select({
+      user_id: dbSchema.activity_logs.user_id,
+      user_name: dbSchema.activity_logs.actor_name,
+      count: sql<number>`count(*)`
+    })
+      .from(dbSchema.activity_logs)
+      .where(and(whereClause, isNotNull(dbSchema.activity_logs.user_id)))
+      .groupBy(dbSchema.activity_logs.user_id, dbSchema.activity_logs.actor_name);
+    
+    const actions_by_user = actionsByUserResult.map((row: any) => ({
+      user_id: row.user_id,
+      user_name: row.user_name,
+      count: Number(row.count)
+    }));
+    
+    // Actions today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayResult = await db.select({ count: sql<number>`count(*)` })
+      .from(dbSchema.activity_logs)
+      .where(and(whereClause, gte(dbSchema.activity_logs.occurred_at, today)));
+    const actions_today = Number(todayResult[0]?.count ?? 0);
+    
+    // Actions this week
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    weekAgo.setHours(0, 0, 0, 0);
+    const weekResult = await db.select({ count: sql<number>`count(*)` })
+      .from(dbSchema.activity_logs)
+      .where(and(whereClause, gte(dbSchema.activity_logs.occurred_at, weekAgo)));
+    const actions_this_week = Number(weekResult[0]?.count ?? 0);
+    
+    return {
+      total_actions,
+      actions_by_type,
+      actions_by_user,
+      actions_today,
+      actions_this_week,
+    };
   }
 }
 

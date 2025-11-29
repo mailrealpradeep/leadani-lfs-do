@@ -10,9 +10,33 @@ import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { seedData } from "./seed";
 import { validateLeadAgainstRules } from "@shared/validator";
-import { insertQuickFilterSchema, quickFilterConfigSchema } from "@shared/schema";
+import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters } from "@shared/schema";
 import { notifyLeadAssigned, notifyLeadUpdated, notifyWebhookReceived, notifyUserJoined } from "./push-service";
 import { triggerOutgoingWebhooks, getChangedFields, flattenLeadFields } from "./webhook-trigger";
+import { 
+  logLeadCreated, 
+  logLeadUpdated, 
+  logLeadDeleted, 
+  logLeadRestored,
+  logActivity,
+  computeFieldChanges,
+  logBulkImport,
+  logBulkExport,
+  logBulkTransfer,
+  logBulkDelete,
+  logColumnCreated,
+  logColumnUpdated,
+  logColumnDeleted,
+  logSheetCreated,
+  logSheetDeleted,
+  logUserInvited,
+  logApiKeyCreated,
+  logApiKeyRevoked,
+  logAttendanceEntry,
+  logAttendanceExit,
+  logForceExitRequested,
+  logUserLogin,
+} from "./activityLogger";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -1697,6 +1721,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: { name, token_preview: `${token.substring(0, 8)}...` },
       });
 
+      // Activity log for webhook creation
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: req.companyId,
+          sheetId: null,
+          sheetName: null,
+          action: "webhook_created",
+          targetType: "webhook",
+          targetId: webhook.id,
+          targetName: name,
+          extra: { token_preview: `${token.substring(0, 8)}...` },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.status(201).json(webhook);
     } catch (error: any) {
       console.error("Create webhook error:", error);
@@ -1865,6 +1905,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: { name, is_active, has_mappings: !!field_mappings, has_rules: !!allocation_rules },
       });
 
+      // Activity log for webhook update
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: req.companyId!,
+          sheetId: null,
+          sheetName: null,
+          action: "webhook_updated",
+          targetType: "webhook",
+          targetId: req.params.id,
+          targetName: webhook.name,
+          extra: { is_active, has_mappings: !!field_mappings, has_rules: !!allocation_rules },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.json(updatedWebhook);
     } catch (error: any) {
       console.error("Update webhook error:", error);
@@ -1884,6 +1940,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Company admins can only delete webhooks from their company
       if (webhook.company_id !== req.companyId) {
         return res.status(403).json({ error: "Cannot delete webhooks from other companies" });
+      }
+
+      // Activity log for webhook deletion (before deletion to capture name)
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: req.companyId!,
+          sheetId: null,
+          sheetName: null,
+          action: "webhook_deleted",
+          targetType: "webhook",
+          targetId: req.params.id,
+          targetName: webhook.name,
+          extra: {},
+        }).catch(err => console.error("Activity log error:", err));
       }
 
       await storage.deleteCompanyWebhook(req.params.id);
@@ -2037,6 +2109,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: { name, url, events },
       });
 
+      // Activity log for outgoing webhook creation
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: req.companyId,
+          sheetId: null,
+          sheetName: null,
+          action: "outgoing_webhook_created",
+          targetType: "outgoing_webhook",
+          targetId: webhook.id,
+          targetName: name,
+          extra: { events: events.join(", "), url_preview: url.substring(0, 50) },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.status(201).json(webhook);
     } catch (error: any) {
       console.error("Create outgoing webhook error:", error);
@@ -2091,6 +2179,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: { name: updatedWebhook?.name, changes: Object.keys(updates) },
       });
 
+      // Activity log for outgoing webhook update
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: req.companyId!,
+          sheetId: null,
+          sheetName: null,
+          action: "outgoing_webhook_updated",
+          targetType: "outgoing_webhook",
+          targetId: req.params.id,
+          targetName: webhook.name,
+          extra: { changes: Object.keys(updates).join(", ") },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.json(updatedWebhook);
     } catch (error: any) {
       console.error("Update outgoing webhook error:", error);
@@ -2110,6 +2214,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Company admins can only delete webhooks from their company
       if (webhook.company_id !== req.companyId) {
         return res.status(403).json({ error: "Cannot delete webhooks from other companies" });
+      }
+
+      // Activity log for outgoing webhook deletion (before deletion)
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: req.companyId!,
+          sheetId: null,
+          sheetName: null,
+          action: "outgoing_webhook_deleted",
+          targetType: "outgoing_webhook",
+          targetId: req.params.id,
+          targetName: webhook.name,
+          extra: {},
+        }).catch(err => console.error("Activity log error:", err));
       }
 
       await storage.deleteOutgoingWebhook(req.params.id);
@@ -2326,6 +2446,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: { name, is_personal, visibility },
       });
 
+      // Activity log for sheet creation
+      const user = await storage.getUser(req.userId!);
+      if (user && req.companyId) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: req.companyId,
+          sheetId: sheet.id,
+          sheetName: name,
+          action: "sheet_created",
+          targetType: "sheet",
+          targetId: sheet.id,
+          targetName: name,
+          extra: { is_personal, visibility },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.status(201).json(sheet);
     } catch (error: any) {
       console.error("Create sheet error:", error);
@@ -2388,6 +2524,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: updates,
       });
 
+      // Activity log for sheet update
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: sheet.company_id,
+          sheetId: req.params.id,
+          sheetName: sheet.name,
+          action: "sheet_updated",
+          targetType: "sheet",
+          targetId: req.params.id,
+          targetName: sheet.name,
+          extra: { changes: Object.keys(updates).join(", ") },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.json(updated);
     } catch (error: any) {
       console.error("Update sheet error:", error);
@@ -2440,6 +2592,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!isOwner && !isCompanyAdmin && !isSuperAdmin) {
           return res.status(403).json({ error: "Insufficient permissions to delete this sheet" });
         }
+      }
+
+      // Activity log for sheet deletion (before deletion to capture name)
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: sheet.company_id,
+          sheetId: req.params.id,
+          sheetName: sheet.name,
+          action: "sheet_deleted",
+          targetType: "sheet",
+          targetId: req.params.id,
+          targetName: sheet.name,
+          extra: {},
+        }).catch(err => console.error("Activity log error:", err));
       }
 
       // Soft delete
@@ -2951,6 +3118,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: req.body,
       });
 
+      // Activity log for lead creation (awaited for reliability)
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logLeadCreated(
+          { user, source: "ui" },
+          lead as any,
+          sheet as any,
+          customColumns as any[]
+        ).catch(err => console.error("Activity log error:", err));
+      }
+
       // Realtime update
       const io = app.get("io") as SocketIOServer;
       io.to(`sheet:${req.params.id}`).emit("lead_created", lead);
@@ -3056,6 +3234,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         model_id: req.params.id,
         payload: req.body,
       });
+
+      // Activity log for lead update (capture all field-level changes)
+      if (updated) {
+        const user = await storage.getUser(req.userId!);
+        if (user) {
+          const customColumns = await storage.getCustomColumns(lead.sheet_id);
+          // Track custom_fields changes
+          if (req.body.custom_fields) {
+            await logLeadUpdated(
+              { user, source: "ui" },
+              updated as any,
+              lead.custom_fields || {},
+              updated.custom_fields || {},
+              sheet as any,
+              customColumns as any[]
+            ).catch(err => console.error("Activity log error:", err));
+          }
+          // Track owner changes
+          if (req.body.owner_user_id && req.body.owner_user_id !== lead.owner_user_id) {
+            const oldOwner = await storage.getUser(lead.owner_user_id);
+            const newOwner = await storage.getUser(req.body.owner_user_id);
+            const leadName = updated.custom_fields?.full_name || updated.custom_fields?.name || "Lead";
+            await logActivity({
+              actor: { user, source: "ui" },
+              companyId: sheet.company_id,
+              sheetId: lead.sheet_id,
+              sheetName: sheet.name,
+              action: "lead_transferred",
+              targetType: "lead",
+              targetId: lead.id,
+              targetName: leadName,
+              extra: { 
+                from_user: oldOwner?.name || "Unknown",
+                to_user: newOwner?.name || "Unknown",
+              },
+            }).catch(err => console.error("Activity log error:", err));
+          }
+        }
+      }
 
       // Send notification to lead owner if updated by someone else
       if (lead.owner_user_id && lead.owner_user_id !== req.userId) {
@@ -3164,6 +3381,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: { thought },
       });
 
+      // Activity log for thought change (awaited for reliability)
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        const leadName = lead.custom_fields?.full_name || lead.custom_fields?.name || "Lead";
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: sheet.company_id,
+          sheetId: lead.sheet_id,
+          sheetName: sheet.name,
+          action: "lead_thought_changed",
+          targetType: "lead",
+          targetId: lead.id,
+          targetName: leadName,
+          extra: { thought: thought || "cleared" },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       // Realtime update
       const io = app.get("io") as SocketIOServer;
       io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", updated);
@@ -3210,6 +3444,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         model_id: req.params.id,
         payload: {},
       });
+
+      // Activity log for lead deletion (awaited for reliability)
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logLeadDeleted({ user, source: "ui" }, lead as any, sheet as any)
+          .catch(err => console.error("Activity log error:", err));
+      }
 
       // Emit socket event for real-time updates
       const io = app.get("io") as SocketIOServer;
@@ -3333,6 +3574,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           model_id: leadId,
           payload: {},
         });
+
+        // Activity log for lead restore (awaited for reliability)
+        const user = await storage.getUser(req.userId!);
+        if (user) {
+          await logLeadRestored({ user, source: "ui" }, lead as any, sheet as any)
+            .catch(err => console.error("Activity log error:", err));
+        }
 
         // Emit socket event
         io.to(`sheet_${lead.sheet_id}`).emit("lead_restored", { leadId, sheetId: lead.sheet_id });
@@ -3476,6 +3724,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const successCount = results.filter(r => r.success).length;
       const failCount = results.filter(r => !r.success).length;
 
+      // Activity log for bulk transfer
+      if (successCount > 0 && transferUser) {
+        await logActivity({
+          actor: { user: transferUser as any, source: "ui" },
+          companyId: targetSheet.company_id,
+          sheetId: targetSheetId,
+          sheetName: targetSheet.name,
+          action: "bulk_transfer",
+          targetType: "lead",
+          targetId: targetSheetId,
+          targetName: `${successCount} leads`,
+          extra: {
+            count: successCount,
+            failed_count: failCount,
+            target_sheet: targetSheet.name,
+          },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.json({ 
         success: true, 
         message: `Transferred ${successCount} lead(s)${failCount > 0 ? `, ${failCount} failed` : ''}`,
@@ -3545,6 +3812,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         model_id: update.id,
         payload: req.body,
       });
+
+      // Activity log for lead update (remarks/NFDT)
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        const leadName = lead.custom_fields?.full_name || lead.custom_fields?.name || "Lead";
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: sheet.company_id,
+          sheetId: lead.sheet_id,
+          sheetName: sheet.name,
+          action: "lead_update_added",
+          targetType: "lead_update",
+          targetId: lead.id,
+          targetName: leadName,
+          extra: {
+            remark_preview: update.remark?.substring(0, 100),
+            nfdt: update.next_followup_date,
+          },
+        }).catch(err => console.error("Activity log error:", err));
+      }
 
       // Realtime update
       const io = app.get("io") as SocketIOServer;
@@ -3671,6 +3958,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: req.body,
       });
 
+      // Activity log for dropdown option creation
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: sheet.company_id,
+          sheetId: req.params.id,
+          sheetName: sheet.name,
+          action: "dropdown_option_created",
+          targetType: "dropdown_option",
+          targetId: option.id,
+          targetName: req.body.value,
+          extra: { column_key: req.params.columnKey },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.status(201).json(option);
     } catch (error: any) {
       console.error("Create dropdown option error:", error);
@@ -3680,16 +3983,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/sheets/:id/dropdowns/:columnKey/:optionId", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      const sheet = await storage.getSheet(req.params.id);
+      
       await storage.deleteDropdownOption(req.params.optionId);
 
       // Audit log
       await storage.createAuditLog({
         user_id: req.userId!,
+        company_id: sheet?.company_id,
         action: "delete",
         model: "dropdown_option",
         model_id: req.params.optionId,
         payload: {},
       });
+
+      // Activity log for dropdown option deletion
+      if (sheet) {
+        const user = await storage.getUser(req.userId!);
+        if (user) {
+          await logActivity({
+            actor: { user, source: "ui" },
+            companyId: sheet.company_id,
+            sheetId: req.params.id,
+            sheetName: sheet.name,
+            action: "dropdown_option_deleted",
+            targetType: "dropdown_option",
+            targetId: req.params.optionId,
+            targetName: `Option in ${req.params.columnKey}`,
+            extra: { column_key: req.params.columnKey },
+          }).catch(err => console.error("Activity log error:", err));
+        }
+      }
 
       res.json({ success: true });
     } catch (error: any) {
@@ -3845,6 +4169,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: { name, column_key, type },
       });
 
+      // Activity log for column creation
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        const company = await storage.getCompany(companyId);
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId,
+          sheetId: sheet_id || null,
+          sheetName: null,
+          action: "column_created",
+          targetType: "column",
+          targetId: column.id,
+          targetName: name,
+          extra: { column_type: type },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.status(201).json(column);
     } catch (error: any) {
       console.error("Create company column error:", error);
@@ -3994,6 +4335,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload: updates,
       });
 
+      // Activity log for column update
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: column.company_id,
+          sheetId: column.sheet_id,
+          sheetName: null,
+          action: "column_updated",
+          targetType: "column",
+          targetId: column.id,
+          targetName: column.name,
+          extra: { changes: Object.keys(updates).join(", ") },
+        }).catch(err => console.error("Activity log error:", err));
+      }
+
       res.json(updated);
     } catch (error: any) {
       console.error("Update company column error:", error);
@@ -4022,6 +4379,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           error: "Cannot delete system columns", 
           message: `The "${column.name}" column is required and cannot be deleted.` 
         });
+      }
+
+      // Activity log for column deletion (before deletion to capture name)
+      const user = await storage.getUser(req.userId!);
+      if (user) {
+        await logActivity({
+          actor: { user, source: "ui" },
+          companyId: column.company_id,
+          sheetId: column.sheet_id,
+          sheetName: null,
+          action: "column_deleted",
+          targetType: "column",
+          targetId: column.id,
+          targetName: column.name,
+          extra: { column_key: column.column_key, column_type: column.type },
+        }).catch(err => console.error("Activity log error:", err));
       }
 
       await storage.deleteCustomColumn(req.params.columnId);
@@ -6545,6 +6918,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Activity log for bulk import
+      if (imported.length > 0) {
+        const user = await storage.getUser(req.userId!);
+        if (user) {
+          await logActivity({
+            actor: { user, source: "ui" },
+            companyId: sheet.company_id,
+            sheetId: sheetId,
+            sheetName: sheet.name,
+            action: "bulk_import",
+            targetType: "lead",
+            targetId: sheetId, // Use sheet ID since this is a bulk operation
+            targetName: `${imported.length} leads`,
+            extra: {
+              count: imported.length,
+              errors_count: errors.length,
+              warnings_count: warnings.length,
+              file_name: req.body.fileName || "upload",
+            },
+          }).catch(err => console.error("Activity log error:", err));
+        }
+      }
+
       res.json({
         imported: imported.length,
         errors: errors.length,
@@ -6566,10 +6962,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const format = req.query.format as string || "csv";
       const leads = await storage.getLeadsBySheetId(req.params.id);
+      const sheet = await storage.getSheet(req.params.id);
       
       // Get custom columns for the sheet to know which fields to export
       const columns = await storage.getCustomColumns(req.params.id);
       columns.sort((a, b) => a.order_index - b.order_index);
+
+      // Activity log for export
+      if (sheet) {
+        const user = await storage.getUser(req.userId!);
+        if (user) {
+          await logActivity({
+            actor: { user, source: "ui" },
+            companyId: sheet.company_id,
+            sheetId: req.params.id,
+            sheetName: sheet.name,
+            action: "bulk_export",
+            targetType: "lead",
+            targetId: req.params.id,
+            targetName: `${leads.length} leads`,
+            extra: { count: leads.length, format },
+          }).catch(err => console.error("Activity log error:", err));
+        }
+      }
 
       // Map leads to export format using custom columns
       const data = leads.map((lead) => {
@@ -8337,6 +8752,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         is_active: true,
       });
       
+      // Activity log for API key creation
+      await logActivity({
+        actor: { user: superAdminUser, source: "ui" },
+        companyId: company_id,
+        sheetId: null,
+        sheetName: null,
+        action: "api_key_created",
+        targetType: "api_key",
+        targetId: apiKey.id,
+        targetName: name,
+        extra: { company_name: company.name },
+      }).catch(err => console.error("Activity log error:", err));
+      
       // Return the full key ONLY ONCE
       res.json({
         ...apiKey,
@@ -8354,6 +8782,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/super-admin/api-keys/:keyId", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
     try {
       const { keyId } = req.params;
+      const superAdminUser = (req as any).superAdminUser;
       
       const apiKey = await storage.getApiKey(keyId);
       if (!apiKey) {
@@ -8363,6 +8792,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!apiKey.is_active) {
         return res.status(400).json({ error: "API key is already revoked" });
       }
+      
+      // Activity log for API key revocation (before revocation)
+      await logActivity({
+        actor: { user: superAdminUser, source: "ui" },
+        companyId: apiKey.company_id,
+        sheetId: null,
+        sheetName: null,
+        action: "api_key_revoked",
+        targetType: "api_key",
+        targetId: keyId,
+        targetName: apiKey.name,
+        extra: {},
+      }).catch(err => console.error("Activity log error:", err));
       
       await storage.revokeApiKey(keyId);
       
@@ -8998,6 +9440,141 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Sync phone index error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ACTIVITY LOGS
+  // ============================================================================
+  
+  // Get activity logs for the current user (their own actions only)
+  app.get("/api/activity-logs/my", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { sheet_id, action, date_from, date_to, page, limit } = req.query;
+      
+      const filters: ActivityLogFilters = {
+        company_id: req.companyId,
+        user_id: req.userId!, // Only their own actions
+        sheet_id: sheet_id as string | undefined,
+        action: action as any,
+        date_from: date_from as string | undefined,
+        date_to: date_to as string | undefined,
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+      };
+      
+      const result = await storage.getActivityLogs(filters);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Get my activity logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Get activity logs for company (admin only - can filter by user/sheet)
+  app.get("/api/activity-logs/company", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { sheet_id, user_id, action, date_from, date_to, page, limit } = req.query;
+      
+      const filters: ActivityLogFilters = {
+        company_id: req.companyId,
+        user_id: user_id as string | undefined,
+        sheet_id: sheet_id as string | undefined,
+        action: action as any,
+        date_from: date_from as string | undefined,
+        date_to: date_to as string | undefined,
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+      };
+      
+      const result = await storage.getActivityLogs(filters);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Get company activity logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Get activity log stats for company (admin only)
+  app.get("/api/activity-logs/company/stats", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { sheet_id, date_from, date_to } = req.query;
+      
+      const stats = await storage.getActivityLogStats(
+        req.companyId,
+        sheet_id as string | undefined,
+        date_from as string | undefined,
+        date_to as string | undefined
+      );
+      
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Get activity log stats error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Super Admin: Get activity logs across all companies
+  app.get("/api/admin/activity-logs", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { company_id, sheet_id, user_id, action, date_from, date_to, page, limit } = req.query;
+      
+      // Require company_id for super admin to avoid massive queries
+      if (!company_id) {
+        return res.status(400).json({ error: "company_id is required for super admin queries" });
+      }
+      
+      const filters: ActivityLogFilters = {
+        company_id: company_id as string,
+        user_id: user_id as string | undefined,
+        sheet_id: sheet_id as string | undefined,
+        action: action as any,
+        date_from: date_from as string | undefined,
+        date_to: date_to as string | undefined,
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+      };
+      
+      const result = await storage.getActivityLogs(filters);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Get all activity logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Super Admin: Get activity log stats for any company
+  app.get("/api/admin/activity-logs/stats", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { company_id, sheet_id, date_from, date_to } = req.query;
+      
+      if (!company_id) {
+        return res.status(400).json({ error: "company_id is required" });
+      }
+      
+      const stats = await storage.getActivityLogStats(
+        company_id as string,
+        sheet_id as string | undefined,
+        date_from as string | undefined,
+        date_to as string | undefined
+      );
+      
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Get activity log stats error:", error);
       res.status(500).json({ error: error.message });
     }
   });

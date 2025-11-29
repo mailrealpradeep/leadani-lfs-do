@@ -1593,3 +1593,246 @@ export const createApiKeySchema = z.object({
 });
 
 export type CreateApiKeyRequest = z.infer<typeof createApiKeySchema>;
+
+// ============================================================================
+// ACTIVITY LOGS (Comprehensive User Action Tracking)
+// ============================================================================
+
+// All possible activity actions - plain English descriptions generated from these
+export const activityActionTypes = [
+  // Lead lifecycle
+  "lead_created",
+  "lead_updated",
+  "lead_deleted",
+  "lead_restored",
+  "lead_permanently_deleted",
+  "lead_transferred",
+  "lead_thought_changed",
+  // Lead updates (remarks/follow-up dialog)
+  "lead_update_added",
+  "lead_nfdt_changed",
+  // Bulk operations
+  "leads_imported",
+  "leads_exported",
+  "leads_bulk_transferred",
+  "leads_bulk_deleted",
+  "leads_bulk_restored",
+  // Column management
+  "column_created",
+  "column_updated",
+  "column_deleted",
+  "column_reordered",
+  // Dropdown management
+  "dropdown_option_added",
+  "dropdown_option_updated",
+  "dropdown_option_deleted",
+  // Validation rules
+  "validation_rule_created",
+  "validation_rule_updated",
+  "validation_rule_deleted",
+  // Sheet operations
+  "sheet_created",
+  "sheet_renamed",
+  "sheet_deleted",
+  // User management
+  "user_invited",
+  "user_role_changed",
+  "user_deactivated",
+  "user_reactivated",
+  "sheet_access_granted",
+  "sheet_access_removed",
+  // Webhook management
+  "webhook_created",
+  "webhook_updated",
+  "webhook_deleted",
+  "webhook_lead_received",
+  // Outgoing webhook
+  "outgoing_webhook_created",
+  "outgoing_webhook_updated",
+  "outgoing_webhook_deleted",
+  // Attendance
+  "attendance_entry",
+  "attendance_exit",
+  "force_exit_requested",
+  "force_exit_approved",
+  "force_exit_rejected",
+  // Auth events
+  "user_login",
+  "user_logout",
+  // API key management
+  "api_key_created",
+  "api_key_revoked",
+  // Quick filters
+  "quick_filter_created",
+  "quick_filter_updated",
+  "quick_filter_deleted",
+  // Call sessions
+  "call_session_created",
+  "call_session_updated",
+] as const;
+
+export type ActivityAction = typeof activityActionTypes[number];
+
+// Target types for activity logs
+export const activityTargetTypes = [
+  "lead",
+  "leads", // for bulk operations
+  "column",
+  "dropdown_option",
+  "validation_rule",
+  "sheet",
+  "user",
+  "webhook",
+  "outgoing_webhook",
+  "attendance",
+  "api_key",
+  "quick_filter",
+  "call_session",
+  "lead_update",
+] as const;
+
+export type ActivityTargetType = typeof activityTargetTypes[number];
+
+// Source of the activity
+export const activitySources = [
+  "ui",       // Web UI (desktop)
+  "mobile",   // Mobile web UI
+  "api",      // API call
+  "webhook",  // Incoming webhook
+  "import",   // Excel/CSV import
+  "system",   // System automation
+] as const;
+
+export type ActivitySource = typeof activitySources[number];
+
+// Actor roles
+export const activityActorRoles = [
+  "user",
+  "company_admin",
+  "super_admin",
+  "system",
+] as const;
+
+export type ActivityActorRole = typeof activityActorRoles[number];
+
+// Field change structure for storing before/after values
+export interface FieldChange {
+  field_key: string;      // column_key or field identifier
+  field_label: string;    // Human-readable column name (snapshot at log time)
+  old_value: any;         // Value before change
+  new_value: any;         // Value after change
+  old_display?: string;   // Formatted display value (e.g., dropdown label)
+  new_display?: string;   // Formatted display value
+}
+
+// Bulk operation metadata
+export interface BulkMeta {
+  count: number;          // Number of items affected
+  sample_items?: string[]; // Sample of affected item names (first 5)
+  details?: Record<string, any>; // Additional context
+}
+
+// Main activity log interface
+export interface ActivityLog {
+  id: string;
+  company_id: string;
+  sheet_id: string | null;        // null for company-wide actions
+  user_id: string | null;         // null for system actions
+  // Snapshot fields - stored as they were at log time
+  actor_name: string;             // User name who performed the action
+  actor_email: string | null;     // User email
+  actor_role: ActivityActorRole;
+  // Action details
+  action: ActivityAction;
+  target_type: ActivityTargetType;
+  target_id: string | null;       // ID of affected item
+  target_name: string | null;     // Snapshot of lead/item name
+  sheet_name: string | null;      // Snapshot of sheet name
+  // Human-readable summary
+  summary: string;                // Plain English sentence describing the action
+  // Detailed change information
+  details: {
+    changes?: FieldChange[];      // Field-level changes
+    bulk_meta?: BulkMeta;         // For bulk operations
+    extra?: Record<string, any>;  // Any additional context
+  } | null;
+  // Metadata
+  source: ActivitySource;
+  ip_address: string | null;      // Hashed or partial for privacy
+  occurred_at: string;
+}
+
+export const activity_logs = pgTable('activity_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'set null' }),
+  user_id: varchar('user_id').references(() => users.id, { onDelete: 'set null' }),
+  // Snapshot fields
+  actor_name: varchar('actor_name', { length: 255 }).notNull(),
+  actor_email: varchar('actor_email', { length: 255 }),
+  actor_role: varchar('actor_role', { length: 50 }).notNull(),
+  // Action details
+  action: varchar('action', { length: 100 }).notNull(),
+  target_type: varchar('target_type', { length: 50 }).notNull(),
+  target_id: varchar('target_id'),
+  target_name: varchar('target_name', { length: 500 }),
+  sheet_name: varchar('sheet_name', { length: 255 }),
+  // Summary and details
+  summary: text('summary').notNull(),
+  details: json('details').$type<{
+    changes?: FieldChange[];
+    bulk_meta?: BulkMeta;
+    extra?: Record<string, any>;
+  } | null>(),
+  // Metadata
+  source: varchar('source', { length: 50 }).notNull().default('ui'),
+  ip_address: varchar('ip_address', { length: 100 }),
+  occurred_at: timestamp('occurred_at').defaultNow().notNull(),
+});
+
+export type ActivityLogRecord = typeof activity_logs.$inferSelect;
+export type InsertActivityLog = typeof activity_logs.$inferInsert;
+
+export const insertActivityLogSchema = createInsertSchema(activity_logs).omit({
+  id: true,
+  occurred_at: true,
+});
+
+export type InsertActivityLogData = z.infer<typeof insertActivityLogSchema>;
+
+// ============================================================================
+// ACTIVITY LOG QUERY HELPERS
+// ============================================================================
+
+// Query filters for fetching activity logs
+export interface ActivityLogFilters {
+  company_id?: string;      // Required for non-super-admin
+  sheet_id?: string;        // Filter by sheet
+  user_id?: string;         // Filter by user
+  action?: ActivityAction | ActivityAction[]; // Filter by action type(s)
+  target_type?: ActivityTargetType;
+  date_from?: string;       // ISO date string
+  date_to?: string;         // ISO date string
+  search?: string;          // Search in summary/target_name
+  limit?: number;
+  page?: number;            // Page number (1-indexed) - converted to offset
+  offset?: number;          // Direct offset (takes precedence over page)
+}
+
+// Response for paginated activity logs
+export interface ActivityLogResponse {
+  logs: ActivityLog[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}
+
+// Summary stats for activity logs
+export interface ActivityLogStats {
+  total_actions: number;
+  actions_by_type: Record<string, number>;
+  actions_by_user: { user_id: string; user_name: string; count: number }[];
+  actions_today: number;
+  actions_this_week: number;
+}
