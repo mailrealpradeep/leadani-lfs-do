@@ -59,3 +59,22 @@ JWT-based authentication with role and sheet-level permissions, HMAC signature v
 *   **Authentication & Onboarding**: Public APIs for signup, invites, and invite acceptance.
 *   **Webhook API**: Public endpoint for external lead creation.
 *   **Data Operations**: Export and Import functionalities for lead data.
+
+## Future Improvements (Saved for Later)
+
+These ideas are documented in the Super Admin Console > Future tab:
+
+### 1. WhatsApp / Instagram Lead Chat Integration
+Bidirectional messaging through existing BSP:
+- Inbound: Client WhatsApp/IG → BSP Webhook → LFS Lead Chat (match phone to lead)
+- Outbound: Team reply in Lead Chat → Outgoing Webhook → BSP → Client WhatsApp/IG
+- Estimated effort: 1-2 weeks
+- Cost: Uses existing BSP subscription
+
+### 2. AI Coach for Tele Caller
+Personalized motivational avatar that speaks to users based on lead performance:
+- Generate personalized messages from lead data (e.g., "Ankita, aapki lead to admission ratio kam hai...")
+- Use TTS (ElevenLabs/Azure) for Hindi voice generation (~$5-20/month)
+- Display animated avatar (Lottie/CSS) with simple movements while audio plays
+- Trigger on login, daily briefing, or low performance alerts
+- Estimated effort: 2-3 days
