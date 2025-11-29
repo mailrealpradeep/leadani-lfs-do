@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertLeadUpdateSchema, type InsertLeadUpdate } from "@shared/schema";
@@ -43,6 +43,27 @@ export function LeadUpdateDialog({
   onOpenChange,
 }: LeadUpdateDialogProps) {
   const { toast } = useToast();
+  
+  // CRITICAL FIX: Lock the lead_id ONLY when dialog OPENS (false→true transition)
+  // This ref NEVER changes while dialog is open, preventing race conditions
+  const lockedLeadIdRef = useRef<string>(leadId);
+  
+  // Track previous open state to detect false→true transitions
+  const prevOpenRef = useRef<boolean>(false);
+  
+  // Update the locked ref ONLY on false→true transition of open state
+  useEffect(() => {
+    const wasOpen = prevOpenRef.current;
+    const isNowOpen = open;
+    
+    // Only lock the lead_id when dialog is OPENING (false → true)
+    if (!wasOpen && isNowOpen) {
+      lockedLeadIdRef.current = leadId;
+    }
+    
+    // Update previous open state
+    prevOpenRef.current = open;
+  }, [open, leadId]);
 
   const form = useForm<InsertLeadUpdate>({
     resolver: zodResolver(insertLeadUpdateSchema),
@@ -54,24 +75,48 @@ export function LeadUpdateDialog({
     },
   });
 
-  // Reset form when leadId changes to prevent updates going to wrong lead
+  // Reset form ONLY when dialog opens (false→true transition)
+  // Use a separate ref to track this for form reset
+  const prevOpenForFormRef = useRef<boolean>(false);
+  
   useEffect(() => {
-    if (leadId) {
+    const wasOpen = prevOpenForFormRef.current;
+    const isNowOpen = open;
+    
+    // Reset form only when dialog is OPENING (false → true)
+    if (!wasOpen && isNowOpen) {
       form.reset({
-        lead_id: leadId,
+        lead_id: lockedLeadIdRef.current,
         update_via: "call",
         update_on: new Date().toISOString().split("T")[0],
         remark: "",
       });
     }
-  }, [leadId, form]);
+    
+    prevOpenForFormRef.current = open;
+  }, [open, form]);
 
   const createUpdateMutation = useMutation({
     mutationFn: async (data: InsertLeadUpdate) => {
-      return await apiRequest("POST", `/api/leads/${data.lead_id}/updates`, data);
+      // CRITICAL: Always use the locked lead_id, never the form's potentially stale value
+      const safeLeadId = lockedLeadIdRef.current;
+      
+      // Safety validation: Ensure we have a valid lead_id
+      if (!safeLeadId) {
+        throw new Error("No lead selected for update");
+      }
+      
+      // Override the form's lead_id with the locked value to guarantee correctness
+      const safeData = {
+        ...data,
+        lead_id: safeLeadId,
+      };
+      
+      return await apiRequest("POST", `/api/leads/${safeLeadId}/updates`, safeData);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "updates"] });
+      // Use the locked lead_id for cache invalidation too
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", lockedLeadIdRef.current, "updates"] });
       toast({ title: "Update created successfully" });
       form.reset();
       onOpenChange(false);

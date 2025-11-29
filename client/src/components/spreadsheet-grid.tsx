@@ -1438,18 +1438,33 @@ export function SpreadsheetGrid({
 
   return (
     <>
-      {/* Update Dialogs */}
+      {/* Update Dialogs - Using key prop to force complete remount when lead changes */}
+      {/* This ensures each dialog instance is completely fresh with no stale state */}
       {selectedLeadForUpdate && (
         <>
           <LeadUpdateDialog
+            key={`update-dialog-${selectedLeadForUpdate}`}
             leadId={selectedLeadForUpdate}
             open={updateDialogOpen}
-            onOpenChange={setUpdateDialogOpen}
+            onOpenChange={(open) => {
+              setUpdateDialogOpen(open);
+              // Clear the selected lead when dialog closes to ensure clean state
+              if (!open) {
+                setSelectedLeadForUpdate(null);
+              }
+            }}
           />
           <LeadUpdateHistoryDialog
+            key={`history-dialog-${selectedLeadForUpdate}`}
             leadId={selectedLeadForUpdate}
             open={updateHistoryDialogOpen}
-            onOpenChange={setUpdateHistoryDialogOpen}
+            onOpenChange={(open) => {
+              setUpdateHistoryDialogOpen(open);
+              // Clear the selected lead when dialog closes to ensure clean state
+              if (!open) {
+                setSelectedLeadForUpdate(null);
+              }
+            }}
           />
         </>
       )}
@@ -1753,6 +1768,8 @@ export function SpreadsheetGrid({
                               className="flex-1 min-h-[44px]"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                // Prevent switching leads while dialog is already open
+                                if (updateDialogOpen) return;
                                 setSelectedLeadForUpdate(lead.id);
                                 setUpdateDialogOpen(true);
                               }}
@@ -1767,6 +1784,8 @@ export function SpreadsheetGrid({
                               className="flex-1 min-h-[44px]"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                // Prevent switching leads while dialog is already open
+                                if (updateHistoryDialogOpen) return;
                                 setSelectedLeadForUpdate(lead.id);
                                 setUpdateHistoryDialogOpen(true);
                               }}
@@ -2215,6 +2234,8 @@ export function SpreadsheetGrid({
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => {
+                          // Prevent switching leads while dialog is already open
+                          if (updateDialogOpen) return;
                           setSelectedLeadForUpdate(lead.id);
                           setUpdateDialogOpen(true);
                         }}
@@ -2228,6 +2249,8 @@ export function SpreadsheetGrid({
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => {
+                          // Prevent switching leads while dialog is already open
+                          if (updateHistoryDialogOpen) return;
                           setSelectedLeadForUpdate(lead.id);
                           setUpdateHistoryDialogOpen(true);
                         }}
