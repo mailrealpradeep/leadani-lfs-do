@@ -66,6 +66,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Redirect } from "wouter";
 import { ApiDocumentation } from "@/components/api-documentation";
 import { FutureImprovements } from "@/components/future-improvements";
+import { ApiKeysManager } from "@/components/api-keys-manager";
 
 interface SuperAdminStats {
   totalCompanies: number;
@@ -406,7 +407,7 @@ export default function SuperAdmin() {
 
         {/* Tabs for Users, Companies, and API Docs */}
         <Tabs defaultValue="users" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full max-w-2xl grid-cols-4">
+          <TabsList className="grid w-full max-w-3xl grid-cols-5">
             <TabsTrigger value="users" data-testid="tab-users">
               <Users className="h-4 w-4 mr-2" />
               Users
@@ -418,6 +419,10 @@ export default function SuperAdmin() {
             <TabsTrigger value="api-docs" data-testid="tab-api-docs">
               <Code className="h-4 w-4 mr-2" />
               API Docs
+            </TabsTrigger>
+            <TabsTrigger value="api-keys" data-testid="tab-api-keys">
+              <Key className="h-4 w-4 mr-2" />
+              API Keys
             </TabsTrigger>
             <TabsTrigger value="future" data-testid="tab-future">
               <Lightbulb className="h-4 w-4 mr-2" />
@@ -678,6 +683,11 @@ export default function SuperAdmin() {
             <ScrollArea className="h-full">
               <ApiDocumentation />
             </ScrollArea>
+          </TabsContent>
+
+          {/* API Keys Tab */}
+          <TabsContent value="api-keys" className="flex-1 min-h-0 mt-4">
+            <ApiKeysManager />
           </TabsContent>
 
           {/* Future Improvements Tab */}

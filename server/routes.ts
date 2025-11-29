@@ -8275,6 +8275,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================================================
+  // API KEY MANAGEMENT (Super Admin)
+  // ============================================================================
+
+  // List all API keys
+  app.get("/api/super-admin/api-keys", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const apiKeys = await storage.getAllApiKeys();
+      
+      // Enrich with company names
+      const enrichedKeys = await Promise.all(apiKeys.map(async (key) => {
+        const company = await storage.getCompany(key.company_id);
+        const creator = await storage.getUser(key.created_by);
+        return {
+          ...key,
+          company_name: company?.name || "Unknown",
+          created_by_name: creator?.name || "Unknown",
+          key_preview: `${key.key_prefix}...`, // Only show prefix
+        };
+      }));
+      
+      res.json(enrichedKeys);
+    } catch (error: any) {
+      console.error("Get API keys error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate new API key
+  app.post("/api/super-admin/api-keys", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const { name, company_id } = req.body;
+      const superAdminUser = (req as any).superAdminUser;
+      
+      if (!name || !company_id) {
+        return res.status(400).json({ error: "Name and company_id are required" });
+      }
+      
+      // Verify company exists
+      const company = await storage.getCompany(company_id);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      
+      // Generate a secure API key
+      const keyPrefix = "lfs_live_";
+      const keyBody = crypto.randomBytes(24).toString("base64url"); // 32 chars
+      const fullKey = `${keyPrefix}${keyBody}`;
+      
+      // Hash the key for storage
+      const keyHash = await bcrypt.hash(fullKey, 10);
+      
+      // Create the API key record
+      const apiKey = await storage.createApiKey({
+        key_prefix: keyPrefix,
+        key_hash: keyHash,
+        name,
+        company_id,
+        created_by: superAdminUser.id,
+        is_active: true,
+      });
+      
+      // Return the full key ONLY ONCE
+      res.json({
+        ...apiKey,
+        full_key: fullKey, // This is the only time the full key is returned
+        company_name: company.name,
+        message: "API key created. Copy the key now - it won't be shown again!",
+      });
+    } catch (error: any) {
+      console.error("Create API key error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Revoke API key
+  app.delete("/api/super-admin/api-keys/:keyId", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const { keyId } = req.params;
+      
+      const apiKey = await storage.getApiKey(keyId);
+      if (!apiKey) {
+        return res.status(404).json({ error: "API key not found" });
+      }
+      
+      if (!apiKey.is_active) {
+        return res.status(400).json({ error: "API key is already revoked" });
+      }
+      
+      await storage.revokeApiKey(keyId);
+      
+      res.json({ success: true, message: "API key revoked successfully" });
+    } catch (error: any) {
+      console.error("Revoke API key error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Impersonate User
   // Store for short-lived impersonation codes (code -> { token, user, company, expires })
   const impersonationCodes = new Map<string, { token: string; user: any; company: any; expires: number }>();

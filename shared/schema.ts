@@ -1546,3 +1546,50 @@ export const mobileLeadUpdateSchema = z.object({
 });
 
 export type MobileLeadUpdateRequest = z.infer<typeof mobileLeadUpdateSchema>;
+
+// ============================================================================
+// API KEYS (For Mobile Developer Access)
+// ============================================================================
+export interface ApiKey {
+  id: string;
+  key_prefix: string; // First 8 chars of key for identification (lfs_live_)
+  key_hash: string; // bcrypt hash of full key
+  name: string; // Descriptive name for the key
+  company_id: string;
+  created_by: string; // Super Admin who created it
+  is_active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export const api_keys = pgTable('api_keys', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  key_prefix: varchar('key_prefix', { length: 20 }).notNull(),
+  key_hash: varchar('key_hash', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  created_by: varchar('created_by').notNull().references(() => users.id),
+  is_active: boolean('is_active').notNull().default(true),
+  last_used_at: timestamp('last_used_at'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  revoked_at: timestamp('revoked_at'),
+});
+
+export type ApiKeyRecord = typeof api_keys.$inferSelect;
+export type InsertApiKey = typeof api_keys.$inferInsert;
+
+export const insertApiKeySchema = createInsertSchema(api_keys).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertApiKeyData = z.infer<typeof insertApiKeySchema>;
+
+// Schema for creating a new API key (user input)
+export const createApiKeySchema = z.object({
+  name: z.string().min(1, "API key name is required").max(255),
+  company_id: z.string().min(1, "Company ID is required"),
+});
+
+export type CreateApiKeyRequest = z.infer<typeof createApiKeySchema>;

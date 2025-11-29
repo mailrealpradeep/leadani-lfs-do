@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 import { storage } from "../storage";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
@@ -8,6 +9,7 @@ export interface AuthRequest extends Request {
   userId?: string;
   userRole?: "super_admin" | "company_admin" | "user";
   companyId?: string | null;
+  apiKeyId?: string; // Set when authenticated via API key
 }
 
 export interface JWTPayload {
@@ -16,7 +18,7 @@ export interface JWTPayload {
   companyId: string | null;
 }
 
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+export async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -25,6 +27,51 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
 
   const token = authHeader.substring(7);
 
+  // Check if it's an API key (starts with lfs_live_)
+  if (token.startsWith("lfs_live_")) {
+    try {
+      // Get all active API keys and check each one
+      const allApiKeys = await storage.getAllApiKeys();
+      const activeKeys = allApiKeys.filter(k => k.is_active);
+      
+      let matchedKey = null;
+      for (const key of activeKeys) {
+        const isValid = await bcrypt.compare(token, key.key_hash);
+        if (isValid) {
+          matchedKey = key;
+          break;
+        }
+      }
+      
+      if (!matchedKey) {
+        return res.status(401).json({ error: "Invalid API key" });
+      }
+      
+      // Update last used timestamp (fire and forget)
+      storage.updateApiKeyLastUsed(matchedKey.id).catch(() => {});
+      
+      // Get the first admin user of the company for context
+      const companyUsers = await storage.getUsersByCompanyId(matchedKey.company_id);
+      const adminUser = companyUsers.find(u => u.role === "company_admin") || companyUsers[0];
+      
+      if (!adminUser) {
+        return res.status(401).json({ error: "No users found for API key company" });
+      }
+      
+      // Set request context from company admin
+      req.userId = adminUser.id;
+      req.userRole = "user"; // API keys act as regular users
+      req.companyId = matchedKey.company_id;
+      req.apiKeyId = matchedKey.id;
+      
+      return next();
+    } catch (error) {
+      console.error("API key validation error:", error);
+      return res.status(401).json({ error: "Invalid API key" });
+    }
+  }
+
+  // Otherwise, treat as JWT token
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
     req.userId = decoded.userId;

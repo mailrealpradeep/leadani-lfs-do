@@ -65,6 +65,8 @@ import type {
   LeadPhoneIndexRecord,
   InsertLeadPhoneIndex,
   MobileLeadLookupResult,
+  ApiKeyRecord,
+  InsertApiKey,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -316,6 +318,16 @@ export interface IStorage {
 
   // Mobile Call Integration - Enhanced lookups
   lookupLeadsByPhone(companyId: string, phone: string): Promise<MobileLeadLookupResult[]>;
+
+  // API Keys Management
+  getApiKey(id: string): Promise<ApiKeyRecord | undefined>;
+  getApiKeyByHash(keyHash: string): Promise<ApiKeyRecord | undefined>;
+  getApiKeysByCompanyId(companyId: string): Promise<ApiKeyRecord[]>;
+  getAllApiKeys(): Promise<ApiKeyRecord[]>;
+  createApiKey(apiKey: InsertApiKey): Promise<ApiKeyRecord>;
+  revokeApiKey(id: string): Promise<ApiKeyRecord | undefined>;
+  updateApiKeyLastUsed(id: string): Promise<void>;
+  findApiKeyByPrefix(prefix: string): Promise<ApiKeyRecord | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -1813,6 +1825,59 @@ export class MemStorage implements IStorage {
   async lookupLeadsByPhone(companyId: string, phone: string): Promise<MobileLeadLookupResult[]> {
     // Simplified implementation for MemStorage
     return [];
+  }
+
+  // API Keys Management (MemStorage - simplified for testing)
+  private apiKeysMap: Map<string, ApiKeyRecord> = new Map();
+
+  async getApiKey(id: string): Promise<ApiKeyRecord | undefined> {
+    return this.apiKeysMap.get(id);
+  }
+
+  async getApiKeyByHash(keyHash: string): Promise<ApiKeyRecord | undefined> {
+    return Array.from(this.apiKeysMap.values()).find(k => k.key_hash === keyHash);
+  }
+
+  async getApiKeysByCompanyId(companyId: string): Promise<ApiKeyRecord[]> {
+    return Array.from(this.apiKeysMap.values()).filter(k => k.company_id === companyId);
+  }
+
+  async getAllApiKeys(): Promise<ApiKeyRecord[]> {
+    return Array.from(this.apiKeysMap.values());
+  }
+
+  async createApiKey(apiKey: InsertApiKey): Promise<ApiKeyRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const record: ApiKeyRecord = {
+      ...apiKey,
+      id,
+      is_active: apiKey.is_active ?? true,
+      last_used_at: null,
+      created_at: now,
+      revoked_at: null,
+    };
+    this.apiKeysMap.set(id, record);
+    return record;
+  }
+
+  async revokeApiKey(id: string): Promise<ApiKeyRecord | undefined> {
+    const existing = this.apiKeysMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, is_active: false, revoked_at: new Date() };
+    this.apiKeysMap.set(id, updated);
+    return updated;
+  }
+
+  async updateApiKeyLastUsed(id: string): Promise<void> {
+    const existing = this.apiKeysMap.get(id);
+    if (existing) {
+      this.apiKeysMap.set(id, { ...existing, last_used_at: new Date() });
+    }
+  }
+
+  async findApiKeyByPrefix(prefix: string): Promise<ApiKeyRecord | undefined> {
+    return Array.from(this.apiKeysMap.values()).find(k => k.key_prefix === prefix && k.is_active);
   }
 }
 
@@ -4013,6 +4078,98 @@ export class PgStorage implements IStorage {
     }
     
     return digits;
+  }
+
+  // ============================================================================
+  // API KEYS MANAGEMENT
+  // ============================================================================
+  
+  private mapApiKey(row: any): ApiKeyRecord {
+    return {
+      id: row.id,
+      key_prefix: row.key_prefix,
+      key_hash: row.key_hash,
+      name: row.name,
+      company_id: row.company_id,
+      created_by: row.created_by,
+      is_active: row.is_active,
+      last_used_at: row.last_used_at?.toISOString() || null,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      revoked_at: row.revoked_at?.toISOString() || null,
+    };
+  }
+
+  async getApiKey(id: string): Promise<ApiKeyRecord | undefined> {
+    const result = await db.select().from(dbSchema.api_keys)
+      .where(eq(dbSchema.api_keys.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapApiKey(result[0]);
+  }
+
+  async getApiKeyByHash(keyHash: string): Promise<ApiKeyRecord | undefined> {
+    const result = await db.select().from(dbSchema.api_keys)
+      .where(eq(dbSchema.api_keys.key_hash, keyHash));
+    if (result.length === 0) return undefined;
+    return this.mapApiKey(result[0]);
+  }
+
+  async getApiKeysByCompanyId(companyId: string): Promise<ApiKeyRecord[]> {
+    const result = await db.select().from(dbSchema.api_keys)
+      .where(eq(dbSchema.api_keys.company_id, companyId))
+      .orderBy(desc(dbSchema.api_keys.created_at));
+    return result.map(r => this.mapApiKey(r));
+  }
+
+  async getAllApiKeys(): Promise<ApiKeyRecord[]> {
+    const result = await db.select().from(dbSchema.api_keys)
+      .orderBy(desc(dbSchema.api_keys.created_at));
+    return result.map(r => this.mapApiKey(r));
+  }
+
+  async createApiKey(apiKey: InsertApiKey): Promise<ApiKeyRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newKey = {
+      id,
+      key_prefix: apiKey.key_prefix,
+      key_hash: apiKey.key_hash,
+      name: apiKey.name,
+      company_id: apiKey.company_id,
+      created_by: apiKey.created_by,
+      is_active: apiKey.is_active ?? true,
+      created_at: now,
+    };
+    await db.insert(dbSchema.api_keys).values(newKey);
+    const created = await this.getApiKey(id);
+    if (!created) throw new Error("Failed to create API key");
+    return created;
+  }
+
+  async revokeApiKey(id: string): Promise<ApiKeyRecord | undefined> {
+    const existing = await this.getApiKey(id);
+    if (!existing) return undefined;
+    
+    await db.update(dbSchema.api_keys)
+      .set({ is_active: false, revoked_at: new Date() })
+      .where(eq(dbSchema.api_keys.id, id));
+    
+    return this.getApiKey(id);
+  }
+
+  async updateApiKeyLastUsed(id: string): Promise<void> {
+    await db.update(dbSchema.api_keys)
+      .set({ last_used_at: new Date() })
+      .where(eq(dbSchema.api_keys.id, id));
+  }
+
+  async findApiKeyByPrefix(prefix: string): Promise<ApiKeyRecord | undefined> {
+    const result = await db.select().from(dbSchema.api_keys)
+      .where(and(
+        eq(dbSchema.api_keys.key_prefix, prefix),
+        eq(dbSchema.api_keys.is_active, true)
+      ));
+    if (result.length === 0) return undefined;
+    return this.mapApiKey(result[0]);
   }
 }
 
