@@ -6,7 +6,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   Filter,
@@ -227,7 +226,7 @@ export function QuickFiltersBar({
           )}
         </div>
         
-        <ScrollArea className="max-h-64">
+        <div className="max-h-[50vh] overflow-y-auto">
           <div className="p-2 space-y-3">
             {/* Lead Thoughts Section */}
             <div className="space-y-1.5">
@@ -287,7 +286,7 @@ export function QuickFiltersBar({
               </>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   );
