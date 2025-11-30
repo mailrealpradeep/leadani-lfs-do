@@ -670,7 +670,7 @@ export function TargetManagement() {
   });
 
   const { data: columns = [] } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/columns"],
+    queryKey: ["/api/company/columns"],
   });
 
   const form = useForm<TargetFormData>({
