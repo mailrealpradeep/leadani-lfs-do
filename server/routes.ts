@@ -6262,8 +6262,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GLOBAL HIGHLIGHTING RULES (Apply to All Sheets)
   // ============================================================================
   
-  // GET /api/company/global-highlighting-rules - Fetch global highlighting rules
-  app.get("/api/company/global-highlighting-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+  // GET /api/company/global-highlighting-rules - Fetch global highlighting rules (all users can read)
+  app.get("/api/company/global-highlighting-rules", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const rules = await storage.getGlobalHighlightingRules(req.companyId!);
       res.json(rules);

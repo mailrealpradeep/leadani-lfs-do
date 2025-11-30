@@ -376,10 +376,22 @@ export function SpreadsheetGrid({
     enabled: !!activeSheetId && !isMultiMode,
   });
 
-  const { data: highlightingRules = [] } = useQuery<HighlightingRule[]>({
+  const { data: sheetHighlightingRules = [] } = useQuery<HighlightingRule[]>({
     queryKey: ["/api/sheets", activeSheetId, "highlighting-rules"],
     enabled: !!activeSheetId,
   });
+
+  // Fetch global highlighting rules (apply to all sheets)
+  const { data: globalHighlightingRules = [] } = useQuery<HighlightingRule[]>({
+    queryKey: ["/api/company/global-highlighting-rules"],
+  });
+
+  // Merge global and sheet-specific rules, sheet-specific take precedence (evaluated first)
+  const highlightingRules = useMemo(() => {
+    // Sheet-specific rules are evaluated first (have higher effective priority)
+    // Then global rules are evaluated for any rows not matched by sheet-specific rules
+    return [...sheetHighlightingRules, ...globalHighlightingRules];
+  }, [sheetHighlightingRules, globalHighlightingRules]);
 
   // Load company settings (for mobile card columns)
   const { data: companySettingsData } = useQuery<{ settings: { mobile_card_columns?: string[] } }>({
@@ -727,8 +739,12 @@ export function SpreadsheetGrid({
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
     };
 
-    const handleHighlightingRulesUpdated = (data: { sheetId: string }) => {
-      if (data.sheetId === sheetId) {
+    const handleHighlightingRulesUpdated = (data: { sheetId: string | null; global?: boolean }) => {
+      if (data.global) {
+        // Global rules updated - invalidate global rules cache
+        queryClient.invalidateQueries({ queryKey: ["/api/company/global-highlighting-rules"] });
+      } else if (data.sheetId === sheetId) {
+        // Sheet-specific rules updated
         queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "highlighting-rules"] });
       }
     };
