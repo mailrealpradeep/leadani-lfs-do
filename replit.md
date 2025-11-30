@@ -32,6 +32,7 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 *   **Real-time Synchronization**: Socket.io facilitates real-time data updates across clients.
 *   **Role-Based Access Control**: Three-tier system (Super Admin, Company Admin, User) with sheet-level permissions and audit logging.
 *   **Dynamic UI**: Customizable grid interface with dynamic column management, conditional validation, and "Next Follow-up Date Time" (NFDT) highlighting.
+*   **Highlighting Rules Engine**: Conditional row highlighting based on multi-condition rules with AND/OR logic, supporting 12 color variants (yellow, orange, red, green, blue, purple, pink, dark_red, light_green, dark_green, light_blue, dark_blue). Features include sheet-specific rules and global rules (apply to all sheets), with real-time synchronization across clients.
 *   **Mobile Experience**: Mobile-first design with specific layouts, configurable mobile lead cards, mobile lead editing, and mobile sort & filter functionalities.
 *   **Reporting & Analytics**: Comprehensive Reports section with a dynamic Report Builder, multi-sheet lead selection for admins, and a dedicated Team Performance section with drill-down capabilities.
 *   **Webhooks**: Integration for external systems to create leads via HTTP POST requests, including configurable field mapping and conditional allocation logic with multi-condition support (AND/OR logic between conditions).
