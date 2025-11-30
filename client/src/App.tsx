@@ -32,6 +32,7 @@ import Attendance from "@/pages/attendance";
 import Tasks from "@/pages/tasks";
 import SuperAdmin from "@/pages/super-admin";
 import Impersonate from "@/pages/impersonate";
+import ActivityLogs from "@/pages/activity-logs";
 
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => JSX.Element; adminOnly?: boolean }) {
   const { isAuthenticated, isSuperAdmin, isCompanyAdmin, isLoading } = useAuth();
@@ -85,6 +86,9 @@ function Router() {
       </Route>
       <Route path="/audit">
         {() => <ProtectedRoute component={AuditLogs} />}
+      </Route>
+      <Route path="/activity-logs">
+        {() => <ProtectedRoute component={ActivityLogs} />}
       </Route>
       <Route path="/webhooks">
         {() => <ProtectedRoute component={Webhooks} />}

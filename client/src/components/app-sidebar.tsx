@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -145,6 +145,12 @@ export function AppSidebar() {
       url: "/team-performance",
       icon: UsersRound,
       testId: "link-team-performance",
+    },
+    {
+      title: "Activity Log",
+      url: "/activity-logs",
+      icon: Activity,
+      testId: "link-activity-logs",
     },
     {
       title: "Audit Logs",
