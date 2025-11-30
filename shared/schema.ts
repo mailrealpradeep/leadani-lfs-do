@@ -704,7 +704,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
 // ============================================================================
 // DRIZZLE ORM TABLE DEFINITIONS (for PostgreSQL)
 // ============================================================================
-import { pgTable, varchar, text, boolean, json, timestamp, integer } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, json, timestamp, integer, doublePrecision } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const companies = pgTable('companies', {
@@ -1935,3 +1935,408 @@ export interface ActivityLogStats {
   actions_today: number;
   actions_this_week: number;
 }
+
+// ============================================================================
+// TARGET MANAGEMENT SYSTEM (TMS)
+// ============================================================================
+
+// Goal types for different kinds of targets
+export const targetGoalTypes = [
+  "count",       // Count leads matching conditions (e.g., "20 Visited leads")
+  "sum",         // Sum of a numeric column (e.g., "Total deal value ₹5Cr")
+  "average",     // Average of a numeric column (e.g., "Avg deal size ₹2L")
+  "percentage",  // Ratio of two counts (e.g., "5% Visit Rate")
+  "updates",     // Number of lead updates added (e.g., "2000 updates")
+  "conversion",  // Conversion from value A to value B (e.g., "New → Visited %")
+  "compliance",  // NFDT/follow-up compliance rate
+] as const;
+
+export type TargetGoalType = typeof targetGoalTypes[number];
+
+// Assignment types - who the target is for
+export const targetAssignmentTypes = [
+  "individual",  // Each assigned user has their own target
+  "team",        // Combined total for all assigned users
+  "all_users",   // All active company users (individual targets)
+] as const;
+
+export type TargetAssignmentType = typeof targetAssignmentTypes[number];
+
+// Scope types - which sheets the target applies to
+export const targetScopeTypes = [
+  "company_wide",     // All sheets in the company
+  "specific_sheets",  // Only selected sheets
+] as const;
+
+export type TargetScopeType = typeof targetScopeTypes[number];
+
+// Time types - one-time vs recurring
+export const targetTimeTypes = [
+  "one_time",   // Fixed date range
+  "recurring",  // Daily/Weekly/Monthly recurring
+] as const;
+
+export type TargetTimeType = typeof targetTimeTypes[number];
+
+// Recurring frequency
+export const targetRecurringFrequencies = [
+  "daily",
+  "weekly",
+  "monthly",
+] as const;
+
+export type TargetRecurringFrequency = typeof targetRecurringFrequencies[number];
+
+// Target status
+export const targetStatuses = [
+  "active",
+  "paused",
+  "completed",
+  "expired",
+] as const;
+
+export type TargetStatus = typeof targetStatuses[number];
+
+// Condition operators for target goals (extended version)
+export const targetConditionOperators = [
+  // Text/General operators
+  "equals", "not_equals", "contains", "not_contains",
+  "starts_with", "ends_with",
+  "in", "not_in",
+  "is_empty", "is_not_empty",
+  // Number operators
+  "greater_than", "less_than", "greater_equal", "less_equal", "between",
+  // Date operators
+  "date_equals", "date_before", "date_after", "date_between",
+  "is_today", "is_before_today", "is_after_today",
+  "is_this_week", "is_this_month",
+  "is_overdue", "within_days", "days_ago",
+] as const;
+
+export type TargetConditionOperator = typeof targetConditionOperators[number];
+
+// Target condition schema for goal conditions
+export const targetConditionSchema = z.object({
+  column_key: z.string().min(1, "Column key is required"),
+  operator: z.enum([
+    "equals", "not_equals", "contains", "not_contains",
+    "starts_with", "ends_with",
+    "in", "not_in",
+    "is_empty", "is_not_empty",
+    "greater_than", "less_than", "greater_equal", "less_equal", "between",
+    "date_equals", "date_before", "date_after", "date_between",
+    "is_today", "is_before_today", "is_after_today",
+    "is_this_week", "is_this_month",
+    "is_overdue", "within_days", "days_ago",
+  ]),
+  value: z.union([z.string(), z.number(), z.array(z.string()), z.null()]).optional(),
+  value2: z.union([z.string(), z.number(), z.null()]).optional(), // For "between" operators
+});
+
+export type TargetCondition = z.infer<typeof targetConditionSchema>;
+
+// Target goal configuration
+export interface TargetGoalConfig {
+  goal_type: TargetGoalType;
+  target_value: number;                    // The value to achieve
+  column_key?: string;                     // Column for sum/average goals
+  conditions: TargetCondition[];           // Conditions to filter leads
+  logical_operator: "and" | "or";          // How conditions are combined
+  // For percentage/conversion goals
+  numerator_conditions?: TargetCondition[];   // What counts as success
+  denominator_conditions?: TargetCondition[]; // Total pool
+}
+
+// Target goal interface
+export interface TargetGoal {
+  id: string;
+  target_id: string;
+  name: string;                            // e.g., "Get 20 Visited leads"
+  config: TargetGoalConfig;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Main Target interface
+export interface Target {
+  id: string;
+  company_id: string;
+  name: string;                            // e.g., "December Sales Target"
+  description: string | null;
+  // Assignment
+  assignment_type: TargetAssignmentType;
+  // Scope
+  scope_type: TargetScopeType;
+  scope_sheet_ids: string[] | null;        // Only if scope_type = specific_sheets
+  // Time configuration
+  time_type: TargetTimeType;
+  start_date: string;                      // ISO date
+  end_date: string | null;                 // ISO date (null for recurring)
+  recurring_frequency: TargetRecurringFrequency | null;
+  // Status
+  status: TargetStatus;
+  // Notification settings
+  notification_milestones: number[];       // e.g., [20, 40, 60, 80, 100]
+  // Metadata
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Target user assignment
+export interface TargetUserAssignment {
+  id: string;
+  target_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+// Target user progress (for tracking)
+export interface TargetUserProgress {
+  id: string;
+  target_id: string;
+  goal_id: string;
+  user_id: string;
+  period_start: string;                    // For recurring targets, tracks which period
+  period_end: string;
+  current_value: number;
+  target_value: number;
+  is_achieved: boolean;
+  achieved_at: string | null;
+  streak_count: number;                    // For recurring targets
+  last_calculated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Company holidays
+export interface CompanyHoliday {
+  id: string;
+  company_id: string;
+  name: string;
+  date: string;                            // ISO date
+  created_by_user_id: string;
+  created_at: string;
+}
+
+// Target notification
+export interface TargetNotification {
+  id: string;
+  company_id: string;
+  target_id: string;
+  user_id: string;
+  notification_type: "assigned" | "milestone" | "deadline_approaching" | "achieved" | "expired";
+  milestone_percentage: number | null;     // 20, 40, 60, 80, 100
+  message: string;
+  is_read: boolean;
+  is_dismissed: boolean;
+  created_at: string;
+}
+
+// ============================================================================
+// TARGET MANAGEMENT SYSTEM - DATABASE TABLES
+// ============================================================================
+
+export const targets = pgTable('targets', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  // Assignment
+  assignment_type: varchar('assignment_type', { length: 50 }).notNull().default('individual'),
+  // Scope
+  scope_type: varchar('scope_type', { length: 50 }).notNull().default('company_wide'),
+  scope_sheet_ids: json('scope_sheet_ids').$type<string[]>(),
+  // Time configuration
+  time_type: varchar('time_type', { length: 50 }).notNull().default('one_time'),
+  start_date: timestamp('start_date').notNull(),
+  end_date: timestamp('end_date'),
+  recurring_frequency: varchar('recurring_frequency', { length: 50 }),
+  // Status
+  status: varchar('status', { length: 50 }).notNull().default('active'),
+  // Notification settings
+  notification_milestones: json('notification_milestones').$type<number[]>().default([20, 40, 60, 80, 100]),
+  // Metadata
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type TargetRecord = typeof targets.$inferSelect;
+export type InsertTarget = typeof targets.$inferInsert;
+
+export const insertTargetSchema = createInsertSchema(targets).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertTargetData = z.infer<typeof insertTargetSchema>;
+
+export const target_goals = pgTable('target_goals', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  target_id: varchar('target_id').notNull().references(() => targets.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  config: json('config').$type<TargetGoalConfig>().notNull(),
+  order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type TargetGoalRecord = typeof target_goals.$inferSelect;
+export type InsertTargetGoal = typeof target_goals.$inferInsert;
+
+export const insertTargetGoalSchema = createInsertSchema(target_goals).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertTargetGoalData = z.infer<typeof insertTargetGoalSchema>;
+
+export const target_user_assignments = pgTable('target_user_assignments', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  target_id: varchar('target_id').notNull().references(() => targets.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type TargetUserAssignmentRecord = typeof target_user_assignments.$inferSelect;
+export type InsertTargetUserAssignment = typeof target_user_assignments.$inferInsert;
+
+export const target_user_progress = pgTable('target_user_progress', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  target_id: varchar('target_id').notNull().references(() => targets.id, { onDelete: 'cascade' }),
+  goal_id: varchar('goal_id').notNull().references(() => target_goals.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  period_start: timestamp('period_start').notNull(),
+  period_end: timestamp('period_end').notNull(),
+  current_value: doublePrecision('current_value').notNull().default(0),
+  target_value: doublePrecision('target_value').notNull(),
+  is_achieved: boolean('is_achieved').notNull().default(false),
+  achieved_at: timestamp('achieved_at'),
+  streak_count: integer('streak_count').notNull().default(0),
+  last_calculated_at: timestamp('last_calculated_at').defaultNow().notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type TargetUserProgressRecord = typeof target_user_progress.$inferSelect;
+export type InsertTargetUserProgress = typeof target_user_progress.$inferInsert;
+
+export const company_holidays = pgTable('company_holidays', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  date: timestamp('date').notNull(),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type CompanyHolidayRecord = typeof company_holidays.$inferSelect;
+export type InsertCompanyHoliday = typeof company_holidays.$inferInsert;
+
+export const insertCompanyHolidaySchema = createInsertSchema(company_holidays).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertCompanyHolidayData = z.infer<typeof insertCompanyHolidaySchema>;
+
+export const target_notifications = pgTable('target_notifications', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  target_id: varchar('target_id').notNull().references(() => targets.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  notification_type: varchar('notification_type', { length: 50 }).notNull(),
+  milestone_percentage: integer('milestone_percentage'),
+  message: text('message').notNull(),
+  is_read: boolean('is_read').notNull().default(false),
+  is_dismissed: boolean('is_dismissed').notNull().default(false),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type TargetNotificationRecord = typeof target_notifications.$inferSelect;
+export type InsertTargetNotification = typeof target_notifications.$inferInsert;
+
+// ============================================================================
+// TARGET MANAGEMENT SYSTEM - API HELPERS
+// ============================================================================
+
+// Full target with goals and assignments (for API responses)
+export interface TargetWithDetails extends Target {
+  goals: TargetGoal[];
+  assigned_users: { id: string; name: string; email: string }[];
+  scope_sheets?: { id: string; name: string }[];
+  created_by_user?: { id: string; name: string };
+}
+
+// Target progress for a user
+export interface UserTargetProgress {
+  target: TargetWithDetails;
+  progress: {
+    goal_id: string;
+    goal_name: string;
+    current_value: number;
+    target_value: number;
+    percentage: number;
+    is_achieved: boolean;
+    achieved_at: string | null;
+  }[];
+  overall_percentage: number;
+  is_fully_achieved: boolean;
+  days_remaining: number | null;
+  streak_count: number;
+}
+
+// Leaderboard entry
+export interface LeaderboardEntry {
+  user_id: string;
+  user_name: string;
+  total_targets: number;
+  achieved_targets: number;
+  overall_progress_percentage: number;
+  total_streak: number;
+  rank: number;
+}
+
+// Target filters for API queries
+export interface TargetFilters {
+  company_id?: string;
+  user_id?: string;
+  status?: TargetStatus | TargetStatus[];
+  time_type?: TargetTimeType;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// Create target request
+export const createTargetSchema = z.object({
+  name: z.string().min(1, "Target name is required").max(255),
+  description: z.string().optional(),
+  assignment_type: z.enum(["individual", "team", "all_users"]),
+  assigned_user_ids: z.array(z.string()).optional(), // Required if assignment_type is not all_users
+  scope_type: z.enum(["company_wide", "specific_sheets"]),
+  scope_sheet_ids: z.array(z.string()).optional(), // Required if scope_type is specific_sheets
+  time_type: z.enum(["one_time", "recurring"]),
+  start_date: z.string(), // ISO date
+  end_date: z.string().optional(), // Required for one_time
+  recurring_frequency: z.enum(["daily", "weekly", "monthly"]).optional(), // Required for recurring
+  notification_milestones: z.array(z.number()).optional().default([20, 40, 60, 80, 100]),
+  goals: z.array(z.object({
+    name: z.string().min(1, "Goal name is required"),
+    goal_type: z.enum(["count", "sum", "average", "percentage", "updates", "conversion", "compliance"]),
+    target_value: z.number().positive("Target value must be positive"),
+    column_key: z.string().optional(),
+    conditions: z.array(targetConditionSchema).optional().default([]),
+    logical_operator: z.enum(["and", "or"]).optional().default("and"),
+    numerator_conditions: z.array(targetConditionSchema).optional(),
+    denominator_conditions: z.array(targetConditionSchema).optional(),
+  })).min(1, "At least one goal is required"),
+});
+
+export type CreateTargetRequest = z.infer<typeof createTargetSchema>;
