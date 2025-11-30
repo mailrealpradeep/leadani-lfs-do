@@ -1,6 +1,170 @@
 import { storage } from "./storage";
 import type { BackupConfigRecord, Lead, LeadUpdate, CustomColumn } from "@shared/schema";
 import { extractGoogleSheetId } from "@shared/schema";
+import { google } from 'googleapis';
+
+// ============================================================================
+// Google Sheets API Client (using Replit Google Sheets Integration)
+// ============================================================================
+
+let connectionSettings: any;
+
+async function getAccessToken(): Promise<string> {
+  // Check if we have a valid cached token
+  if (connectionSettings && connectionSettings.settings?.expires_at && 
+      new Date(connectionSettings.settings.expires_at).getTime() > Date.now()) {
+    return connectionSettings.settings.access_token;
+  }
+  
+  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  const xReplitToken = process.env.REPL_IDENTITY 
+    ? 'repl ' + process.env.REPL_IDENTITY 
+    : process.env.WEB_REPL_RENEWAL 
+    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
+    : null;
+
+  if (!xReplitToken) {
+    throw new Error('Google Sheets integration not available: Missing Replit token');
+  }
+
+  if (!hostname) {
+    throw new Error('Google Sheets integration not available: Missing connector hostname');
+  }
+
+  const response = await fetch(
+    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=google-sheet',
+    {
+      headers: {
+        'Accept': 'application/json',
+        'X_REPLIT_TOKEN': xReplitToken
+      }
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to get Google Sheets connection: ${response.status}`);
+  }
+
+  const data = await response.json();
+  connectionSettings = data.items?.[0];
+
+  const accessToken = connectionSettings?.settings?.access_token || 
+                      connectionSettings?.settings?.oauth?.credentials?.access_token;
+
+  if (!connectionSettings || !accessToken) {
+    throw new Error('Google Sheets not connected. Please connect your Google account in Replit.');
+  }
+  
+  return accessToken;
+}
+
+// WARNING: Never cache this client - access tokens expire
+async function getGoogleSheetsClient() {
+  const accessToken = await getAccessToken();
+  
+  const oauth2Client = new google.auth.OAuth2();
+  oauth2Client.setCredentials({
+    access_token: accessToken
+  });
+
+  return google.sheets({ version: 'v4', auth: oauth2Client });
+}
+
+// ============================================================================
+// Write Data to Google Sheets
+// ============================================================================
+
+async function writeToGoogleSheet(
+  spreadsheetId: string,
+  tabName: string,
+  headers: string[],
+  rows: (string | number | null)[][]
+): Promise<{ success: boolean; rowsWritten: number }> {
+  const sheets = await getGoogleSheetsClient();
+  
+  // Convert all data to strings for the API
+  const allData = [
+    headers,
+    ...rows.map(row => row.map(cell => String(cell ?? '')))
+  ];
+  
+  try {
+    // First, try to get existing sheet tabs
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId,
+    });
+    
+    const existingTabs = spreadsheet.data.sheets?.map(s => s.properties?.title) || [];
+    const safeTabName = tabName.substring(0, 100).replace(/[^\w\s-]/g, '');
+    
+    // If the tab doesn't exist, create it
+    if (!existingTabs.includes(safeTabName)) {
+      try {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{
+              addSheet: {
+                properties: { title: safeTabName }
+              }
+            }]
+          }
+        });
+      } catch (addError: any) {
+        // If tab already exists (race condition), just continue
+        if (!addError.message?.includes('already exists')) {
+          console.error('[Google Sheets] Error creating tab:', addError.message);
+        }
+      }
+    }
+    
+    // Clear existing content in the tab
+    try {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `'${safeTabName}'!A:ZZ`,
+      });
+    } catch (clearError: any) {
+      // If sheet is empty, clear might fail - that's ok
+      console.log('[Google Sheets] Clear result:', clearError.message);
+    }
+    
+    // Write the data
+    const result = await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${safeTabName}'!A1`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: allData,
+      },
+    });
+    
+    console.log(`[Google Sheets] Successfully wrote ${allData.length} rows to ${safeTabName}`);
+    
+    return { 
+      success: true, 
+      rowsWritten: rows.length 
+    };
+    
+  } catch (error: any) {
+    console.error('[Google Sheets] Write error:', error.message);
+    
+    // Provide helpful error messages
+    if (error.message?.includes('not found')) {
+      throw new Error(`Spreadsheet not found. Please check the Google Sheet URL is correct.`);
+    }
+    if (error.message?.includes('permission') || error.message?.includes('403')) {
+      throw new Error(`Permission denied. Please share the Google Sheet with edit access to the connected Google account.`);
+    }
+    if (error.message?.includes('401') || error.message?.includes('invalid_grant')) {
+      // Reset cached token so next call gets fresh one
+      connectionSettings = null;
+      throw new Error(`Authentication expired. Please try again or reconnect Google Sheets.`);
+    }
+    
+    throw error;
+  }
+}
 
 export interface GoogleSheetsBackupResult {
   success: boolean;
@@ -134,37 +298,55 @@ export async function syncToGoogleSheets(
   });
   
   try {
-    const sheetId = extractGoogleSheetId(backupConfig.google_sheet_url);
-    if (!sheetId) {
+    // Extract the Google Sheet ID from the URL
+    const googleSpreadsheetId = extractGoogleSheetId(backupConfig.google_sheet_url);
+    if (!googleSpreadsheetId) {
       throw new Error('Invalid Google Sheet URL');
     }
     
+    // Prepare the backup data (leads, columns, updates)
     const data = await prepareBackupData(backupConfig.sheet_id, backupConfig.company_id);
     
+    // Get the LFS sheet name to use as tab name in Google Sheets
     const sheet = await storage.getSheet(backupConfig.sheet_id);
-    const sheetName = sheet?.name || 'LFS Backup';
+    const tabName = sheet?.name || 'LFS Backup';
     
+    console.log(`[Google Sheets] Syncing ${data.rows.length} leads to spreadsheet ${googleSpreadsheetId}, tab "${tabName}"`);
+    
+    // Actually write to Google Sheets
+    const writeResult = await writeToGoogleSheet(
+      googleSpreadsheetId,
+      tabName,
+      data.headers,
+      data.rows
+    );
+    
+    // Update sync log as successful
     await storage.updateBackupSyncLog(syncLog.id, {
       status: 'completed',
-      rows_synced: data.rows.length,
+      rows_synced: writeResult.rowsWritten,
       completed_at: new Date(),
     });
     
+    // Update backup config with last sync info
     await storage.updateBackupConfig(backupConfig.id, {
       last_sync_at: new Date(),
       last_sync_status: 'success',
-      last_sync_rows: data.rows.length,
+      last_sync_rows: writeResult.rowsWritten,
       last_sync_error: null,
     });
     
+    console.log(`[Google Sheets] Sync completed successfully: ${writeResult.rowsWritten} rows written`);
+    
     return {
       success: true,
-      rowsWritten: data.rows.length,
-      sheetName,
+      rowsWritten: writeResult.rowsWritten,
+      sheetName: tabName,
     };
     
   } catch (error: any) {
     const errorMessage = error.message || 'Unknown error';
+    console.error(`[Google Sheets] Sync failed:`, errorMessage);
     
     await storage.updateBackupSyncLog(syncLog.id, {
       status: 'failed',
