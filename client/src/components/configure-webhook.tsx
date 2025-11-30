@@ -28,50 +28,111 @@ interface ExtractedWebhookField {
   sampleValue: string; // Sample value for preview
 }
 
-// Extract all available fields from webhook payload in a user-friendly format
-function extractWebhookFields(payload: any, prefix = ""): ExtractedWebhookField[] {
+// Universal webhook field extraction - handles ANY response type
+function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWebhookField[] {
   const fields: ExtractedWebhookField[] = [];
+  const MAX_DEPTH = 10; // Prevent infinite recursion
   
-  if (!payload || typeof payload !== "object") {
+  if (depth > MAX_DEPTH) {
+    return fields;
+  }
+  
+  // Handle null/undefined
+  if (payload === null || payload === undefined) {
+    return fields;
+  }
+  
+  // Handle root-level primitives (string, number, boolean)
+  if (typeof payload !== "object") {
+    const isRootLevel = depth === 0 && !prefix;
+    const value = truncateValue(payload, isRootLevel);
+    if (value) {
+      fields.push({
+        path: prefix || "value",
+        label: prefix ? formatLabel(prefix.split(".").pop() || "Value") : "Response Value",
+        sampleValue: value
+      });
+    }
     return fields;
   }
 
-  // Handle arrays - common pattern: [{title: "Name", value: "John"}, ...]
+  // Handle arrays - works for root-level arrays or nested arrays
   if (Array.isArray(payload)) {
-    payload.forEach((item, index) => {
-      if (item && typeof item === "object") {
-        // Check if this looks like a form field object with title/value pattern
-        if ("title" in item && "value" in item) {
-          // This is a form field - use title as label and create path to value
-          const fieldPath = prefix ? `${prefix}.${index}.value` : `${index}.value`;
-          const label = String(item.title || `Field ${index + 1}`);
-          const sampleValue = truncateValue(item.value);
-          fields.push({ path: fieldPath, label, sampleValue });
+    // Limit to first 20 items to avoid overwhelming the UI
+    const maxItems = Math.min(payload.length, 20);
+    
+    for (let index = 0; index < maxItems; index++) {
+      const item = payload[index];
+      const itemPath = prefix ? `${prefix}.${index}` : `${index}`;
+      
+      if (item === null || item === undefined) {
+        continue;
+      }
+      
+      // Primitive value in array
+      if (typeof item !== "object") {
+        const value = truncateValue(item);
+        if (value) {
+          fields.push({
+            path: itemPath,
+            label: prefix ? `${formatLabel(prefix.split(".").pop() || "Item")} ${index + 1}` : `Item ${index + 1}`,
+            sampleValue: value
+          });
+        }
+        continue;
+      }
+      
+      // Object in array - check for common patterns
+      if (!Array.isArray(item)) {
+        // Pattern 1: Form fields with title/label/name + value
+        const titleKey = findTitleKey(item);
+        const valueKey = findValueKey(item);
+        
+        if (titleKey && valueKey && item[valueKey] !== undefined) {
+          const fieldLabel = String(item[titleKey] || `Field ${index + 1}`);
+          const sampleValue = truncateValue(item[valueKey]);
           
-          // Also check for key-based access pattern (common in some systems)
-          if (item.key) {
+          if (sampleValue) {
             fields.push({
-              path: item.key,
-              label: `${label} (by key)`,
+              path: `${itemPath}.${valueKey}`,
+              label: fieldLabel,
               sampleValue
             });
+            
+            // Also add key-based access if available
+            if (item.key && typeof item.key === "string") {
+              fields.push({
+                path: item.key,
+                label: `${fieldLabel} (by key)`,
+                sampleValue
+              });
+            }
           }
-          // Don't recurse further for form-field objects to avoid duplicates
+          // Also extract other fields from this object (excluding title/value keys)
+          for (const [key, val] of Object.entries(item)) {
+            if (key !== titleKey && key !== valueKey && key !== "key") {
+              fields.push(...extractWebhookFields(val, `${itemPath}.${key}`, depth + 1));
+            }
+          }
         } else {
-          // Regular object in array - recurse into it
-          const itemPrefix = prefix ? `${prefix}.${index}` : `${index}`;
-          fields.push(...extractWebhookFields(item, itemPrefix));
+          // Regular object - recurse into all fields
+          fields.push(...extractWebhookFields(item, itemPath, depth + 1));
         }
-      } else if (item !== null && item !== undefined) {
-        // Primitive value in array
-        const fieldPath = prefix ? `${prefix}.${index}` : `${index}`;
-        fields.push({
-          path: fieldPath,
-          label: `Item ${index + 1}`,
-          sampleValue: truncateValue(item)
-        });
+      } else {
+        // Nested array - recurse
+        fields.push(...extractWebhookFields(item, itemPath, depth + 1));
       }
-    });
+    }
+    
+    // Add notice if array was truncated
+    if (payload.length > 20) {
+      fields.push({
+        path: `${prefix || "array"}._info`,
+        label: `... and ${payload.length - 20} more items`,
+        sampleValue: "(array truncated)"
+      });
+    }
+    
     return fields;
   }
 
@@ -79,27 +140,57 @@ function extractWebhookFields(payload: any, prefix = ""): ExtractedWebhookField[
   for (const [key, value] of Object.entries(payload)) {
     const fieldPath = prefix ? `${prefix}.${key}` : key;
     
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      // Nested object - recurse
-      fields.push(...extractWebhookFields(value, fieldPath));
+    if (value === null || value === undefined) {
+      continue;
+    }
+    
+    if (typeof value !== "object") {
+      // Simple value - add as field
+      const sampleValue = truncateValue(value);
+      if (sampleValue) {
+        fields.push({
+          path: fieldPath,
+          label: formatLabel(key),
+          sampleValue
+        });
+      }
     } else if (Array.isArray(value)) {
       // Array - recurse
-      fields.push(...extractWebhookFields(value, fieldPath));
-    } else if (value !== null && value !== undefined) {
-      // Simple value - add as field
-      fields.push({
-        path: fieldPath,
-        label: formatLabel(key),
-        sampleValue: truncateValue(value)
-      });
+      fields.push(...extractWebhookFields(value, fieldPath, depth + 1));
+    } else {
+      // Nested object - recurse
+      fields.push(...extractWebhookFields(value, fieldPath, depth + 1));
     }
   }
 
   return fields;
 }
 
+// Helper: Find a title-like key in an object
+function findTitleKey(obj: Record<string, any>): string | null {
+  const titleKeys = ["title", "label", "name", "field_name", "fieldName", "question", "header"];
+  for (const key of titleKeys) {
+    if (key in obj && typeof obj[key] === "string" && obj[key].trim()) {
+      return key;
+    }
+  }
+  return null;
+}
+
+// Helper: Find a value-like key in an object
+function findValueKey(obj: Record<string, any>): string | null {
+  const valueKeys = ["value", "answer", "response", "data", "content", "text"];
+  for (const key of valueKeys) {
+    if (key in obj) {
+      return key;
+    }
+  }
+  return null;
+}
+
 // Aggregate fields from multiple webhook payloads and deduplicate
-function aggregateWebhookFields(requests: Array<{ payload: Record<string, any>; created_at?: string }>): ExtractedWebhookField[] {
+// Accepts ANY payload type: object, array, string, number, boolean, null
+function aggregateWebhookFields(requests: Array<{ payload: any; created_at?: string }>): ExtractedWebhookField[] {
   const seenPaths = new Set<string>();
   const allFields: ExtractedWebhookField[] = [];
   
@@ -114,9 +205,15 @@ function aggregateWebhookFields(requests: Array<{ payload: Record<string, any>; 
   
   // First pass: collect all fields with unique paths that have meaningful labels/values
   for (const request of sortedRequests) {
-    if (request.payload) {
-      const fields = extractWebhookFields(request.payload);
+    // Handle any payload type (null/undefined will return empty array from extractWebhookFields)
+    const payload = request.payload;
+    if (payload !== null && payload !== undefined) {
+      const fields = extractWebhookFields(payload);
       for (const field of fields) {
+        // Skip info fields (like truncation notices)
+        if (field.path.endsWith("._info")) {
+          continue;
+        }
         // Skip fields with non-meaningful labels or empty sample values
         if (!isMeaningfulLabel(field.label) || !field.sampleValue.trim()) {
           continue;
@@ -191,32 +288,36 @@ function normalizeLabel(label: string): string {
   return label.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-// Check if a sample value is meaningful for display (not metadata or primitive placeholders)
-function isMeaningfulSampleValue(value: any): boolean {
+// Check if a sample value is meaningful for display
+// Note: We're permissive here - booleans and zeros ARE valid webhook data
+function isMeaningfulSampleValue(value: any, isRootLevel = false): boolean {
   if (value === null || value === undefined) return false;
   
-  // Detect objects
+  // Detect objects that can't be displayed
   if (typeof value === "object" && !Array.isArray(value)) return false;
   
   const str = String(value).trim();
   
-  // Filter out unusable or metadata-like values
+  // Filter out only truly unusable values
   const unusableValues = [
-    "[object Object]", "null", "undefined", "", "NaN",
-    "true", "false", "0", "1"  // Common metadata values
+    "[object Object]", "null", "undefined", "", "NaN"
   ];
   
   if (unusableValues.includes(str.toLowerCase())) return false;
   
-  // Also reject very short numeric-only strings (likely IDs or flags)
-  if (/^\d{1,2}$/.test(str)) return false;
+  // For root-level values, always accept booleans and numbers
+  if (isRootLevel) return true;
+  
+  // For nested values, booleans and simple numbers are still valid data
+  // Only reject very short single-digit numbers that look like array indices
+  // Actually, let's be permissive - "0", "1", "true", "false" can all be valid data
   
   return true;
 }
 
 // Truncate long values for display and detect unusable values
-function truncateValue(value: any): string {
-  if (!isMeaningfulSampleValue(value)) {
+function truncateValue(value: any, isRootLevel = false): string {
+  if (!isMeaningfulSampleValue(value, isRootLevel)) {
     return "";
   }
   
