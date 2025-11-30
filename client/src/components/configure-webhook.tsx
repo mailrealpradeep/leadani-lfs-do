@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle, Check, X } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check, X, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,10 +15,247 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { CompanyWebhook, Sheet } from "@shared/schema";
+
+// Interface for extracted webhook fields with friendly display
+interface ExtractedWebhookField {
+  path: string;       // The actual path to use (e.g., "user.name" or "fields.0.value")
+  label: string;      // Friendly display name (e.g., "Name")
+  sampleValue: string; // Sample value for preview
+}
+
+// Extract all available fields from webhook payload in a user-friendly format
+function extractWebhookFields(payload: any, prefix = ""): ExtractedWebhookField[] {
+  const fields: ExtractedWebhookField[] = [];
+  
+  if (!payload || typeof payload !== "object") {
+    return fields;
+  }
+
+  // Handle arrays - common pattern: [{title: "Name", value: "John"}, ...]
+  if (Array.isArray(payload)) {
+    payload.forEach((item, index) => {
+      if (item && typeof item === "object") {
+        // Check if this looks like a form field object with title/value pattern
+        if ("title" in item && "value" in item) {
+          // This is a form field - use title as label and create path to value
+          const fieldPath = prefix ? `${prefix}.${index}.value` : `${index}.value`;
+          const label = String(item.title || `Field ${index + 1}`);
+          const sampleValue = truncateValue(item.value);
+          fields.push({ path: fieldPath, label, sampleValue });
+          
+          // Also check for key-based access pattern (common in some systems)
+          if (item.key) {
+            fields.push({
+              path: item.key,
+              label: `${label} (by key)`,
+              sampleValue
+            });
+          }
+          // Don't recurse further for form-field objects to avoid duplicates
+        } else {
+          // Regular object in array - recurse into it
+          const itemPrefix = prefix ? `${prefix}.${index}` : `${index}`;
+          fields.push(...extractWebhookFields(item, itemPrefix));
+        }
+      } else if (item !== null && item !== undefined) {
+        // Primitive value in array
+        const fieldPath = prefix ? `${prefix}.${index}` : `${index}`;
+        fields.push({
+          path: fieldPath,
+          label: `Item ${index + 1}`,
+          sampleValue: truncateValue(item)
+        });
+      }
+    });
+    return fields;
+  }
+
+  // Handle objects
+  for (const [key, value] of Object.entries(payload)) {
+    const fieldPath = prefix ? `${prefix}.${key}` : key;
+    
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      // Nested object - recurse
+      fields.push(...extractWebhookFields(value, fieldPath));
+    } else if (Array.isArray(value)) {
+      // Array - recurse
+      fields.push(...extractWebhookFields(value, fieldPath));
+    } else if (value !== null && value !== undefined) {
+      // Simple value - add as field
+      fields.push({
+        path: fieldPath,
+        label: formatLabel(key),
+        sampleValue: truncateValue(value)
+      });
+    }
+  }
+
+  return fields;
+}
+
+// Aggregate fields from multiple webhook payloads and deduplicate
+function aggregateWebhookFields(requests: Array<{ payload: Record<string, any>; created_at?: string }>): ExtractedWebhookField[] {
+  const seenPaths = new Set<string>();
+  const allFields: ExtractedWebhookField[] = [];
+  
+  // Sort by created_at descending (most recent first) then take first 5
+  const sortedRequests = [...requests]
+    .sort((a, b) => {
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return dateB - dateA; // Descending
+    })
+    .slice(0, 5);
+  
+  // First pass: collect all fields with unique paths that have meaningful labels/values
+  for (const request of sortedRequests) {
+    if (request.payload) {
+      const fields = extractWebhookFields(request.payload);
+      for (const field of fields) {
+        // Skip fields with non-meaningful labels or empty sample values
+        if (!isMeaningfulLabel(field.label) || !field.sampleValue.trim()) {
+          continue;
+        }
+        
+        if (!seenPaths.has(field.path)) {
+          seenPaths.add(field.path);
+          allFields.push(field);
+        }
+      }
+    }
+  }
+  
+  // Second pass: detect duplicate labels using normalized comparison
+  const labelCounts = new Map<string, number>();
+  for (const field of allFields) {
+    const normalized = normalizeLabel(field.label);
+    labelCounts.set(normalized, (labelCounts.get(normalized) || 0) + 1);
+  }
+  
+  // Add friendly path suffix to any label that appears more than once (all duplicates get the suffix)
+  return allFields.map(field => {
+    const normalized = normalizeLabel(field.label);
+    if ((labelCounts.get(normalized) || 0) > 1) {
+      return {
+        ...field,
+        label: `${field.label} (${formatPathSuffix(field.path)})`
+      };
+    }
+    return field;
+  });
+}
+
+// Format a key into a readable label
+function formatLabel(key: string): string {
+  return key
+    .replace(/[_-]/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, l => l.toUpperCase())
+    .trim();
+}
+
+// Check if a label is meaningful (not empty, not object serialization, etc.)
+function isMeaningfulLabel(label: string): boolean {
+  if (!label) return false;
+  
+  // Normalize: trim and collapse internal whitespace
+  const normalized = label.trim().replace(/\s+/g, " ");
+  
+  if (!normalized) return false;
+  
+  // Reject serialized object/function representations
+  const unusablePatterns = [
+    /^\[object\s+\w+\]$/i,  // [object Object], [object Array], etc.
+    /^function\s*\(/i,      // function() declarations
+    /^null$/i,
+    /^undefined$/i,
+    /^NaN$/i,
+  ];
+  
+  for (const pattern of unusablePatterns) {
+    if (pattern.test(normalized)) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+// Normalize label for deduplication comparison
+function normalizeLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+// Check if a sample value is meaningful for display (not metadata or primitive placeholders)
+function isMeaningfulSampleValue(value: any): boolean {
+  if (value === null || value === undefined) return false;
+  
+  // Detect objects
+  if (typeof value === "object" && !Array.isArray(value)) return false;
+  
+  const str = String(value).trim();
+  
+  // Filter out unusable or metadata-like values
+  const unusableValues = [
+    "[object Object]", "null", "undefined", "", "NaN",
+    "true", "false", "0", "1"  // Common metadata values
+  ];
+  
+  if (unusableValues.includes(str.toLowerCase())) return false;
+  
+  // Also reject very short numeric-only strings (likely IDs or flags)
+  if (/^\d{1,2}$/.test(str)) return false;
+  
+  return true;
+}
+
+// Truncate long values for display and detect unusable values
+function truncateValue(value: any): string {
+  if (!isMeaningfulSampleValue(value)) {
+    return "";
+  }
+  
+  const str = String(value).trim();
+  
+  if (str.length > 30) {
+    return str.substring(0, 27) + "...";
+  }
+  return str;
+}
+
+// Format a path suffix for user display (make it friendlier than raw JSON path)
+function formatPathSuffix(path: string): string {
+  // Convert array indices to more readable format
+  // "fields.0.value" -> "Field 1"
+  // "data.contacts.2.email" -> "Contact 3 Email"
+  
+  const parts = path.split(".");
+  const friendlyParts: string[] = [];
+  
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (/^\d+$/.test(part)) {
+      // It's an array index - convert to "Item N" or use parent context
+      const num = parseInt(part, 10) + 1; // 1-indexed for users
+      if (friendlyParts.length > 0) {
+        // Append to previous part
+        friendlyParts[friendlyParts.length - 1] += ` #${num}`;
+      } else {
+        friendlyParts.push(`Item ${num}`);
+      }
+    } else if (part !== "value" && part !== "data") {
+      // Skip common noise like "value" at the end
+      friendlyParts.push(formatLabel(part));
+    }
+  }
+  
+  return friendlyParts.join(" > ") || path;
+}
 
 interface FieldMapping {
   webhook_field: string;
@@ -152,6 +389,14 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     queryKey: ["/api/admin/company/webhooks", webhook.id, "requests"],
     enabled: !!webhook.id,
   });
+
+  // Extract available webhook fields from recent payload data (aggregated from multiple requests)
+  const availableWebhookFields = useMemo(() => {
+    if (webhookRequests.length > 0) {
+      return aggregateWebhookFields(webhookRequests);
+    }
+    return [];
+  }, [webhookRequests]);
 
 
   // Load existing configuration when data arrives
@@ -493,40 +738,69 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       </TabsList>
 
       <TabsContent value="mappings" className="space-y-4 py-2">
-        <Alert className="mb-4">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Map fields from your webhook payload to CRM fields. Use dot notation for nested fields (e.g., user.contact.email).
-          </AlertDescription>
-        </Alert>
-
-        {/* Show raw webhook JSON payload */}
-        {webhookRequests.length > 0 && webhookRequests[0].payload && (
-          <div className="space-y-2 mb-4">
-            <Label className="text-sm font-medium">Most Recent Webhook Data</Label>
-            <div className="border rounded-md p-3 bg-muted/50 max-h-64 overflow-auto">
-              <pre className="text-xs font-mono whitespace-pre-wrap break-all">
-                {JSON.stringify(webhookRequests[0].payload, null, 2)}
-              </pre>
-            </div>
-          </div>
+        {/* Show helpful message based on webhook data availability */}
+        {availableWebhookFields.length > 0 ? (
+          <Alert className="mb-4 border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
+            <Check className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800 dark:text-green-200">
+              We detected {availableWebhookFields.length} fields from your recent webhook data. Select the fields you want to map to your CRM.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              No webhook data received yet. Send a test webhook to see available fields here, or configure manually.
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Field Mappings */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Field Mappings</Label>
+          <p className="text-xs text-muted-foreground">
+            Select which webhook fields should be saved to your CRM fields.
+          </p>
           
           {fieldMappings.map((mapping, index) => (
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
               <div className="flex-1 min-w-0">
                 <Label className="text-xs text-muted-foreground">Webhook Field</Label>
-                <Input
-                  value={mapping.webhook_field}
-                  onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
-                  placeholder="e.g., name, mobile_no"
-                  className="w-full"
-                  data-testid={`input-webhook-field-${index}`}
-                />
+                {availableWebhookFields.length > 0 ? (
+                  <Select
+                    value={mapping.webhook_field}
+                    onValueChange={(value) => updateFieldMapping(index, "webhook_field", value)}
+                  >
+                    <SelectTrigger className="w-full" data-testid={`select-webhook-field-${index}`}>
+                      <SelectValue placeholder="Select a field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <ScrollArea className="max-h-[200px]">
+                        {availableWebhookFields.map((field, fieldIndex) => (
+                          <SelectItem 
+                            key={`${field.path}-${fieldIndex}`} 
+                            value={field.path}
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium">{field.label}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {field.sampleValue}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </ScrollArea>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={mapping.webhook_field}
+                    onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
+                    placeholder="Enter field path (e.g., name, user.email)"
+                    className="w-full"
+                    data-testid={`input-webhook-field-${index}`}
+                  />
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <Label className="text-xs text-muted-foreground">CRM Field</Label>
@@ -547,6 +821,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                 </Select>
               </div>
               <Button
+                type="button"
                 variant="ghost"
                 size="icon"
                 onClick={() => removeFieldMapping(index)}
@@ -559,6 +834,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             </div>
           ))}
           <Button
+            type="button"
             variant="outline"
             size="sm"
             onClick={addFieldMapping}
@@ -644,13 +920,36 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                           </Badge>
                         )}
                         <div className="flex-1 grid grid-cols-3 gap-2">
-                          <Input
-                            value={condition.field}
-                            onChange={(e) => updateConditionInRule(index, condIndex, "field", e.target.value)}
-                            placeholder="e.g., language"
-                            className="w-full"
-                            data-testid={`input-condition-field-${index}-${condIndex}`}
-                          />
+                          {availableWebhookFields.length > 0 ? (
+                            <Select
+                              value={condition.field}
+                              onValueChange={(value) => updateConditionInRule(index, condIndex, "field", value)}
+                            >
+                              <SelectTrigger className="w-full" data-testid={`select-condition-field-${index}-${condIndex}`}>
+                                <SelectValue placeholder="Select field" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <ScrollArea className="max-h-[200px]">
+                                  {availableWebhookFields.map((field, fieldIndex) => (
+                                    <SelectItem 
+                                      key={`${field.path}-${fieldIndex}`} 
+                                      value={field.path}
+                                    >
+                                      <span>{field.label}</span>
+                                    </SelectItem>
+                                  ))}
+                                </ScrollArea>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              value={condition.field}
+                              onChange={(e) => updateConditionInRule(index, condIndex, "field", e.target.value)}
+                              placeholder="e.g., language"
+                              className="w-full"
+                              data-testid={`input-condition-field-${index}-${condIndex}`}
+                            />
+                          )}
                           <select
                             value={condition.operator}
                             onChange={(e) => updateConditionInRule(index, condIndex, "operator", e.target.value)}
@@ -898,20 +1197,48 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           <div className="space-y-3">
             <Label className="text-sm font-medium">Update Field Mappings</Label>
             <p className="text-xs text-muted-foreground mb-2">
-              Map webhook fields to CRM fields that should be updated when a match is found.
+              Select webhook fields to update in your CRM when a matching lead is found.
             </p>
             
             {updateFieldMappings.map((mapping, index) => (
               <div key={index} className="flex items-end gap-2" data-testid={`update-mapping-row-${index}`}>
                 <div className="flex-1 min-w-0">
                   <Label className="text-xs text-muted-foreground">Webhook Field</Label>
-                  <Input
-                    value={mapping.source_field}
-                    onChange={(e) => updateUpdateFieldMapping(index, "source_field", e.target.value)}
-                    placeholder="e.g., status, notes"
-                    className="w-full"
-                    data-testid={`input-update-source-${index}`}
-                  />
+                  {availableWebhookFields.length > 0 ? (
+                    <Select
+                      value={mapping.source_field}
+                      onValueChange={(value) => updateUpdateFieldMapping(index, "source_field", value)}
+                    >
+                      <SelectTrigger className="w-full" data-testid={`select-update-source-${index}`}>
+                        <SelectValue placeholder="Select a field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <ScrollArea className="max-h-[200px]">
+                          {availableWebhookFields.map((field, fieldIndex) => (
+                            <SelectItem 
+                              key={`${field.path}-${fieldIndex}`} 
+                              value={field.path}
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-medium">{field.label}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {field.sampleValue}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </ScrollArea>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={mapping.source_field}
+                      onChange={(e) => updateUpdateFieldMapping(index, "source_field", e.target.value)}
+                      placeholder="e.g., status, notes"
+                      className="w-full"
+                      data-testid={`input-update-source-${index}`}
+                    />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <Label className="text-xs text-muted-foreground">CRM Field to Update</Label>
@@ -932,6 +1259,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                   </Select>
                 </div>
                 <Button
+                  type="button"
                   variant="ghost"
                   size="icon"
                   onClick={() => removeUpdateFieldMapping(index)}
@@ -944,6 +1272,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
               </div>
             ))}
             <Button
+              type="button"
               variant="outline"
               size="sm"
               onClick={addUpdateFieldMapping}
