@@ -317,6 +317,7 @@ function ConditionBuilder({
           )}
 
           <Button
+            type="button"
             variant="ghost"
             size="icon"
             onClick={() => removeCondition(index)}
@@ -328,6 +329,7 @@ function ConditionBuilder({
       ))}
 
       <Button
+        type="button"
         variant="outline"
         size="sm"
         onClick={addCondition}
@@ -402,6 +404,7 @@ function GoalBuilder({ columns, goals, onChange }: GoalBuilderProps) {
                   {GOAL_TYPES.find(t => t.value === goal.goal_type)?.label}
                 </Badge>
                 <Button
+                  type="button"
                   variant="ghost"
                   size="icon"
                   onClick={(e) => {
@@ -507,6 +510,7 @@ function GoalBuilder({ columns, goals, onChange }: GoalBuilderProps) {
       ))}
 
       <Button
+        type="button"
         variant="outline"
         onClick={addGoal}
         className="w-full"
