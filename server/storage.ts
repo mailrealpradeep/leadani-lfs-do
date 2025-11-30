@@ -100,6 +100,9 @@ import type {
   InsertBackupSyncLog,
   RestoreLogRecord,
   InsertRestoreLog,
+  // User Row Filters
+  UserRowFilterRecord,
+  InsertUserRowFilter,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -446,6 +449,17 @@ export interface IStorage {
   // Restore Logs
   getRestoreLogs(companyId: string, sheetId?: string): Promise<RestoreLogRecord[]>;
   createRestoreLog(log: InsertRestoreLog): Promise<RestoreLogRecord>;
+
+  // =========================================================================
+  // USER ROW FILTERS (Hide/Show Rows)
+  // =========================================================================
+  
+  getUserRowFilter(id: string): Promise<UserRowFilterRecord | undefined>;
+  getUserRowFiltersByUserAndSheet(userId: string, sheetId: string): Promise<UserRowFilterRecord[]>;
+  createUserRowFilter(filter: InsertUserRowFilter): Promise<UserRowFilterRecord>;
+  updateUserRowFilter(id: string, updates: Partial<UserRowFilterRecord>): Promise<UserRowFilterRecord | undefined>;
+  deleteUserRowFilter(id: string): Promise<boolean>;
+  toggleUserRowFilter(id: string, isActive: boolean): Promise<UserRowFilterRecord | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -2213,6 +2227,26 @@ export class MemStorage implements IStorage {
   }
   async createRestoreLog(_log: InsertRestoreLog): Promise<RestoreLogRecord> {
     throw new Error("Backup not implemented in MemStorage");
+  }
+
+  // User Row Filters (not implemented in MemStorage - requires PostgreSQL)
+  async getUserRowFilter(_id: string): Promise<UserRowFilterRecord | undefined> {
+    return undefined;
+  }
+  async getUserRowFiltersByUserAndSheet(_userId: string, _sheetId: string): Promise<UserRowFilterRecord[]> {
+    return [];
+  }
+  async createUserRowFilter(_filter: InsertUserRowFilter): Promise<UserRowFilterRecord> {
+    throw new Error("User row filters not implemented in MemStorage");
+  }
+  async updateUserRowFilter(_id: string, _updates: Partial<UserRowFilterRecord>): Promise<UserRowFilterRecord | undefined> {
+    return undefined;
+  }
+  async deleteUserRowFilter(_id: string): Promise<boolean> {
+    return false;
+  }
+  async toggleUserRowFilter(_id: string, _isActive: boolean): Promise<UserRowFilterRecord | undefined> {
+    return undefined;
   }
 }
 
@@ -5316,6 +5350,53 @@ export class PgStorage implements IStorage {
 
   async createRestoreLog(log: InsertRestoreLog): Promise<RestoreLogRecord> {
     const rows = await db.insert(dbSchema.restore_logs).values(log).returning();
+    return rows[0];
+  }
+
+  // =========================================================================
+  // USER ROW FILTERS (Hide/Show Rows)
+  // =========================================================================
+
+  async getUserRowFilter(id: string): Promise<UserRowFilterRecord | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.user_row_filters)
+      .where(eq(dbSchema.user_row_filters.id, id));
+    return rows[0];
+  }
+
+  async getUserRowFiltersByUserAndSheet(userId: string, sheetId: string): Promise<UserRowFilterRecord[]> {
+    return await db.select()
+      .from(dbSchema.user_row_filters)
+      .where(and(
+        eq(dbSchema.user_row_filters.user_id, userId),
+        eq(dbSchema.user_row_filters.sheet_id, sheetId)
+      ))
+      .orderBy(desc(dbSchema.user_row_filters.created_at));
+  }
+
+  async createUserRowFilter(filter: InsertUserRowFilter): Promise<UserRowFilterRecord> {
+    const rows = await db.insert(dbSchema.user_row_filters).values(filter).returning();
+    return rows[0];
+  }
+
+  async updateUserRowFilter(id: string, updates: Partial<UserRowFilterRecord>): Promise<UserRowFilterRecord | undefined> {
+    const rows = await db.update(dbSchema.user_row_filters)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.user_row_filters.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteUserRowFilter(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.user_row_filters).where(eq(dbSchema.user_row_filters.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async toggleUserRowFilter(id: string, isActive: boolean): Promise<UserRowFilterRecord | undefined> {
+    const rows = await db.update(dbSchema.user_row_filters)
+      .set({ is_active: isActive, updated_at: new Date() })
+      .where(eq(dbSchema.user_row_filters.id, id))
+      .returning();
     return rows[0];
   }
 }

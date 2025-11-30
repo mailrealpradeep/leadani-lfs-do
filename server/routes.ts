@@ -10646,6 +10646,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // USER ROW FILTERS (Hide/Show Rows based on conditions)
+  // ============================================================================
+
+  // Get user's row filters for a specific sheet
+  app.get("/api/sheets/:sheetId/row-filters", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "User context required" });
+      }
+      
+      const filters = await storage.getUserRowFiltersByUserAndSheet(req.userId, req.params.sheetId);
+      res.json(filters);
+    } catch (error: any) {
+      console.error("Get row filters error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new row filter
+  app.post("/api/sheets/:sheetId/row-filters", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "User context required" });
+      }
+      
+      const { name, conditions, logic_operator, is_active } = req.body;
+      
+      if (!name || !conditions || !Array.isArray(conditions)) {
+        return res.status(400).json({ error: "Name and conditions array are required" });
+      }
+      
+      const filter = await storage.createUserRowFilter({
+        user_id: req.userId,
+        sheet_id: req.params.sheetId,
+        name,
+        conditions,
+        logic_operator: logic_operator || "AND",
+        is_active: is_active !== false,
+      });
+      
+      res.status(201).json(filter);
+    } catch (error: any) {
+      console.error("Create row filter error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a row filter
+  app.patch("/api/row-filters/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "User context required" });
+      }
+      
+      const existingFilter = await storage.getUserRowFilter(req.params.id);
+      if (!existingFilter || existingFilter.user_id !== req.userId) {
+        return res.status(404).json({ error: "Row filter not found" });
+      }
+      
+      const { name, conditions, logic_operator, is_active } = req.body;
+      const updates: any = {};
+      
+      if (name !== undefined) updates.name = name;
+      if (conditions !== undefined) updates.conditions = conditions;
+      if (logic_operator !== undefined) updates.logic_operator = logic_operator;
+      if (is_active !== undefined) updates.is_active = is_active;
+      
+      const filter = await storage.updateUserRowFilter(req.params.id, updates);
+      res.json(filter);
+    } catch (error: any) {
+      console.error("Update row filter error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Toggle a row filter's active state
+  app.patch("/api/row-filters/:id/toggle", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "User context required" });
+      }
+      
+      const existingFilter = await storage.getUserRowFilter(req.params.id);
+      if (!existingFilter || existingFilter.user_id !== req.userId) {
+        return res.status(404).json({ error: "Row filter not found" });
+      }
+      
+      const { is_active } = req.body;
+      const filter = await storage.toggleUserRowFilter(req.params.id, is_active);
+      res.json(filter);
+    } catch (error: any) {
+      console.error("Toggle row filter error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a row filter
+  app.delete("/api/row-filters/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "User context required" });
+      }
+      
+      const existingFilter = await storage.getUserRowFilter(req.params.id);
+      if (!existingFilter || existingFilter.user_id !== req.userId) {
+        return res.status(404).json({ error: "Row filter not found" });
+      }
+      
+      await storage.deleteUserRowFilter(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete row filter error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
