@@ -109,6 +109,7 @@ export function QuickFiltersBar({
 
   const handleThoughtFilterClickMobile = (thought: "sure" | "maybe") => {
     handleThoughtFilter(thought);
+    closePopover();
   };
 
   const handleClearAllMobile = () => {
