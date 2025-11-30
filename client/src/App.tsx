@@ -35,6 +35,28 @@ import Impersonate from "@/pages/impersonate";
 import ActivityLogs from "@/pages/activity-logs";
 import Leaderboard from "@/pages/leaderboard";
 
+function AuthenticatedHomeRouter() {
+  const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+  
+  if (!isAuthenticated) {
+    return <Landing />;
+  }
+  
+  if (isSuperAdmin) {
+    return <Redirect to="/super-admin" />;
+  }
+  
+  return <ProtectedRoute component={Dashboard} />;
+}
+
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => JSX.Element; adminOnly?: boolean }) {
   const { isAuthenticated, isSuperAdmin, isCompanyAdmin, isLoading } = useAuth();
 
@@ -69,7 +91,7 @@ function Router() {
       
       {/* Landing page - public, but redirect if authenticated */}
       <Route path="/">
-        {() => isAuthenticated ? <ProtectedRoute component={Dashboard} /> : <Landing />}
+        <AuthenticatedHomeRouter />
       </Route>
       
       {/* Protected routes */}
