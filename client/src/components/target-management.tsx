@@ -827,8 +827,8 @@ export function TargetManagement() {
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form className="flex flex-col flex-1 overflow-hidden" onSubmit={form.handleSubmit(onSubmit)}>
-                <ScrollArea className="flex-1 pr-4">
+              <form className="flex flex-col flex-1 min-h-0" onSubmit={form.handleSubmit(onSubmit)}>
+                <ScrollArea className="flex-1 min-h-0 max-h-[60vh] pr-4">
                   <div className="space-y-4">
                     <FormField
                       control={form.control}
