@@ -237,8 +237,8 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
         <div>
           <h3 className="text-sm font-medium">Hide/Show Rows</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -252,7 +252,7 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
         )}
       </div>
 
-      <Separator />
+      <Separator className="my-4 shrink-0" />
 
       {!isCreating && (
         <Button
@@ -260,7 +260,7 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
           variant="outline"
           size="sm"
           onClick={() => setIsCreating(true)}
-          className="w-full"
+          className="w-full shrink-0 mb-4"
           data-testid="button-create-row-filter"
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -268,67 +268,67 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
         </Button>
       )}
 
-      {isCreating && (
-        <Card className="border-primary/50">
-          <CardHeader className="py-3 px-4">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Filter className="h-4 w-4" />
-              New Row Filter
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 px-4 pb-4">
-            <div className="space-y-2">
-              <Label htmlFor="filter-name" className="text-xs">Filter Name</Label>
-              <Input
-                id="filter-name"
-                placeholder="e.g., Hide Not Interested"
-                value={newFilterName}
-                onChange={(e) => setNewFilterName(e.target.value)}
-                data-testid="input-new-filter-name"
-              />
-            </div>
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="space-y-4 pr-3">
+          {isCreating && (
+            <Card className="border-primary/50">
+              <CardHeader className="py-3 px-4">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Filter className="h-4 w-4" />
+                  New Row Filter
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 px-4 pb-4">
+                <div className="space-y-2">
+                  <Label htmlFor="filter-name" className="text-xs">Filter Name</Label>
+                  <Input
+                    id="filter-name"
+                    placeholder="e.g., Hide Not Interested"
+                    value={newFilterName}
+                    onChange={(e) => setNewFilterName(e.target.value)}
+                    data-testid="input-new-filter-name"
+                  />
+                </div>
 
-            <FilterConditionBuilder
-              conditions={newConditions}
-              onChange={setNewConditions}
-              logicalOperator={newLogicOperator}
-              onLogicalOperatorChange={setNewLogicOperator}
-              showLogicalOperator={true}
-            />
+                <FilterConditionBuilder
+                  conditions={newConditions}
+                  onChange={setNewConditions}
+                  logicalOperator={newLogicOperator}
+                  onLogicalOperatorChange={setNewLogicOperator}
+                  showLogicalOperator={true}
+                />
 
-            <div className="flex gap-2 pt-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setIsCreating(false);
-                  setNewFilterName("");
-                  setNewConditions([]);
-                  setNewLogicOperator("and");
-                }}
-                data-testid="button-cancel-create"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleCreate}
-                disabled={createMutation.isPending}
-                data-testid="button-save-filter"
-              >
-                {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                <Save className="h-4 w-4 mr-2" />
-                Save Filter
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setIsCreating(false);
+                      setNewFilterName("");
+                      setNewConditions([]);
+                      setNewLogicOperator("and");
+                    }}
+                    data-testid="button-cancel-create"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleCreate}
+                    disabled={createMutation.isPending}
+                    data-testid="button-save-filter"
+                  >
+                    {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Filter
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-      <ScrollArea className="max-h-[400px]">
-        <div className="space-y-2">
           {filters.length === 0 && !isCreating && (
             <div className="text-center py-8 text-muted-foreground">
               <EyeOff className="h-8 w-8 mx-auto mb-2 opacity-50" />

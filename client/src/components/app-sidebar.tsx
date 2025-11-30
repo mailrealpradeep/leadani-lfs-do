@@ -559,8 +559,8 @@ export function AppSidebar() {
 
       {/* Row Filters Sheet */}
       <SheetUI open={isRowFiltersOpen} onOpenChange={setIsRowFiltersOpen}>
-        <SheetContent side="left" className="w-[380px] sm:w-[450px]">
-          <SheetHeader>
+        <SheetContent side="left" className="w-[380px] sm:w-[450px] flex flex-col">
+          <SheetHeader className="shrink-0">
             <SheetTitle className="flex items-center gap-2">
               <Rows className="h-5 w-5" />
               Hide/Show Rows
@@ -569,7 +569,7 @@ export function AppSidebar() {
               Create filters to hide rows based on column values. Hidden rows won't appear in your view.
             </SheetDescription>
           </SheetHeader>
-          <div className="mt-6 max-h-[calc(100vh-180px)] overflow-y-auto">
+          <div className="mt-6 flex-1 min-h-0 overflow-hidden">
             {selectedSheetId && (
               <HideRowsPanel 
                 sheetId={selectedSheetId} 
