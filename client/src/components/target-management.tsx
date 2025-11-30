@@ -828,8 +828,7 @@ export function TargetManagement() {
             </DialogHeader>
             <Form {...form}>
               <form className="flex flex-col flex-1 min-h-0" onSubmit={form.handleSubmit(onSubmit)}>
-                <ScrollArea className="flex-1 min-h-0 max-h-[60vh] pr-4">
-                  <div className="space-y-4">
+                <div className="overflow-y-auto max-h-[55vh] pr-4 space-y-4">
                     <FormField
                       control={form.control}
                       name="name"
@@ -1218,8 +1217,7 @@ export function TargetManagement() {
                         )}
                       />
                     </div>
-                  </div>
-                </ScrollArea>
+                </div>
 
                 <DialogFooter className="pt-4 border-t mt-4">
                   <Button
