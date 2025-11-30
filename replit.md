@@ -39,6 +39,7 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 *   **Self-Service Onboarding**: Multi-step flow for company registration, admin setup, and user invitations.
 *   **Attendance System**: Mobile-first PWA for daily entry/exit tracking with configurable exit rules (e.g., minimum leads/hours/updates, NFDT compliance), force exit requests with admin review, and attendance history.
 *   **Mandatory System Columns**: Protected "Full Name" and "Mobile No" columns with enforced configurations.
+*   **Target Management System (TMS)**: Comprehensive performance tracking with multi-goal targets (count, sum, average, percentage, updates, conversion, compliance), flexible assignment (single/multiple/all users), scope options (sheet-specific/company-wide/multiple sheets), time types (one-time/recurring), leaderboard rankings with time period filters (daily/weekly/monthly/all-time), and user progress views with achievement tracking.
 
 ### Security
 
