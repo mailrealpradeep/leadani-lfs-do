@@ -325,11 +325,12 @@ export default function Attendance() {
   const hasActiveEntry = todayEntry && !todayEntry.exit_time;
 
   return (
-    <div className="container mx-auto py-4 px-4 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Attendance</h1>
-        <p className="text-muted-foreground">Track your daily attendance</p>
-      </div>
+    <div className="h-full overflow-y-auto">
+      <div className="container mx-auto py-4 px-4 max-w-4xl pb-8">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">Attendance</h1>
+          <p className="text-muted-foreground">Track your daily attendance</p>
+        </div>
 
       <Tabs defaultValue="my-attendance" className="space-y-4">
         <TabsList className="grid w-full" style={{ gridTemplateColumns: isAdmin ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)' }}>
@@ -1007,6 +1008,7 @@ export default function Attendance() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }
