@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -148,6 +148,7 @@ function DashboardHeader() {
   const [location] = useLocation();
   const { selectedSheetId, activeQuickFilter, quickFilterHandlers } = useDashboard();
   const isMobile = useIsMobile();
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   
   // Only show quick filters on dashboard/root routes when sheet is selected
   const showQuickFilters = (location === "/" || location === "/dashboard") && !!selectedSheetId;
@@ -164,10 +165,11 @@ function DashboardHeader() {
     >
       <SidebarTrigger data-testid="button-sidebar-toggle" />
       
-      {/* Global Search - always visible in header */}
-      <GlobalSearch />
+      {/* Global Search - collapses to icon, expands on click and hides quick filters */}
+      <GlobalSearch onExpandedChange={setIsSearchExpanded} />
       
-      {showQuickFilters && quickFilterHandlers.onApplyFilter && quickFilterHandlers.onClearAllFilters && (
+      {/* Quick Filters - hidden when search is expanded to keep header single-line */}
+      {!isSearchExpanded && showQuickFilters && quickFilterHandlers.onApplyFilter && quickFilterHandlers.onClearAllFilters && (
         <>
           <div className="hidden md:block h-6 w-px bg-border mx-1" />
           <div className="flex-1 min-w-0">

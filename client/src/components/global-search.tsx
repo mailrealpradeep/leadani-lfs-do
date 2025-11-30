@@ -8,13 +8,18 @@ import { useDashboard } from "@/components/dashboard-context";
 import { useAuth } from "@/lib/auth";
 import type { CompanySearchResult } from "@shared/schema";
 
-export function GlobalSearch() {
+interface GlobalSearchProps {
+  onExpandedChange?: (expanded: boolean) => void;
+}
+
+export function GlobalSearch({ onExpandedChange }: GlobalSearchProps) {
   const { user, isSuperAdmin } = useAuth();
   const { setSelectedSheetId, setIsMultiSheetMode } = useDashboard();
   const { toast } = useToast();
   
   const [searchQuery, setSearchQuery] = useState("");
-  const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isResultsOpen, setIsResultsOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -30,7 +35,6 @@ export function GlobalSearch() {
         },
       });
       if (!response.ok) {
-        console.error("[GlobalSearch] API error:", response.status);
         throw new Error("Search failed");
       }
       return response.json();
@@ -39,33 +43,65 @@ export function GlobalSearch() {
     staleTime: 30000,
   });
 
-  // Close search results when clicking outside
+  // Notify parent when expanded state changes
+  useEffect(() => {
+    onExpandedChange?.(isExpanded);
+  }, [isExpanded, onExpandedChange]);
+
+  // Focus input when expanded
+  useEffect(() => {
+    if (isExpanded && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isExpanded]);
+
+  // Close search when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+        setIsResultsOpen(false);
+        // Only collapse if no query
+        if (!searchQuery.trim()) {
+          setIsExpanded(false);
+        }
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [searchQuery]);
+
+  // Handle Escape key to collapse
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isExpanded) {
+        handleCollapse();
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isExpanded]);
 
   // Handle selecting a search result
   const handleSearchResultClick = (result: CompanySearchResult) => {
     setSelectedSheetId(result.sheet_id);
     setIsMultiSheetMode(false);
     setSearchQuery("");
-    setIsOpen(false);
+    setIsResultsOpen(false);
+    setIsExpanded(false);
     toast({
       title: "Lead found",
       description: `${result.full_name} in ${result.sheet_name} (${result.owner_name})`,
     });
   };
 
-  const handleClear = () => {
+  const handleExpand = () => {
+    setIsExpanded(true);
+  };
+
+  const handleCollapse = () => {
     setSearchQuery("");
-    setIsOpen(false);
-    inputRef.current?.focus();
+    setIsResultsOpen(false);
+    setIsExpanded(false);
   };
 
   // Don't show for super admin account
@@ -73,41 +109,57 @@ export function GlobalSearch() {
     return null;
   }
 
-  const showResults = isOpen && searchQuery.trim().length >= 2;
+  const showResults = isResultsOpen && searchQuery.trim().length >= 2;
 
+  // Collapsed state - just show search icon
+  if (!isExpanded) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={handleExpand}
+        className="h-9 w-9 shrink-0"
+        data-testid="button-global-search"
+      >
+        <Search className="h-4 w-4" />
+      </Button>
+    );
+  }
+
+  // Expanded state - show full search input
   return (
-    <div className="relative" ref={searchRef}>
+    <div className="relative flex-1" ref={searchRef}>
       <div className="relative flex items-center">
         <Search className="absolute left-3 h-4 w-4 text-muted-foreground z-10" />
         <Input
           ref={inputRef}
-          placeholder="Search leads..."
+          placeholder="Search leads by name or phone..."
           value={searchQuery}
           onChange={(e) => {
             setSearchQuery(e.target.value);
             if (e.target.value.trim().length >= 2) {
-              setIsOpen(true);
+              setIsResultsOpen(true);
             }
           }}
           onFocus={() => {
             if (searchQuery.trim().length >= 2) {
-              setIsOpen(true);
+              setIsResultsOpen(true);
             }
           }}
-          className="pl-9 pr-8 w-48 sm:w-64 h-9"
+          className="pl-9 pr-10 h-9 w-full"
           data-testid="input-global-search"
         />
-        {searchQuery && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="absolute right-1 h-7 w-7"
-            onClick={handleClear}
-          >
-            <X className="h-3 w-3" />
-          </Button>
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute right-1 h-7 w-7"
+          onClick={handleCollapse}
+          data-testid="button-close-search"
+        >
+          <X className="h-4 w-4" />
+        </Button>
       </div>
       
       {/* Search Results Dropdown */}
