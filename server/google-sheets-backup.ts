@@ -70,6 +70,24 @@ async function getGoogleSheetsClient() {
   return google.sheets({ version: 'v4', auth: oauth2Client });
 }
 
+// Get connected account email for debugging
+export async function getConnectedAccountEmail(): Promise<string | null> {
+  try {
+    const accessToken = await getAccessToken();
+    const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data.email || null;
+    }
+    return null;
+  } catch (error) {
+    console.error('[Google Sheets] Error getting account info:', error);
+    return null;
+  }
+}
+
 // ============================================================================
 // Write Data to Google Sheets
 // ============================================================================
@@ -89,16 +107,31 @@ async function writeToGoogleSheet(
   ];
   
   try {
-    // First, try to get existing sheet tabs
-    const spreadsheet = await sheets.spreadsheets.get({
-      spreadsheetId,
-    });
+    // First, verify we can access the spreadsheet (this will fail with 403/404 if not shared)
+    console.log(`[Google Sheets] Verifying access to spreadsheet: ${spreadsheetId}`);
+    let spreadsheet;
+    try {
+      spreadsheet = await sheets.spreadsheets.get({
+        spreadsheetId,
+      });
+      console.log(`[Google Sheets] Spreadsheet title: "${spreadsheet.data.properties?.title}"`);
+    } catch (accessError: any) {
+      const connectedEmail = await getConnectedAccountEmail();
+      if (accessError.code === 403 || accessError.message?.includes('403')) {
+        throw new Error(`Permission denied. Please share the Google Sheet with: ${connectedEmail || 'the connected Google account'}`);
+      }
+      if (accessError.code === 404 || accessError.message?.includes('404') || accessError.message?.includes('not found')) {
+        throw new Error(`Spreadsheet not found. Please check the Google Sheet URL is correct.`);
+      }
+      throw accessError;
+    }
     
     const existingTabs = spreadsheet.data.sheets?.map(s => s.properties?.title) || [];
     const safeTabName = tabName.substring(0, 100).replace(/[^\w\s-]/g, '');
     
     // If the tab doesn't exist, create it
     if (!existingTabs.includes(safeTabName)) {
+      console.log(`[Google Sheets] Creating new tab: "${safeTabName}"`);
       try {
         await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
@@ -116,6 +149,8 @@ async function writeToGoogleSheet(
           console.error('[Google Sheets] Error creating tab:', addError.message);
         }
       }
+    } else {
+      console.log(`[Google Sheets] Tab "${safeTabName}" already exists, will update`);
     }
     
     // Clear existing content in the tab
@@ -124,12 +159,14 @@ async function writeToGoogleSheet(
         spreadsheetId,
         range: `'${safeTabName}'!A:ZZ`,
       });
+      console.log(`[Google Sheets] Cleared existing content in tab`);
     } catch (clearError: any) {
       // If sheet is empty, clear might fail - that's ok
       console.log('[Google Sheets] Clear result:', clearError.message);
     }
     
     // Write the data
+    console.log(`[Google Sheets] Writing ${allData.length} rows to tab "${safeTabName}"...`);
     const result = await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `'${safeTabName}'!A1`,
@@ -139,7 +176,18 @@ async function writeToGoogleSheet(
       },
     });
     
-    console.log(`[Google Sheets] Successfully wrote ${allData.length} rows to ${safeTabName}`);
+    // Verify the write by reading back the first row
+    const verifyResult = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `'${safeTabName}'!A1:E1`,
+    });
+    
+    if (!verifyResult.data.values || verifyResult.data.values.length === 0) {
+      throw new Error('Write verification failed - no data found after write');
+    }
+    
+    console.log(`[Google Sheets] Successfully wrote and verified ${allData.length} rows to ${safeTabName}`);
+    console.log(`[Google Sheets] First row verification: ${JSON.stringify(verifyResult.data.values[0]?.slice(0, 3))}`);
     
     return { 
       success: true, 
@@ -150,11 +198,12 @@ async function writeToGoogleSheet(
     console.error('[Google Sheets] Write error:', error.message);
     
     // Provide helpful error messages
-    if (error.message?.includes('not found')) {
+    if (error.message?.includes('not found') || error.code === 404) {
       throw new Error(`Spreadsheet not found. Please check the Google Sheet URL is correct.`);
     }
-    if (error.message?.includes('permission') || error.message?.includes('403')) {
-      throw new Error(`Permission denied. Please share the Google Sheet with edit access to the connected Google account.`);
+    if (error.message?.includes('permission') || error.message?.includes('403') || error.code === 403) {
+      const connectedEmail = await getConnectedAccountEmail();
+      throw new Error(`Permission denied. Please share the Google Sheet with edit access to: ${connectedEmail || 'the connected Google account'}`);
     }
     if (error.message?.includes('401') || error.message?.includes('invalid_grant')) {
       // Reset cached token so next call gets fresh one
@@ -311,6 +360,9 @@ export async function syncToGoogleSheets(
     const sheet = await storage.getSheet(backupConfig.sheet_id);
     const tabName = sheet?.name || 'LFS Backup';
     
+    // Log connected account for debugging
+    const connectedEmail = await getConnectedAccountEmail();
+    console.log(`[Google Sheets] Connected as: ${connectedEmail || 'unknown'}`);
     console.log(`[Google Sheets] Syncing ${data.rows.length} leads to spreadsheet ${googleSpreadsheetId}, tab "${tabName}"`);
     
     // Actually write to Google Sheets

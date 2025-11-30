@@ -10575,6 +10575,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get connected Google account info
+  app.get("/api/backup/google-account", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { getConnectedAccountEmail } = await import("./google-sheets-backup");
+      const email = await getConnectedAccountEmail();
+      res.json({ 
+        connected: !!email, 
+        email: email,
+        message: email 
+          ? `Connected as ${email}. Share your Google Sheet with this email.` 
+          : 'Google Sheets not connected. Please connect in Replit settings.'
+      });
+    } catch (error: any) {
+      console.error("Get Google account error:", error);
+      res.json({ 
+        connected: false, 
+        email: null,
+        error: error.message 
+      });
+    }
+  });
+
   // Preview restore
   app.post("/api/restore/preview", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
