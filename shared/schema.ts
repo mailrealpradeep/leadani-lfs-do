@@ -1607,6 +1607,19 @@ export interface MobileLeadLookupResult {
   phone_type: string;
 }
 
+// Company-wide search result for quick lead lookup
+export interface CompanySearchResult {
+  lead_id: string;
+  sheet_id: string;
+  sheet_name: string;
+  owner_user_id: string;
+  owner_name: string;
+  full_name: string;
+  mobile_no: string;
+  custom_fields: Record<string, any>;
+  match_type: "phone" | "name";
+}
+
 // Call session creation from mobile app
 export const createCallSessionSchema = z.object({
   direction: z.enum(["incoming", "outgoing"]),

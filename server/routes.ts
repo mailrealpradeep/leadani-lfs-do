@@ -3019,6 +3019,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Company-wide lead search - search across all sheets in the company
+  app.get("/api/leads/company-search", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { q, limit } = req.query;
+      
+      if (!req.companyId) {
+        return res.status(400).json({ error: "Company ID is required" });
+      }
+      
+      if (!q || typeof q !== "string" || q.trim().length < 2) {
+        return res.json([]);
+      }
+      
+      const results = await storage.searchCompanyLeads(
+        req.companyId,
+        q.trim(),
+        limit ? Math.min(50, parseInt(limit as string) || 20) : 20,
+        req.userId,
+        req.userRole
+      );
+      
+      res.json(results);
+    } catch (error: any) {
+      console.error("Company search error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/sheets/:id/leads", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
       // Get sheet to access company_id

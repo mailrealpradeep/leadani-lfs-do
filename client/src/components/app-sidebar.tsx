@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Phone, User, MapPin } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useDashboard } from "./dashboard-context";
 import { MultiSheetSelector } from "./multi-sheet-selector";
 import { Input } from "@/components/ui/input";
+import type { CompanySearchResult } from "@shared/schema";
 import {
   Sheet as SheetUI,
   SheetContent,
@@ -110,6 +111,48 @@ export function AppSidebar() {
       });
     },
   });
+
+  // Global search state
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [isGlobalSearchFocused, setIsGlobalSearchFocused] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // Global search query - searches across all company sheets
+  const { data: globalSearchResults = [], isLoading: isSearching } = useQuery<CompanySearchResult[]>({
+    queryKey: ["/api/leads/company-search", globalSearchQuery],
+    queryFn: async () => {
+      const response = await fetch(`/api/leads/company-search?q=${encodeURIComponent(globalSearchQuery)}&limit=15`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Search failed");
+      return response.json();
+    },
+    enabled: globalSearchQuery.trim().length >= 2,
+    staleTime: 30000,
+  });
+
+  // Close search results when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsGlobalSearchFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Handle selecting a search result
+  const handleSearchResultClick = (result: CompanySearchResult) => {
+    setSelectedSheetId(result.sheet_id);
+    setIsMultiSheetMode(false);
+    setGlobalSearchQuery("");
+    setIsGlobalSearchFocused(false);
+    toast({
+      title: "Lead found",
+      description: `${result.full_name} in ${result.sheet_name} (${result.owner_name})`,
+    });
+  };
 
   // Check if the current user is the dedicated Super Admin account
   const isSuperAdminAccount = user?.email === "adminleadani@leadani.com";
@@ -361,15 +404,85 @@ export function AppSidebar() {
                 </SidebarGroupContent>
               </SidebarGroup>
 
+              {/* Global Search - always visible when not super admin account */}
+              {!isSuperAdminAccount && (
+                <SidebarGroup>
+                  <SidebarGroupLabel className="px-4">Company Search</SidebarGroupLabel>
+                  <SidebarGroupContent className="px-2">
+                    <div className="relative" ref={searchRef}>
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
+                      <Input
+                        placeholder="Search by phone or name..."
+                        value={globalSearchQuery}
+                        onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                        onFocus={() => setIsGlobalSearchFocused(true)}
+                        className="pl-9"
+                        data-testid="input-global-search"
+                      />
+                      {/* Global Search Results Dropdown */}
+                      {isGlobalSearchFocused && globalSearchQuery.trim().length >= 2 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-background border rounded-md shadow-lg z-50 max-h-80 overflow-y-auto">
+                          {isSearching ? (
+                            <div className="p-4 text-center text-sm text-muted-foreground">
+                              Searching...
+                            </div>
+                          ) : globalSearchResults.length === 0 ? (
+                            <div className="p-4 text-center text-sm text-muted-foreground">
+                              No leads found
+                            </div>
+                          ) : (
+                            <div className="py-1">
+                              {globalSearchResults.map((result) => (
+                                <button
+                                  key={result.lead_id}
+                                  type="button"
+                                  onClick={() => handleSearchResultClick(result)}
+                                  className="w-full px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground flex flex-col gap-1 border-b last:border-b-0"
+                                  data-testid={`search-result-${result.lead_id}`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-medium text-sm truncate flex items-center gap-1">
+                                      <User className="h-3 w-3" />
+                                      {result.full_name || "Unknown"}
+                                    </span>
+                                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                      result.owner_user_id === user?.id 
+                                        ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" 
+                                        : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+                                    }`}>
+                                      {result.owner_user_id === user?.id ? "Yours" : result.owner_name}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                      <Phone className="h-3 w-3" />
+                                      {result.mobile_no || "No phone"}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <MapPin className="h-3 w-3" />
+                                      {result.sheet_name}
+                                    </span>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              )}
+
               {(selectedSheetId || (isMultiSheetMode && selectedSheetIds.length > 0)) && (
                 <SidebarGroup>
-                  <SidebarGroupLabel className="px-4">Filter & Search</SidebarGroupLabel>
+                  <SidebarGroupLabel className="px-4">Current Sheet</SidebarGroupLabel>
                   <SidebarGroupContent className="px-2">
                     <div className="space-y-2">
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                          placeholder="Search leads..."
+                          placeholder="Filter current sheet..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="pl-9"

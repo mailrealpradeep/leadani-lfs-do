@@ -67,6 +67,7 @@ import type {
   LeadPhoneIndexRecord,
   InsertLeadPhoneIndex,
   MobileLeadLookupResult,
+  CompanySearchResult,
   ApiKeyRecord,
   InsertApiKey,
   ActivityLogRecord,
@@ -370,6 +371,9 @@ export interface IStorage {
 
   // Mobile Call Integration - Enhanced lookups
   lookupLeadsByPhone(companyId: string, phone: string): Promise<MobileLeadLookupResult[]>;
+  
+  // Company-wide search for leads across all sheets (respects sheet access permissions)
+  searchCompanyLeads(companyId: string, query: string, limit?: number, requestingUserId?: string, requestingUserRole?: string): Promise<CompanySearchResult[]>;
 
   // API Keys Management
   getApiKey(id: string): Promise<ApiKeyRecord | undefined>;
@@ -2057,6 +2061,11 @@ export class MemStorage implements IStorage {
   }
 
   async lookupLeadsByPhone(companyId: string, phone: string): Promise<MobileLeadLookupResult[]> {
+    // Simplified implementation for MemStorage
+    return [];
+  }
+
+  async searchCompanyLeads(companyId: string, query: string, limit: number = 20, requestingUserId?: string, requestingUserRole?: string): Promise<CompanySearchResult[]> {
     // Simplified implementation for MemStorage
     return [];
   }
@@ -4633,6 +4642,151 @@ export class PgStorage implements IStorage {
     }
     
     return digits;
+  }
+
+  async searchCompanyLeads(companyId: string, query: string, limit: number = 20, requestingUserId?: string, requestingUserRole?: string): Promise<CompanySearchResult[]> {
+    if (!query || query.trim().length < 2) {
+      return [];
+    }
+    
+    const searchTerm = query.trim().toLowerCase();
+    const normalizedPhone = this.normalizePhoneNumber(searchTerm);
+    const isPhoneSearch = normalizedPhone.length >= 5;
+    
+    const results: CompanySearchResult[] = [];
+    const seenLeadIds = new Set<string>();
+    
+    // Get all sheets for this company
+    const allSheets = await this.getSheetsByCompanyId(companyId);
+    
+    // Filter sheets based on access permissions:
+    // - Company sheets (is_personal = false) are accessible to all company users
+    // - Personal sheets are only accessible to the owner, super admins, or company admins
+    const sheets = allSheets.filter(sheet => {
+      if (!sheet.is_personal) return true; // Company sheets are accessible
+      if (requestingUserRole === "super_admin" || requestingUserRole === "company_admin") return true; // Admins can see all
+      return sheet.owner_id === requestingUserId; // Personal sheets only for owner
+    });
+    
+    const sheetMap = new Map(sheets.map(s => [s.id, s.name]));
+    const accessibleSheetIds = new Set(sheets.map(s => s.id));
+    
+    // 1. First, try phone index search if it looks like a phone number
+    if (isPhoneSearch) {
+      const phoneIndexMatches = await db.select().from(dbSchema.lead_phone_index)
+        .where(and(
+          eq(dbSchema.lead_phone_index.company_id, companyId),
+          sql`${dbSchema.lead_phone_index.normalized_phone} LIKE ${'%' + normalizedPhone + '%'}`
+        ))
+        .limit(limit);
+      
+      for (const indexEntry of phoneIndexMatches) {
+        if (seenLeadIds.has(indexEntry.lead_id)) continue;
+        
+        // Skip leads from inaccessible sheets
+        if (!accessibleSheetIds.has(indexEntry.sheet_id)) continue;
+        
+        seenLeadIds.add(indexEntry.lead_id);
+        
+        const lead = await this.getLead(indexEntry.lead_id);
+        if (!lead || lead.deleted_at) continue;
+        
+        const owner = await this.getUser(lead.owner_user_id);
+        const customFields = lead.custom_fields as Record<string, any>;
+        
+        results.push({
+          lead_id: lead.id,
+          sheet_id: lead.sheet_id,
+          sheet_name: sheetMap.get(lead.sheet_id) || "Unknown Sheet",
+          owner_user_id: lead.owner_user_id,
+          owner_name: owner?.name || "Unknown",
+          full_name: customFields.full_name || "",
+          mobile_no: customFields.mobile_no || "",
+          custom_fields: customFields,
+          match_type: "phone",
+        });
+        
+        if (results.length >= limit) break;
+      }
+    }
+    
+    // 2. Search by name in custom_fields (full_name) across all sheets
+    if (results.length < limit) {
+      for (const sheet of sheets) {
+        const leads = await db.select().from(dbSchema.leads)
+          .where(and(
+            eq(dbSchema.leads.sheet_id, sheet.id),
+            isNull(dbSchema.leads.deleted_at),
+            sql`LOWER(${dbSchema.leads.custom_fields}->>'full_name') LIKE ${'%' + searchTerm + '%'}`
+          ))
+          .limit(limit - results.length);
+        
+        for (const lead of leads) {
+          if (seenLeadIds.has(lead.id)) continue;
+          seenLeadIds.add(lead.id);
+          
+          const owner = await this.getUser(lead.owner_user_id);
+          const customFields = lead.custom_fields as Record<string, any>;
+          
+          results.push({
+            lead_id: lead.id,
+            sheet_id: lead.sheet_id,
+            sheet_name: sheetMap.get(lead.sheet_id) || "Unknown Sheet",
+            owner_user_id: lead.owner_user_id,
+            owner_name: owner?.name || "Unknown",
+            full_name: customFields.full_name || "",
+            mobile_no: customFields.mobile_no || "",
+            custom_fields: customFields,
+            match_type: "name",
+          });
+          
+          if (results.length >= limit) break;
+        }
+        if (results.length >= limit) break;
+      }
+    }
+    
+    // 3. Fallback: search phone in custom_fields if phone index didn't find it
+    if (isPhoneSearch && results.length < limit) {
+      for (const sheet of sheets) {
+        const leads = await db.select().from(dbSchema.leads)
+          .where(and(
+            eq(dbSchema.leads.sheet_id, sheet.id),
+            isNull(dbSchema.leads.deleted_at),
+            sql`(
+              ${dbSchema.leads.custom_fields}->>'mobile_no' LIKE ${'%' + normalizedPhone + '%'}
+              OR ${dbSchema.leads.custom_fields}->>'whatsapp_no' LIKE ${'%' + normalizedPhone + '%'}
+              OR ${dbSchema.leads.custom_fields}->>'alternate_mobile' LIKE ${'%' + normalizedPhone + '%'}
+            )`
+          ))
+          .limit(limit - results.length);
+        
+        for (const lead of leads) {
+          if (seenLeadIds.has(lead.id)) continue;
+          seenLeadIds.add(lead.id);
+          
+          const owner = await this.getUser(lead.owner_user_id);
+          const customFields = lead.custom_fields as Record<string, any>;
+          
+          results.push({
+            lead_id: lead.id,
+            sheet_id: lead.sheet_id,
+            sheet_name: sheetMap.get(lead.sheet_id) || "Unknown Sheet",
+            owner_user_id: lead.owner_user_id,
+            owner_name: owner?.name || "Unknown",
+            full_name: customFields.full_name || "",
+            mobile_no: customFields.mobile_no || "",
+            custom_fields: customFields,
+            match_type: "phone",
+          });
+          
+          if (results.length >= limit) break;
+        }
+        if (results.length >= limit) break;
+      }
+    }
+    
+    return results;
   }
 
   // ============================================================================
