@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,7 @@ import { MobileCardSettings } from "@/components/mobile-card-settings";
 import { NotificationSettings } from "@/components/notification-settings";
 import { HighlightingRulesManager } from "@/components/highlighting-rules-manager";
 import { TargetManagement } from "@/components/target-management";
+import { BackupManager } from "@/components/backup-manager";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -721,6 +722,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <SheetAssignmentManager headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="backup" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-backup">
+              <div className="flex items-center gap-3">
+                <HardDrive className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Backup System</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Link to Google Sheets for automatic hourly backups
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <BackupManager />
               </div>
             </AccordionContent>
           </AccordionItem>
