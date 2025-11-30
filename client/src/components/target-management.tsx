@@ -819,16 +819,16 @@ export function TargetManagement() {
               Create Target
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>Create New Target</DialogTitle>
               <DialogDescription>
                 Set performance goals for your team with flexible tracking options
               </DialogDescription>
             </DialogHeader>
-            <ScrollArea className="flex-1 pr-4">
-              <Form {...form}>
-                <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
+            <Form {...form}>
+              <form className="flex flex-col flex-1 overflow-hidden" onSubmit={form.handleSubmit(onSubmit)}>
+                <ScrollArea className="flex-1 pr-4">
                   <div className="space-y-4">
                     <FormField
                       control={form.control}
@@ -1219,26 +1219,26 @@ export function TargetManagement() {
                       />
                     </div>
                   </div>
+                </ScrollArea>
 
-                  <DialogFooter>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setCreateDialogOpen(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      disabled={createMutation.isPending}
-                      data-testid="submit-target"
-                    >
-                      {createMutation.isPending ? "Creating..." : "Create Target"}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </ScrollArea>
+                <DialogFooter className="pt-4 border-t mt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setCreateDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={createMutation.isPending}
+                    data-testid="submit-target"
+                  >
+                    {createMutation.isPending ? "Creating..." : "Create Target"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
           </DialogContent>
         </Dialog>
       </div>
