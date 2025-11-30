@@ -366,32 +366,20 @@ export function AppSidebar() {
                 </SidebarGroupContent>
               </SidebarGroup>
 
-              {(selectedSheetId || (isMultiSheetMode && selectedSheetIds.length > 0)) && (
+              {(selectedSheetId || (isMultiSheetMode && selectedSheetIds.length > 0)) && (isCompanyAdmin || isSuperAdmin) && (
                 <SidebarGroup>
                   <SidebarGroupLabel className="px-4">Current Sheet</SidebarGroupLabel>
                   <SidebarGroupContent className="px-2">
                     <div className="space-y-2">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Filter current sheet..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="pl-9"
-                          data-testid="input-search-leads"
-                        />
-                      </div>
-                      {(isCompanyAdmin || isSuperAdmin) && (
-                        <Button
-                          variant="outline"
-                          onClick={actions.onExport}
-                          className="w-full justify-start"
-                          data-testid="button-export"
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          Export
-                        </Button>
-                      )}
+                      <Button
+                        variant="outline"
+                        onClick={actions.onExport}
+                        className="w-full justify-start"
+                        data-testid="button-export"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Export
+                      </Button>
                     </div>
                   </SidebarGroupContent>
                 </SidebarGroup>
