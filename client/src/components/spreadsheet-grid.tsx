@@ -106,7 +106,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTheme } from "@/components/theme-provider";
 import { format, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
-import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRule } from "@shared/schema";
+import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRule, UserRowFilterRecord, RowFilterCondition } from "@shared/schema";
 import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
@@ -426,6 +426,12 @@ export function SpreadsheetGrid({
   // User sheet view (column order and hidden columns) - only in single-sheet mode
   const { data: userSheetView } = useQuery<{ column_order: string[]; hidden_columns: string[] }>({
     queryKey: ["/api/sheets", activeSheetId, "view"],
+    enabled: !!activeSheetId && !isMultiMode,
+  });
+
+  // User row filters - only in single-sheet mode
+  const { data: userRowFilters = [] } = useQuery<UserRowFilterRecord[]>({
+    queryKey: ["/api/sheets", activeSheetId, "row-filters"],
     enabled: !!activeSheetId && !isMultiMode,
   });
 
@@ -998,12 +1004,123 @@ export function SpreadsheetGrid({
     }
   };
 
+  // Evaluate if a lead should be hidden based on user row filters
+  const evaluateRowFilters = useCallback((lead: Lead): boolean => {
+    // Get active filters only
+    const activeFilters = userRowFilters.filter(f => f.is_active);
+    if (activeFilters.length === 0) return true; // No filters = show all
+
+    // For each active filter, check if the lead matches the filter's conditions
+    // If a lead matches ANY active filter's conditions, it should be hidden
+    for (const filter of activeFilters) {
+      const conditions = filter.conditions as RowFilterCondition[];
+      const logicOperator = filter.logic_operator; // "AND" or "OR"
+      
+      let filterMatches: boolean;
+      
+      if (logicOperator === "AND") {
+        // All conditions must match
+        filterMatches = conditions.every(condition => {
+          const leadValue = getLeadValue(lead, condition.column_key);
+          return evaluateCondition(leadValue, condition.operator, condition.value);
+        });
+      } else {
+        // Any condition must match (OR)
+        filterMatches = conditions.some(condition => {
+          const leadValue = getLeadValue(lead, condition.column_key);
+          return evaluateCondition(leadValue, condition.operator, condition.value);
+        });
+      }
+      
+      // If this filter's conditions match, hide the lead
+      if (filterMatches) return false;
+    }
+    
+    // No filters matched, show the lead
+    return true;
+  }, [userRowFilters]);
+
+  // Helper function to evaluate a single condition
+  const evaluateCondition = (cellValue: any, operator: string, filterValue: any): boolean => {
+    const cellStr = String(cellValue ?? "").toLowerCase();
+    const filterStr = String(filterValue ?? "").toLowerCase();
+    
+    switch (operator) {
+      case "equals":
+        return cellStr === filterStr;
+      case "not_equals":
+        return cellStr !== filterStr;
+      case "contains":
+        return cellStr.includes(filterStr);
+      case "not_contains":
+        return !cellStr.includes(filterStr);
+      case "starts_with":
+        return cellStr.startsWith(filterStr);
+      case "ends_with":
+        return cellStr.endsWith(filterStr);
+      case "is_empty":
+        return cellStr === "" || cellValue === null || cellValue === undefined;
+      case "is_not_empty":
+        return cellStr !== "" && cellValue !== null && cellValue !== undefined;
+      case "greater_than": {
+        const numCell = parseFloat(String(cellValue));
+        const numFilter = parseFloat(String(filterValue));
+        return !isNaN(numCell) && !isNaN(numFilter) && numCell > numFilter;
+      }
+      case "less_than": {
+        const numCell = parseFloat(String(cellValue));
+        const numFilter = parseFloat(String(filterValue));
+        return !isNaN(numCell) && !isNaN(numFilter) && numCell < numFilter;
+      }
+      case "greater_or_equal": {
+        const numCell = parseFloat(String(cellValue));
+        const numFilter = parseFloat(String(filterValue));
+        return !isNaN(numCell) && !isNaN(numFilter) && numCell >= numFilter;
+      }
+      case "less_or_equal": {
+        const numCell = parseFloat(String(cellValue));
+        const numFilter = parseFloat(String(filterValue));
+        return !isNaN(numCell) && !isNaN(numFilter) && numCell <= numFilter;
+      }
+      case "between": {
+        if (!filterValue || !Array.isArray(filterValue) || filterValue.length !== 2) return false;
+        const numCell = parseFloat(String(cellValue));
+        const [min, max] = filterValue.map((v: any) => parseFloat(String(v)));
+        return !isNaN(numCell) && !isNaN(min) && !isNaN(max) && numCell >= min && numCell <= max;
+      }
+      case "before": {
+        try {
+          const dateCell = new Date(cellValue);
+          const dateFilter = new Date(filterValue);
+          return dateCell < dateFilter;
+        } catch {
+          return false;
+        }
+      }
+      case "after": {
+        try {
+          const dateCell = new Date(cellValue);
+          const dateFilter = new Date(filterValue);
+          return dateCell > dateFilter;
+        } catch {
+          return false;
+        }
+      }
+      default:
+        return false;
+    }
+  };
 
   // In multi-mode, server handles filtering/sorting; in single-mode, do it client-side
   const filteredAndSortedLeads = isMultiMode
     ? leads // Server handles thought filter now
     : leads
         .filter((lead) => {
+          // User row filters - hide rows that match any active filter
+          if (!evaluateRowFilters(lead)) {
+            return false;
+          }
+          
           // Thought filter - filter by Sure/May Be status
           if (thoughtFilter) {
             const leadThought = (lead.meta as any)?.thought;

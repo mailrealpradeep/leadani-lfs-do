@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, History, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -39,8 +39,9 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Sheet } from "@shared/schema";
+import type { Sheet, UserRowFilterRecord } from "@shared/schema";
 import { ValidationRulesManager } from "./validation-rules-manager";
+import { HideRowsPanel } from "./hide-rows-panel";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -58,6 +59,8 @@ export function AppSidebar() {
     columnVisibilityConfig,
     isColumnVisibilityOpen,
     setIsColumnVisibilityOpen,
+    isRowFiltersOpen,
+    setIsRowFiltersOpen,
   } = useDashboard();
   const { toast } = useToast();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -66,6 +69,14 @@ export function AppSidebar() {
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
   });
+
+  // Fetch row filters for active count display
+  const { data: rowFilters = [] } = useQuery<UserRowFilterRecord[]>({
+    queryKey: ["/api/sheets", selectedSheetId, "row-filters"],
+    enabled: !!selectedSheetId && !isMultiSheetMode,
+  });
+
+  const activeRowFiltersCount = rowFilters.filter(f => f.is_active).length;
 
   const selectedSheet = sheets?.find(s => s.id === selectedSheetId);
 
@@ -313,6 +324,22 @@ export function AppSidebar() {
                             )}
                           </Button>
                         )}
+                        {selectedSheetId && !isMultiSheetMode && (
+                          <Button
+                            variant="outline"
+                            onClick={() => setIsRowFiltersOpen(true)}
+                            className="w-full justify-start"
+                            data-testid="button-hide-show-rows"
+                          >
+                            <Rows className="h-4 w-4 mr-2" />
+                            Hide/Show Rows
+                            {activeRowFiltersCount > 0 && (
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                {activeRowFiltersCount} active
+                              </span>
+                            )}
+                          </Button>
+                        )}
                         {(isCompanyAdmin || isSuperAdmin) && (
                           <Button
                             variant="outline"
@@ -525,6 +552,29 @@ export function AppSidebar() {
                 <p>No columns available.</p>
                 <p className="text-sm mt-1">Please wait for the sheet to load or select a different sheet.</p>
               </div>
+            )}
+          </div>
+        </SheetContent>
+      </SheetUI>
+
+      {/* Row Filters Sheet */}
+      <SheetUI open={isRowFiltersOpen} onOpenChange={setIsRowFiltersOpen}>
+        <SheetContent side="left" className="w-[380px] sm:w-[450px]">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Rows className="h-5 w-5" />
+              Hide/Show Rows
+            </SheetTitle>
+            <SheetDescription>
+              Create filters to hide rows based on column values. Hidden rows won't appear in your view.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 max-h-[calc(100vh-180px)] overflow-y-auto">
+            {selectedSheetId && (
+              <HideRowsPanel 
+                sheetId={selectedSheetId} 
+                onFiltersChange={() => {}}
+              />
             )}
           </div>
         </SheetContent>

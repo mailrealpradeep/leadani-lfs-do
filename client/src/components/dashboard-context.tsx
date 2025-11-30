@@ -48,6 +48,8 @@ interface DashboardContextType {
   setColumnVisibilityConfig: (config: ColumnVisibilityConfig | null) => void;
   isColumnVisibilityOpen: boolean;
   setIsColumnVisibilityOpen: (open: boolean) => void;
+  isRowFiltersOpen: boolean;
+  setIsRowFiltersOpen: (open: boolean) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
@@ -70,6 +72,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [actions, setActions] = useState<DashboardContextType["actions"]>({});
   const [columnVisibilityConfig, setColumnVisibilityConfig] = useState<ColumnVisibilityConfig | null>(null);
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
+  const [isRowFiltersOpen, setIsRowFiltersOpen] = useState(false);
 
   return (
     <DashboardContext.Provider
@@ -98,6 +101,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         setColumnVisibilityConfig,
         isColumnVisibilityOpen,
         setIsColumnVisibilityOpen,
+        isRowFiltersOpen,
+        setIsRowFiltersOpen,
       }}
     >
       {children}
@@ -133,6 +138,8 @@ export function useDashboard() {
       setColumnVisibilityConfig: () => {},
       isColumnVisibilityOpen: false,
       setIsColumnVisibilityOpen: () => {},
+      isRowFiltersOpen: false,
+      setIsRowFiltersOpen: () => {},
     };
   }
   return context;
