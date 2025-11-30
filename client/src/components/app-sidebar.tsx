@@ -125,6 +125,7 @@ export function AppSidebar() {
   ];
 
   // Regular user items - hidden for Super Admin
+  // Team Performance and Webhooks are admin-only
   const mainItems = isSuperAdminAccount ? [] : [
     {
       title: "My Sheets",
@@ -150,12 +151,13 @@ export function AppSidebar() {
       icon: BarChart3,
       testId: "link-reports",
     },
-    {
+    // Team Performance - admin only
+    ...((isCompanyAdmin || isSuperAdmin) ? [{
       title: "Team Performance",
       url: "/team-performance",
       icon: UsersRound,
       testId: "link-team-performance",
-    },
+    }] : []),
     {
       title: "Leaderboard",
       url: "/leaderboard",
@@ -174,12 +176,13 @@ export function AppSidebar() {
       icon: Activity,
       testId: "link-activity-logs",
     },
-    {
+    // Webhooks - admin only
+    ...((isCompanyAdmin || isSuperAdmin) ? [{
       title: "Webhooks",
       url: "/webhooks",
       icon: Webhook,
       testId: "link-webhooks",
-    },
+    }] : []),
   ];
 
   // Admin items - only for company admins, not Super Admin account
@@ -292,15 +295,17 @@ export function AppSidebar() {
                           <Plus className="h-4 w-4 mr-2" />
                           Add Lead
                         </Button>
-                        <Button
-                          variant="outline"
-                          onClick={actions.onImport}
-                          className="w-full justify-start"
-                          data-testid="button-import-leads"
-                        >
-                          <FileUp className="h-4 w-4 mr-2" />
-                          Import
-                        </Button>
+                        {(isCompanyAdmin || isSuperAdmin) && (
+                          <Button
+                            variant="outline"
+                            onClick={actions.onImport}
+                            className="w-full justify-start"
+                            data-testid="button-import-leads"
+                          >
+                            <FileUp className="h-4 w-4 mr-2" />
+                            Import
+                          </Button>
+                        )}
                         {columnVisibilityConfig && !isMultiSheetMode && (
                           <Button
                             variant="outline"
@@ -376,15 +381,17 @@ export function AppSidebar() {
                           data-testid="input-search-leads"
                         />
                       </div>
-                      <Button
-                        variant="outline"
-                        onClick={actions.onExport}
-                        className="w-full justify-start"
-                        data-testid="button-export"
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Export
-                      </Button>
+                      {(isCompanyAdmin || isSuperAdmin) && (
+                        <Button
+                          variant="outline"
+                          onClick={actions.onExport}
+                          className="w-full justify-start"
+                          data-testid="button-export"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Export
+                        </Button>
+                      )}
                     </div>
                   </SidebarGroupContent>
                 </SidebarGroup>
