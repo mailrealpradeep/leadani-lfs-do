@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import {
   Filter,
   FilterX,
@@ -72,11 +72,17 @@ export function QuickFiltersBar({
   isMobile = false,
 }: QuickFiltersBarProps) {
   const { thoughtFilter, setThoughtFilter } = useDashboard();
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   
   const { data: quickFilters = [], isLoading } = useQuery<QuickFilter[]>({
     queryKey: ["/api/company/quick-filters"],
   });
+
+  useEffect(() => {
+    if (isLoading && isPopoverOpen) {
+      setIsPopoverOpen(false);
+    }
+  }, [isLoading, isPopoverOpen]);
 
   const handleThoughtFilter = (thought: "sure" | "maybe") => {
     if (thoughtFilter === thought) {
@@ -91,27 +97,24 @@ export function QuickFiltersBar({
     onClearFilters();
   };
 
-  const closeSheet = () => {
-    setIsSheetOpen(false);
+  const closePopover = () => {
+    setIsPopoverOpen(false);
   };
 
   const handleFilterClick = (filterId: string, filterConfig: any) => {
     onApplyFilter(filterId, filterConfig);
     if (isMobile) {
-      setTimeout(closeSheet, 0);
+      closePopover();
     }
   };
 
-  const handleThoughtFilterClick = (thought: "sure" | "maybe") => {
+  const handleThoughtFilterClickMobile = (thought: "sure" | "maybe") => {
     handleThoughtFilter(thought);
-    if (isMobile) {
-      setTimeout(closeSheet, 0);
-    }
   };
 
   const handleClearAllMobile = () => {
     handleClearAll();
-    setTimeout(closeSheet, 0);
+    closePopover();
   };
 
   // Count active filters for badge
@@ -188,10 +191,10 @@ export function QuickFiltersBar({
     );
   }
 
-  // Mobile view - single button that opens a sheet
+  // Mobile view - single button that opens a dropdown popover
   return (
-    <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-      <SheetTrigger asChild>
+    <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+      <PopoverTrigger asChild>
         <Button
           variant="outline"
           size="sm"
@@ -206,83 +209,86 @@ export function QuickFiltersBar({
             </span>
           )}
         </Button>
-      </SheetTrigger>
-      <SheetContent side="bottom" className="h-auto max-h-[60vh]">
-        <SheetHeader className="pb-4">
-          <SheetTitle className="flex items-center justify-between">
-            <span>Quick Filters</span>
-            {activeFilterCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearAllMobile}
-                className="h-8 text-muted-foreground"
-                data-testid="button-clear-filters-mobile"
-              >
-                <FilterX className="h-4 w-4 mr-1.5" />
-                Clear All
-              </Button>
-            )}
-          </SheetTitle>
-        </SheetHeader>
-        
-        <div className="space-y-4 pb-4">
-          {/* Lead Thoughts Section */}
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium text-muted-foreground">Lead Thoughts</h4>
-            <div className="flex gap-2">
-              <Button
-                variant={thoughtFilter === "sure" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleThoughtFilterClick("sure")}
-                data-testid="button-filter-sure-mobile"
-                className="flex-1 h-10"
-              >
-                <Star className={`h-4 w-4 mr-2 ${thoughtFilter === "sure" ? "fill-current" : ""} text-emerald-500`} />
-                Sure
-              </Button>
-              
-              <Button
-                variant={thoughtFilter === "maybe" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleThoughtFilterClick("maybe")}
-                data-testid="button-filter-maybe-mobile"
-                className="flex-1 h-10"
-              >
-                <HelpCircle className="h-4 w-4 mr-2 text-amber-500" />
-                May Be
-              </Button>
-            </div>
-          </div>
-
-          {/* Custom Quick Filters */}
-          {quickFilters.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-sm font-medium text-muted-foreground">Custom Filters</h4>
-              <div className="grid grid-cols-2 gap-2">
-                {quickFilters.map((filter) => {
-                  const IconComponent = filter.icon && ICON_MAP[filter.icon] ? ICON_MAP[filter.icon] : Filter;
-                  const iconColor = filter.color && COLOR_MAP[filter.color] ? COLOR_MAP[filter.color] : "";
-
-                  return (
-                    <Button
-                      key={filter.id}
-                      variant={activeQuickFilter === filter.id ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => handleFilterClick(filter.id, filter.filter_config)}
-                      data-testid={`button-filter-${filter.id}-mobile`}
-                      className="h-10 justify-start"
-                    >
-                      <IconComponent className={`h-4 w-4 mr-2 ${iconColor}`} />
-                      <span className="truncate">{filter.name}</span>
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-0" align="start">
+        <div className="flex items-center justify-between px-3 py-2 border-b">
+          <span className="text-sm font-medium">Quick Filters</span>
+          {activeFilterCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClearAllMobile}
+              className="h-7 px-2 text-xs text-muted-foreground"
+              data-testid="button-clear-filters-mobile"
+            >
+              <FilterX className="h-3.5 w-3.5 mr-1" />
+              Clear
+            </Button>
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+        
+        <ScrollArea className="max-h-64">
+          <div className="p-2 space-y-3">
+            {/* Lead Thoughts Section */}
+            <div className="space-y-1.5">
+              <h4 className="text-xs font-medium text-muted-foreground px-1">Lead Thoughts</h4>
+              <div className="space-y-1">
+                <Button
+                  variant={thoughtFilter === "sure" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => handleThoughtFilterClickMobile("sure")}
+                  data-testid="button-filter-sure-mobile"
+                  className="w-full h-9 justify-start gap-2"
+                >
+                  <Star className={`h-4 w-4 ${thoughtFilter === "sure" ? "fill-current" : ""} text-emerald-500`} />
+                  Sure
+                </Button>
+                
+                <Button
+                  variant={thoughtFilter === "maybe" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => handleThoughtFilterClickMobile("maybe")}
+                  data-testid="button-filter-maybe-mobile"
+                  className="w-full h-9 justify-start gap-2"
+                >
+                  <HelpCircle className="h-4 w-4 text-amber-500" />
+                  May Be
+                </Button>
+              </div>
+            </div>
+
+            {/* Custom Quick Filters */}
+            {quickFilters.length > 0 && (
+              <>
+                <Separator />
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-medium text-muted-foreground px-1">Custom Filters</h4>
+                  <div className="space-y-1">
+                    {quickFilters.map((filter) => {
+                      const IconComponent = filter.icon && ICON_MAP[filter.icon] ? ICON_MAP[filter.icon] : Filter;
+                      const iconColor = filter.color && COLOR_MAP[filter.color] ? COLOR_MAP[filter.color] : "";
+
+                      return (
+                        <Button
+                          key={filter.id}
+                          variant={activeQuickFilter === filter.id ? "default" : "ghost"}
+                          size="sm"
+                          onClick={() => handleFilterClick(filter.id, filter.filter_config)}
+                          data-testid={`button-filter-${filter.id}-mobile`}
+                          className="w-full h-9 justify-start gap-2"
+                        >
+                          <IconComponent className={`h-4 w-4 ${iconColor}`} />
+                          <span className="truncate">{filter.name}</span>
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
   );
 }
