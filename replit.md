@@ -41,6 +41,13 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 *   **Mandatory System Columns**: Protected "Full Name" and "Mobile No" columns with enforced configurations.
 *   **Target Management System (TMS)**: Comprehensive performance tracking with multi-goal targets (count, sum, average, percentage, updates, conversion, compliance), flexible assignment (single/multiple/all users), scope options (sheet-specific/company-wide/multiple sheets), time types (one-time/recurring), leaderboard rankings with time period filters (daily/weekly/monthly/all-time), and user progress views with achievement tracking.
 *   **User Row Filters (Hide/Show Rows)**: Per-user row filtering system that persists to database. Users can create named filters with multiple conditions (text, number, date operators) and AND/OR logic. Active filters hide matching rows from view. Accessible via sidebar "Hide/Show Rows" button. Features include filter creation/edit/delete, toggle activation, and active filter count display.
+*   **Google Sheets Backup System**: Automatic backup of lead data to Google Sheets with hourly scheduling. Features include:
+    - Integration with Google Sheets API via Replit connector
+    - Per-sheet backup configuration with custom Google Sheet URLs
+    - Full lead data export including all custom columns and up to 10 update history entries
+    - Manual sync trigger and automatic scheduled backups
+    - Companies share their Google Sheet with the connected Google account for access
+    - Sync logs with success/error tracking
 *   **Point-in-Time Sheet Recovery (Snapshots)**: SuperAdmin-only data recovery system with automatic hourly snapshots and 30-day retention. Features include:
     - Smart change detection using SHA-256 hashes to skip unchanged sheets
     - Bulk lead update fetching for scalability (handles 100k leads)
