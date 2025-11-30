@@ -728,7 +728,9 @@ export function TargetManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/targets"] });
+      setCreateDialogOpen(false);
       setEditTarget(null);
+      form.reset();
       toast({ title: "Target updated successfully" });
     },
     onError: (error: any) => {
@@ -775,6 +777,68 @@ export function TargetManagement() {
     },
   });
 
+  // Handle edit mode - open dialog and populate form when editTarget is set
+  useEffect(() => {
+    if (editTarget) {
+      // Map scope_type values (cast to string to handle legacy values)
+      const rawScopeType = String(editTarget.scope_type);
+      let scopeType: "company_wide" | "specific_sheets" | "multiple_sheets" = "company_wide";
+      if (rawScopeType === "sheet" || rawScopeType === "specific_sheets") {
+        scopeType = "specific_sheets";
+      } else if (rawScopeType === "multiple_sheets") {
+        scopeType = "multiple_sheets";
+      }
+      
+      // Map recurring_frequency
+      let frequency: "daily" | "weekly" | "monthly" = "monthly";
+      if (editTarget.recurring_frequency === "daily") frequency = "daily";
+      else if (editTarget.recurring_frequency === "weekly") frequency = "weekly";
+      else if (editTarget.recurring_frequency === "monthly") frequency = "monthly";
+      
+      // Get assigned user IDs from assigned_users relation
+      const assignedUserIds = editTarget.assigned_users?.map((au: any) => au.user_id) || [];
+      
+      form.reset({
+        name: editTarget.name,
+        description: editTarget.description || "",
+        assignment_type: editTarget.assignment_type as "individual" | "team" | "all_users",
+        scope_type: scopeType,
+        time_type: editTarget.time_type as "one_time" | "recurring",
+        recurring_frequency: frequency,
+        start_date: new Date(editTarget.start_date),
+        end_date: editTarget.end_date ? new Date(editTarget.end_date) : null,
+        enable_notifications: (editTarget as any).enable_notifications ?? true,
+        notification_milestones: editTarget.notification_milestones || [20, 40, 60, 80, 100],
+        track_overachievement: (editTarget as any).track_overachievement ?? false,
+        scope_sheet_ids: editTarget.scope_sheet_ids || [],
+        assigned_user_ids: assignedUserIds,
+        goals: editTarget.goals?.map((g: any) => ({
+          name: g.name,
+          goal_type: g.goal_type,
+          target_value: g.config?.target_value || 0,
+          conditions: g.conditions || [],
+          logical_operator: g.logical_operator || "and",
+        })) || [{
+          name: "New Leads",
+          goal_type: "count",
+          target_value: 10,
+          conditions: [],
+          logical_operator: "and",
+        }],
+      });
+      setCreateDialogOpen(true);
+    }
+  }, [editTarget, form]);
+
+  // Handle dialog close - reset edit mode
+  const handleDialogClose = (open: boolean) => {
+    setCreateDialogOpen(open);
+    if (!open) {
+      setEditTarget(null);
+      form.reset();
+    }
+  };
+
   const filteredTargets = targets.filter((t) => {
     if (statusFilter === "all") return true;
     return t.status === statusFilter;
@@ -812,7 +876,7 @@ export function TargetManagement() {
           </Select>
           <Badge variant="outline">{filteredTargets.length} targets</Badge>
         </div>
-        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <Dialog open={createDialogOpen} onOpenChange={handleDialogClose}>
           <DialogTrigger asChild>
             <Button data-testid="create-target">
               <Plus className="h-4 w-4 mr-2" />
@@ -821,9 +885,9 @@ export function TargetManagement() {
           </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>Create New Target</DialogTitle>
+              <DialogTitle>{editTarget ? "Edit Target" : "Create New Target"}</DialogTitle>
               <DialogDescription>
-                Set performance goals for your team with flexible tracking options
+                {editTarget ? "Update the target settings and goals" : "Set performance goals for your team with flexible tracking options"}
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -1229,10 +1293,13 @@ export function TargetManagement() {
                   </Button>
                   <Button
                     type="submit"
-                    disabled={createMutation.isPending}
+                    disabled={createMutation.isPending || updateMutation.isPending}
                     data-testid="submit-target"
                   >
-                    {createMutation.isPending ? "Creating..." : "Create Target"}
+                    {editTarget 
+                      ? (updateMutation.isPending ? "Updating..." : "Update Target")
+                      : (createMutation.isPending ? "Creating..." : "Create Target")
+                    }
                   </Button>
                 </DialogFooter>
               </form>
