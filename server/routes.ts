@@ -9839,6 +9839,519 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // TARGET MANAGEMENT SYSTEM (TMS) ROUTES
+  // ============================================================================
+
+  // Get all targets for company (admin only)
+  app.get("/api/targets", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { status, time_type, date_from, date_to, search, limit, offset } = req.query;
+      
+      const filters: any = {
+        status: status as string | undefined,
+        time_type: time_type as string | undefined,
+        date_from: date_from as string | undefined,
+        date_to: date_to as string | undefined,
+        search: search as string | undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined,
+      };
+      
+      const targets = await storage.getTargetsByCompanyId(req.companyId, filters);
+      res.json(targets);
+    } catch (error: any) {
+      console.error("Get targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get single target with details
+  app.get("/api/targets/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getTargetWithDetails(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      
+      // Verify access
+      if (target.company_id !== req.companyId && req.userRole !== 'super_admin') {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(target);
+    } catch (error: any) {
+      console.error("Get target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create target (admin only)
+  app.post("/api/targets", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { 
+        name, description, assignment_type, assigned_user_ids,
+        scope_type, scope_sheet_ids, time_type, start_date, end_date,
+        recurring_frequency, notification_milestones, goals
+      } = req.body;
+      
+      // Validate assignment
+      if (assignment_type !== 'all_users' && (!assigned_user_ids || assigned_user_ids.length === 0)) {
+        return res.status(400).json({ error: "User assignment required for non-all_users targets" });
+      }
+      
+      // Validate scope
+      if (scope_type === 'specific_sheets' && (!scope_sheet_ids || scope_sheet_ids.length === 0)) {
+        return res.status(400).json({ error: "Sheet selection required for specific_sheets scope" });
+      }
+      
+      // Validate time
+      if (time_type === 'one_time' && !end_date) {
+        return res.status(400).json({ error: "End date required for one-time targets" });
+      }
+      if (time_type === 'recurring' && !recurring_frequency) {
+        return res.status(400).json({ error: "Recurring frequency required for recurring targets" });
+      }
+      
+      // Validate goals
+      if (!goals || goals.length === 0) {
+        return res.status(400).json({ error: "At least one goal is required" });
+      }
+      
+      // Create target
+      const target = await storage.createTarget({
+        company_id: req.companyId,
+        name,
+        description: description || null,
+        assignment_type,
+        scope_type,
+        scope_sheet_ids: scope_type === 'specific_sheets' ? scope_sheet_ids : null,
+        time_type,
+        start_date: new Date(start_date),
+        end_date: end_date ? new Date(end_date) : null,
+        recurring_frequency: recurring_frequency || null,
+        notification_milestones: notification_milestones || [20, 40, 60, 80, 100],
+        status: 'active',
+        created_by_user_id: req.userId,
+      });
+      
+      // Create goals
+      for (let i = 0; i < goals.length; i++) {
+        const goal = goals[i];
+        await storage.createTargetGoal({
+          target_id: target.id,
+          name: goal.name,
+          config: {
+            goal_type: goal.goal_type,
+            target_value: goal.target_value,
+            column_key: goal.column_key,
+            conditions: goal.conditions || [],
+            logical_operator: goal.logical_operator || 'and',
+            numerator_conditions: goal.numerator_conditions,
+            denominator_conditions: goal.denominator_conditions,
+          },
+          order_index: i,
+        });
+      }
+      
+      // Create user assignments (if not all_users)
+      if (assignment_type !== 'all_users' && assigned_user_ids) {
+        for (const userId of assigned_user_ids) {
+          await storage.createTargetUserAssignment({
+            target_id: target.id,
+            user_id: userId,
+          });
+          
+          // Create notification for assignment
+          const user = await storage.getUser(userId);
+          if (user) {
+            await storage.createTargetNotification({
+              company_id: req.companyId,
+              target_id: target.id,
+              user_id: userId,
+              notification_type: 'assigned',
+              message: `You have been assigned a new target: "${name}"`,
+            });
+          }
+        }
+      }
+      
+      // Return full target with details
+      const fullTarget = await storage.getTargetWithDetails(target.id);
+      res.status(201).json(fullTarget);
+    } catch (error: any) {
+      console.error("Create target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update target (admin only)
+  app.patch("/api/targets/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      if (target.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const { name, description, status, notification_milestones, goals, assigned_user_ids } = req.body;
+      
+      // Update target
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (status !== undefined) updates.status = status;
+      if (notification_milestones !== undefined) updates.notification_milestones = notification_milestones;
+      
+      if (Object.keys(updates).length > 0) {
+        await storage.updateTarget(req.params.id, updates);
+      }
+      
+      // Update goals if provided
+      if (goals) {
+        await storage.deleteTargetGoalsByTargetId(req.params.id);
+        for (let i = 0; i < goals.length; i++) {
+          const goal = goals[i];
+          await storage.createTargetGoal({
+            target_id: req.params.id,
+            name: goal.name,
+            config: {
+              goal_type: goal.goal_type,
+              target_value: goal.target_value,
+              column_key: goal.column_key,
+              conditions: goal.conditions || [],
+              logical_operator: goal.logical_operator || 'and',
+              numerator_conditions: goal.numerator_conditions,
+              denominator_conditions: goal.denominator_conditions,
+            },
+            order_index: i,
+          });
+        }
+      }
+      
+      // Update assignments if provided (for non-all_users)
+      if (assigned_user_ids && target.assignment_type !== 'all_users') {
+        await storage.deleteTargetUserAssignmentsByTargetId(req.params.id);
+        for (const userId of assigned_user_ids) {
+          await storage.createTargetUserAssignment({
+            target_id: req.params.id,
+            user_id: userId,
+          });
+        }
+      }
+      
+      const fullTarget = await storage.getTargetWithDetails(req.params.id);
+      res.json(fullTarget);
+    } catch (error: any) {
+      console.error("Update target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete target (admin only)
+  app.delete("/api/targets/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      if (target.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      await storage.deleteTarget(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get targets for current user (my targets)
+  app.get("/api/targets/my/list", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "Authentication required" });
+      }
+      
+      const { status } = req.query;
+      const statusFilter = status ? (status as string).split(',') : ['active'];
+      
+      const targets = await storage.getTargetsForUser(req.userId, statusFilter);
+      
+      // Get full details for each target
+      const fullTargets = await Promise.all(
+        targets.map(t => storage.getTargetWithDetails(t.id))
+      );
+      
+      res.json(fullTargets.filter(Boolean));
+    } catch (error: any) {
+      console.error("Get my targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get user progress for a target
+  app.get("/api/targets/:id/progress", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      
+      const { user_id } = req.query;
+      const targetUserId = (req.userRole === 'company_admin' || req.userRole === 'super_admin') && user_id 
+        ? user_id as string 
+        : req.userId!;
+      
+      const progress = await storage.getTargetUserProgress(req.params.id, targetUserId);
+      res.json(progress);
+    } catch (error: any) {
+      console.error("Get target progress error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Calculate and refresh progress for a target
+  app.post("/api/targets/:id/calculate", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      
+      // Verify access
+      if (target.company_id !== req.companyId && req.userRole !== 'super_admin') {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const { calculateUserTargetProgress } = await import('./target-evaluator');
+      
+      const { user_id } = req.body;
+      const targetUserId = user_id || req.userId!;
+      
+      const result = await calculateUserTargetProgress(req.params.id, targetUserId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Calculate target progress error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Recalculate progress for all users of a target (admin only)
+  app.post("/api/targets/:id/recalculate-all", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      
+      if (target.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const { recalculateTargetProgress } = await import('./target-evaluator');
+      await recalculateTargetProgress(req.params.id);
+      
+      res.json({ success: true, message: "Progress recalculated for all users" });
+    } catch (error: any) {
+      console.error("Recalculate all progress error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get my targets with calculated progress
+  app.get("/api/targets/my/progress", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "Authentication required" });
+      }
+      
+      const { status } = req.query;
+      const statusFilter = status ? (status as string).split(',') : ['active'];
+      
+      const targets = await storage.getTargetsForUser(req.userId, statusFilter);
+      const { calculateUserTargetProgress } = await import('./target-evaluator');
+      
+      const progressResults = await Promise.all(
+        targets.map(async (t) => {
+          try {
+            return await calculateUserTargetProgress(t.id, req.userId!);
+          } catch (e) {
+            console.error(`Error calculating progress for target ${t.id}:`, e);
+            return null;
+          }
+        })
+      );
+      
+      res.json(progressResults.filter(Boolean));
+    } catch (error: any) {
+      console.error("Get my targets progress error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // COMPANY HOLIDAYS
+  // ============================================================================
+
+  // Get company holidays
+  app.get("/api/holidays", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { start_date, end_date } = req.query;
+      
+      const holidays = await storage.getCompanyHolidays(
+        req.companyId,
+        start_date ? new Date(start_date as string) : undefined,
+        end_date ? new Date(end_date as string) : undefined
+      );
+      
+      res.json(holidays);
+    } catch (error: any) {
+      console.error("Get holidays error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create holiday (admin only)
+  app.post("/api/holidays", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { name, date } = req.body;
+      
+      if (!name || !date) {
+        return res.status(400).json({ error: "Name and date are required" });
+      }
+      
+      const holiday = await storage.createCompanyHoliday({
+        company_id: req.companyId,
+        name,
+        date: new Date(date),
+        created_by_user_id: req.userId,
+      });
+      
+      res.status(201).json(holiday);
+    } catch (error: any) {
+      console.error("Create holiday error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete holiday (admin only)
+  app.delete("/api/holidays/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const success = await storage.deleteCompanyHoliday(req.params.id);
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Delete holiday error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // TARGET NOTIFICATIONS
+  // ============================================================================
+
+  // Get user's target notifications
+  app.get("/api/target-notifications", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "Authentication required" });
+      }
+      
+      const { unread_only } = req.query;
+      const notifications = await storage.getTargetNotifications(
+        req.userId,
+        unread_only === 'true'
+      );
+      
+      res.json(notifications);
+    } catch (error: any) {
+      console.error("Get notifications error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Mark notification as read
+  app.patch("/api/target-notifications/:id/read", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const success = await storage.markNotificationAsRead(req.params.id);
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Mark notification read error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Dismiss notification
+  app.patch("/api/target-notifications/:id/dismiss", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const success = await storage.markNotificationAsDismissed(req.params.id);
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Dismiss notification error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Mark all notifications as read
+  app.post("/api/target-notifications/read-all", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "Authentication required" });
+      }
+      
+      const count = await storage.markAllNotificationsAsRead(req.userId);
+      res.json({ count });
+    } catch (error: any) {
+      console.error("Mark all read error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // LEADERBOARD
+  // ============================================================================
+
+  // Get company leaderboard
+  app.get("/api/leaderboard", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { start_date, end_date } = req.query;
+      
+      const period = start_date && end_date ? {
+        start: new Date(start_date as string),
+        end: new Date(end_date as string),
+      } : undefined;
+      
+      const leaderboard = await storage.getLeaderboard(req.companyId, period);
+      res.json(leaderboard);
+    } catch (error: any) {
+      console.error("Get leaderboard error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup

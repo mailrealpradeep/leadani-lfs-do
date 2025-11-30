@@ -75,6 +75,24 @@ import type {
   ActivityLogResponse,
   ActivityLogStats,
   ActivityLog,
+  // Target Management System
+  TargetRecord,
+  InsertTarget,
+  TargetGoalRecord,
+  InsertTargetGoal,
+  TargetGoalConfig,
+  TargetUserAssignmentRecord,
+  InsertTargetUserAssignment,
+  TargetUserProgressRecord,
+  InsertTargetUserProgress,
+  CompanyHolidayRecord,
+  InsertCompanyHoliday,
+  TargetNotificationRecord,
+  InsertTargetNotification,
+  TargetWithDetails,
+  UserTargetProgress,
+  LeaderboardEntry,
+  TargetFilters,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -351,6 +369,54 @@ export interface IStorage {
   createActivityLog(log: InsertActivityLog): Promise<ActivityLogRecord>;
   getActivityLogs(filters: ActivityLogFilters): Promise<ActivityLogResponse>;
   getActivityLogStats(companyId: string, sheetId?: string, dateFrom?: string, dateTo?: string): Promise<ActivityLogStats>;
+
+  // =========================================================================
+  // TARGET MANAGEMENT SYSTEM
+  // =========================================================================
+  
+  // Targets
+  getTarget(id: string): Promise<TargetRecord | undefined>;
+  getTargetsByCompanyId(companyId: string, filters?: TargetFilters): Promise<TargetRecord[]>;
+  getTargetWithDetails(id: string): Promise<TargetWithDetails | undefined>;
+  createTarget(target: InsertTarget): Promise<TargetRecord>;
+  updateTarget(id: string, updates: Partial<TargetRecord>): Promise<TargetRecord | undefined>;
+  deleteTarget(id: string): Promise<boolean>;
+
+  // Target Goals
+  getTargetGoals(targetId: string): Promise<TargetGoalRecord[]>;
+  createTargetGoal(goal: InsertTargetGoal): Promise<TargetGoalRecord>;
+  updateTargetGoal(id: string, updates: Partial<TargetGoalRecord>): Promise<TargetGoalRecord | undefined>;
+  deleteTargetGoal(id: string): Promise<boolean>;
+  deleteTargetGoalsByTargetId(targetId: string): Promise<number>;
+
+  // Target User Assignments
+  getTargetUserAssignments(targetId: string): Promise<TargetUserAssignmentRecord[]>;
+  createTargetUserAssignment(assignment: InsertTargetUserAssignment): Promise<TargetUserAssignmentRecord>;
+  deleteTargetUserAssignment(id: string): Promise<boolean>;
+  deleteTargetUserAssignmentsByTargetId(targetId: string): Promise<number>;
+  getTargetsForUser(userId: string, status?: string | string[]): Promise<TargetRecord[]>;
+
+  // Target User Progress
+  getTargetUserProgress(targetId: string, userId?: string): Promise<TargetUserProgressRecord[]>;
+  getUserProgressForGoal(goalId: string, userId: string, periodStart: Date): Promise<TargetUserProgressRecord | undefined>;
+  createTargetUserProgress(progress: InsertTargetUserProgress): Promise<TargetUserProgressRecord>;
+  updateTargetUserProgress(id: string, updates: Partial<TargetUserProgressRecord>): Promise<TargetUserProgressRecord | undefined>;
+  upsertTargetUserProgress(progress: InsertTargetUserProgress): Promise<TargetUserProgressRecord>;
+
+  // Company Holidays
+  getCompanyHolidays(companyId: string, startDate?: Date, endDate?: Date): Promise<CompanyHolidayRecord[]>;
+  createCompanyHoliday(holiday: InsertCompanyHoliday): Promise<CompanyHolidayRecord>;
+  deleteCompanyHoliday(id: string): Promise<boolean>;
+
+  // Target Notifications
+  getTargetNotifications(userId: string, unreadOnly?: boolean): Promise<TargetNotificationRecord[]>;
+  createTargetNotification(notification: InsertTargetNotification): Promise<TargetNotificationRecord>;
+  markNotificationAsRead(id: string): Promise<boolean>;
+  markNotificationAsDismissed(id: string): Promise<boolean>;
+  markAllNotificationsAsRead(userId: string): Promise<number>;
+
+  // Leaderboard
+  getLeaderboard(companyId: string, period?: { start: Date; end: Date }): Promise<LeaderboardEntry[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -1985,6 +2051,101 @@ export class MemStorage implements IStorage {
 
   async getActivityLogStats(_companyId: string, _sheetId?: string, _dateFrom?: string, _dateTo?: string): Promise<ActivityLogStats> {
     return { total_actions: 0, actions_by_type: {}, actions_by_user: [], actions_today: 0, actions_this_week: 0 };
+  }
+
+  // =========================================================================
+  // TARGET MANAGEMENT SYSTEM (stubs for MemStorage)
+  // =========================================================================
+
+  async getTarget(_id: string): Promise<TargetRecord | undefined> {
+    throw new Error("Targets not implemented in MemStorage");
+  }
+  async getTargetsByCompanyId(_companyId: string, _filters?: TargetFilters): Promise<TargetRecord[]> {
+    return [];
+  }
+  async getTargetWithDetails(_id: string): Promise<TargetWithDetails | undefined> {
+    return undefined;
+  }
+  async createTarget(_target: InsertTarget): Promise<TargetRecord> {
+    throw new Error("Targets not implemented in MemStorage");
+  }
+  async updateTarget(_id: string, _updates: Partial<TargetRecord>): Promise<TargetRecord | undefined> {
+    return undefined;
+  }
+  async deleteTarget(_id: string): Promise<boolean> {
+    return false;
+  }
+  async getTargetGoals(_targetId: string): Promise<TargetGoalRecord[]> {
+    return [];
+  }
+  async createTargetGoal(_goal: InsertTargetGoal): Promise<TargetGoalRecord> {
+    throw new Error("Targets not implemented in MemStorage");
+  }
+  async updateTargetGoal(_id: string, _updates: Partial<TargetGoalRecord>): Promise<TargetGoalRecord | undefined> {
+    return undefined;
+  }
+  async deleteTargetGoal(_id: string): Promise<boolean> {
+    return false;
+  }
+  async deleteTargetGoalsByTargetId(_targetId: string): Promise<number> {
+    return 0;
+  }
+  async getTargetUserAssignments(_targetId: string): Promise<TargetUserAssignmentRecord[]> {
+    return [];
+  }
+  async createTargetUserAssignment(_assignment: InsertTargetUserAssignment): Promise<TargetUserAssignmentRecord> {
+    throw new Error("Targets not implemented in MemStorage");
+  }
+  async deleteTargetUserAssignment(_id: string): Promise<boolean> {
+    return false;
+  }
+  async deleteTargetUserAssignmentsByTargetId(_targetId: string): Promise<number> {
+    return 0;
+  }
+  async getTargetsForUser(_userId: string, _status?: string | string[]): Promise<TargetRecord[]> {
+    return [];
+  }
+  async getTargetUserProgress(_targetId: string, _userId?: string): Promise<TargetUserProgressRecord[]> {
+    return [];
+  }
+  async getUserProgressForGoal(_goalId: string, _userId: string, _periodStart: Date): Promise<TargetUserProgressRecord | undefined> {
+    return undefined;
+  }
+  async createTargetUserProgress(_progress: InsertTargetUserProgress): Promise<TargetUserProgressRecord> {
+    throw new Error("Targets not implemented in MemStorage");
+  }
+  async updateTargetUserProgress(_id: string, _updates: Partial<TargetUserProgressRecord>): Promise<TargetUserProgressRecord | undefined> {
+    return undefined;
+  }
+  async upsertTargetUserProgress(_progress: InsertTargetUserProgress): Promise<TargetUserProgressRecord> {
+    throw new Error("Targets not implemented in MemStorage");
+  }
+  async getCompanyHolidays(_companyId: string, _startDate?: Date, _endDate?: Date): Promise<CompanyHolidayRecord[]> {
+    return [];
+  }
+  async createCompanyHoliday(_holiday: InsertCompanyHoliday): Promise<CompanyHolidayRecord> {
+    throw new Error("Targets not implemented in MemStorage");
+  }
+  async deleteCompanyHoliday(_id: string): Promise<boolean> {
+    return false;
+  }
+  async getTargetNotifications(_userId: string, _unreadOnly?: boolean): Promise<TargetNotificationRecord[]> {
+    return [];
+  }
+  async createTargetNotification(_notification: InsertTargetNotification): Promise<TargetNotificationRecord> {
+    throw new Error("Targets not implemented in MemStorage");
+  }
+  async markNotificationAsRead(_id: string): Promise<boolean> {
+    return false;
+  }
+  async markNotificationAsDismissed(_id: string): Promise<boolean> {
+    return false;
+  }
+  async markAllNotificationsAsRead(_userId: string): Promise<number> {
+    return 0;
+  }
+  async getLeaderboard(_companyId: string, _period?: { start: Date; end: Date }): Promise<LeaderboardEntry[]> {
+    return [];
   }
 }
 
@@ -4613,6 +4774,400 @@ export class PgStorage implements IStorage {
       actions_today,
       actions_this_week,
     };
+  }
+
+  // =========================================================================
+  // TARGET MANAGEMENT SYSTEM - PgStorage Implementation
+  // =========================================================================
+
+  async getTarget(id: string): Promise<TargetRecord | undefined> {
+    const rows = await db.select().from(dbSchema.targets).where(eq(dbSchema.targets.id, id));
+    return rows[0];
+  }
+
+  async getTargetsByCompanyId(companyId: string, filters?: TargetFilters): Promise<TargetRecord[]> {
+    const conditions: any[] = [eq(dbSchema.targets.company_id, companyId)];
+    
+    if (filters?.status) {
+      if (Array.isArray(filters.status)) {
+        conditions.push(inArray(dbSchema.targets.status, filters.status));
+      } else {
+        conditions.push(eq(dbSchema.targets.status, filters.status));
+      }
+    }
+    if (filters?.time_type) {
+      conditions.push(eq(dbSchema.targets.time_type, filters.time_type));
+    }
+    if (filters?.date_from) {
+      conditions.push(gte(dbSchema.targets.start_date, new Date(filters.date_from)));
+    }
+    if (filters?.date_to) {
+      conditions.push(lte(dbSchema.targets.end_date, new Date(filters.date_to)));
+    }
+    if (filters?.search) {
+      conditions.push(ilike(dbSchema.targets.name, `%${filters.search}%`));
+    }
+    
+    const limitVal = filters?.limit ?? 100;
+    const offsetVal = filters?.offset ?? 0;
+    
+    return await db.select()
+      .from(dbSchema.targets)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.targets.created_at))
+      .limit(limitVal)
+      .offset(offsetVal);
+  }
+
+  async getTargetWithDetails(id: string): Promise<TargetWithDetails | undefined> {
+    const target = await this.getTarget(id);
+    if (!target) return undefined;
+
+    // Get goals
+    const goals = await this.getTargetGoals(id);
+    
+    // Get assignments and user details
+    const assignments = await this.getTargetUserAssignments(id);
+    const assignedUsers: { id: string; name: string; email: string }[] = [];
+    for (const a of assignments) {
+      const user = await this.getUser(a.user_id);
+      if (user) {
+        assignedUsers.push({ id: user.id, name: user.name, email: user.email });
+      }
+    }
+    
+    // Get scope sheets if specific sheets
+    let scopeSheets: { id: string; name: string }[] | undefined;
+    if (target.scope_type === 'specific_sheets' && target.scope_sheet_ids) {
+      scopeSheets = [];
+      for (const sheetId of target.scope_sheet_ids) {
+        const sheet = await this.getSheet(sheetId);
+        if (sheet) {
+          scopeSheets.push({ id: sheet.id, name: sheet.name });
+        }
+      }
+    }
+    
+    // Get created by user
+    const createdByUser = await this.getUser(target.created_by_user_id);
+    
+    return {
+      id: target.id,
+      company_id: target.company_id,
+      name: target.name,
+      description: target.description,
+      assignment_type: target.assignment_type as any,
+      scope_type: target.scope_type as any,
+      scope_sheet_ids: target.scope_sheet_ids,
+      time_type: target.time_type as any,
+      start_date: target.start_date instanceof Date ? target.start_date.toISOString() : target.start_date as any,
+      end_date: target.end_date ? (target.end_date instanceof Date ? target.end_date.toISOString() : target.end_date as any) : null,
+      recurring_frequency: target.recurring_frequency as any,
+      status: target.status as any,
+      notification_milestones: target.notification_milestones || [20, 40, 60, 80, 100],
+      created_by_user_id: target.created_by_user_id,
+      created_at: target.created_at instanceof Date ? target.created_at.toISOString() : target.created_at as any,
+      updated_at: target.updated_at instanceof Date ? target.updated_at.toISOString() : target.updated_at as any,
+      goals: goals.map(g => ({
+        id: g.id,
+        target_id: g.target_id,
+        name: g.name,
+        config: g.config,
+        order_index: g.order_index,
+        created_at: g.created_at instanceof Date ? g.created_at.toISOString() : g.created_at as any,
+        updated_at: g.updated_at instanceof Date ? g.updated_at.toISOString() : g.updated_at as any,
+      })),
+      assigned_users: assignedUsers,
+      scope_sheets: scopeSheets,
+      created_by_user: createdByUser ? { id: createdByUser.id, name: createdByUser.name } : undefined,
+    };
+  }
+
+  async createTarget(target: InsertTarget): Promise<TargetRecord> {
+    const rows = await db.insert(dbSchema.targets).values(target).returning();
+    return rows[0];
+  }
+
+  async updateTarget(id: string, updates: Partial<TargetRecord>): Promise<TargetRecord | undefined> {
+    const rows = await db.update(dbSchema.targets)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.targets.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteTarget(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.targets).where(eq(dbSchema.targets.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async getTargetGoals(targetId: string): Promise<TargetGoalRecord[]> {
+    return await db.select()
+      .from(dbSchema.target_goals)
+      .where(eq(dbSchema.target_goals.target_id, targetId))
+      .orderBy(asc(dbSchema.target_goals.order_index));
+  }
+
+  async createTargetGoal(goal: InsertTargetGoal): Promise<TargetGoalRecord> {
+    const rows = await db.insert(dbSchema.target_goals).values(goal).returning();
+    return rows[0];
+  }
+
+  async updateTargetGoal(id: string, updates: Partial<TargetGoalRecord>): Promise<TargetGoalRecord | undefined> {
+    const rows = await db.update(dbSchema.target_goals)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.target_goals.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteTargetGoal(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.target_goals).where(eq(dbSchema.target_goals.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async deleteTargetGoalsByTargetId(targetId: string): Promise<number> {
+    const result = await db.delete(dbSchema.target_goals).where(eq(dbSchema.target_goals.target_id, targetId));
+    return (result as any).rowCount || 0;
+  }
+
+  async getTargetUserAssignments(targetId: string): Promise<TargetUserAssignmentRecord[]> {
+    return await db.select()
+      .from(dbSchema.target_user_assignments)
+      .where(eq(dbSchema.target_user_assignments.target_id, targetId));
+  }
+
+  async createTargetUserAssignment(assignment: InsertTargetUserAssignment): Promise<TargetUserAssignmentRecord> {
+    const rows = await db.insert(dbSchema.target_user_assignments).values(assignment).returning();
+    return rows[0];
+  }
+
+  async deleteTargetUserAssignment(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.target_user_assignments).where(eq(dbSchema.target_user_assignments.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async deleteTargetUserAssignmentsByTargetId(targetId: string): Promise<number> {
+    const result = await db.delete(dbSchema.target_user_assignments).where(eq(dbSchema.target_user_assignments.target_id, targetId));
+    return (result as any).rowCount || 0;
+  }
+
+  async getTargetsForUser(userId: string, status?: string | string[]): Promise<TargetRecord[]> {
+    // Get user's company
+    const user = await this.getUser(userId);
+    if (!user?.company_id) return [];
+
+    // Get targets where user is assigned OR target is for all_users
+    const assignedTargetIds = await db.select({ target_id: dbSchema.target_user_assignments.target_id })
+      .from(dbSchema.target_user_assignments)
+      .where(eq(dbSchema.target_user_assignments.user_id, userId));
+    
+    const targetIds = assignedTargetIds.map(a => a.target_id);
+    
+    const conditions: any[] = [
+      eq(dbSchema.targets.company_id, user.company_id),
+      or(
+        targetIds.length > 0 ? inArray(dbSchema.targets.id, targetIds) : sql`false`,
+        eq(dbSchema.targets.assignment_type, 'all_users')
+      )
+    ];
+    
+    if (status) {
+      if (Array.isArray(status)) {
+        conditions.push(inArray(dbSchema.targets.status, status));
+      } else {
+        conditions.push(eq(dbSchema.targets.status, status));
+      }
+    }
+    
+    return await db.select()
+      .from(dbSchema.targets)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.targets.created_at));
+  }
+
+  async getTargetUserProgress(targetId: string, userId?: string): Promise<TargetUserProgressRecord[]> {
+    const conditions: any[] = [eq(dbSchema.target_user_progress.target_id, targetId)];
+    if (userId) {
+      conditions.push(eq(dbSchema.target_user_progress.user_id, userId));
+    }
+    return await db.select()
+      .from(dbSchema.target_user_progress)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.target_user_progress.period_start));
+  }
+
+  async getUserProgressForGoal(goalId: string, userId: string, periodStart: Date): Promise<TargetUserProgressRecord | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.target_user_progress)
+      .where(and(
+        eq(dbSchema.target_user_progress.goal_id, goalId),
+        eq(dbSchema.target_user_progress.user_id, userId),
+        eq(dbSchema.target_user_progress.period_start, periodStart)
+      ));
+    return rows[0];
+  }
+
+  async createTargetUserProgress(progress: InsertTargetUserProgress): Promise<TargetUserProgressRecord> {
+    const rows = await db.insert(dbSchema.target_user_progress).values(progress).returning();
+    return rows[0];
+  }
+
+  async updateTargetUserProgress(id: string, updates: Partial<TargetUserProgressRecord>): Promise<TargetUserProgressRecord | undefined> {
+    const rows = await db.update(dbSchema.target_user_progress)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.target_user_progress.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async upsertTargetUserProgress(progress: InsertTargetUserProgress): Promise<TargetUserProgressRecord> {
+    const existing = await this.getUserProgressForGoal(progress.goal_id, progress.user_id, progress.period_start);
+    if (existing) {
+      const updated = await this.updateTargetUserProgress(existing.id, {
+        current_value: progress.current_value,
+        is_achieved: progress.is_achieved ?? false,
+        achieved_at: progress.achieved_at,
+        streak_count: progress.streak_count,
+        last_calculated_at: new Date(),
+      });
+      return updated!;
+    }
+    return await this.createTargetUserProgress(progress);
+  }
+
+  async getCompanyHolidays(companyId: string, startDate?: Date, endDate?: Date): Promise<CompanyHolidayRecord[]> {
+    const conditions: any[] = [eq(dbSchema.company_holidays.company_id, companyId)];
+    if (startDate) {
+      conditions.push(gte(dbSchema.company_holidays.date, startDate));
+    }
+    if (endDate) {
+      conditions.push(lte(dbSchema.company_holidays.date, endDate));
+    }
+    return await db.select()
+      .from(dbSchema.company_holidays)
+      .where(and(...conditions))
+      .orderBy(asc(dbSchema.company_holidays.date));
+  }
+
+  async createCompanyHoliday(holiday: InsertCompanyHoliday): Promise<CompanyHolidayRecord> {
+    const rows = await db.insert(dbSchema.company_holidays).values(holiday).returning();
+    return rows[0];
+  }
+
+  async deleteCompanyHoliday(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.company_holidays).where(eq(dbSchema.company_holidays.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async getTargetNotifications(userId: string, unreadOnly?: boolean): Promise<TargetNotificationRecord[]> {
+    const conditions: any[] = [eq(dbSchema.target_notifications.user_id, userId)];
+    if (unreadOnly) {
+      conditions.push(eq(dbSchema.target_notifications.is_read, false));
+      conditions.push(eq(dbSchema.target_notifications.is_dismissed, false));
+    }
+    return await db.select()
+      .from(dbSchema.target_notifications)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.target_notifications.created_at));
+  }
+
+  async createTargetNotification(notification: InsertTargetNotification): Promise<TargetNotificationRecord> {
+    const rows = await db.insert(dbSchema.target_notifications).values(notification).returning();
+    return rows[0];
+  }
+
+  async markNotificationAsRead(id: string): Promise<boolean> {
+    const result = await db.update(dbSchema.target_notifications)
+      .set({ is_read: true })
+      .where(eq(dbSchema.target_notifications.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async markNotificationAsDismissed(id: string): Promise<boolean> {
+    const result = await db.update(dbSchema.target_notifications)
+      .set({ is_dismissed: true })
+      .where(eq(dbSchema.target_notifications.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async markAllNotificationsAsRead(userId: string): Promise<number> {
+    const result = await db.update(dbSchema.target_notifications)
+      .set({ is_read: true })
+      .where(and(
+        eq(dbSchema.target_notifications.user_id, userId),
+        eq(dbSchema.target_notifications.is_read, false)
+      ));
+    return (result as any).rowCount || 0;
+  }
+
+  async getLeaderboard(companyId: string, period?: { start: Date; end: Date }): Promise<LeaderboardEntry[]> {
+    // Get all active users in the company
+    const users = await this.getUsersByCompanyId(companyId);
+    const activeUsers = users.filter(u => u.is_active);
+    
+    const leaderboard: LeaderboardEntry[] = [];
+    
+    for (const user of activeUsers) {
+      // Get all targets for this user
+      const targets = await this.getTargetsForUser(user.id, ['active', 'completed']);
+      
+      let totalTargets = 0;
+      let achievedTargets = 0;
+      let totalProgress = 0;
+      let totalStreak = 0;
+      let progressCount = 0;
+      
+      for (const target of targets) {
+        const progress = await this.getTargetUserProgress(target.id, user.id);
+        
+        if (progress.length > 0) {
+          totalTargets++;
+          
+          // Check if all goals are achieved for latest period
+          const latestProgress = progress.filter(p => {
+            if (!period) return true;
+            return new Date(p.period_start) >= period.start && new Date(p.period_end) <= period.end;
+          });
+          
+          if (latestProgress.length > 0) {
+            const allAchieved = latestProgress.every(p => p.is_achieved);
+            if (allAchieved) achievedTargets++;
+            
+            for (const p of latestProgress) {
+              const percentage = p.target_value > 0 ? (p.current_value / p.target_value) * 100 : 0;
+              totalProgress += Math.min(percentage, 100);
+              progressCount++;
+              totalStreak = Math.max(totalStreak, p.streak_count);
+            }
+          }
+        }
+      }
+      
+      leaderboard.push({
+        user_id: user.id,
+        user_name: user.name,
+        total_targets: totalTargets,
+        achieved_targets: achievedTargets,
+        overall_progress_percentage: progressCount > 0 ? Math.round(totalProgress / progressCount) : 0,
+        total_streak: totalStreak,
+        rank: 0, // Will be set after sorting
+      });
+    }
+    
+    // Sort by achieved targets, then progress percentage, then streak
+    leaderboard.sort((a, b) => {
+      if (b.achieved_targets !== a.achieved_targets) return b.achieved_targets - a.achieved_targets;
+      if (b.overall_progress_percentage !== a.overall_progress_percentage) return b.overall_progress_percentage - a.overall_progress_percentage;
+      return b.total_streak - a.total_streak;
+    });
+    
+    // Assign ranks
+    leaderboard.forEach((entry, index) => {
+      entry.rank = index + 1;
+    });
+    
+    return leaderboard;
   }
 }
 

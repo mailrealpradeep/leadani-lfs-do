@@ -1,0 +1,529 @@
+import { storage } from './storage';
+import type { 
+  TargetRecord, 
+  TargetGoalRecord,
+  TargetCondition, 
+  TargetGoalConfig,
+  Lead,
+  LeadUpdate
+} from '@shared/schema';
+
+// Condition evaluation functions
+export function evaluateCondition(condition: TargetCondition, leadValue: any): boolean {
+  const { operator, value, value2 } = condition;
+  
+  // Handle null/undefined values
+  if (leadValue === null || leadValue === undefined || leadValue === '') {
+    return operator === 'is_empty' || operator === 'not_equals';
+  }
+
+  const strValue = String(leadValue).toLowerCase().trim();
+  const condValue = value !== null && value !== undefined ? String(value).toLowerCase().trim() : '';
+  
+  switch (operator) {
+    // Text operators
+    case 'equals':
+      return strValue === condValue;
+    case 'not_equals':
+      return strValue !== condValue;
+    case 'contains':
+      return strValue.includes(condValue);
+    case 'not_contains':
+      return !strValue.includes(condValue);
+    case 'starts_with':
+      return strValue.startsWith(condValue);
+    case 'ends_with':
+      return strValue.endsWith(condValue);
+    case 'is_empty':
+      return strValue === '';
+    case 'is_not_empty':
+      return strValue !== '';
+    case 'in':
+      if (Array.isArray(value)) {
+        return value.map(v => String(v).toLowerCase().trim()).includes(strValue);
+      }
+      return condValue.split(',').map(v => v.trim()).includes(strValue);
+    case 'not_in':
+      if (Array.isArray(value)) {
+        return !value.map(v => String(v).toLowerCase().trim()).includes(strValue);
+      }
+      return !condValue.split(',').map(v => v.trim()).includes(strValue);
+    
+    // Number operators
+    case 'greater_than':
+      return parseFloat(String(leadValue)) > parseFloat(condValue);
+    case 'less_than':
+      return parseFloat(String(leadValue)) < parseFloat(condValue);
+    case 'greater_equal':
+      return parseFloat(String(leadValue)) >= parseFloat(condValue);
+    case 'less_equal':
+      return parseFloat(String(leadValue)) <= parseFloat(condValue);
+    case 'between':
+      const numVal = parseFloat(String(leadValue));
+      const minVal = parseFloat(condValue);
+      const maxVal = parseFloat(String(value2));
+      return numVal >= minVal && numVal <= maxVal;
+    
+    // Date operators
+    case 'date_equals':
+    case 'date_before':
+    case 'date_after':
+    case 'date_between':
+    case 'is_today':
+    case 'is_before_today':
+    case 'is_after_today':
+    case 'is_this_week':
+    case 'is_this_month':
+    case 'is_overdue':
+    case 'within_days':
+    case 'days_ago':
+      return evaluateDateCondition(operator, leadValue, value, value2);
+    
+    default:
+      return false;
+  }
+}
+
+function evaluateDateCondition(
+  operator: string, 
+  leadValue: any, 
+  value: any, 
+  value2: any
+): boolean {
+  let leadDate: Date;
+  
+  try {
+    leadDate = new Date(leadValue);
+    if (isNaN(leadDate.getTime())) return false;
+  } catch {
+    return false;
+  }
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const leadDateNorm = new Date(leadDate);
+  leadDateNorm.setHours(0, 0, 0, 0);
+  
+  switch (operator) {
+    case 'date_equals':
+      const compareDate = new Date(value);
+      compareDate.setHours(0, 0, 0, 0);
+      return leadDateNorm.getTime() === compareDate.getTime();
+    
+    case 'date_before':
+      const beforeDate = new Date(value);
+      beforeDate.setHours(0, 0, 0, 0);
+      return leadDateNorm.getTime() < beforeDate.getTime();
+    
+    case 'date_after':
+      const afterDate = new Date(value);
+      afterDate.setHours(0, 0, 0, 0);
+      return leadDateNorm.getTime() > afterDate.getTime();
+    
+    case 'date_between':
+      const startDate = new Date(value);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(value2);
+      endDate.setHours(23, 59, 59, 999);
+      return leadDateNorm.getTime() >= startDate.getTime() && leadDateNorm.getTime() <= endDate.getTime();
+    
+    case 'is_today':
+      return leadDateNorm.getTime() === today.getTime();
+    
+    case 'is_before_today':
+      return leadDateNorm.getTime() < today.getTime();
+    
+    case 'is_after_today':
+      return leadDateNorm.getTime() > today.getTime();
+    
+    case 'is_this_week':
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay());
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
+      return leadDateNorm.getTime() >= weekStart.getTime() && leadDateNorm.getTime() <= weekEnd.getTime();
+    
+    case 'is_this_month':
+      return leadDateNorm.getMonth() === today.getMonth() && 
+             leadDateNorm.getFullYear() === today.getFullYear();
+    
+    case 'is_overdue':
+      return leadDateNorm.getTime() < today.getTime();
+    
+    case 'within_days':
+      const daysAhead = parseInt(String(value));
+      const futureDate = new Date(today);
+      futureDate.setDate(today.getDate() + daysAhead);
+      return leadDateNorm.getTime() >= today.getTime() && leadDateNorm.getTime() <= futureDate.getTime();
+    
+    case 'days_ago':
+      const daysBack = parseInt(String(value));
+      const pastDate = new Date(today);
+      pastDate.setDate(today.getDate() - daysBack);
+      return leadDateNorm.getTime() === pastDate.getTime();
+    
+    default:
+      return false;
+  }
+}
+
+function evaluateConditions(
+  conditions: TargetCondition[], 
+  lead: Lead, 
+  logicalOperator: 'and' | 'or'
+): boolean {
+  if (conditions.length === 0) return true;
+  
+  const results = conditions.map(condition => {
+    const columnKey = condition.column_key;
+    let leadValue: any;
+    
+    // Get value from lead - check both fixed fields and custom_fields
+    if (columnKey in lead) {
+      leadValue = (lead as any)[columnKey];
+    } else if (lead.custom_fields && columnKey in lead.custom_fields) {
+      leadValue = lead.custom_fields[columnKey];
+    } else {
+      leadValue = null;
+    }
+    
+    return evaluateCondition(condition, leadValue);
+  });
+  
+  if (logicalOperator === 'and') {
+    return results.every(r => r);
+  } else {
+    return results.some(r => r);
+  }
+}
+
+// Get value from a lead's field
+function getLeadFieldValue(lead: Lead, columnKey: string): any {
+  if (columnKey in lead) {
+    return (lead as any)[columnKey];
+  }
+  if (lead.custom_fields && columnKey in lead.custom_fields) {
+    return lead.custom_fields[columnKey];
+  }
+  return null;
+}
+
+// Calculate progress for a single goal
+export async function calculateGoalProgress(
+  goal: TargetGoalRecord,
+  userId: string,
+  target: TargetRecord,
+  periodStart: Date,
+  periodEnd: Date
+): Promise<{ currentValue: number; targetValue: number; isAchieved: boolean }> {
+  const config = goal.config as TargetGoalConfig;
+  const targetValue = config.target_value;
+  
+  // Get leads based on target scope
+  let leads: Lead[] = [];
+  
+  if (target.scope_type === 'company_wide') {
+    const sheets = await storage.getSheetsByCompanyId(target.company_id);
+    for (const sheet of sheets) {
+      const sheetLeads = await storage.getLeadsBySheetId(sheet.id);
+      leads.push(...sheetLeads);
+    }
+  } else if (target.scope_sheet_ids && target.scope_sheet_ids.length > 0) {
+    for (const sheetId of target.scope_sheet_ids) {
+      const sheetLeads = await storage.getLeadsBySheetId(sheetId);
+      leads.push(...sheetLeads);
+    }
+  }
+  
+  // Filter leads by user if individual target
+  if (target.assignment_type === 'individual' || target.assignment_type === 'all_users') {
+    leads = leads.filter(lead => lead.owner_user_id === userId);
+  }
+  
+  // Filter by period (created within period)
+  leads = leads.filter(lead => {
+    if (!lead.created_at) return false;
+    const createdAt = new Date(lead.created_at);
+    return createdAt >= periodStart && createdAt <= periodEnd;
+  });
+  
+  let currentValue = 0;
+  
+  switch (config.goal_type) {
+    case 'count':
+      // Count leads matching conditions
+      currentValue = leads.filter(lead => 
+        evaluateConditions(config.conditions, lead, config.logical_operator)
+      ).length;
+      break;
+    
+    case 'sum':
+      // Sum of a numeric column
+      if (config.column_key) {
+        currentValue = leads
+          .filter(lead => evaluateConditions(config.conditions, lead, config.logical_operator))
+          .reduce((sum, lead) => {
+            const val = getLeadFieldValue(lead, config.column_key!);
+            return sum + (parseFloat(String(val)) || 0);
+          }, 0);
+      }
+      break;
+    
+    case 'average':
+      // Average of a numeric column
+      if (config.column_key) {
+        const matchingLeads = leads.filter(lead => 
+          evaluateConditions(config.conditions, lead, config.logical_operator)
+        );
+        if (matchingLeads.length > 0) {
+          const total = matchingLeads.reduce((sum, lead) => {
+            const val = getLeadFieldValue(lead, config.column_key!);
+            return sum + (parseFloat(String(val)) || 0);
+          }, 0);
+          currentValue = total / matchingLeads.length;
+        }
+      }
+      break;
+    
+    case 'percentage':
+      // Percentage of leads matching numerator vs denominator
+      if (config.numerator_conditions && config.denominator_conditions) {
+        const denominator = leads.filter(lead => 
+          evaluateConditions(config.denominator_conditions!, lead, config.logical_operator)
+        ).length;
+        
+        const numerator = leads.filter(lead => 
+          evaluateConditions(config.numerator_conditions!, lead, config.logical_operator)
+        ).length;
+        
+        if (denominator > 0) {
+          currentValue = (numerator / denominator) * 100;
+        }
+      }
+      break;
+    
+    case 'updates':
+      // Count lead updates within the period
+      let totalUpdates = 0;
+      for (const lead of leads) {
+        const updates = await storage.getLeadUpdates(lead.id);
+        const periodUpdates = updates.filter(update => {
+          const createdAt = new Date(update.created_at);
+          return createdAt >= periodStart && createdAt <= periodEnd;
+        });
+        totalUpdates += periodUpdates.length;
+      }
+      currentValue = totalUpdates;
+      break;
+    
+    case 'conversion':
+      // Conversion rate from one status to another
+      if (config.numerator_conditions && config.denominator_conditions) {
+        const startLeads = leads.filter(lead => 
+          evaluateConditions(config.denominator_conditions!, lead, config.logical_operator)
+        );
+        
+        const convertedLeads = leads.filter(lead => 
+          evaluateConditions(config.numerator_conditions!, lead, config.logical_operator)
+        );
+        
+        if (startLeads.length > 0) {
+          currentValue = (convertedLeads.length / startLeads.length) * 100;
+        }
+      }
+      break;
+    
+    case 'compliance':
+      // NFDT compliance rate
+      const leadsWithNFDT = leads.filter(lead => {
+        const nfdt = getLeadFieldValue(lead, 'next_follow_up_date_time');
+        if (!nfdt) return false;
+        const nfdtDate = new Date(nfdt);
+        return nfdtDate <= periodEnd;
+      });
+      
+      const compliantLeads = leadsWithNFDT.filter(lead => {
+        const nfdt = getLeadFieldValue(lead, 'next_follow_up_date_time');
+        const nfdtDate = new Date(nfdt);
+        const now = new Date();
+        // Lead is compliant if NFDT is in the future or there's a recent update
+        return nfdtDate >= now;
+      });
+      
+      if (leadsWithNFDT.length > 0) {
+        currentValue = (compliantLeads.length / leadsWithNFDT.length) * 100;
+      }
+      break;
+    
+    default:
+      currentValue = 0;
+  }
+  
+  return {
+    currentValue,
+    targetValue,
+    isAchieved: currentValue >= targetValue,
+  };
+}
+
+// Get period dates based on target time type
+export function getCurrentPeriod(target: TargetRecord): { start: Date; end: Date } {
+  const now = new Date();
+  
+  if (target.time_type === 'one_time') {
+    return {
+      start: new Date(target.start_date),
+      end: new Date(target.end_date!),
+    };
+  }
+  
+  // Recurring targets
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  switch (target.recurring_frequency) {
+    case 'daily':
+      const dayEnd = new Date(today);
+      dayEnd.setHours(23, 59, 59, 999);
+      return { start: today, end: dayEnd };
+    
+    case 'weekly':
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay());
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
+      return { start: weekStart, end: weekEnd };
+    
+    case 'monthly':
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      monthEnd.setHours(23, 59, 59, 999);
+      return { start: monthStart, end: monthEnd };
+    
+    default:
+      return { start: today, end: new Date() };
+  }
+}
+
+// Calculate and update progress for all goals of a target for a user
+export async function calculateUserTargetProgress(
+  targetId: string,
+  userId: string
+): Promise<{
+  target: TargetRecord;
+  goals: { goalId: string; goalName: string; currentValue: number; targetValue: number; percentage: number; isAchieved: boolean }[];
+  overallPercentage: number;
+  isFullyAchieved: boolean;
+}> {
+  const target = await storage.getTarget(targetId);
+  if (!target) throw new Error('Target not found');
+  
+  const goals = await storage.getTargetGoals(targetId);
+  const period = getCurrentPeriod(target);
+  
+  const goalProgress: { goalId: string; goalName: string; currentValue: number; targetValue: number; percentage: number; isAchieved: boolean }[] = [];
+  
+  for (const goal of goals) {
+    const progress = await calculateGoalProgress(goal, userId, target, period.start, period.end);
+    
+    const percentage = progress.targetValue > 0 
+      ? Math.round((progress.currentValue / progress.targetValue) * 100) 
+      : 0;
+    
+    goalProgress.push({
+      goalId: goal.id,
+      goalName: goal.name,
+      currentValue: progress.currentValue,
+      targetValue: progress.targetValue,
+      percentage,
+      isAchieved: progress.isAchieved,
+    });
+    
+    // Upsert progress record
+    await storage.upsertTargetUserProgress({
+      target_id: targetId,
+      goal_id: goal.id,
+      user_id: userId,
+      period_start: period.start,
+      period_end: period.end,
+      current_value: progress.currentValue,
+      target_value: progress.targetValue,
+      is_achieved: progress.isAchieved,
+      achieved_at: progress.isAchieved ? new Date() : null,
+      streak_count: 0, // Will be calculated separately for recurring
+      last_calculated_at: new Date(),
+    });
+  }
+  
+  const overallPercentage = goalProgress.length > 0
+    ? Math.round(goalProgress.reduce((sum, g) => sum + g.percentage, 0) / goalProgress.length)
+    : 0;
+  
+  const isFullyAchieved = goalProgress.every(g => g.isAchieved);
+  
+  return {
+    target,
+    goals: goalProgress,
+    overallPercentage,
+    isFullyAchieved,
+  };
+}
+
+// Recalculate progress for all users assigned to a target
+export async function recalculateTargetProgress(targetId: string): Promise<void> {
+  const target = await storage.getTarget(targetId);
+  if (!target) return;
+  
+  if (target.assignment_type === 'all_users') {
+    const users = await storage.getUsersByCompanyId(target.company_id);
+    for (const user of users.filter(u => u.is_active)) {
+      await calculateUserTargetProgress(targetId, user.id);
+    }
+  } else {
+    const assignments = await storage.getTargetUserAssignments(targetId);
+    for (const assignment of assignments) {
+      await calculateUserTargetProgress(targetId, assignment.user_id);
+    }
+  }
+}
+
+// Check if today is a company holiday
+export async function isHoliday(companyId: string, date: Date = new Date()): Promise<boolean> {
+  const checkDate = new Date(date);
+  checkDate.setHours(0, 0, 0, 0);
+  
+  const nextDay = new Date(checkDate);
+  nextDay.setDate(nextDay.getDate() + 1);
+  
+  const holidays = await storage.getCompanyHolidays(companyId, checkDate, nextDay);
+  return holidays.length > 0;
+}
+
+// Check milestone notifications
+export async function checkAndCreateMilestoneNotifications(
+  targetId: string,
+  userId: string,
+  previousPercentage: number,
+  currentPercentage: number
+): Promise<void> {
+  const target = await storage.getTarget(targetId);
+  if (!target) return;
+  
+  const milestones = target.notification_milestones || [20, 40, 60, 80, 100];
+  
+  for (const milestone of milestones) {
+    if (previousPercentage < milestone && currentPercentage >= milestone) {
+      await storage.createTargetNotification({
+        company_id: target.company_id,
+        target_id: targetId,
+        user_id: userId,
+        notification_type: 'milestone',
+        milestone_percentage: milestone,
+        message: `You've reached ${milestone}% of your target "${target.name}"!`,
+      });
+    }
+  }
+}
