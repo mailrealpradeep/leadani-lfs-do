@@ -22,17 +22,18 @@ export function GlobalSearch() {
   const { data: searchResults = [], isLoading: isSearching } = useQuery<CompanySearchResult[]>({
     queryKey: ["/api/leads/company-search", searchQuery],
     queryFn: async () => {
-      console.log("[GlobalSearch] Fetching results for:", searchQuery);
+      const token = localStorage.getItem("auth_token");
       const response = await fetch(`/api/leads/company-search?q=${encodeURIComponent(searchQuery)}&limit=15`, {
         credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!response.ok) {
         console.error("[GlobalSearch] API error:", response.status);
         throw new Error("Search failed");
       }
-      const data = await response.json();
-      console.log("[GlobalSearch] Got results:", data.length);
-      return data;
+      return response.json();
     },
     enabled: searchQuery.trim().length >= 2,
     staleTime: 30000,
