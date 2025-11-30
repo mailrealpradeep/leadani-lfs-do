@@ -8,6 +8,7 @@ import express, {
 } from "express";
 
 import { registerRoutes } from "./routes";
+import { startSnapshotScheduler } from "./snapshot-scheduler";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -97,5 +98,7 @@ export default async function runApp(
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    
+    startSnapshotScheduler();
   });
 }

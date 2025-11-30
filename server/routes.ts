@@ -10763,6 +10763,283 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // SHEET SNAPSHOTS (Point-in-Time Recovery) - SuperAdmin Only
+  // ============================================================================
+
+  app.get("/api/admin/snapshots", requireSuperAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const snapshots = await storage.getAllSheetSnapshots(500);
+      
+      const companies = await storage.getAllCompanies();
+      const companyMap = new Map(companies.map(c => [c.id, c.name]));
+      
+      const enrichedSnapshots = snapshots.map(s => ({
+        ...s,
+        company_name: companyMap.get(s.company_id) || 'Unknown Company',
+      }));
+      
+      res.json(enrichedSnapshots);
+    } catch (error: any) {
+      console.error("Get all snapshots error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/snapshots/stats", requireSuperAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const stats = await import("./snapshot-scheduler").then(m => m.getSheetSnapshotStats());
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Get snapshot stats error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/snapshots/by-company/:companyId", requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const snapshots = await storage.getSheetSnapshotsByCompany(req.params.companyId, 200);
+      res.json(snapshots);
+    } catch (error: any) {
+      console.error("Get company snapshots error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/snapshots/by-sheet/:sheetId", requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const snapshots = await storage.getSheetSnapshotsBySheet(req.params.sheetId, 100);
+      res.json(snapshots);
+    } catch (error: any) {
+      console.error("Get sheet snapshots error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/snapshots/:id", requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const snapshot = await storage.getSheetSnapshot(req.params.id);
+      if (!snapshot) {
+        return res.status(404).json({ error: "Snapshot not found" });
+      }
+      res.json(snapshot);
+    } catch (error: any) {
+      console.error("Get snapshot error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/snapshots/:id/preview", requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const snapshot = await storage.getSheetSnapshot(req.params.id);
+      if (!snapshot) {
+        return res.status(404).json({ error: "Snapshot not found" });
+      }
+      
+      const currentLeads = await storage.getLeadsBySheetId(snapshot.sheet_id);
+      const activeCurrentLeads = currentLeads.filter(l => !l.deleted_at);
+      
+      const snapshotData = snapshot.snapshot_data as any;
+      const snapshotLeads = snapshotData.leads || [];
+      
+      const currentLeadIds = new Set(activeCurrentLeads.map(l => l.id));
+      const snapshotLeadIds = new Set(snapshotLeads.map((l: any) => l.id));
+      
+      const leadsToRestore = snapshotLeads.filter((l: any) => !currentLeadIds.has(l.id));
+      const leadsToRemove = activeCurrentLeads.filter(l => !snapshotLeadIds.has(l.id));
+      const leadsToUpdate: { current: any; snapshot: any }[] = [];
+      
+      for (const snapshotLead of snapshotLeads) {
+        const currentLead = activeCurrentLeads.find(l => l.id === snapshotLead.id);
+        if (currentLead) {
+          const currentFields = JSON.stringify({ ...currentLead.fixed_fields, ...currentLead.custom_fields });
+          const snapshotFields = JSON.stringify({ ...snapshotLead.fixed_fields, ...snapshotLead.custom_fields });
+          
+          if (currentFields !== snapshotFields) {
+            leadsToUpdate.push({ current: currentLead, snapshot: snapshotLead });
+          }
+        }
+      }
+      
+      res.json({
+        snapshot_id: snapshot.id,
+        snapshot_date: snapshot.created_at,
+        sheet_name: snapshot.sheet_name,
+        current_lead_count: activeCurrentLeads.length,
+        snapshot_lead_count: snapshotLeads.length,
+        changes: {
+          to_restore: leadsToRestore.length,
+          to_remove: leadsToRemove.length,
+          to_update: leadsToUpdate.length,
+        },
+        preview_leads: {
+          restore: leadsToRestore.slice(0, 10),
+          remove: leadsToRemove.slice(0, 10).map(l => ({
+            id: l.id,
+            fixed_fields: l.fixed_fields,
+          })),
+          update: leadsToUpdate.slice(0, 10).map(u => ({
+            id: u.current.id,
+            current_name: (u.current.fixed_fields as any)?.full_name,
+            snapshot_name: (u.snapshot.fixed_fields as any)?.full_name,
+          })),
+        },
+      });
+    } catch (error: any) {
+      console.error("Preview restore error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/snapshots/:id/restore", requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(403).json({ error: "User context required" });
+      }
+      
+      const snapshot = await storage.getSheetSnapshot(req.params.id);
+      if (!snapshot) {
+        return res.status(404).json({ error: "Snapshot not found" });
+      }
+      
+      const snapshotData = snapshot.snapshot_data as any;
+      const snapshotLeads = snapshotData.leads || [];
+      const snapshotUpdates = snapshotData.lead_updates || {};
+      
+      const currentLeads = await storage.getLeadsBySheetId(snapshot.sheet_id);
+      const activeCurrentLeads = currentLeads.filter(l => !l.deleted_at);
+      
+      const currentLeadIds = new Set(activeCurrentLeads.map(l => l.id));
+      const snapshotLeadIds = new Set(snapshotLeads.map((l: any) => l.id));
+      
+      let restoredCount = 0;
+      let removedCount = 0;
+      let updatedCount = 0;
+      let updatesRestoredCount = 0;
+      
+      for (const snapshotLead of snapshotLeads) {
+        if (!currentLeadIds.has(snapshotLead.id)) {
+          await storage.createLead({
+            id: snapshotLead.id,
+            sheet_id: snapshot.sheet_id,
+            company_id: snapshot.company_id,
+            created_by: snapshotLead.created_by,
+            assigned_to: snapshotLead.assigned_to,
+            fixed_fields: snapshotLead.fixed_fields,
+            custom_fields: snapshotLead.custom_fields,
+            lead_thought: snapshotLead.lead_thought,
+            lead_thought_marked_at: snapshotLead.lead_thought_marked_at,
+            lead_thought_marked_by: snapshotLead.lead_thought_marked_by,
+            priority: snapshotLead.priority,
+            source: snapshotLead.source,
+            webhook_id: snapshotLead.webhook_id,
+            raw_webhook_data: snapshotLead.raw_webhook_data,
+          } as any);
+          restoredCount++;
+          
+          const leadUpdates = snapshotUpdates[snapshotLead.id] || [];
+          for (const update of leadUpdates) {
+            try {
+              await storage.createLeadUpdate({
+                id: update.id,
+                lead_id: update.lead_id,
+                user_id: update.user_id,
+                update_text: update.update_text,
+                previous_fields: update.previous_fields,
+                new_fields: update.new_fields,
+                change_summary: update.change_summary,
+              } as any);
+              updatesRestoredCount++;
+            } catch (e) {
+            }
+          }
+        } else {
+          const currentLead = activeCurrentLeads.find(l => l.id === snapshotLead.id);
+          if (currentLead) {
+            const currentFields = JSON.stringify({ ...currentLead.fixed_fields, ...currentLead.custom_fields });
+            const snapshotFields = JSON.stringify({ ...snapshotLead.fixed_fields, ...snapshotLead.custom_fields });
+            
+            if (currentFields !== snapshotFields) {
+              await storage.updateLead(snapshotLead.id, {
+                fixed_fields: snapshotLead.fixed_fields,
+                custom_fields: snapshotLead.custom_fields,
+                lead_thought: snapshotLead.lead_thought,
+              });
+              updatedCount++;
+            }
+          }
+        }
+      }
+      
+      for (const currentLead of activeCurrentLeads) {
+        if (!snapshotLeadIds.has(currentLead.id)) {
+          await storage.softDeleteLead(currentLead.id);
+          removedCount++;
+        }
+      }
+      
+      await storage.createSnapshotRestoreLog({
+        id: crypto.randomUUID(),
+        company_id: snapshot.company_id,
+        sheet_id: snapshot.sheet_id,
+        snapshot_id: snapshot.id,
+        restored_by: req.userId,
+        leads_restored: restoredCount,
+        leads_removed: removedCount,
+        leads_updated: updatedCount,
+        created_at: new Date(),
+      });
+      
+      io?.to(`sheet-${snapshot.sheet_id}`).emit("sheet-data-changed", {
+        sheetId: snapshot.sheet_id,
+        action: "snapshot_restore",
+      });
+      
+      res.json({
+        success: true,
+        restored: restoredCount,
+        removed: removedCount,
+        updated: updatedCount,
+        updates_restored: updatesRestoredCount,
+        snapshot_date: snapshot.created_at,
+      });
+    } catch (error: any) {
+      console.error("Restore snapshot error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/snapshots/create-manual/:sheetId", requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { createManualSnapshot } = await import("./snapshot-scheduler");
+      const created = await createManualSnapshot(req.params.sheetId);
+      
+      if (created) {
+        res.json({ success: true, message: "Snapshot created successfully" });
+      } else {
+        res.json({ success: false, message: "No changes detected, snapshot skipped" });
+      }
+    } catch (error: any) {
+      console.error("Create manual snapshot error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/snapshot-restore-logs", requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { companyId } = req.query;
+      if (!companyId || typeof companyId !== 'string') {
+        return res.status(400).json({ error: "Company ID required" });
+      }
+      
+      const logs = await storage.getSnapshotRestoreLogs(companyId, 100);
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Get restore logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
