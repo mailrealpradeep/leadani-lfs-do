@@ -12,9 +12,38 @@ import type {
 export function evaluateCondition(condition: TargetCondition, leadValue: any): boolean {
   const { operator, value, value2 } = condition;
   
-  // Handle null/undefined values
-  if (leadValue === null || leadValue === undefined || leadValue === '') {
-    return operator === 'is_empty' || operator === 'not_equals';
+  // Handle null/undefined values - be strict about empty value semantics
+  const isNullOrEmpty = leadValue === null || leadValue === undefined || leadValue === '';
+  
+  // For is_empty operator, null/undefined/empty string should return true
+  if (operator === 'is_empty') {
+    return isNullOrEmpty;
+  }
+  
+  // For is_not_empty operator, only non-empty values return true
+  if (operator === 'is_not_empty') {
+    return !isNullOrEmpty && String(leadValue).trim() !== '';
+  }
+  
+  // For all other operators, if the lead value is null/empty, the condition fails
+  // (except for specific operators that should handle empty differently)
+  // This prevents false positives when fields are missing
+  if (isNullOrEmpty) {
+    // For not_equals: empty field does NOT automatically match "not equals something"
+    // The user should use is_empty if they want to match empty fields
+    // For equals with empty condition value: check if condition is looking for empty
+    if (operator === 'equals' && (value === null || value === undefined || value === '')) {
+      return true; // equals "" matches empty/null
+    }
+    if (operator === 'not_equals' && (value === null || value === undefined || value === '')) {
+      return false; // not_equals "" fails on empty/null
+    }
+    // For in/not_in operators with empty value
+    if (operator === 'in' || operator === 'not_in') {
+      return false; // Empty values don't match lists
+    }
+    // Default: empty values don't satisfy most conditions
+    return false;
   }
 
   const strValue = String(leadValue).toLowerCase().trim();
@@ -34,10 +63,7 @@ export function evaluateCondition(condition: TargetCondition, leadValue: any): b
       return strValue.startsWith(condValue);
     case 'ends_with':
       return strValue.endsWith(condValue);
-    case 'is_empty':
-      return strValue === '';
-    case 'is_not_empty':
-      return strValue !== '';
+    // Note: is_empty and is_not_empty are handled before the switch statement
     case 'in':
       if (Array.isArray(value)) {
         return value.map(v => String(v).toLowerCase().trim()).includes(strValue);

@@ -33,6 +33,7 @@ import Tasks from "@/pages/tasks";
 import SuperAdmin from "@/pages/super-admin";
 import Impersonate from "@/pages/impersonate";
 import ActivityLogs from "@/pages/activity-logs";
+import Leaderboard from "@/pages/leaderboard";
 
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => JSX.Element; adminOnly?: boolean }) {
   const { isAuthenticated, isSuperAdmin, isCompanyAdmin, isLoading } = useAuth();
@@ -104,6 +105,9 @@ function Router() {
       </Route>
       <Route path="/admin">
         {() => <ProtectedRoute component={Admin} adminOnly />}
+      </Route>
+      <Route path="/leaderboard">
+        {() => <ProtectedRoute component={Leaderboard} />}
       </Route>
       <Route path="/super-admin">
         {() => <ProtectedRoute component={SuperAdmin} />}
