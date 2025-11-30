@@ -62,12 +62,24 @@ import { CSS } from "@dnd-kit/utilities";
 import type { HighlightingRule, HighlightingCondition, CustomColumn, highlightColors } from "@shared/schema";
 
 const HIGHLIGHT_COLORS: typeof highlightColors = [
+  // Red variants
+  { id: "red_light", label: "Light Red", light: "hsl(0, 86%, 97%)", dark: "hsl(0, 50%, 15%)" },
   { id: "red", label: "Red", light: "hsl(0, 84%, 95%)", dark: "hsl(0, 70%, 20%)" },
-  { id: "yellow", label: "Yellow", light: "hsl(48, 96%, 89%)", dark: "hsl(48, 70%, 20%)" },
+  { id: "red_dark", label: "Dark Red", light: "hsl(0, 72%, 91%)", dark: "hsl(0, 80%, 25%)" },
+  // Green variants
+  { id: "green_light", label: "Light Green", light: "hsl(142, 76%, 95%)", dark: "hsl(142, 40%, 12%)" },
   { id: "green", label: "Green", light: "hsl(142, 69%, 90%)", dark: "hsl(142, 50%, 18%)" },
+  { id: "green_dark", label: "Dark Green", light: "hsl(142, 60%, 85%)", dark: "hsl(142, 60%, 22%)" },
+  // Blue variants
+  { id: "blue_light", label: "Light Blue", light: "hsl(210, 100%, 96%)", dark: "hsl(210, 50%, 15%)" },
   { id: "blue", label: "Blue", light: "hsl(210, 100%, 93%)", dark: "hsl(210, 70%, 20%)" },
+  { id: "blue_dark", label: "Dark Blue", light: "hsl(210, 80%, 88%)", dark: "hsl(210, 80%, 28%)" },
+  // Other colors
+  { id: "yellow", label: "Yellow", light: "hsl(48, 96%, 89%)", dark: "hsl(48, 70%, 20%)" },
   { id: "orange", label: "Orange", light: "hsl(24, 100%, 92%)", dark: "hsl(24, 70%, 20%)" },
   { id: "purple", label: "Purple", light: "hsl(270, 80%, 93%)", dark: "hsl(270, 60%, 22%)" },
+  { id: "pink", label: "Pink", light: "hsl(330, 80%, 95%)", dark: "hsl(330, 60%, 20%)" },
+  { id: "teal", label: "Teal", light: "hsl(174, 72%, 90%)", dark: "hsl(174, 55%, 18%)" },
 ];
 
 const OPERATORS_BY_TYPE: Record<string, Array<{ value: string; label: string }>> = {
@@ -259,11 +271,12 @@ function SortableRuleItem({ rule, columns, onEdit, onDelete, onToggle }: Sortabl
 }
 
 interface HighlightingRulesManagerProps {
-  sheetId: string;
+  sheetId: string | null; // null means "All Sheets"
   sheetName?: string;
 }
 
 export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRulesManagerProps) {
+  const isGlobalMode = sheetId === null;
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<HighlightingRule | null>(null);
@@ -282,13 +295,25 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
     })
   );
 
+  const rulesQueryKey = isGlobalMode 
+    ? ["/api/company/global-highlighting-rules"]
+    : ["/api/sheets", sheetId, "highlighting-rules"];
+    
   const { data: rules = [], isLoading: rulesLoading } = useQuery<HighlightingRule[]>({
-    queryKey: ["/api/sheets", sheetId, "highlighting-rules"],
+    queryKey: rulesQueryKey,
   });
 
-  const { data: columns = [] } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/sheets", sheetId, "columns"],
+  const { data: allCompanyColumns = [] } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/company/columns"],
+    enabled: isGlobalMode,
   });
+
+  const { data: sheetColumns = [] } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/sheets", sheetId, "columns"],
+    enabled: !isGlobalMode && !!sheetId,
+  });
+
+  const columns = isGlobalMode ? allCompanyColumns : sheetColumns;
 
   const createMutation = useMutation({
     mutationFn: async (data: { 
@@ -297,10 +322,16 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
       logical_operator: "and" | "or";
       row_color: string;
     }) => {
-      return await apiRequest("POST", `/api/company/sheets/${sheetId}/highlighting-rules`, data);
+      const endpoint = isGlobalMode 
+        ? `/api/company/global-highlighting-rules`
+        : `/api/company/sheets/${sheetId}/highlighting-rules`;
+      return await apiRequest("POST", endpoint, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "highlighting-rules"] });
+      queryClient.invalidateQueries({ queryKey: rulesQueryKey });
+      if (isGlobalMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+      }
       resetForm();
       setDialogOpen(false);
       toast({ title: "Highlighting rule created" });
@@ -315,7 +346,10 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
       return await apiRequest("PATCH", `/api/company/highlighting-rules/${ruleId}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "highlighting-rules"] });
+      queryClient.invalidateQueries({ queryKey: rulesQueryKey });
+      if (isGlobalMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+      }
       resetForm();
       setDialogOpen(false);
       toast({ title: "Highlighting rule updated" });
@@ -330,7 +364,10 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
       return await apiRequest("DELETE", `/api/company/highlighting-rules/${ruleId}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "highlighting-rules"] });
+      queryClient.invalidateQueries({ queryKey: rulesQueryKey });
+      if (isGlobalMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+      }
       toast({ title: "Highlighting rule deleted" });
     },
     onError: (error: any) => {
@@ -340,7 +377,13 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
 
   const reorderMutation = useMutation({
     mutationFn: async (ruleIds: string[]) => {
-      return await apiRequest("POST", `/api/company/sheets/${sheetId}/highlighting-rules/reorder`, { ruleIds });
+      const endpoint = isGlobalMode 
+        ? `/api/company/global-highlighting-rules/reorder`
+        : `/api/company/sheets/${sheetId}/highlighting-rules/reorder`;
+      return await apiRequest("POST", endpoint, { ruleIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: rulesQueryKey });
     },
     onError: (error: any) => {
       toast({ variant: "destructive", title: "Failed to reorder rules", description: error.message });
@@ -380,7 +423,7 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
       const oldIndex = rules.findIndex(r => r.id === active.id);
       const newIndex = rules.findIndex(r => r.id === over.id);
       const newOrder = arrayMove(rules, oldIndex, newIndex);
-      queryClient.setQueryData(["/api/sheets", sheetId, "highlighting-rules"], newOrder);
+      queryClient.setQueryData(rulesQueryKey, newOrder);
       reorderMutation.mutate(newOrder.map(r => r.id));
     }
   };
@@ -439,12 +482,16 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
             Highlighting Rules
           </CardTitle>
           <CardDescription>
-            {sheetName ? `Configure row highlighting for "${sheetName}"` : "Configure row highlighting based on conditions"}
+            {isGlobalMode 
+              ? "These rules will apply to all sheets in your company"
+              : sheetName 
+                ? `Configure row highlighting for "${sheetName}"` 
+                : "Configure row highlighting based on conditions"}
           </CardDescription>
         </div>
         <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-highlighting-rule">
           <Plus className="h-4 w-4 mr-2" />
-          Add Rule
+          New Rule
         </Button>
       </CardHeader>
       <CardContent>
@@ -455,7 +502,9 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
             <Palette className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
             <p className="text-muted-foreground">No highlighting rules yet</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Add rules to highlight rows based on column conditions
+              {isGlobalMode 
+                ? "Add rules that will highlight rows across all sheets"
+                : "Add rules to highlight rows based on column conditions"}
             </p>
           </div>
         ) : (
@@ -483,8 +532,9 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
 
         <div className="mt-4 p-3 bg-muted/50 rounded-lg">
           <p className="text-xs text-muted-foreground">
-            Rules are evaluated in order (top to bottom). The first matching rule wins and its color is applied to the row.
-            Drag rules to reorder priority.
+            {isGlobalMode 
+              ? "Global rules apply to all sheets. Sheet-specific rules take priority over global rules. Rules are evaluated in order (top to bottom) - the first matching rule wins."
+              : "Rules are evaluated in order (top to bottom). The first matching rule wins and its color is applied to the row. Drag rules to reorder priority."}
           </p>
         </div>
       </CardContent>

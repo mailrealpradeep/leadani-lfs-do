@@ -190,6 +190,8 @@ export interface IStorage {
   updateHighlightingRule(id: string, updates: Partial<HighlightingRule>): Promise<HighlightingRule | undefined>;
   deleteHighlightingRule(id: string): Promise<boolean>;
   reorderHighlightingRules(sheetId: string, ruleIds: string[]): Promise<boolean>;
+  getGlobalHighlightingRules(companyId: string): Promise<HighlightingRule[]>;
+  reorderGlobalHighlightingRules(companyId: string, ruleIds: string[]): Promise<boolean>;
 
   // Quick Filters (Company-wide Quick Filters)
   getQuickFilters(companyId: string): Promise<QuickFilter[]>;
@@ -1120,6 +1122,24 @@ export class MemStorage implements IStorage {
     ruleIds.forEach((id, index) => {
       const rule = this.highlightingRules.get(id);
       if (rule && rule.sheet_id === sheetId) {
+        rule.priority = index;
+        rule.updated_at = new Date().toISOString();
+        this.highlightingRules.set(id, rule);
+      }
+    });
+    return true;
+  }
+
+  async getGlobalHighlightingRules(companyId: string): Promise<HighlightingRule[]> {
+    return Array.from(this.highlightingRules.values())
+      .filter((rule) => rule.company_id === companyId && rule.sheet_id === null)
+      .sort((a, b) => a.priority - b.priority);
+  }
+
+  async reorderGlobalHighlightingRules(companyId: string, ruleIds: string[]): Promise<boolean> {
+    ruleIds.forEach((id, index) => {
+      const rule = this.highlightingRules.get(id);
+      if (rule && rule.company_id === companyId && rule.sheet_id === null) {
         rule.priority = index;
         rule.updated_at = new Date().toISOString();
         this.highlightingRules.set(id, rule);
@@ -2839,6 +2859,30 @@ export class PgStorage implements IStorage {
         .where(and(
           eq(dbSchema.highlighting_rules.id, ruleIds[i]),
           eq(dbSchema.highlighting_rules.sheet_id, sheetId)
+        ));
+    }
+    return true;
+  }
+
+  async getGlobalHighlightingRules(companyId: string): Promise<HighlightingRule[]> {
+    const result = await db.select()
+      .from(dbSchema.highlighting_rules)
+      .where(and(
+        eq(dbSchema.highlighting_rules.company_id, companyId),
+        isNull(dbSchema.highlighting_rules.sheet_id)
+      ))
+      .orderBy(dbSchema.highlighting_rules.priority);
+    return result.map(this.mapHighlightingRule);
+  }
+
+  async reorderGlobalHighlightingRules(companyId: string, ruleIds: string[]): Promise<boolean> {
+    for (let i = 0; i < ruleIds.length; i++) {
+      await db.update(dbSchema.highlighting_rules)
+        .set({ priority: i, updated_at: new Date() })
+        .where(and(
+          eq(dbSchema.highlighting_rules.id, ruleIds[i]),
+          eq(dbSchema.highlighting_rules.company_id, companyId),
+          isNull(dbSchema.highlighting_rules.sheet_id)
         ));
     }
     return true;

@@ -658,6 +658,9 @@ function CompanyAdminView() {
                       <SelectValue placeholder="Choose a sheet to configure highlighting..." />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="all_sheets">
+                        <span className="font-medium">All Sheets</span>
+                      </SelectItem>
                       {companySheets.map((sheet) => (
                         <SelectItem key={sheet.id} value={sheet.id}>
                           {sheet.name}
@@ -668,8 +671,10 @@ function CompanyAdminView() {
                 </div>
                 {selectedHighlightingSheetId ? (
                   <HighlightingRulesManager 
-                    sheetId={selectedHighlightingSheetId}
-                    sheetName={companySheets.find(s => s.id === selectedHighlightingSheetId)?.name}
+                    sheetId={selectedHighlightingSheetId === "all_sheets" ? null : selectedHighlightingSheetId}
+                    sheetName={selectedHighlightingSheetId === "all_sheets" 
+                      ? "All Sheets" 
+                      : companySheets.find(s => s.id === selectedHighlightingSheetId)?.name}
                   />
                 ) : (
                   <div className="text-center py-8 border-2 border-dashed rounded-lg">

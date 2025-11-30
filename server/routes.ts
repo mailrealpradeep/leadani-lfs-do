@@ -6259,6 +6259,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // GLOBAL HIGHLIGHTING RULES (Apply to All Sheets)
+  // ============================================================================
+  
+  // GET /api/company/global-highlighting-rules - Fetch global highlighting rules
+  app.get("/api/company/global-highlighting-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const rules = await storage.getGlobalHighlightingRules(req.companyId!);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get global highlighting rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/company/global-highlighting-rules - Create global highlighting rule (Admin only)
+  app.post("/api/company/global-highlighting-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, conditions, logical_operator, row_color, priority, is_active } = req.body;
+      
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Rule name is required" });
+      }
+      
+      if (!conditions || !Array.isArray(conditions) || conditions.length === 0) {
+        return res.status(400).json({ error: "At least one condition is required" });
+      }
+      
+      if (!row_color) {
+        return res.status(400).json({ error: "Row color is required" });
+      }
+      
+      // Get max priority for global rules
+      const existingRules = await storage.getGlobalHighlightingRules(req.companyId!);
+      const maxPriority = existingRules.reduce((max, r) => Math.max(max, r.priority), -1);
+      
+      const rule = await storage.createHighlightingRule({
+        company_id: req.companyId!,
+        sheet_id: null, // null means global
+        name: name.trim(),
+        conditions,
+        logical_operator: logical_operator || "and",
+        row_color,
+        priority: priority ?? maxPriority + 1,
+        is_active: is_active ?? true,
+        created_by_user_id: req.userId!,
+      });
+      
+      // Emit socket event for real-time updates - global means all sheets
+      io.to(`company:${req.companyId}`).emit("highlighting_rules.updated", { sheetId: null, global: true });
+      
+      res.status(201).json(rule);
+    } catch (error: any) {
+      console.error("Create global highlighting rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/company/global-highlighting-rules/reorder - Reorder global rules (Admin only)
+  app.post("/api/company/global-highlighting-rules/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { ruleIds } = req.body;
+      
+      if (!ruleIds || !Array.isArray(ruleIds)) {
+        return res.status(400).json({ error: "ruleIds array is required" });
+      }
+      
+      await storage.reorderGlobalHighlightingRules(req.companyId!, ruleIds);
+      
+      // Emit socket event for real-time updates
+      io.to(`company:${req.companyId}`).emit("highlighting_rules.updated", { sheetId: null, global: true });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Reorder global highlighting rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // GET /api/company/columns - Fetch all unique columns across company sheets (for global rules)
+  app.get("/api/company/columns", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const columns = await storage.getCompanyColumns(req.companyId!);
+      res.json(columns);
+    } catch (error: any) {
+      console.error("Get company columns error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // WEBHOOKS
   // ============================================================================
   app.post("/api/webhooks/leads", webhookLimiter, async (req, res) => {
