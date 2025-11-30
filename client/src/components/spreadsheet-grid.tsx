@@ -104,8 +104,10 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useTheme } from "@/components/theme-provider";
 import { format, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
-import type { Lead, DropdownOption, CustomColumn, ValidationRule } from "@shared/schema";
+import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRule } from "@shared/schema";
+import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { LeadEditDialog } from "./lead-edit-dialog";
@@ -202,6 +204,8 @@ export function SpreadsheetGrid({
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
+  const { theme } = useTheme();
+  const isDarkMode = theme === "dark";
   const { 
     searchQuery, 
     categoryFilter,
@@ -370,6 +374,11 @@ export function SpreadsheetGrid({
   const { data: validationRules = [] } = useQuery<ValidationRule[]>({
     queryKey: ["/api/sheets", activeSheetId, "validation-rules"],
     enabled: !!activeSheetId && !isMultiMode,
+  });
+
+  const { data: highlightingRules = [] } = useQuery<HighlightingRule[]>({
+    queryKey: ["/api/sheets", activeSheetId, "highlighting-rules"],
+    enabled: !!activeSheetId,
   });
 
   // Load company settings (for mobile card columns)
@@ -718,13 +727,21 @@ export function SpreadsheetGrid({
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
     };
 
+    const handleHighlightingRulesUpdated = (data: { sheetId: string }) => {
+      if (data.sheetId === sheetId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "highlighting-rules"] });
+      }
+    };
+
     socket.on("lead_created", handleLeadCreated);
     socket.on("lead_updated", handleLeadUpdated);
+    socket.on("highlighting_rules.updated", handleHighlightingRulesUpdated);
 
     return () => {
       socket.emit("leave_sheet", sheetId);
       socket.off("lead_created", handleLeadCreated);
       socket.off("lead_updated", handleLeadUpdated);
+      socket.off("highlighting_rules.updated", handleHighlightingRulesUpdated);
     };
   }, [sheetId]);
 
@@ -1687,18 +1704,37 @@ export function SpreadsheetGrid({
                         ? "bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800" 
                         : "bg-card";
                       
+                      const mobileHighlightResult = evaluateHighlightingRules(highlightingRules, lead);
+                      
+                      const getMobileCardStyle = () => {
+                        if (invalidLeadIds.has(lead.id)) return {};
+                        if (mobileHighlightResult) {
+                          return { backgroundColor: isDarkMode ? mobileHighlightResult.colorDark : mobileHighlightResult.colorLight };
+                        }
+                        return {};
+                      };
+                      
+                      const getMobileCardClass = () => {
+                        if (invalidLeadIds.has(lead.id)) {
+                          return "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800";
+                        }
+                        if (mobileHighlightResult) {
+                          return "border";
+                        }
+                        return mobileThoughtClass;
+                      };
+                      
                       return (
                       <div
                         key={lead.id}
-                        className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${
-                          invalidLeadIds.has(lead.id) 
-                            ? "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800" 
-                            : mobileThoughtClass
-                        }`}
+                        className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
+                        style={getMobileCardStyle()}
                         data-testid={`card-lead-${lead.id}`}
                         onClick={() => onOpenLeadDetail(lead.id)}
                         title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
                           ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
+                          : mobileHighlightResult
+                          ? `Highlighted by rule: ${mobileHighlightResult.ruleName}`
                           : undefined
                         }
                       >
@@ -2005,21 +2041,42 @@ export function SpreadsheetGrid({
                     ? "bg-amber-50 dark:bg-amber-950/20" 
                     : "";
                   
+                  const highlightResult = evaluateHighlightingRules(highlightingRules, lead);
+                  
+                  const getRowStyle = () => {
+                    if (invalidLeadIds.has(lead.id)) {
+                      return {};
+                    }
+                    if (highlightResult) {
+                      return { backgroundColor: isDarkMode ? highlightResult.colorDark : highlightResult.colorLight };
+                    }
+                    return {};
+                  };
+                  
+                  const getRowClass = () => {
+                    if (invalidLeadIds.has(lead.id)) {
+                      return "bg-red-50 dark:bg-red-950/20";
+                    }
+                    if (highlightResult) {
+                      return "";
+                    }
+                    return thoughtRowClass;
+                  };
+                  
                   return (
                     <ContextMenu key={lead.id}>
                       <ContextMenuTrigger asChild>
                         <div
-                          className={`hover-elevate grid border-b ${
-                            invalidLeadIds.has(lead.id) 
-                              ? "bg-red-50 dark:bg-red-950/20" 
-                              : thoughtRowClass
-                          }`}
+                          className={`hover-elevate grid border-b ${getRowClass()}`}
                           style={{ 
-                            gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
+                            gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`,
+                            ...getRowStyle()
                           }}
                           data-testid={`row-lead-${lead.id}`}
                           title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
                             ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
+                            : highlightResult 
+                            ? `Highlighted by rule: ${highlightResult.ruleName}`
                             : undefined
                           }
                         >
