@@ -704,7 +704,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
 // ============================================================================
 // DRIZZLE ORM TABLE DEFINITIONS (for PostgreSQL)
 // ============================================================================
-import { pgTable, varchar, text, boolean, json, timestamp, integer, doublePrecision } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, json, jsonb, timestamp, integer, doublePrecision } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const companies = pgTable('companies', {
@@ -2533,4 +2533,100 @@ export interface BackupSystemStatus {
   last_sync_time: string | null;
   failed_syncs: number;
   next_sync_in_minutes: number;
+}
+
+// ============================================================================
+// USER ROW FILTERS (Hide/Show Rows based on conditions)
+// ============================================================================
+
+// Operators available for different field types
+export type RowFilterOperator = 
+  | "equals" 
+  | "not_equals" 
+  | "contains" 
+  | "not_contains" 
+  | "is_empty" 
+  | "is_not_empty"
+  | "greater_than" 
+  | "less_than" 
+  | "between"
+  | "before" 
+  | "after";
+
+// Single filter condition
+export interface RowFilterCondition {
+  column_key: string;        // fixed field or custom column key
+  column_type: "text" | "number" | "date" | "dropdown";
+  operator: RowFilterOperator;
+  value: string | number | string[] | null; // string[] for "between" ranges
+}
+
+// User row filter configuration
+export interface UserRowFilter {
+  id: string;
+  user_id: string;
+  sheet_id: string;
+  name: string;
+  conditions: RowFilterCondition[];
+  logic_operator: "AND" | "OR";
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const user_row_filters = pgTable('user_row_filters', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  conditions: jsonb('conditions').notNull().default([]),
+  logic_operator: varchar('logic_operator', { length: 10 }).notNull().default('AND'),
+  is_active: boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type UserRowFilterRecord = typeof user_row_filters.$inferSelect;
+export type InsertUserRowFilter = typeof user_row_filters.$inferInsert;
+
+export const insertUserRowFilterSchema = createInsertSchema(user_row_filters).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertUserRowFilterData = z.infer<typeof insertUserRowFilterSchema>;
+
+// Helper function to get operators by field type
+export function getOperatorsForFieldType(fieldType: "text" | "number" | "date" | "dropdown"): RowFilterOperator[] {
+  switch (fieldType) {
+    case "text":
+      return ["equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty"];
+    case "number":
+      return ["equals", "not_equals", "greater_than", "less_than", "between", "is_empty", "is_not_empty"];
+    case "date":
+      return ["equals", "not_equals", "before", "after", "between", "is_empty", "is_not_empty"];
+    case "dropdown":
+      return ["equals", "not_equals", "is_empty", "is_not_empty"];
+    default:
+      return ["equals", "not_equals", "is_empty", "is_not_empty"];
+  }
+}
+
+// Human-readable operator labels
+export function getOperatorLabel(operator: RowFilterOperator): string {
+  const labels: Record<RowFilterOperator, string> = {
+    equals: "Equals",
+    not_equals: "Not Equals",
+    contains: "Contains",
+    not_contains: "Does Not Contain",
+    is_empty: "Is Empty",
+    is_not_empty: "Is Not Empty",
+    greater_than: "Greater Than",
+    less_than: "Less Than",
+    between: "Between",
+    before: "Before",
+    after: "After",
+  };
+  return labels[operator] || operator;
 }
