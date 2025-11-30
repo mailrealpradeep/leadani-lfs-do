@@ -11,6 +11,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { QuickFiltersBar } from "@/components/quick-filters-bar";
+import { GlobalSearch } from "@/components/global-search";
 import { PWAInstallPrompt, useShouldShowInstallPrompt } from "@/components/pwa-install-prompt";
 import { registerServiceWorker } from "@/hooks/use-push-notifications";
 import { useQuery } from "@tanstack/react-query";
@@ -162,6 +163,9 @@ function DashboardHeader() {
       data-app-header
     >
       <SidebarTrigger data-testid="button-sidebar-toggle" />
+      
+      {/* Global Search - always visible in header */}
+      <GlobalSearch />
       
       {showQuickFilters && quickFilterHandlers.onApplyFilter && quickFilterHandlers.onClearAllFilters && (
         <>
