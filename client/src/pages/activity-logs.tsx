@@ -52,19 +52,20 @@ interface ActivityLog {
   target_id: string | null;
   target_name: string | null;
   summary: string;
-  changes: any;
-  extra: any;
+  details: any;
   actor_name: string;
+  actor_email: string | null;
+  actor_role: string;
   sheet_name: string | null;
-  created_at: string;
+  occurred_at: string;
 }
 
 interface ActivityLogsResponse {
   logs: ActivityLog[];
   total: number;
   page: number;
-  pageSize: number;
-  totalPages: number;
+  limit: number;
+  total_pages: number;
 }
 
 interface Sheet {
@@ -160,18 +161,18 @@ export default function ActivityLogs() {
   const buildQueryParams = () => {
     const params = new URLSearchParams();
     params.set("page", page.toString());
-    params.set("pageSize", pageSize.toString());
+    params.set("limit", pageSize.toString());
     if (actionFilter !== "all") params.set("action", actionFilter);
-    if (sheetFilter !== "all") params.set("sheetId", sheetFilter);
-    if (isAdmin && userFilter !== "all") params.set("userId", userFilter);
-    if (isSuperAdmin && companyFilter !== "all") params.set("companyId", companyFilter);
+    if (sheetFilter !== "all") params.set("sheet_id", sheetFilter);
+    if (isAdmin && userFilter !== "all") params.set("user_id", userFilter);
+    if (isSuperAdmin && companyFilter !== "all") params.set("company_id", companyFilter);
     if (searchQuery) params.set("search", searchQuery);
     return params.toString();
   };
 
   const getApiEndpoint = () => {
-    if (isSuperAdmin) return "/api/activity-logs/super-admin";
-    if (isCompanyAdmin) return "/api/activity-logs/admin";
+    if (isSuperAdmin) return "/api/admin/activity-logs";
+    if (isCompanyAdmin) return "/api/activity-logs/company";
     return "/api/activity-logs/my";
   };
 
@@ -191,7 +192,7 @@ export default function ActivityLogs() {
   });
 
   const logs = logsResponse?.logs || [];
-  const totalPages = logsResponse?.totalPages || 1;
+  const totalPages = logsResponse?.total_pages || 1;
   const total = logsResponse?.total || 0;
 
   const clearFilters = () => {
@@ -365,7 +366,7 @@ export default function ActivityLogs() {
                             </Badge>
                           </div>
                           <span className="text-xs text-muted-foreground whitespace-nowrap">
-                            {format(new Date(log.created_at), "MMM d, yyyy h:mm a")}
+                            {format(new Date(log.occurred_at), "MMM d, yyyy h:mm a")}
                           </span>
                         </div>
                         
@@ -385,13 +386,13 @@ export default function ActivityLogs() {
                           )}
                         </div>
 
-                        {log.changes && Object.keys(log.changes).length > 0 && (
+                        {log.details && Object.keys(log.details).length > 0 && (
                           <details className="mt-2">
                             <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                              View changes
+                              View details
                             </summary>
                             <pre className="mt-2 p-2 bg-muted rounded text-xs overflow-auto max-h-32">
-                              {JSON.stringify(log.changes, null, 2)}
+                              {JSON.stringify(log.details, null, 2)}
                             </pre>
                           </details>
                         )}
