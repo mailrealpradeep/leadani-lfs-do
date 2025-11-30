@@ -23,6 +23,7 @@ import {
   LogIn,
   Code,
   Lightbulb,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +68,7 @@ import { Redirect } from "wouter";
 import { ApiDocumentation } from "@/components/api-documentation";
 import { FutureImprovements } from "@/components/future-improvements";
 import { ApiKeysManager } from "@/components/api-keys-manager";
+import { DataRecovery } from "@/components/data-recovery";
 
 interface SuperAdminStats {
   totalCompanies: number;
@@ -407,7 +409,7 @@ export default function SuperAdmin() {
 
         {/* Tabs for Users, Companies, and API Docs */}
         <Tabs defaultValue="users" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full max-w-3xl grid-cols-5">
+          <TabsList className="grid w-full max-w-4xl grid-cols-6">
             <TabsTrigger value="users" data-testid="tab-users">
               <Users className="h-4 w-4 mr-2" />
               Users
@@ -415,6 +417,10 @@ export default function SuperAdmin() {
             <TabsTrigger value="companies" data-testid="tab-companies">
               <Building2 className="h-4 w-4 mr-2" />
               Companies
+            </TabsTrigger>
+            <TabsTrigger value="recovery" data-testid="tab-recovery">
+              <History className="h-4 w-4 mr-2" />
+              Recovery
             </TabsTrigger>
             <TabsTrigger value="api-docs" data-testid="tab-api-docs">
               <Code className="h-4 w-4 mr-2" />
@@ -676,6 +682,11 @@ export default function SuperAdmin() {
                 </Table>
               </ScrollArea>
             </Card>
+          </TabsContent>
+
+          {/* Data Recovery Tab */}
+          <TabsContent value="recovery" className="flex-1 min-h-0 mt-4">
+            <DataRecovery />
           </TabsContent>
 
           {/* API Documentation Tab */}
