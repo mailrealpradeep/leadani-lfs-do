@@ -103,6 +103,11 @@ import type {
   // User Row Filters
   UserRowFilterRecord,
   InsertUserRowFilter,
+  // Sheet Snapshots
+  SheetSnapshotRecord,
+  InsertSheetSnapshot,
+  SnapshotRestoreLogRecord,
+  InsertSnapshotRestoreLog,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -460,6 +465,23 @@ export interface IStorage {
   updateUserRowFilter(id: string, updates: Partial<UserRowFilterRecord>): Promise<UserRowFilterRecord | undefined>;
   deleteUserRowFilter(id: string): Promise<boolean>;
   toggleUserRowFilter(id: string, isActive: boolean): Promise<UserRowFilterRecord | undefined>;
+
+  // =========================================================================
+  // SHEET SNAPSHOTS (Point-in-Time Recovery)
+  // =========================================================================
+  
+  getSheetSnapshot(id: string): Promise<SheetSnapshotRecord | undefined>;
+  getSheetSnapshotsBySheet(sheetId: string, limit?: number): Promise<SheetSnapshotRecord[]>;
+  getSheetSnapshotsByCompany(companyId: string, limit?: number): Promise<SheetSnapshotRecord[]>;
+  getAllSheetSnapshots(limit?: number): Promise<SheetSnapshotRecord[]>;
+  getLatestSheetSnapshot(sheetId: string): Promise<SheetSnapshotRecord | undefined>;
+  createSheetSnapshot(snapshot: InsertSheetSnapshot): Promise<SheetSnapshotRecord>;
+  deleteSheetSnapshot(id: string): Promise<boolean>;
+  deleteOldSnapshots(olderThanDays: number): Promise<number>;
+  
+  // Snapshot Restore Logs
+  getSnapshotRestoreLogs(companyId: string, limit?: number): Promise<SnapshotRestoreLogRecord[]>;
+  createSnapshotRestoreLog(log: InsertSnapshotRestoreLog): Promise<SnapshotRestoreLogRecord>;
 }
 
 export class MemStorage implements IStorage {
@@ -2247,6 +2269,38 @@ export class MemStorage implements IStorage {
   }
   async toggleUserRowFilter(_id: string, _isActive: boolean): Promise<UserRowFilterRecord | undefined> {
     return undefined;
+  }
+
+  // Sheet Snapshots (not implemented in MemStorage - requires PostgreSQL)
+  async getSheetSnapshot(_id: string): Promise<SheetSnapshotRecord | undefined> {
+    return undefined;
+  }
+  async getSheetSnapshotsBySheet(_sheetId: string, _limit?: number): Promise<SheetSnapshotRecord[]> {
+    return [];
+  }
+  async getSheetSnapshotsByCompany(_companyId: string, _limit?: number): Promise<SheetSnapshotRecord[]> {
+    return [];
+  }
+  async getAllSheetSnapshots(_limit?: number): Promise<SheetSnapshotRecord[]> {
+    return [];
+  }
+  async getLatestSheetSnapshot(_sheetId: string): Promise<SheetSnapshotRecord | undefined> {
+    return undefined;
+  }
+  async createSheetSnapshot(_snapshot: InsertSheetSnapshot): Promise<SheetSnapshotRecord> {
+    throw new Error("Sheet snapshots not implemented in MemStorage");
+  }
+  async deleteSheetSnapshot(_id: string): Promise<boolean> {
+    return false;
+  }
+  async deleteOldSnapshots(_olderThanDays: number): Promise<number> {
+    return 0;
+  }
+  async getSnapshotRestoreLogs(_companyId: string, _limit?: number): Promise<SnapshotRestoreLogRecord[]> {
+    return [];
+  }
+  async createSnapshotRestoreLog(_log: InsertSnapshotRestoreLog): Promise<SnapshotRestoreLogRecord> {
+    throw new Error("Snapshot restore logs not implemented in MemStorage");
   }
 }
 
@@ -5397,6 +5451,81 @@ export class PgStorage implements IStorage {
       .set({ is_active: isActive, updated_at: new Date() })
       .where(eq(dbSchema.user_row_filters.id, id))
       .returning();
+    return rows[0];
+  }
+
+  // =========================================================================
+  // SHEET SNAPSHOTS (Point-in-Time Recovery)
+  // =========================================================================
+
+  async getSheetSnapshot(id: string): Promise<SheetSnapshotRecord | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.sheet_snapshots)
+      .where(eq(dbSchema.sheet_snapshots.id, id));
+    return rows[0];
+  }
+
+  async getSheetSnapshotsBySheet(sheetId: string, limit: number = 100): Promise<SheetSnapshotRecord[]> {
+    return await db.select()
+      .from(dbSchema.sheet_snapshots)
+      .where(eq(dbSchema.sheet_snapshots.sheet_id, sheetId))
+      .orderBy(desc(dbSchema.sheet_snapshots.created_at))
+      .limit(limit);
+  }
+
+  async getSheetSnapshotsByCompany(companyId: string, limit: number = 100): Promise<SheetSnapshotRecord[]> {
+    return await db.select()
+      .from(dbSchema.sheet_snapshots)
+      .where(eq(dbSchema.sheet_snapshots.company_id, companyId))
+      .orderBy(desc(dbSchema.sheet_snapshots.created_at))
+      .limit(limit);
+  }
+
+  async getAllSheetSnapshots(limit: number = 500): Promise<SheetSnapshotRecord[]> {
+    return await db.select()
+      .from(dbSchema.sheet_snapshots)
+      .orderBy(desc(dbSchema.sheet_snapshots.created_at))
+      .limit(limit);
+  }
+
+  async getLatestSheetSnapshot(sheetId: string): Promise<SheetSnapshotRecord | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.sheet_snapshots)
+      .where(eq(dbSchema.sheet_snapshots.sheet_id, sheetId))
+      .orderBy(desc(dbSchema.sheet_snapshots.created_at))
+      .limit(1);
+    return rows[0];
+  }
+
+  async createSheetSnapshot(snapshot: InsertSheetSnapshot): Promise<SheetSnapshotRecord> {
+    const rows = await db.insert(dbSchema.sheet_snapshots).values(snapshot).returning();
+    return rows[0];
+  }
+
+  async deleteSheetSnapshot(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.sheet_snapshots).where(eq(dbSchema.sheet_snapshots.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async deleteOldSnapshots(olderThanDays: number): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+    
+    const result = await db.delete(dbSchema.sheet_snapshots)
+      .where(lte(dbSchema.sheet_snapshots.created_at, cutoffDate));
+    return (result as any).rowCount || 0;
+  }
+
+  async getSnapshotRestoreLogs(companyId: string, limit: number = 100): Promise<SnapshotRestoreLogRecord[]> {
+    return await db.select()
+      .from(dbSchema.snapshot_restore_logs)
+      .where(eq(dbSchema.snapshot_restore_logs.company_id, companyId))
+      .orderBy(desc(dbSchema.snapshot_restore_logs.created_at))
+      .limit(limit);
+  }
+
+  async createSnapshotRestoreLog(log: InsertSnapshotRestoreLog): Promise<SnapshotRestoreLogRecord> {
+    const rows = await db.insert(dbSchema.snapshot_restore_logs).values(log).returning();
     return rows[0];
   }
 }
