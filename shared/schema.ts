@@ -2392,3 +2392,145 @@ export const createTargetSchema = z.object({
 });
 
 export type CreateTargetRequest = z.infer<typeof createTargetSchema>;
+
+// ============================================================================
+// GOOGLE SHEETS BACKUP SYSTEM
+// ============================================================================
+
+// Backup configuration status
+export const backupSyncStatuses = [
+  "pending",      // Never synced yet
+  "syncing",      // Currently syncing
+  "success",      // Last sync succeeded
+  "failed",       // Last sync failed
+] as const;
+
+export type BackupSyncStatus = typeof backupSyncStatuses[number];
+
+// Backup configuration - links LFS Sheet to Google Sheet
+export interface BackupConfig {
+  id: string;
+  company_id: string;
+  sheet_id: string;                    // LFS Sheet ID
+  google_sheet_url: string;            // Full Google Sheet URL
+  google_sheet_id: string;             // Extracted sheet ID from URL
+  is_enabled: boolean;
+  last_sync_at: string | null;
+  last_sync_status: BackupSyncStatus;
+  last_sync_rows: number | null;       // Number of rows synced
+  last_sync_error: string | null;      // Error message if failed
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const backup_configs = pgTable('backup_configs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  google_sheet_url: text('google_sheet_url').notNull(),
+  google_sheet_id: varchar('google_sheet_id', { length: 255 }).notNull(),
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  last_sync_at: timestamp('last_sync_at'),
+  last_sync_status: varchar('last_sync_status', { length: 50 }).notNull().default('pending'),
+  last_sync_rows: integer('last_sync_rows'),
+  last_sync_error: text('last_sync_error'),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type BackupConfigRecord = typeof backup_configs.$inferSelect;
+export type InsertBackupConfig = typeof backup_configs.$inferInsert;
+
+export const insertBackupConfigSchema = createInsertSchema(backup_configs).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertBackupConfigData = z.infer<typeof insertBackupConfigSchema>;
+
+// Backup sync log - history of sync attempts
+export interface BackupSyncLog {
+  id: string;
+  backup_config_id: string;
+  sync_type: "automatic" | "manual";
+  status: BackupSyncStatus;
+  rows_synced: number | null;
+  error_message: string | null;
+  started_at: string;
+  completed_at: string | null;
+  triggered_by_user_id: string | null; // null for automatic syncs
+}
+
+export const backup_sync_logs = pgTable('backup_sync_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  backup_config_id: varchar('backup_config_id').notNull().references(() => backup_configs.id, { onDelete: 'cascade' }),
+  sync_type: varchar('sync_type', { length: 50 }).notNull(),
+  status: varchar('status', { length: 50 }).notNull(),
+  rows_synced: integer('rows_synced'),
+  error_message: text('error_message'),
+  started_at: timestamp('started_at').defaultNow().notNull(),
+  completed_at: timestamp('completed_at'),
+  triggered_by_user_id: varchar('triggered_by_user_id').references(() => users.id),
+});
+
+export type BackupSyncLogRecord = typeof backup_sync_logs.$inferSelect;
+export type InsertBackupSyncLog = typeof backup_sync_logs.$inferInsert;
+
+// Restore history - tracks data restores from Google Sheets
+export interface RestoreLog {
+  id: string;
+  company_id: string;
+  sheet_id: string;
+  file_name: string;
+  restore_type: "full_replace" | "smart_merge";
+  leads_created: number;
+  leads_updated: number;
+  updates_added: number;
+  status: "success" | "partial" | "failed";
+  error_message: string | null;
+  restored_by_user_id: string;
+  created_at: string;
+}
+
+export const restore_logs = pgTable('restore_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  file_name: varchar('file_name', { length: 500 }).notNull(),
+  restore_type: varchar('restore_type', { length: 50 }).notNull(),
+  leads_created: integer('leads_created').notNull().default(0),
+  leads_updated: integer('leads_updated').notNull().default(0),
+  updates_added: integer('updates_added').notNull().default(0),
+  status: varchar('status', { length: 50 }).notNull(),
+  error_message: text('error_message'),
+  restored_by_user_id: varchar('restored_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type RestoreLogRecord = typeof restore_logs.$inferSelect;
+export type InsertRestoreLog = typeof restore_logs.$inferInsert;
+
+// Helper to extract Google Sheet ID from URL
+export function extractGoogleSheetId(url: string): string | null {
+  // URLs can be like:
+  // https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
+  // https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit#gid=0
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return match ? match[1] : null;
+}
+
+// API response types
+export interface BackupConfigWithSheet extends BackupConfig {
+  sheet_name: string;
+}
+
+export interface BackupSystemStatus {
+  total_configs: number;
+  enabled_configs: number;
+  last_sync_time: string | null;
+  failed_syncs: number;
+  next_sync_in_minutes: number;
+}

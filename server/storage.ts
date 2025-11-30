@@ -93,6 +93,13 @@ import type {
   UserTargetProgress,
   LeaderboardEntry,
   TargetFilters,
+  // Backup System
+  BackupConfigRecord,
+  InsertBackupConfig,
+  BackupSyncLogRecord,
+  InsertBackupSyncLog,
+  RestoreLogRecord,
+  InsertRestoreLog,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -417,6 +424,28 @@ export interface IStorage {
 
   // Leaderboard
   getLeaderboard(companyId: string, period?: { start: Date; end: Date }): Promise<LeaderboardEntry[]>;
+
+  // =========================================================================
+  // BACKUP SYSTEM (Google Sheets)
+  // =========================================================================
+  
+  // Backup Configs
+  getBackupConfig(id: string): Promise<BackupConfigRecord | undefined>;
+  getBackupConfigBySheetId(sheetId: string): Promise<BackupConfigRecord | undefined>;
+  getBackupConfigsByCompanyId(companyId: string): Promise<BackupConfigRecord[]>;
+  getEnabledBackupConfigs(): Promise<BackupConfigRecord[]>;
+  createBackupConfig(config: InsertBackupConfig): Promise<BackupConfigRecord>;
+  updateBackupConfig(id: string, updates: Partial<BackupConfigRecord>): Promise<BackupConfigRecord | undefined>;
+  deleteBackupConfig(id: string): Promise<boolean>;
+
+  // Backup Sync Logs
+  getBackupSyncLogs(backupConfigId: string, limit?: number): Promise<BackupSyncLogRecord[]>;
+  createBackupSyncLog(log: InsertBackupSyncLog): Promise<BackupSyncLogRecord>;
+  updateBackupSyncLog(id: string, updates: Partial<BackupSyncLogRecord>): Promise<BackupSyncLogRecord | undefined>;
+
+  // Restore Logs
+  getRestoreLogs(companyId: string, sheetId?: string): Promise<RestoreLogRecord[]>;
+  createRestoreLog(log: InsertRestoreLog): Promise<RestoreLogRecord>;
 }
 
 export class MemStorage implements IStorage {
@@ -2146,6 +2175,44 @@ export class MemStorage implements IStorage {
   }
   async getLeaderboard(_companyId: string, _period?: { start: Date; end: Date }): Promise<LeaderboardEntry[]> {
     return [];
+  }
+
+  // Backup System (MemStorage stubs)
+  async getBackupConfig(_id: string): Promise<BackupConfigRecord | undefined> {
+    return undefined;
+  }
+  async getBackupConfigBySheetId(_sheetId: string): Promise<BackupConfigRecord | undefined> {
+    return undefined;
+  }
+  async getBackupConfigsByCompanyId(_companyId: string): Promise<BackupConfigRecord[]> {
+    return [];
+  }
+  async getEnabledBackupConfigs(): Promise<BackupConfigRecord[]> {
+    return [];
+  }
+  async createBackupConfig(_config: InsertBackupConfig): Promise<BackupConfigRecord> {
+    throw new Error("Backup not implemented in MemStorage");
+  }
+  async updateBackupConfig(_id: string, _updates: Partial<BackupConfigRecord>): Promise<BackupConfigRecord | undefined> {
+    return undefined;
+  }
+  async deleteBackupConfig(_id: string): Promise<boolean> {
+    return false;
+  }
+  async getBackupSyncLogs(_backupConfigId: string, _limit?: number): Promise<BackupSyncLogRecord[]> {
+    return [];
+  }
+  async createBackupSyncLog(_log: InsertBackupSyncLog): Promise<BackupSyncLogRecord> {
+    throw new Error("Backup not implemented in MemStorage");
+  }
+  async updateBackupSyncLog(_id: string, _updates: Partial<BackupSyncLogRecord>): Promise<BackupSyncLogRecord | undefined> {
+    return undefined;
+  }
+  async getRestoreLogs(_companyId: string, _sheetId?: string): Promise<RestoreLogRecord[]> {
+    return [];
+  }
+  async createRestoreLog(_log: InsertRestoreLog): Promise<RestoreLogRecord> {
+    throw new Error("Backup not implemented in MemStorage");
   }
 }
 
@@ -5168,6 +5235,88 @@ export class PgStorage implements IStorage {
     });
     
     return leaderboard;
+  }
+
+  // =========================================================================
+  // BACKUP SYSTEM (Google Sheets)
+  // =========================================================================
+
+  async getBackupConfig(id: string): Promise<BackupConfigRecord | undefined> {
+    const rows = await db.select().from(dbSchema.backup_configs).where(eq(dbSchema.backup_configs.id, id));
+    return rows[0];
+  }
+
+  async getBackupConfigBySheetId(sheetId: string): Promise<BackupConfigRecord | undefined> {
+    const rows = await db.select().from(dbSchema.backup_configs).where(eq(dbSchema.backup_configs.sheet_id, sheetId));
+    return rows[0];
+  }
+
+  async getBackupConfigsByCompanyId(companyId: string): Promise<BackupConfigRecord[]> {
+    return await db.select()
+      .from(dbSchema.backup_configs)
+      .where(eq(dbSchema.backup_configs.company_id, companyId))
+      .orderBy(desc(dbSchema.backup_configs.created_at));
+  }
+
+  async getEnabledBackupConfigs(): Promise<BackupConfigRecord[]> {
+    return await db.select()
+      .from(dbSchema.backup_configs)
+      .where(eq(dbSchema.backup_configs.is_enabled, true));
+  }
+
+  async createBackupConfig(config: InsertBackupConfig): Promise<BackupConfigRecord> {
+    const rows = await db.insert(dbSchema.backup_configs).values(config).returning();
+    return rows[0];
+  }
+
+  async updateBackupConfig(id: string, updates: Partial<BackupConfigRecord>): Promise<BackupConfigRecord | undefined> {
+    const rows = await db.update(dbSchema.backup_configs)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.backup_configs.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteBackupConfig(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.backup_configs).where(eq(dbSchema.backup_configs.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async getBackupSyncLogs(backupConfigId: string, limit: number = 50): Promise<BackupSyncLogRecord[]> {
+    return await db.select()
+      .from(dbSchema.backup_sync_logs)
+      .where(eq(dbSchema.backup_sync_logs.backup_config_id, backupConfigId))
+      .orderBy(desc(dbSchema.backup_sync_logs.started_at))
+      .limit(limit);
+  }
+
+  async createBackupSyncLog(log: InsertBackupSyncLog): Promise<BackupSyncLogRecord> {
+    const rows = await db.insert(dbSchema.backup_sync_logs).values(log).returning();
+    return rows[0];
+  }
+
+  async updateBackupSyncLog(id: string, updates: Partial<BackupSyncLogRecord>): Promise<BackupSyncLogRecord | undefined> {
+    const rows = await db.update(dbSchema.backup_sync_logs)
+      .set(updates)
+      .where(eq(dbSchema.backup_sync_logs.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async getRestoreLogs(companyId: string, sheetId?: string): Promise<RestoreLogRecord[]> {
+    const conditions: any[] = [eq(dbSchema.restore_logs.company_id, companyId)];
+    if (sheetId) {
+      conditions.push(eq(dbSchema.restore_logs.sheet_id, sheetId));
+    }
+    return await db.select()
+      .from(dbSchema.restore_logs)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.restore_logs.created_at));
+  }
+
+  async createRestoreLog(log: InsertRestoreLog): Promise<RestoreLogRecord> {
+    const rows = await db.insert(dbSchema.restore_logs).values(log).returning();
+    return rows[0];
   }
 }
 
