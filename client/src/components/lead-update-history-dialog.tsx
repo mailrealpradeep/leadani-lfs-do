@@ -75,23 +75,48 @@ export function LeadUpdateHistoryDialog({
             </div>
           ) : (
             <div className="space-y-3">
-              {updates.map((update) => (
-                <div
-                  key={update.id}
-                  className="border rounded-lg p-4 space-y-2"
-                  data-testid={`update-item-${update.id}`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
+              {/* Total update count summary */}
+              <div className="flex items-center justify-between px-1 pb-2 border-b">
+                <span className="text-sm text-muted-foreground">
+                  Total Updates
+                </span>
+                <span className="text-2xl font-bold text-primary" data-testid="text-total-updates">
+                  {updates.length}
+                </span>
+              </div>
+              
+              {updates.map((update, index) => {
+                // Serial number: most recent (top) has highest number
+                const serialNo = updates.length - index;
+                
+                return (
+                  <div
+                    key={update.id}
+                    className="flex gap-3 border rounded-lg p-3"
+                    data-testid={`update-item-${update.id}`}
+                  >
+                    {/* Serial Number Badge */}
+                    <div className="shrink-0 flex items-start pt-0.5">
+                      <div 
+                        className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold"
+                        title={`Update #${serialNo}`}
+                        data-testid={`badge-update-number-${serialNo}`}
+                      >
+                        {serialNo}
+                      </div>
+                    </div>
+                    
+                    {/* Update Content */}
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         {update.update_via === "call" ? (
-                          <Phone className="h-4 w-4 text-blue-500" />
+                          <Phone className="h-4 w-4 text-blue-500 shrink-0" />
                         ) : update.update_via === "whatsapp" ? (
-                          <MessageSquare className="h-4 w-4 text-green-500" />
+                          <MessageSquare className="h-4 w-4 text-green-500 shrink-0" />
                         ) : (
-                          <ArrowRightLeft className="h-4 w-4 text-orange-500" />
+                          <ArrowRightLeft className="h-4 w-4 text-orange-500 shrink-0" />
                         )}
-                        <span className="font-semibold capitalize">
+                        <span className="font-semibold capitalize text-sm">
                           {update.update_via}
                         </span>
                         {update.created_by_first_name && (
@@ -100,7 +125,7 @@ export function LeadUpdateHistoryDialog({
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground mb-2">
+                      <div className="text-xs text-muted-foreground mb-1.5">
                         {format(new Date(update.created_at), "MMM dd, yyyy HH:mm")}
                         {update.update_on && (
                           <span className="ml-2">
@@ -108,24 +133,28 @@ export function LeadUpdateHistoryDialog({
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-foreground whitespace-pre-wrap">
+                      <p className="text-sm text-foreground whitespace-pre-wrap break-words">
                         {update.remark}
                       </p>
                     </div>
+                    
+                    {/* Delete Button */}
                     {isAdmin && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteUpdateMutation.mutate(update.id)}
-                        disabled={deleteUpdateMutation.isPending}
-                        data-testid={`button-delete-update-${update.id}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <div className="shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteUpdateMutation.mutate(update.id)}
+                          disabled={deleteUpdateMutation.isPending}
+                          data-testid={`button-delete-update-${update.id}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
