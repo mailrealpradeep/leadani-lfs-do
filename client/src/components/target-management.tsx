@@ -106,23 +106,25 @@ const GOAL_TYPES = [
 const OPERATORS = [
   { value: "equals", label: "Equals", types: ["text", "number", "dropdown"] },
   { value: "not_equals", label: "Not Equals", types: ["text", "number", "dropdown"] },
-  { value: "contains", label: "Contains", types: ["text"] },
-  { value: "not_contains", label: "Does Not Contain", types: ["text"] },
+  { value: "contains", label: "Contains", types: ["text", "dropdown"] },
+  { value: "not_contains", label: "Does Not Contain", types: ["text", "dropdown"] },
   { value: "starts_with", label: "Starts With", types: ["text"] },
   { value: "ends_with", label: "Ends With", types: ["text"] },
   { value: "is_empty", label: "Is Empty", types: ["text", "number", "dropdown"] },
   { value: "is_not_empty", label: "Is Not Empty", types: ["text", "number", "dropdown"] },
-  { value: "in", label: "Is One Of", types: ["dropdown"] },
-  { value: "not_in", label: "Is Not One Of", types: ["dropdown"] },
+  { value: "in", label: "Is One Of", types: ["text", "dropdown"] },
+  { value: "not_in", label: "Is Not One Of", types: ["text", "dropdown"] },
   { value: "greater_than", label: "Greater Than", types: ["number"] },
   { value: "less_than", label: "Less Than", types: ["number"] },
   { value: "greater_equal", label: "Greater or Equal", types: ["number"] },
   { value: "less_equal", label: "Less or Equal", types: ["number"] },
   { value: "between", label: "Between", types: ["number"] },
-  { value: "is_today", label: "Is Today", types: ["date"] },
-  { value: "is_this_week", label: "Is This Week", types: ["date"] },
-  { value: "is_this_month", label: "Is This Month", types: ["date"] },
-  { value: "is_overdue", label: "Is Overdue", types: ["date"] },
+  { value: "is_today", label: "Is Today", types: ["date", "datetime"] },
+  { value: "is_this_week", label: "Is This Week", types: ["date", "datetime"] },
+  { value: "is_this_month", label: "Is This Month", types: ["date", "datetime"] },
+  { value: "is_overdue", label: "Is Overdue", types: ["date", "datetime"] },
+  { value: "date_before", label: "Before", types: ["date", "datetime"] },
+  { value: "date_after", label: "After", types: ["date", "datetime"] },
 ] as const;
 
 const INDUSTRY_PRESETS = {
@@ -347,6 +349,130 @@ function ConditionBuilder({
     return OPERATORS.filter(op => (op.types as readonly string[]).includes(colType));
   };
 
+  const getColumnInfo = (columnKey: string) => {
+    const col = columns.find(c => c.column_key === columnKey);
+    return col;
+  };
+
+  const getDropdownOptions = (columnKey: string): string[] => {
+    const col = columns.find(c => c.column_key === columnKey);
+    if (!col) return [];
+    return col.config?.dropdown_options || [];
+  };
+
+  const needsValueInput = (operator: string) => {
+    return !["is_empty", "is_not_empty", "is_today", "is_this_week", "is_this_month", "is_overdue"].includes(operator);
+  };
+
+  const isMultiValueOperator = (operator: string) => {
+    return ["in", "not_in"].includes(operator);
+  };
+
+  const renderValueInput = (condition: SimpleCondition, index: number) => {
+    if (!needsValueInput(condition.operator)) {
+      return null;
+    }
+
+    const column = getColumnInfo(condition.column_key);
+    const columnType = column?.type || "text";
+    const dropdownOptions = getDropdownOptions(condition.column_key);
+    const isDropdown = columnType === "dropdown" && dropdownOptions.length > 0;
+
+    // For dropdown columns with Is One Of / Is Not One Of operators - show multi-select
+    if (isDropdown && isMultiValueOperator(condition.operator)) {
+      const selectedValues: string[] = Array.isArray(condition.value) 
+        ? condition.value 
+        : (condition.value ? String(condition.value).split(",").map((v: string) => v.trim()).filter((v: string) => v) : []);
+      
+      return (
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap gap-1 p-2 border rounded-md bg-background min-h-[36px] max-w-[200px]">
+            {selectedValues.length === 0 && (
+              <span className="text-muted-foreground text-sm">Select values...</span>
+            )}
+            {selectedValues.map((val: string) => (
+              <Badge 
+                key={val} 
+                variant="secondary" 
+                className="text-xs cursor-pointer"
+                onClick={() => {
+                  const newValues = selectedValues.filter((v: string) => v !== val);
+                  updateCondition(index, { value: newValues.length > 0 ? newValues : "" });
+                }}
+              >
+                {val} ×
+              </Badge>
+            ))}
+          </div>
+          <Select
+            value=""
+            onValueChange={(v) => {
+              if (v && !selectedValues.includes(v)) {
+                updateCondition(index, { value: [...selectedValues, v] });
+              }
+            }}
+          >
+            <SelectTrigger className="w-[200px]" data-testid={`condition-multi-value-${index}`}>
+              <SelectValue placeholder="Add value..." />
+            </SelectTrigger>
+            <SelectContent>
+              {dropdownOptions
+                .filter(opt => !selectedValues.includes(opt))
+                .map((opt) => (
+                  <SelectItem key={opt} value={opt}>
+                    {opt}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+      );
+    }
+
+    // For dropdown columns with single-value operators - show dropdown selector
+    if (isDropdown) {
+      return (
+        <Select
+          value={condition.value || ""}
+          onValueChange={(v) => updateCondition(index, { value: v })}
+        >
+          <SelectTrigger className="w-40" data-testid={`condition-value-${index}`}>
+            <SelectValue placeholder="Select value" />
+          </SelectTrigger>
+          <SelectContent>
+            {dropdownOptions.map((opt) => (
+              <SelectItem key={opt} value={opt}>
+                {opt}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      );
+    }
+
+    // For text/other columns - show text input
+    return (
+      <>
+        <Input
+          value={condition.value || ""}
+          onChange={(e) => updateCondition(index, { value: e.target.value })}
+          placeholder="Value"
+          className="w-32"
+          data-testid={`condition-value-${index}`}
+        />
+        {condition.operator === "between" && (
+          <Input
+            value={condition.value2 || ""}
+            onChange={(e) => updateCondition(index, { value2: e.target.value })}
+            placeholder="To"
+            className="w-24"
+            data-testid={`condition-value2-${index}`}
+          />
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="space-y-3">
       {conditions.length > 1 && (
@@ -366,10 +492,10 @@ function ConditionBuilder({
       )}
 
       {conditions.map((condition, index) => (
-        <div key={index} className="flex items-center gap-2 p-2 border rounded-lg bg-muted/30">
+        <div key={index} className="flex items-start gap-2 p-2 border rounded-lg bg-muted/30">
           <Select
             value={condition.column_key}
-            onValueChange={(v) => updateCondition(index, { column_key: v })}
+            onValueChange={(v) => updateCondition(index, { column_key: v, value: "" })}
           >
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Select column" />
@@ -385,7 +511,7 @@ function ConditionBuilder({
 
           <Select
             value={condition.operator}
-            onValueChange={(v) => updateCondition(index, { operator: v })}
+            onValueChange={(v) => updateCondition(index, { operator: v, value: "" })}
           >
             <SelectTrigger className="w-36">
               <SelectValue />
@@ -399,25 +525,7 @@ function ConditionBuilder({
             </SelectContent>
           </Select>
 
-          {!["is_empty", "is_not_empty", "is_today", "is_this_week", "is_this_month", "is_overdue"].includes(condition.operator) && (
-            <Input
-              value={condition.value || ""}
-              onChange={(e) => updateCondition(index, { value: e.target.value })}
-              placeholder="Value"
-              className="w-32"
-              data-testid={`condition-value-${index}`}
-            />
-          )}
-
-          {condition.operator === "between" && (
-            <Input
-              value={condition.value2 || ""}
-              onChange={(e) => updateCondition(index, { value2: e.target.value })}
-              placeholder="To"
-              className="w-24"
-              data-testid={`condition-value2-${index}`}
-            />
-          )}
+          {renderValueInput(condition, index)}
 
           <Button
             type="button"
