@@ -4712,12 +4712,14 @@ export class PgStorage implements IStorage {
     
     // 2. Search by name in custom_fields (full_name) across all sheets
     if (results.length < limit) {
+      const namePattern = `%${searchTerm}%`;
+      
       for (const sheet of sheets) {
         const leads = await db.select().from(dbSchema.leads)
           .where(and(
             eq(dbSchema.leads.sheet_id, sheet.id),
             isNull(dbSchema.leads.deleted_at),
-            sql`LOWER(${dbSchema.leads.custom_fields}->>'full_name') LIKE ${'%' + searchTerm + '%'}`
+            sql`${dbSchema.leads.custom_fields}->>'full_name' ILIKE ${namePattern}`
           ))
           .limit(limit - results.length);
         
@@ -4748,15 +4750,17 @@ export class PgStorage implements IStorage {
     
     // 3. Fallback: search phone in custom_fields if phone index didn't find it
     if (isPhoneSearch && results.length < limit) {
+      const phonePattern = `%${normalizedPhone}%`;
+      
       for (const sheet of sheets) {
         const leads = await db.select().from(dbSchema.leads)
           .where(and(
             eq(dbSchema.leads.sheet_id, sheet.id),
             isNull(dbSchema.leads.deleted_at),
             sql`(
-              ${dbSchema.leads.custom_fields}->>'mobile_no' LIKE ${'%' + normalizedPhone + '%'}
-              OR ${dbSchema.leads.custom_fields}->>'whatsapp_no' LIKE ${'%' + normalizedPhone + '%'}
-              OR ${dbSchema.leads.custom_fields}->>'alternate_mobile' LIKE ${'%' + normalizedPhone + '%'}
+              ${dbSchema.leads.custom_fields}->>'mobile_no' LIKE ${phonePattern}
+              OR ${dbSchema.leads.custom_fields}->>'whatsapp_no' LIKE ${phonePattern}
+              OR ${dbSchema.leads.custom_fields}->>'alternate_mobile' LIKE ${phonePattern}
             )`
           ))
           .limit(limit - results.length);
