@@ -379,10 +379,11 @@ function ConditionBuilder({
     const isDropdown = columnType === "dropdown" && dropdownOptions.length > 0;
 
     // For dropdown columns with Is One Of / Is Not One Of operators - show multi-select
+    // Store values as comma-separated string for evaluator compatibility
     if (isDropdown && isMultiValueOperator(condition.operator)) {
-      const selectedValues: string[] = Array.isArray(condition.value) 
-        ? condition.value 
-        : (condition.value ? String(condition.value).split(",").map((v: string) => v.trim()).filter((v: string) => v) : []);
+      const selectedValues: string[] = condition.value 
+        ? String(condition.value).split(",").map((v: string) => v.trim()).filter((v: string) => v) 
+        : [];
       
       return (
         <div className="flex flex-col gap-1">
@@ -397,7 +398,7 @@ function ConditionBuilder({
                 className="text-xs cursor-pointer"
                 onClick={() => {
                   const newValues = selectedValues.filter((v: string) => v !== val);
-                  updateCondition(index, { value: newValues.length > 0 ? newValues : "" });
+                  updateCondition(index, { value: newValues.join(",") });
                 }}
               >
                 {val} ×
@@ -408,7 +409,8 @@ function ConditionBuilder({
             value=""
             onValueChange={(v) => {
               if (v && !selectedValues.includes(v)) {
-                updateCondition(index, { value: [...selectedValues, v] });
+                const newValues = [...selectedValues, v];
+                updateCondition(index, { value: newValues.join(",") });
               }
             }}
           >
@@ -495,7 +497,7 @@ function ConditionBuilder({
         <div key={index} className="flex items-start gap-2 p-2 border rounded-lg bg-muted/30">
           <Select
             value={condition.column_key}
-            onValueChange={(v) => updateCondition(index, { column_key: v, value: "" })}
+            onValueChange={(v) => updateCondition(index, { column_key: v, value: "", value2: "" })}
           >
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Select column" />
@@ -511,7 +513,7 @@ function ConditionBuilder({
 
           <Select
             value={condition.operator}
-            onValueChange={(v) => updateCondition(index, { operator: v, value: "" })}
+            onValueChange={(v) => updateCondition(index, { operator: v, value: "", value2: "" })}
           >
             <SelectTrigger className="w-36">
               <SelectValue />
