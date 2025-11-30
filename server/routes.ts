@@ -37,6 +37,14 @@ import {
   logForceExitRequested,
   logUserLogin,
 } from "./activityLogger";
+import { 
+  triggerManualSync, 
+  generateBackupCSV, 
+  previewRestore, 
+  performRestore,
+  startBackupScheduler,
+} from "./google-sheets-backup";
+import { extractGoogleSheetId } from "@shared/schema";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -10365,6 +10373,279 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // BACKUP SYSTEM (Google Sheets)
+  // ============================================================================
+
+  // Get backup configs for company
+  app.get("/api/backup-configs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const configs = await storage.getBackupConfigsByCompanyId(req.companyId);
+      
+      // Include sheet names
+      const configsWithSheets = await Promise.all(configs.map(async (config) => {
+        const sheet = await storage.getSheet(config.sheet_id);
+        return {
+          ...config,
+          sheet_name: sheet?.name || 'Unknown Sheet',
+        };
+      }));
+      
+      res.json(configsWithSheets);
+    } catch (error: any) {
+      console.error("Get backup configs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create backup config
+  app.post("/api/backup-configs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { sheet_id, google_sheet_url } = req.body;
+      
+      if (!sheet_id || !google_sheet_url) {
+        return res.status(400).json({ error: "Sheet ID and Google Sheet URL are required" });
+      }
+      
+      // Verify sheet belongs to company
+      const sheet = await storage.getSheet(sheet_id);
+      if (!sheet || sheet.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Check if backup config already exists for this sheet
+      const existing = await storage.getBackupConfigBySheetId(sheet_id);
+      if (existing) {
+        return res.status(400).json({ error: "Backup already configured for this sheet" });
+      }
+      
+      // Extract Google Sheet ID from URL
+      const googleSheetId = extractGoogleSheetId(google_sheet_url);
+      if (!googleSheetId) {
+        return res.status(400).json({ error: "Invalid Google Sheet URL. Please provide a valid Google Sheets link." });
+      }
+      
+      const config = await storage.createBackupConfig({
+        company_id: req.companyId,
+        sheet_id,
+        google_sheet_url,
+        google_sheet_id: googleSheetId,
+        created_by_user_id: req.userId,
+        is_enabled: true,
+        last_sync_status: 'pending',
+      });
+      
+      res.status(201).json(config);
+    } catch (error: any) {
+      console.error("Create backup config error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update backup config
+  app.patch("/api/backup-configs/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const config = await storage.getBackupConfig(req.params.id);
+      if (!config || config.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Backup config not found" });
+      }
+      
+      const { is_enabled, google_sheet_url } = req.body;
+      
+      const updates: any = {};
+      if (typeof is_enabled === 'boolean') {
+        updates.is_enabled = is_enabled;
+      }
+      if (google_sheet_url) {
+        const googleSheetId = extractGoogleSheetId(google_sheet_url);
+        if (!googleSheetId) {
+          return res.status(400).json({ error: "Invalid Google Sheet URL" });
+        }
+        updates.google_sheet_url = google_sheet_url;
+        updates.google_sheet_id = googleSheetId;
+      }
+      
+      const updated = await storage.updateBackupConfig(req.params.id, updates);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update backup config error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete backup config
+  app.delete("/api/backup-configs/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const config = await storage.getBackupConfig(req.params.id);
+      if (!config || config.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Backup config not found" });
+      }
+      
+      await storage.deleteBackupConfig(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete backup config error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Trigger manual sync
+  app.post("/api/backup-configs/:id/sync", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const config = await storage.getBackupConfig(req.params.id);
+      if (!config || config.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Backup config not found" });
+      }
+      
+      const result = await triggerManualSync(req.params.id);
+      
+      if (result.success) {
+        res.json({ success: true, rowsWritten: result.rowsWritten });
+      } else {
+        res.status(500).json({ error: result.error || "Sync failed" });
+      }
+    } catch (error: any) {
+      console.error("Trigger sync error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Download backup CSV
+  app.get("/api/backup-configs/:id/download", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const config = await storage.getBackupConfig(req.params.id);
+      if (!config || config.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Backup config not found" });
+      }
+      
+      const csvContent = await generateBackupCSV(config.sheet_id, config.company_id);
+      const sheet = await storage.getSheet(config.sheet_id);
+      const fileName = `backup_${sheet?.name || 'leads'}_${new Date().toISOString().split('T')[0]}.csv`;
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.send(csvContent);
+    } catch (error: any) {
+      console.error("Download backup error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get sync logs for a backup config
+  app.get("/api/backup-configs/:id/logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const config = await storage.getBackupConfig(req.params.id);
+      if (!config || config.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Backup config not found" });
+      }
+      
+      const limit = parseInt(req.query.limit as string) || 50;
+      const logs = await storage.getBackupSyncLogs(req.params.id, limit);
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Get sync logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Preview restore
+  app.post("/api/restore/preview", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { csv_content, sheet_id } = req.body;
+      
+      if (!csv_content || !sheet_id) {
+        return res.status(400).json({ error: "CSV content and sheet ID are required" });
+      }
+      
+      // Verify sheet belongs to company
+      const sheet = await storage.getSheet(sheet_id);
+      if (!sheet || sheet.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      const preview = await previewRestore(csv_content, req.companyId, sheet_id);
+      res.json(preview);
+    } catch (error: any) {
+      console.error("Preview restore error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Perform restore
+  app.post("/api/restore/execute", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { csv_content, sheet_id, file_name } = req.body;
+      
+      if (!csv_content || !sheet_id || !file_name) {
+        return res.status(400).json({ error: "CSV content, sheet ID, and file name are required" });
+      }
+      
+      // Verify sheet belongs to company
+      const sheet = await storage.getSheet(sheet_id);
+      if (!sheet || sheet.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      const result = await performRestore(csv_content, req.companyId, sheet_id, req.userId, file_name);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Execute restore error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get restore logs
+  app.get("/api/restore/logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const sheetId = req.query.sheet_id as string | undefined;
+      const logs = await storage.getRestoreLogs(req.companyId, sheetId);
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Get restore logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
@@ -10414,6 +10695,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('[Cleanup] Failed to run scheduled selfie cleanup:', error);
     }
   }, cleanupInterval);
+
+  // ============================================================================
+  // BACKUP SCHEDULER (Hourly Google Sheets Sync)
+  // ============================================================================
+  // Start backup scheduler with 1 hour interval
+  const backupIntervalMs = 60 * 60 * 1000; // 1 hour
+  startBackupScheduler(backupIntervalMs);
 
   return httpServer;
 }
