@@ -2035,6 +2035,31 @@ export const targetConditionSchema = z.object({
 
 export type TargetCondition = z.infer<typeof targetConditionSchema>;
 
+// Aggregation types for ratio-based goals
+export type RatioAggregationType = "count" | "sum";
+
+// Ratio configuration for percentage, conversion, average, and compliance goals
+export interface RatioNumeratorConfig {
+  aggregation: RatioAggregationType;        // "count" or "sum"
+  column_key?: string;                      // Column for sum aggregation
+  conditions: TargetCondition[];            // Conditions to filter leads
+  logical_operator: "and" | "or";           // How conditions are combined
+}
+
+export interface RatioDenominatorConfig {
+  mode: "total_scope" | "filtered";         // Total leads in scope OR filtered leads
+  aggregation: RatioAggregationType;        // "count" or "sum" (for filtered mode)
+  column_key?: string;                      // Column for sum aggregation
+  conditions: TargetCondition[];            // Conditions (only used if mode = "filtered")
+  logical_operator: "and" | "or";           // How conditions are combined
+}
+
+export interface RatioConfig {
+  numerator: RatioNumeratorConfig;
+  denominator: RatioDenominatorConfig;
+  display_variant: "percentage" | "conversion" | "average" | "compliance";
+}
+
 // Target goal configuration
 export interface TargetGoalConfig {
   goal_type: TargetGoalType;
@@ -2042,7 +2067,9 @@ export interface TargetGoalConfig {
   column_key?: string;                     // Column for sum/average goals
   conditions: TargetCondition[];           // Conditions to filter leads
   logical_operator: "and" | "or";          // How conditions are combined
-  // For percentage/conversion goals
+  // Unified ratio configuration for percentage/conversion/average/compliance goals
+  ratio_config?: RatioConfig;
+  // Legacy fields (kept for backward compatibility)
   numerator_conditions?: TargetCondition[];   // What counts as success
   denominator_conditions?: TargetCondition[]; // Total pool
 }
@@ -2314,6 +2341,28 @@ export interface TargetFilters {
   offset?: number;
 }
 
+// Ratio config schema for validation
+export const ratioNumeratorSchema = z.object({
+  aggregation: z.enum(["count", "sum"]),
+  column_key: z.string().optional(),
+  conditions: z.array(targetConditionSchema).optional().default([]),
+  logical_operator: z.enum(["and", "or"]).optional().default("and"),
+});
+
+export const ratioDenominatorSchema = z.object({
+  mode: z.enum(["total_scope", "filtered"]),
+  aggregation: z.enum(["count", "sum"]).optional().default("count"),
+  column_key: z.string().optional(),
+  conditions: z.array(targetConditionSchema).optional().default([]),
+  logical_operator: z.enum(["and", "or"]).optional().default("and"),
+});
+
+export const ratioConfigSchema = z.object({
+  numerator: ratioNumeratorSchema,
+  denominator: ratioDenominatorSchema,
+  display_variant: z.enum(["percentage", "conversion", "average", "compliance"]),
+});
+
 // Create target request
 export const createTargetSchema = z.object({
   name: z.string().min(1, "Target name is required").max(255),
@@ -2334,6 +2383,9 @@ export const createTargetSchema = z.object({
     column_key: z.string().optional(),
     conditions: z.array(targetConditionSchema).optional().default([]),
     logical_operator: z.enum(["and", "or"]).optional().default("and"),
+    // Unified ratio config for percentage/conversion/average/compliance
+    ratio_config: ratioConfigSchema.optional(),
+    // Legacy fields (kept for backward compatibility)
     numerator_conditions: z.array(targetConditionSchema).optional(),
     denominator_conditions: z.array(targetConditionSchema).optional(),
   })).min(1, "At least one goal is required"),

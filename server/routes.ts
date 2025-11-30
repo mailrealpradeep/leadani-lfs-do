@@ -9862,7 +9862,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const targets = await storage.getTargetsByCompanyId(req.companyId, filters);
-      res.json(targets);
+      
+      // Fetch goals for each target to include in response
+      const targetsWithGoals = await Promise.all(
+        targets.map(async (target) => {
+          const goals = await storage.getTargetGoals(target.id);
+          return { ...target, goals };
+        })
+      );
+      
+      res.json(targetsWithGoals);
     } catch (error: any) {
       console.error("Get targets error:", error);
       res.status(500).json({ error: error.message });
@@ -9956,6 +9965,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             logical_operator: goal.logical_operator || 'and',
             numerator_conditions: goal.numerator_conditions,
             denominator_conditions: goal.denominator_conditions,
+            // Include ratio_config for unified ratio-based goals
+            ratio_config: goal.ratio_config,
           },
           order_index: i,
         });
@@ -10032,6 +10043,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               logical_operator: goal.logical_operator || 'and',
               numerator_conditions: goal.numerator_conditions,
               denominator_conditions: goal.denominator_conditions,
+              // Include ratio_config for unified ratio-based goals
+              ratio_config: goal.ratio_config,
             },
             order_index: i,
           });

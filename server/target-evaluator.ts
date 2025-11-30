@@ -4,6 +4,9 @@ import type {
   TargetGoalRecord,
   TargetCondition, 
   TargetGoalConfig,
+  RatioConfig,
+  RatioNumeratorConfig,
+  RatioDenominatorConfig,
   Lead,
   LeadUpdate
 } from '@shared/schema';
@@ -75,20 +78,59 @@ export function evaluateCondition(condition: TargetCondition, leadValue: any): b
       }
       return !condValue.split(',').map(v => v.trim()).includes(strValue);
     
-    // Number operators
-    case 'greater_than':
-      return parseFloat(String(leadValue)) > parseFloat(condValue);
-    case 'less_than':
-      return parseFloat(String(leadValue)) < parseFloat(condValue);
-    case 'greater_equal':
+    // Number operators (with date fallback for NFDT compliance)
+    case 'greater_than': {
+      // Try date comparison first for date fields
+      const dateA = new Date(leadValue);
+      const dateB = new Date(value as string);
+      if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+        return dateA.getTime() > dateB.getTime();
+      }
+      // Fall back to numeric comparison
+      const numA = parseFloat(String(leadValue));
+      const numB = parseFloat(condValue);
+      if (isNaN(numA) || isNaN(numB)) return false;
+      return numA > numB;
+    }
+    case 'less_than': {
+      // Try date comparison first for date fields
+      const dateA = new Date(leadValue);
+      const dateB = new Date(value as string);
+      if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+        return dateA.getTime() < dateB.getTime();
+      }
+      // Fall back to numeric comparison
+      const numA = parseFloat(String(leadValue));
+      const numB = parseFloat(condValue);
+      if (isNaN(numA) || isNaN(numB)) return false;
+      return numA < numB;
+    }
+    case 'greater_equal': {
+      // Try date comparison first for date fields
+      const dateA = new Date(leadValue);
+      const dateB = new Date(value as string);
+      if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+        return dateA.getTime() >= dateB.getTime();
+      }
+      // Fall back to numeric comparison
       return parseFloat(String(leadValue)) >= parseFloat(condValue);
-    case 'less_equal':
+    }
+    case 'less_equal': {
+      // Try date comparison first for date fields
+      const dateA = new Date(leadValue);
+      const dateB = new Date(value as string);
+      if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+        return dateA.getTime() <= dateB.getTime();
+      }
+      // Fall back to numeric comparison
       return parseFloat(String(leadValue)) <= parseFloat(condValue);
-    case 'between':
+    }
+    case 'between': {
       const numVal = parseFloat(String(leadValue));
       const minVal = parseFloat(condValue);
       const maxVal = parseFloat(String(value2));
       return numVal >= minVal && numVal <= maxVal;
+    }
     
     // Date operators
     case 'date_equals':
@@ -236,6 +278,78 @@ function getLeadFieldValue(lead: Lead, columnKey: string): any {
   return null;
 }
 
+// Process special values in conditions (like "now" for date comparisons)
+function processConditionValue(condition: TargetCondition): TargetCondition {
+  if (condition.value === 'now') {
+    return {
+      ...condition,
+      value: new Date().toISOString(),
+    };
+  }
+  return condition;
+}
+
+// Calculate numerator or denominator value for ratio-based goals
+function calculateRatioValue(
+  leads: Lead[],
+  config: RatioNumeratorConfig | RatioDenominatorConfig,
+  allLeads: Lead[] // For total_scope mode
+): number {
+  // Check if this is a denominator config with total_scope mode
+  const isDenominator = 'mode' in config;
+  if (isDenominator && (config as RatioDenominatorConfig).mode === 'total_scope') {
+    // Total leads in scope - support aggregation for total_scope
+    if (config.aggregation === 'sum' && config.column_key) {
+      return allLeads.reduce((sum, lead) => {
+        const val = getLeadFieldValue(lead, config.column_key!);
+        return sum + (parseFloat(String(val)) || 0);
+      }, 0);
+    }
+    return allLeads.length;
+  }
+
+  // Filter leads by conditions - process special values
+  const conditions = config.conditions || [];
+  const processedConditions = conditions.map(c => processConditionValue(c as TargetCondition));
+  const logicalOp = config.logical_operator || 'and';
+  const filteredLeads = processedConditions.length > 0
+    ? leads.filter(lead => evaluateConditions(processedConditions, lead, logicalOp))
+    : leads;
+
+  // Calculate based on aggregation type
+  if (config.aggregation === 'sum' && config.column_key) {
+    return filteredLeads.reduce((sum, lead) => {
+      const val = getLeadFieldValue(lead, config.column_key!);
+      return sum + (parseFloat(String(val)) || 0);
+    }, 0);
+  }
+
+  // Default to count
+  return filteredLeads.length;
+}
+
+// Calculate ratio-based goal progress
+function calculateRatioGoalProgress(
+  leads: Lead[],
+  ratioConfig: RatioConfig
+): number {
+  const numeratorValue = calculateRatioValue(leads, ratioConfig.numerator, leads);
+  const denominatorValue = calculateRatioValue(leads, ratioConfig.denominator, leads);
+
+  // Prevent division by zero
+  if (denominatorValue === 0) {
+    return 0;
+  }
+
+  // For average type, the result is the raw ratio (not percentage)
+  if (ratioConfig.display_variant === 'average') {
+    return numeratorValue / denominatorValue;
+  }
+
+  // For percentage, conversion, and compliance, return percentage value
+  return (numeratorValue / denominatorValue) * 100;
+}
+
 // Calculate progress for a single goal
 export async function calculateGoalProgress(
   goal: TargetGoalRecord,
@@ -298,8 +412,11 @@ export async function calculateGoalProgress(
       break;
     
     case 'average':
-      // Average of a numeric column
-      if (config.column_key) {
+      // Average of a numeric column - use ratio_config if available
+      if (config.ratio_config) {
+        currentValue = calculateRatioGoalProgress(leads, config.ratio_config);
+      } else if (config.column_key) {
+        // Legacy fallback
         const matchingLeads = leads.filter(lead => 
           evaluateConditions(config.conditions, lead, config.logical_operator)
         );
@@ -314,8 +431,11 @@ export async function calculateGoalProgress(
       break;
     
     case 'percentage':
-      // Percentage of leads matching numerator vs denominator
-      if (config.numerator_conditions && config.denominator_conditions) {
+      // Percentage of leads matching numerator vs denominator - use ratio_config if available
+      if (config.ratio_config) {
+        currentValue = calculateRatioGoalProgress(leads, config.ratio_config);
+      } else if (config.numerator_conditions && config.denominator_conditions) {
+        // Legacy fallback
         const denominator = leads.filter(lead => 
           evaluateConditions(config.denominator_conditions!, lead, config.logical_operator)
         ).length;
@@ -345,8 +465,11 @@ export async function calculateGoalProgress(
       break;
     
     case 'conversion':
-      // Conversion rate from one status to another
-      if (config.numerator_conditions && config.denominator_conditions) {
+      // Conversion rate from one status to another - use ratio_config if available
+      if (config.ratio_config) {
+        currentValue = calculateRatioGoalProgress(leads, config.ratio_config);
+      } else if (config.numerator_conditions && config.denominator_conditions) {
+        // Legacy fallback
         const startLeads = leads.filter(lead => 
           evaluateConditions(config.denominator_conditions!, lead, config.logical_operator)
         );
@@ -362,24 +485,29 @@ export async function calculateGoalProgress(
       break;
     
     case 'compliance':
-      // NFDT compliance rate
-      const leadsWithNFDT = leads.filter(lead => {
-        const nfdt = getLeadFieldValue(lead, 'next_follow_up_date_time');
-        if (!nfdt) return false;
-        const nfdtDate = new Date(nfdt);
-        return nfdtDate <= periodEnd;
-      });
-      
-      const compliantLeads = leadsWithNFDT.filter(lead => {
-        const nfdt = getLeadFieldValue(lead, 'next_follow_up_date_time');
-        const nfdtDate = new Date(nfdt);
-        const now = new Date();
-        // Lead is compliant if NFDT is in the future or there's a recent update
-        return nfdtDate >= now;
-      });
-      
-      if (leadsWithNFDT.length > 0) {
-        currentValue = (compliantLeads.length / leadsWithNFDT.length) * 100;
+      // NFDT compliance rate - use ratio_config if available
+      if (config.ratio_config) {
+        currentValue = calculateRatioGoalProgress(leads, config.ratio_config);
+      } else {
+        // Legacy fallback
+        const leadsWithNFDT = leads.filter(lead => {
+          const nfdt = getLeadFieldValue(lead, 'next_follow_up_date_time');
+          if (!nfdt) return false;
+          const nfdtDate = new Date(nfdt);
+          return nfdtDate <= periodEnd;
+        });
+        
+        const compliantLeads = leadsWithNFDT.filter(lead => {
+          const nfdt = getLeadFieldValue(lead, 'next_follow_up_date_time');
+          const nfdtDate = new Date(nfdt);
+          const now = new Date();
+          // Lead is compliant if NFDT is in the future or there's a recent update
+          return nfdtDate >= now;
+        });
+        
+        if (leadsWithNFDT.length > 0) {
+          currentValue = (compliantLeads.length / leadsWithNFDT.length) * 100;
+        }
       }
       break;
     

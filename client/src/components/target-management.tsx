@@ -88,6 +88,9 @@ import type {
   InsertTarget,
   TargetCondition,
   TargetGoalConfig,
+  RatioConfig,
+  RatioNumeratorConfig,
+  RatioDenominatorConfig,
 } from "@shared/schema";
 
 const GOAL_TYPES = [
@@ -165,6 +168,36 @@ const INDUSTRY_PRESETS = {
   },
 };
 
+// Condition schema for proper typing
+const conditionFormSchema = z.object({
+  column_key: z.string(),
+  operator: z.string(),
+  value: z.any().optional(),
+  value2: z.any().optional(),
+});
+
+// Ratio config form schema
+const ratioNumeratorFormSchema = z.object({
+  aggregation: z.enum(["count", "sum"]),
+  column_key: z.string().optional(),
+  conditions: z.array(conditionFormSchema).default([]),
+  logical_operator: z.enum(["and", "or"]).default("and"),
+});
+
+const ratioDenominatorFormSchema = z.object({
+  mode: z.enum(["total_scope", "filtered"]),
+  aggregation: z.enum(["count", "sum"]).default("count"),
+  column_key: z.string().optional(),
+  conditions: z.array(conditionFormSchema).default([]),
+  logical_operator: z.enum(["and", "or"]).default("and"),
+});
+
+const ratioConfigFormSchema = z.object({
+  numerator: ratioNumeratorFormSchema,
+  denominator: ratioDenominatorFormSchema,
+  display_variant: z.enum(["percentage", "conversion", "average", "compliance"]),
+});
+
 const targetFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
@@ -184,14 +217,84 @@ const targetFormSchema = z.object({
     goal_type: z.enum(["count", "sum", "average", "percentage", "updates", "conversion", "compliance"]),
     target_value: z.number().min(0, "Target value must be positive"),
     column_key: z.string().optional(),
-    conditions: z.array(z.any()).optional(),
+    conditions: z.array(conditionFormSchema).optional(),
     logical_operator: z.enum(["and", "or"]).default("and"),
-    numerator_conditions: z.array(z.any()).optional(),
-    denominator_conditions: z.array(z.any()).optional(),
+    // Unified ratio config for ratio-based goals
+    ratio_config: ratioConfigFormSchema.optional(),
+    // Legacy fields (kept for backward compatibility)
+    numerator_conditions: z.array(conditionFormSchema).optional(),
+    denominator_conditions: z.array(conditionFormSchema).optional(),
   })).min(1, "At least one goal is required"),
 });
 
 type TargetFormData = z.infer<typeof targetFormSchema>;
+
+// Helper to check if goal type is ratio-based
+const isRatioGoalType = (goalType: string): boolean => {
+  return ["percentage", "conversion", "average", "compliance"].includes(goalType);
+};
+
+// Get default ratio config for a goal type
+const getDefaultRatioConfig = (goalType: string): z.infer<typeof ratioConfigFormSchema> => {
+  const baseConfig = {
+    numerator: {
+      aggregation: "count" as const,
+      conditions: [] as SimpleCondition[],
+      logical_operator: "and" as const,
+    },
+    denominator: {
+      mode: "filtered" as const,
+      aggregation: "count" as const,
+      conditions: [] as SimpleCondition[],
+      logical_operator: "and" as const,
+    },
+    display_variant: goalType as "percentage" | "conversion" | "average" | "compliance",
+  };
+
+  // Preset defaults for specific goal types
+  if (goalType === "average") {
+    // Average = Sum of column / Count of matching leads
+    return {
+      ...baseConfig,
+      numerator: { ...baseConfig.numerator, aggregation: "sum" as const },
+      denominator: { ...baseConfig.denominator, mode: "filtered" as const, aggregation: "count" as const },
+    };
+  }
+
+  if (goalType === "compliance") {
+    // Compliance = Leads with NFDT in future (compliant) / All leads with NFDT set
+    return {
+      ...baseConfig,
+      numerator: {
+        ...baseConfig.numerator,
+        conditions: [{ column_key: "next_follow_up_date_time", operator: "greater_than", value: "now" }],
+      },
+      denominator: {
+        ...baseConfig.denominator,
+        mode: "filtered" as const,
+        conditions: [{ column_key: "next_follow_up_date_time", operator: "is_not_empty", value: "" }],
+      },
+    };
+  }
+
+  if (goalType === "conversion") {
+    // Conversion = Converted leads / Total leads in scope (or can be filtered)
+    return {
+      ...baseConfig,
+      denominator: { ...baseConfig.denominator, mode: "total_scope" as const },
+    };
+  }
+
+  if (goalType === "percentage") {
+    // Percentage = Matching leads / Total leads in scope (or can be filtered)
+    return {
+      ...baseConfig,
+      denominator: { ...baseConfig.denominator, mode: "total_scope" as const },
+    };
+  }
+
+  return baseConfig;
+};
 
 interface SimpleCondition {
   column_key: string;
@@ -342,6 +445,243 @@ function ConditionBuilder({
   );
 }
 
+// RatioCard component for percentage, conversion, average, and compliance goals
+interface RatioCardProps {
+  columns: CustomColumn[];
+  ratioConfig: z.infer<typeof ratioConfigFormSchema>;
+  onChange: (config: z.infer<typeof ratioConfigFormSchema>) => void;
+  goalType: string;
+}
+
+function RatioCard({ columns, ratioConfig, onChange, goalType }: RatioCardProps) {
+  const updateNumerator = (updates: Partial<z.infer<typeof ratioNumeratorFormSchema>>) => {
+    onChange({
+      ...ratioConfig,
+      numerator: { ...ratioConfig.numerator, ...updates },
+    });
+  };
+
+  const updateDenominator = (updates: Partial<z.infer<typeof ratioDenominatorFormSchema>>) => {
+    onChange({
+      ...ratioConfig,
+      denominator: { ...ratioConfig.denominator, ...updates },
+    });
+  };
+
+  const numericColumns = columns.filter(c => c.type === "number" || c.type === "percentage");
+
+  // Generate preview text
+  const getPreviewText = () => {
+    const numAgg = ratioConfig.numerator.aggregation === "sum" ? "Sum of" : "Count of";
+    const numCol = ratioConfig.numerator.column_key 
+      ? columns.find(c => c.column_key === ratioConfig.numerator.column_key)?.name 
+      : null;
+    const numConditions = ratioConfig.numerator.conditions?.length || 0;
+    
+    let numeratorText = numAgg === "Sum of" && numCol 
+      ? `Sum(${numCol})` 
+      : numConditions > 0 
+        ? `Leads matching ${numConditions} condition${numConditions > 1 ? 's' : ''}`
+        : "All leads";
+
+    let denominatorText = "Total leads";
+    if (ratioConfig.denominator.mode === "filtered") {
+      const denConditions = ratioConfig.denominator.conditions?.length || 0;
+      if (ratioConfig.denominator.aggregation === "sum" && ratioConfig.denominator.column_key) {
+        const denCol = columns.find(c => c.column_key === ratioConfig.denominator.column_key)?.name;
+        denominatorText = `Sum(${denCol || 'column'})`;
+      } else if (denConditions > 0) {
+        denominatorText = `Leads matching ${denConditions} condition${denConditions > 1 ? 's' : ''}`;
+      }
+    }
+
+    return `${numeratorText} / ${denominatorText}`;
+  };
+
+  const isComplianceType = goalType === "compliance";
+  const isAverageType = goalType === "average";
+
+  return (
+    <div className="space-y-4 border rounded-lg p-4 bg-muted/20" data-testid="ratio-card">
+      {/* Preview */}
+      <div className="flex items-center justify-center gap-2 p-3 bg-background border rounded-md">
+        <Badge variant="outline" className="text-sm font-mono">
+          {getPreviewText()}
+        </Badge>
+      </div>
+
+      {/* Numerator Section */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary">N</div>
+          <Label className="font-semibold">Numerator (What you're measuring)</Label>
+        </div>
+        
+        <Card className="border-primary/20">
+          <CardContent className="pt-4 space-y-4">
+            {/* Aggregation Type */}
+            <div className="flex items-center gap-4">
+              <Label className="min-w-24">Calculate</Label>
+              <Select
+                value={ratioConfig.numerator.aggregation}
+                onValueChange={(v) => updateNumerator({ aggregation: v as "count" | "sum" })}
+                disabled={isAverageType}
+              >
+                <SelectTrigger className="w-40" data-testid="numerator-aggregation">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="count">Count of leads</SelectItem>
+                  <SelectItem value="sum">Sum of column</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              {ratioConfig.numerator.aggregation === "sum" && (
+                <Select
+                  value={ratioConfig.numerator.column_key || ""}
+                  onValueChange={(v) => updateNumerator({ column_key: v })}
+                >
+                  <SelectTrigger className="w-48" data-testid="numerator-column">
+                    <SelectValue placeholder="Select column" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {numericColumns.map((col) => (
+                      <SelectItem key={col.column_key} value={col.column_key}>
+                        {col.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* Numerator Conditions */}
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">
+                {isComplianceType ? "Compliance Condition (preset)" : "Where conditions match"}
+              </Label>
+              <ConditionBuilder
+                columns={columns}
+                conditions={ratioConfig.numerator.conditions || []}
+                onChange={(conditions) => updateNumerator({ conditions })}
+                logicalOperator={ratioConfig.numerator.logical_operator}
+                onLogicalOperatorChange={(op) => updateNumerator({ logical_operator: op })}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Divider */}
+      <div className="flex items-center justify-center">
+        <div className="text-2xl font-bold text-muted-foreground">÷</div>
+      </div>
+
+      {/* Denominator Section */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-secondary/50 flex items-center justify-center text-sm font-bold">D</div>
+          <Label className="font-semibold">Denominator (What you're dividing by)</Label>
+        </div>
+        
+        <Card className="border-secondary/50">
+          <CardContent className="pt-4 space-y-4">
+            {/* Denominator Mode */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  id="denom-total"
+                  checked={ratioConfig.denominator.mode === "total_scope"}
+                  onChange={() => updateDenominator({ mode: "total_scope" })}
+                  className="w-4 h-4"
+                  data-testid="denominator-mode-total"
+                />
+                <label htmlFor="denom-total" className="text-sm cursor-pointer">
+                  Total leads in scope
+                </label>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  id="denom-filtered"
+                  checked={ratioConfig.denominator.mode === "filtered"}
+                  onChange={() => updateDenominator({ mode: "filtered" })}
+                  className="w-4 h-4"
+                  data-testid="denominator-mode-filtered"
+                />
+                <label htmlFor="denom-filtered" className="text-sm cursor-pointer">
+                  Leads matching conditions
+                </label>
+              </div>
+            </div>
+
+            {/* Filtered mode options */}
+            {ratioConfig.denominator.mode === "filtered" && (
+              <div className="space-y-4 pt-2 border-t">
+                {/* Aggregation Type for Denominator */}
+                <div className="flex items-center gap-4">
+                  <Label className="min-w-24">Calculate</Label>
+                  <Select
+                    value={ratioConfig.denominator.aggregation}
+                    onValueChange={(v) => updateDenominator({ aggregation: v as "count" | "sum" })}
+                  >
+                    <SelectTrigger className="w-40" data-testid="denominator-aggregation">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="count">Count of leads</SelectItem>
+                      <SelectItem value="sum">Sum of column</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  
+                  {ratioConfig.denominator.aggregation === "sum" && (
+                    <Select
+                      value={ratioConfig.denominator.column_key || ""}
+                      onValueChange={(v) => updateDenominator({ column_key: v })}
+                    >
+                      <SelectTrigger className="w-48" data-testid="denominator-column">
+                        <SelectValue placeholder="Select column" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {numericColumns.map((col) => (
+                          <SelectItem key={col.column_key} value={col.column_key}>
+                            {col.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                {/* Denominator Conditions */}
+                <div className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">Where conditions match</Label>
+                  <ConditionBuilder
+                    columns={columns}
+                    conditions={ratioConfig.denominator.conditions || []}
+                    onChange={(conditions) => updateDenominator({ conditions })}
+                    logicalOperator={ratioConfig.denominator.logical_operator}
+                    onLogicalOperatorChange={(op) => updateDenominator({ logical_operator: op })}
+                  />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Helpful hint */}
+      <p className="text-xs text-muted-foreground text-center">
+        {goalType === "percentage" && "Example: Leads with Status='Visited' / Total Leads = Visit Rate %"}
+        {goalType === "conversion" && "Example: Leads with Status='Converted' / Leads with Status='Qualified' = Conversion %"}
+        {goalType === "average" && "Example: Sum of Deal Value / Count of Leads = Average Deal Value"}
+        {goalType === "compliance" && "Example: Leads with NFDT set / Total Leads = Compliance Rate %"}
+      </p>
+    </div>
+  );
+}
+
 interface GoalBuilderProps {
   columns: CustomColumn[];
   goals: TargetFormData["goals"];
@@ -436,7 +776,15 @@ function GoalBuilder({ columns, goals, onChange }: GoalBuilderProps) {
                     <Label>Goal Type</Label>
                     <Select
                       value={goal.goal_type}
-                      onValueChange={(v) => updateGoal(index, { goal_type: v as any })}
+                      onValueChange={(v) => {
+                        const newGoalType = v as any;
+                        const updates: Partial<TargetFormData["goals"][0]> = { goal_type: newGoalType };
+                        // Auto-initialize ratio_config when switching to ratio-based goal type
+                        if (isRatioGoalType(newGoalType) && !goal.ratio_config) {
+                          updates.ratio_config = getDefaultRatioConfig(newGoalType);
+                        }
+                        updateGoal(index, updates);
+                      }}
                     >
                       <SelectTrigger data-testid={`goal-type-${index}`}>
                         <SelectValue />
@@ -470,9 +818,10 @@ function GoalBuilder({ columns, goals, onChange }: GoalBuilderProps) {
                   </p>
                 </div>
 
-                {(goal.goal_type === "sum" || goal.goal_type === "average") && (
+                {/* Show Column selector only for simple sum goal type */}
+                {goal.goal_type === "sum" && (
                   <div className="space-y-2">
-                    <Label>Column to Calculate</Label>
+                    <Label>Column to Sum</Label>
                     <Select
                       value={goal.column_key || ""}
                       onValueChange={(v) => updateGoal(index, { column_key: v })}
@@ -493,16 +842,26 @@ function GoalBuilder({ columns, goals, onChange }: GoalBuilderProps) {
                   </div>
                 )}
 
-                <div className="space-y-2">
-                  <Label>Conditions (when to count leads)</Label>
-                  <ConditionBuilder
+                {/* Show RatioCard for ratio-based goal types */}
+                {isRatioGoalType(goal.goal_type) ? (
+                  <RatioCard
                     columns={columns}
-                    conditions={goal.conditions || []}
-                    onChange={(conditions) => updateGoal(index, { conditions })}
-                    logicalOperator={goal.logical_operator || "and"}
-                    onLogicalOperatorChange={(op) => updateGoal(index, { logical_operator: op })}
+                    ratioConfig={goal.ratio_config || getDefaultRatioConfig(goal.goal_type)}
+                    onChange={(config) => updateGoal(index, { ratio_config: config })}
+                    goalType={goal.goal_type}
                   />
-                </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Conditions (when to count leads)</Label>
+                    <ConditionBuilder
+                      columns={columns}
+                      conditions={goal.conditions || []}
+                      onChange={(conditions) => updateGoal(index, { conditions })}
+                      logicalOperator={goal.logical_operator || "and"}
+                      onLogicalOperatorChange={(op) => updateGoal(index, { logical_operator: op })}
+                    />
+                  </div>
+                )}
               </div>
             </CollapsibleContent>
           </div>
