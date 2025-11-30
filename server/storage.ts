@@ -246,6 +246,7 @@ export interface IStorage {
 
   // Lead Updates
   getLeadUpdates(leadId: string): Promise<LeadUpdate[]>;
+  getLeadUpdatesBySheetId(sheetId: string): Promise<LeadUpdate[]>;
   createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate>;
   updateLeadUpdate(id: string, updates: Partial<LeadUpdate>): Promise<LeadUpdate | undefined>;
   deleteLeadUpdate(id: string): Promise<boolean>;
@@ -1382,6 +1383,14 @@ export class MemStorage implements IStorage {
   async getLeadUpdates(leadId: string): Promise<LeadUpdate[]> {
     return Array.from(this.leadUpdates.values())
       .filter((update) => update.lead_id === leadId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  async getLeadUpdatesBySheetId(sheetId: string): Promise<LeadUpdate[]> {
+    const leads = await this.getLeadsBySheetId(sheetId);
+    const leadIds = new Set(leads.map(l => l.id));
+    return Array.from(this.leadUpdates.values())
+      .filter((update) => leadIds.has(update.lead_id))
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
@@ -3314,6 +3323,26 @@ export class PgStorage implements IStorage {
       .from(dbSchema.lead_updates)
       .leftJoin(dbSchema.users, eq(dbSchema.lead_updates.created_by_user_id, dbSchema.users.id))
       .where(eq(dbSchema.lead_updates.lead_id, leadId))
+      .orderBy(desc(dbSchema.lead_updates.created_at));
+    
+    return result.map((row) => ({
+      ...this.mapLeadUpdate(row.lead_update),
+      created_by_first_name: row.user?.name || null,
+    })) as any;
+  }
+
+  async getLeadUpdatesBySheetId(sheetId: string): Promise<LeadUpdate[]> {
+    const result = await db
+      .select({
+        lead_update: dbSchema.lead_updates,
+        user: {
+          name: dbSchema.users.name,
+        },
+      })
+      .from(dbSchema.lead_updates)
+      .innerJoin(dbSchema.leads, eq(dbSchema.lead_updates.lead_id, dbSchema.leads.id))
+      .leftJoin(dbSchema.users, eq(dbSchema.lead_updates.created_by_user_id, dbSchema.users.id))
+      .where(eq(dbSchema.leads.sheet_id, sheetId))
       .orderBy(desc(dbSchema.lead_updates.created_at));
     
     return result.map((row) => ({

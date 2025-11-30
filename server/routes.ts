@@ -10766,7 +10766,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SHEET SNAPSHOTS (Point-in-Time Recovery) - SuperAdmin Only
   // ============================================================================
 
-  app.get("/api/admin/snapshots", requireSuperAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/admin/snapshots", authMiddleware, requireSuperAdmin, async (_req: AuthRequest, res) => {
     try {
       const snapshots = await storage.getAllSheetSnapshots(500);
       
@@ -10785,7 +10785,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/snapshots/stats", requireSuperAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/admin/snapshots/stats", authMiddleware, requireSuperAdmin, async (_req: AuthRequest, res) => {
     try {
       const stats = await import("./snapshot-scheduler").then(m => m.getSheetSnapshotStats());
       res.json(stats);
@@ -10795,7 +10795,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/snapshots/by-company/:companyId", requireSuperAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/snapshots/by-company/:companyId", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       const snapshots = await storage.getSheetSnapshotsByCompany(req.params.companyId, 200);
       res.json(snapshots);
@@ -10805,7 +10805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/snapshots/by-sheet/:sheetId", requireSuperAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/snapshots/by-sheet/:sheetId", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       const snapshots = await storage.getSheetSnapshotsBySheet(req.params.sheetId, 100);
       res.json(snapshots);
@@ -10815,7 +10815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/snapshots/:id", requireSuperAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/snapshots/:id", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       const snapshot = await storage.getSheetSnapshot(req.params.id);
       if (!snapshot) {
@@ -10828,7 +10828,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/snapshots/:id/preview", requireSuperAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/snapshots/:id/preview", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       const snapshot = await storage.getSheetSnapshot(req.params.id);
       if (!snapshot) {
@@ -10890,7 +10890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/snapshots/:id/restore", requireSuperAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/snapshots/:id/restore", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       if (!req.userId) {
         return res.status(403).json({ error: "User context required" });
@@ -11008,7 +11008,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/snapshots/create-manual/:sheetId", requireSuperAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/snapshots/create-manual/:sheetId", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       const { createManualSnapshot } = await import("./snapshot-scheduler");
       const created = await createManualSnapshot(req.params.sheetId);
@@ -11024,7 +11024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/snapshot-restore-logs", requireSuperAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/snapshot-restore-logs", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       const { companyId } = req.query;
       if (!companyId || typeof companyId !== 'string') {

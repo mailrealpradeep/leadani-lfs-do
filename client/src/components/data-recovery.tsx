@@ -137,7 +137,7 @@ export function DataRecovery() {
   });
 
   const { data: companies = [] } = useQuery<Company[]>({
-    queryKey: ["/api/companies"],
+    queryKey: ["/api/admin/companies"],
   });
 
   const { data: snapshots = [], isLoading: snapshotsLoading } = useQuery<Snapshot[]>({

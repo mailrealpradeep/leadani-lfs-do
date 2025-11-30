@@ -17,13 +17,29 @@ async function captureSheetSnapshot(sheet: any): Promise<boolean> {
     const sheetName = sheet.name;
     
     const leads = await storage.getLeadsBySheetId(sheetId);
-    const leadUpdates: Record<string, any[]> = {};
-    
     const activeLeads = leads.filter(l => !l.deleted_at);
     
-    for (const lead of activeLeads) {
-      const updates = await storage.getLeadUpdates(lead.id);
-      leadUpdates[lead.id] = updates;
+    const leadUpdates: Record<string, any[]> = {};
+    if (activeLeads.length > 0) {
+      const allUpdates = await storage.getLeadUpdatesBySheetId(sheetId);
+      for (const update of allUpdates) {
+        if (!leadUpdates[update.lead_id]) {
+          leadUpdates[update.lead_id] = [];
+        }
+        leadUpdates[update.lead_id].push(update);
+      }
+    }
+    
+    const dataForHash = {
+      leads: activeLeads,
+      lead_updates: leadUpdates,
+    };
+    const dataHash = generateDataHash(dataForHash);
+    
+    const latestSnapshot = await storage.getLatestSheetSnapshot(sheetId);
+    if (latestSnapshot && latestSnapshot.data_hash === dataHash) {
+      console.log(`[Snapshot] Sheet "${sheetName}" (${sheetId}) - no changes detected, skipping snapshot`);
+      return false;
     }
     
     const snapshotData = {
@@ -31,14 +47,6 @@ async function captureSheetSnapshot(sheet: any): Promise<boolean> {
       lead_updates: leadUpdates,
       captured_at: new Date().toISOString(),
     };
-    
-    const dataHash = generateDataHash(snapshotData);
-    
-    const latestSnapshot = await storage.getLatestSheetSnapshot(sheetId);
-    if (latestSnapshot && latestSnapshot.data_hash === dataHash) {
-      console.log(`[Snapshot] Sheet "${sheetName}" (${sheetId}) - no changes detected, skipping snapshot`);
-      return false;
-    }
     
     const snapshot = await storage.createSheetSnapshot({
       id: randomUUID(),
