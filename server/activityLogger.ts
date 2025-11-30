@@ -55,6 +55,14 @@ function generateSummary(params: LogActivityParams): string {
       }
       return `${actorName} updated ${target}`;
     },
+    cell_cleared: () => {
+      if (changes && changes.length > 0) {
+        const clearedFields = changes.slice(0, 3).map(c => c.field_label).join(", ");
+        const more = changes.length > 3 ? ` and ${changes.length - 3} more` : "";
+        return `${actorName} cleared ${clearedFields}${more} for ${target}`;
+      }
+      return `${actorName} cleared field for ${target}`;
+    },
     lead_deleted: () => `${actorName} moved ${target} to trash`,
     lead_restored: () => `${actorName} restored ${target} from trash`,
     lead_permanently_deleted: () => `${actorName} permanently deleted ${target}`,
@@ -296,6 +304,11 @@ export async function logLeadCreated(
   });
 }
 
+function isEmptyValue(value: any): boolean {
+  return value === null || value === undefined || value === "" || 
+    (Array.isArray(value) && value.length === 0);
+}
+
 export async function logLeadUpdated(
   actor: ActorContext,
   lead: Lead,
@@ -310,17 +323,36 @@ export async function logLeadUpdated(
   
   const leadName = newCustomFields.full_name || newCustomFields.name || lead.custom_fields?.full_name || "Lead";
   
-  await logActivity({
-    actor,
-    companyId: sheet.company_id,
-    sheetId: sheet.id,
-    sheetName: sheet.name,
-    action: "lead_updated",
-    targetType: "lead",
-    targetId: lead.id,
-    targetName: leadName,
-    changes,
-  });
+  const clearedChanges = changes.filter(c => !isEmptyValue(c.old_value) && isEmptyValue(c.new_value));
+  const updatedChanges = changes.filter(c => isEmptyValue(c.old_value) || !isEmptyValue(c.new_value));
+  
+  if (clearedChanges.length > 0) {
+    await logActivity({
+      actor,
+      companyId: sheet.company_id,
+      sheetId: sheet.id,
+      sheetName: sheet.name,
+      action: "cell_cleared",
+      targetType: "lead",
+      targetId: lead.id,
+      targetName: leadName,
+      changes: clearedChanges,
+    });
+  }
+  
+  if (updatedChanges.length > 0) {
+    await logActivity({
+      actor,
+      companyId: sheet.company_id,
+      sheetId: sheet.id,
+      sheetName: sheet.name,
+      action: "lead_updated",
+      targetType: "lead",
+      targetId: lead.id,
+      targetName: leadName,
+      changes: updatedChanges,
+    });
+  }
 }
 
 export async function logLeadDeleted(

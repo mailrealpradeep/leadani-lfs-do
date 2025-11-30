@@ -19,6 +19,7 @@ import {
   Key,
   Package,
   FileEdit,
+  Eraser,
   type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -88,6 +89,7 @@ const ACTION_TYPES = [
   { value: "all", label: "All Actions" },
   { value: "lead_created", label: "Lead Created" },
   { value: "lead_updated", label: "Lead Updated" },
+  { value: "cell_cleared", label: "Cell Cleared" },
   { value: "lead_deleted", label: "Lead Deleted" },
   { value: "lead_restored", label: "Lead Restored" },
   { value: "lead_transferred", label: "Lead Transferred" },
@@ -109,12 +111,13 @@ const ACTION_TYPES = [
 
 const getActionBadgeVariant = (action: string): "default" | "secondary" | "destructive" | "outline" => {
   if (action.includes("created") || action.includes("added")) return "default";
-  if (action.includes("deleted")) return "destructive";
+  if (action.includes("deleted") || action === "cell_cleared") return "destructive";
   if (action.includes("updated") || action.includes("changed")) return "secondary";
   return "outline";
 };
 
 const getActionIcon = (action: string): LucideIcon => {
+  if (action === "cell_cleared") return Eraser;
   if (action.includes("lead")) return ClipboardList;
   if (action.includes("sheet")) return Table2;
   if (action.includes("column")) return Columns;

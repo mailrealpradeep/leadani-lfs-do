@@ -1603,6 +1603,7 @@ export const activityActionTypes = [
   // Lead lifecycle
   "lead_created",
   "lead_updated",
+  "cell_cleared",
   "lead_deleted",
   "lead_restored",
   "lead_permanently_deleted",
