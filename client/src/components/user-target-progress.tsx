@@ -272,7 +272,10 @@ export function UserTargetProgress() {
   const { data: progressData = [], isLoading, error } = useQuery<TargetProgress[]>({
     queryKey: ["/api/targets/my/progress"],
     enabled: !!user,
+    retry: false,
   });
+
+  const isEmptyState = !isLoading && (progressData.length === 0 || error);
 
   if (isLoading) {
     return (
@@ -294,19 +297,7 @@ export function UserTargetProgress() {
     );
   }
 
-  if (error) {
-    return (
-      <Card className="p-6 text-center">
-        <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
-        <h3 className="font-semibold">Error loading targets</h3>
-        <p className="text-muted-foreground mt-1">
-          Unable to load your target progress. Please try again later.
-        </p>
-      </Card>
-    );
-  }
-
-  if (progressData.length === 0) {
+  if (isEmptyState) {
     return <NoTargets />;
   }
 

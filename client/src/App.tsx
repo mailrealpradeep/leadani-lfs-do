@@ -34,6 +34,7 @@ import SuperAdmin from "@/pages/super-admin";
 import Impersonate from "@/pages/impersonate";
 import ActivityLogs from "@/pages/activity-logs";
 import Leaderboard from "@/pages/leaderboard";
+import MyTargets from "@/pages/my-targets";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -130,6 +131,9 @@ function Router() {
       </Route>
       <Route path="/leaderboard">
         {() => <ProtectedRoute component={Leaderboard} />}
+      </Route>
+      <Route path="/my-targets">
+        {() => <ProtectedRoute component={MyTargets} />}
       </Route>
       <Route path="/super-admin">
         {() => <ProtectedRoute component={SuperAdmin} />}
