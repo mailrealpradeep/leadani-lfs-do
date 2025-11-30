@@ -124,6 +124,71 @@ const getActionIcon = (action: string): LucideIcon => {
   return FileEdit;
 };
 
+const formatDetails = (details: any): { label: string; items: Array<{ text: string; type?: 'change' | 'info' }> } | null => {
+  if (!details || typeof details !== 'object') return null;
+  
+  const items: Array<{ text: string; type?: 'change' | 'info' }> = [];
+  
+  if (details.field_label && (details.old_display !== undefined || details.new_display !== undefined)) {
+    const oldVal = details.old_display ?? details.old_value ?? '(empty)';
+    const newVal = details.new_display ?? details.new_value ?? '(empty)';
+    items.push({ text: `${details.field_label}: ${oldVal} → ${newVal}`, type: 'change' });
+  }
+  
+  if (details.changes && Array.isArray(details.changes)) {
+    details.changes.forEach((change: any) => {
+      if (change.field_label || change.field) {
+        const fieldName = change.field_label || change.field;
+        const oldVal = change.old_display ?? change.old_value ?? '(empty)';
+        const newVal = change.new_display ?? change.new_value ?? '(empty)';
+        items.push({ text: `${fieldName}: ${oldVal} → ${newVal}`, type: 'change' });
+      }
+    });
+  }
+  
+  if (details.count !== undefined) {
+    items.push({ text: `Count: ${details.count}`, type: 'info' });
+  }
+  if (details.transferred_count !== undefined) {
+    items.push({ text: `Leads transferred: ${details.transferred_count}`, type: 'info' });
+  }
+  if (details.from_user && details.to_user) {
+    items.push({ text: `From: ${details.from_user} → To: ${details.to_user}`, type: 'change' });
+  }
+  if (details.thought !== undefined) {
+    const thoughtLabel = details.thought === 'sure' ? 'Sure' : details.thought === 'may_be' ? 'May Be' : 'None';
+    items.push({ text: `Marked as: ${thoughtLabel}`, type: 'info' });
+  }
+  if (details.column_name) {
+    items.push({ text: `Column: ${details.column_name}`, type: 'info' });
+  }
+  if (details.column_type) {
+    items.push({ text: `Type: ${details.column_type}`, type: 'info' });
+  }
+  if (details.webhook_url) {
+    items.push({ text: `URL: ${details.webhook_url}`, type: 'info' });
+  }
+  if (details.reason) {
+    items.push({ text: `Reason: ${details.reason}`, type: 'info' });
+  }
+  if (details.update_text) {
+    items.push({ text: `Note: "${details.update_text}"`, type: 'info' });
+  }
+  
+  if (items.length === 0) {
+    const keys = Object.keys(details).filter(k => !['field_key', 'old_value', 'new_value'].includes(k));
+    keys.slice(0, 5).forEach(key => {
+      const val = details[key];
+      if (val !== null && val !== undefined && typeof val !== 'object') {
+        const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        items.push({ text: `${label}: ${val}`, type: 'info' });
+      }
+    });
+  }
+  
+  return items.length > 0 ? { label: 'Details', items } : null;
+};
+
 export default function ActivityLogs() {
   const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
   const isAdmin = isCompanyAdmin || isSuperAdmin;
@@ -386,16 +451,28 @@ export default function ActivityLogs() {
                           )}
                         </div>
 
-                        {log.details && Object.keys(log.details).length > 0 && (
-                          <details className="mt-2">
-                            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                              View details
-                            </summary>
-                            <pre className="mt-2 p-2 bg-muted rounded text-xs overflow-auto max-h-32">
-                              {JSON.stringify(log.details, null, 2)}
-                            </pre>
-                          </details>
-                        )}
+                        {log.details && Object.keys(log.details).length > 0 && (() => {
+                          const formatted = formatDetails(log.details);
+                          if (!formatted) return null;
+                          return (
+                            <details className="mt-2">
+                              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                                View details
+                              </summary>
+                              <div className="mt-2 p-3 bg-muted rounded-md space-y-1">
+                                {formatted.items.map((item, idx) => (
+                                  <div key={idx} className="text-sm flex items-start gap-2">
+                                    {item.type === 'change' ? (
+                                      <span className="text-foreground">{item.text}</span>
+                                    ) : (
+                                      <span className="text-muted-foreground">{item.text}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          );
+                        })()}
                       </div>
                     </div>
                   </CardContent>
