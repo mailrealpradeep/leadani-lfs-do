@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle, Check, X, ChevronDown } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check, X, ChevronDown, Eye, Clock, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,8 +44,7 @@ function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWe
   
   // Handle root-level primitives (string, number, boolean)
   if (typeof payload !== "object") {
-    const isRootLevel = depth === 0 && !prefix;
-    const value = truncateValue(payload, isRootLevel);
+    const value = truncateValue(payload);
     if (value) {
       fields.push({
         path: prefix || "value",
@@ -58,8 +57,8 @@ function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWe
 
   // Handle arrays - works for root-level arrays or nested arrays
   if (Array.isArray(payload)) {
-    // Limit to first 20 items to avoid overwhelming the UI
-    const maxItems = Math.min(payload.length, 20);
+    // Process all items - no artificial limit
+    const maxItems = payload.length;
     
     for (let index = 0; index < maxItems; index++) {
       const item = payload[index];
@@ -122,15 +121,6 @@ function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWe
         // Nested array - recurse
         fields.push(...extractWebhookFields(item, itemPath, depth + 1));
       }
-    }
-    
-    // Add notice if array was truncated
-    if (payload.length > 20) {
-      fields.push({
-        path: `${prefix || "array"}._info`,
-        label: `... and ${payload.length - 20} more items`,
-        sampleValue: "(array truncated)"
-      });
     }
     
     return fields;
@@ -289,42 +279,47 @@ function normalizeLabel(label: string): string {
 }
 
 // Check if a sample value is meaningful for display
-// Note: We're permissive here - booleans and zeros ARE valid webhook data
-function isMeaningfulSampleValue(value: any, isRootLevel = false): boolean {
+// Note: We're permissive here - booleans, zeros, objects, and arrays ARE valid webhook data
+function isMeaningfulSampleValue(value: any): boolean {
   if (value === null || value === undefined) return false;
-  
-  // Detect objects that can't be displayed
-  if (typeof value === "object" && !Array.isArray(value)) return false;
-  
-  const str = String(value).trim();
-  
-  // Filter out only truly unusable values
-  const unusableValues = [
-    "[object Object]", "null", "undefined", "", "NaN"
-  ];
-  
-  if (unusableValues.includes(str.toLowerCase())) return false;
-  
-  // For root-level values, always accept booleans and numbers
-  if (isRootLevel) return true;
-  
-  // For nested values, booleans and simple numbers are still valid data
-  // Only reject very short single-digit numbers that look like array indices
-  // Actually, let's be permissive - "0", "1", "true", "false" can all be valid data
-  
-  return true;
+  return true; // Everything else is valid
 }
 
-// Truncate long values for display and detect unusable values
-function truncateValue(value: any, isRootLevel = false): string {
-  if (!isMeaningfulSampleValue(value, isRootLevel)) {
+// Truncate long values for display - shows useful previews for all types
+function truncateValue(value: any): string {
+  if (value === null || value === undefined) {
     return "";
+  }
+  
+  // Handle arrays - show preview of contents
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "(empty array)";
+    // Show first element as preview
+    const firstItem = value[0];
+    if (typeof firstItem === "object" && firstItem !== null) {
+      return `[${value.length} items]`;
+    }
+    const preview = value.slice(0, 3).map(v => String(v)).join(", ");
+    return value.length > 3 ? `${preview}...` : preview;
+  }
+  
+  // Handle objects - show key count or first few keys
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    if (keys.length === 0) return "(empty object)";
+    const preview = keys.slice(0, 2).join(", ");
+    return keys.length > 2 ? `{${preview}...}` : `{${preview}}`;
   }
   
   const str = String(value).trim();
   
-  if (str.length > 30) {
-    return str.substring(0, 27) + "...";
+  // Filter out only truly unusable string representations
+  if (str === "" || str === "NaN") {
+    return "";
+  }
+  
+  if (str.length > 40) {
+    return str.substring(0, 37) + "...";
   }
   return str;
 }
@@ -425,6 +420,8 @@ const DEFAULT_SAMPLE_PAYLOAD = {
 export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("mappings");
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [showPayloadPreview, setShowPayloadPreview] = useState(false);
 
   // Fetch dynamic sample payload and available fields based on company's custom columns
   const { data: sampleData, isLoading: isLoadingSample, error: sampleError } = useQuery<{
@@ -491,13 +488,73 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     enabled: !!webhook.id,
   });
 
-  // Extract available webhook fields from recent payload data (aggregated from multiple requests)
+  // Auto-select the most recent request when data loads
+  useEffect(() => {
+    if (webhookRequests.length > 0 && !selectedRequestId) {
+      // Sort by created_at descending and select the most recent
+      const sorted = [...webhookRequests].sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setSelectedRequestId(sorted[0].id);
+    }
+  }, [webhookRequests, selectedRequestId]);
+
+  // Get the selected request object
+  const selectedRequest = useMemo(() => {
+    if (!selectedRequestId) return null;
+    return webhookRequests.find(r => r.id === selectedRequestId) || null;
+  }, [webhookRequests, selectedRequestId]);
+
+  // Extract available webhook fields from the SELECTED request (no aggregation/deduplication)
   const availableWebhookFields = useMemo(() => {
-    if (webhookRequests.length > 0) {
-      return aggregateWebhookFields(webhookRequests);
+    if (selectedRequest?.payload) {
+      // Extract ALL fields from the single selected request
+      const fields = extractWebhookFields(selectedRequest.payload);
+      // Only filter out truly empty fields, keep everything else
+      return fields.filter(f => f.sampleValue.trim() !== "" || f.label.trim() !== "");
     }
     return [];
+  }, [selectedRequest]);
+
+  // Format recent requests for the selector dropdown
+  const recentRequestsForSelector = useMemo(() => {
+    return [...webhookRequests]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 10) // Show last 10 requests
+      .map(request => {
+        const date = new Date(request.created_at);
+        const timeAgo = formatTimeAgo(date);
+        // Try to get a preview of the payload
+        const payloadKeys = Object.keys(request.payload || {}).slice(0, 3);
+        const preview = payloadKeys.length > 0 
+          ? `Fields: ${payloadKeys.join(", ")}${Object.keys(request.payload).length > 3 ? "..." : ""}`
+          : "Empty payload";
+        
+        return {
+          id: request.id,
+          label: `${timeAgo} (${request.status})`,
+          preview,
+          fieldCount: Object.keys(request.payload || {}).length,
+          status: request.status,
+          date,
+        };
+      });
   }, [webhookRequests]);
+
+  // Helper function to format time ago
+  function formatTimeAgo(date: Date): string {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+    return date.toLocaleDateString();
+  }
 
 
   // Load existing configuration when data arrives
@@ -839,12 +896,88 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       </TabsList>
 
       <TabsContent value="mappings" className="space-y-4 py-2">
+        {/* Recent Webhook Requests Selector */}
+        {recentRequestsForSelector.length > 0 && (
+          <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-sm font-medium">Select Webhook Data Source</Label>
+              </div>
+              {selectedRequest && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPayloadPreview(!showPayloadPreview)}
+                  className="text-xs"
+                  data-testid="button-toggle-payload-preview"
+                >
+                  <Eye className="h-3 w-3 mr-1" />
+                  {showPayloadPreview ? "Hide" : "View"} Raw Data
+                  {showPayloadPreview ? <ChevronUp className="h-3 w-3 ml-1" /> : <ChevronDown className="h-3 w-3 ml-1" />}
+                </Button>
+              )}
+            </div>
+            
+            <Select
+              value={selectedRequestId || ""}
+              onValueChange={(value) => setSelectedRequestId(value)}
+            >
+              <SelectTrigger className="w-full" data-testid="select-webhook-request">
+                <SelectValue placeholder="Choose a recent webhook request" />
+              </SelectTrigger>
+              <SelectContent>
+                <ScrollArea className="max-h-[250px]">
+                  {recentRequestsForSelector.map((request) => (
+                    <SelectItem key={request.id} value={request.id}>
+                      <div className="flex flex-col py-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{request.label}</span>
+                          <Badge 
+                            variant={request.status === "success" ? "default" : "destructive"}
+                            className="text-xs h-5"
+                          >
+                            {request.status}
+                          </Badge>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {request.preview}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </ScrollArea>
+              </SelectContent>
+            </Select>
+
+            {/* Payload Preview Panel */}
+            {showPayloadPreview && selectedRequest && (
+              <div className="mt-2 p-3 rounded-md bg-background border">
+                <Label className="text-xs font-medium text-muted-foreground mb-2 block">Raw Payload Data</Label>
+                <ScrollArea className="max-h-[150px]">
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-all">
+                    {JSON.stringify(selectedRequest.payload, null, 2)}
+                  </pre>
+                </ScrollArea>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Show helpful message based on webhook data availability */}
         {availableWebhookFields.length > 0 ? (
           <Alert className="mb-4 border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
             <Check className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800 dark:text-green-200">
-              We detected {availableWebhookFields.length} fields from your recent webhook data. Select the fields you want to map to your CRM.
+              Found {availableWebhookFields.length} extractable fields from the selected webhook. Select the fields you want to map to your CRM.
+            </AlertDescription>
+          </Alert>
+        ) : webhookRequests.length > 0 ? (
+          <Alert className="mb-4 border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950">
+            <AlertCircle className="h-4 w-4 text-yellow-600" />
+            <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+              No extractable fields found in the selected webhook. Try selecting a different request above, or configure manually.
             </AlertDescription>
           </Alert>
         ) : (
