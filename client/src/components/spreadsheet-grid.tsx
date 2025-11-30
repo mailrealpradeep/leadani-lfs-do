@@ -511,7 +511,71 @@ export function SpreadsheetGrid({
     mutationFn: async ({ leadId, customFields }: { leadId: string; customFields: Record<string, any> }) => {
       return await apiRequest("PATCH", `/api/leads/${leadId}`, { custom_fields: customFields });
     },
-    onSuccess: () => {
+    onMutate: async ({ leadId, customFields }) => {
+      // Cancel any outgoing refetches to avoid overwriting our optimistic update
+      if (isMultiMode) {
+        await queryClient.cancelQueries({ queryKey: ["/api/leads/query"] });
+      } else {
+        await queryClient.cancelQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+      }
+
+      // Snapshot the previous value
+      const previousSingleLeads = queryClient.getQueryData<Lead[]>(["/api/sheets", activeSheetId, "leads"]);
+      const previousMultiLeads = queryClient.getQueriesData<PaginatedLeadsResponse>({ queryKey: ["/api/leads/query"] });
+
+      // Optimistically update the lead in the cache
+      if (isMultiMode) {
+        queryClient.setQueriesData<PaginatedLeadsResponse>(
+          { queryKey: ["/api/leads/query"] },
+          (old) => {
+            if (!old) return old;
+            return {
+              ...old,
+              leads: old.leads.map((lead) =>
+                lead.id === leadId
+                  ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
+                  : lead
+              ),
+            };
+          }
+        );
+      } else {
+        queryClient.setQueryData<Lead[]>(
+          ["/api/sheets", activeSheetId, "leads"],
+          (old) => {
+            if (!old) return old;
+            return old.map((lead) =>
+              lead.id === leadId
+                ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
+                : lead
+            );
+          }
+        );
+      }
+
+      // Return context with previous values for rollback
+      return { previousSingleLeads, previousMultiLeads };
+    },
+    onError: (err, variables, context) => {
+      // Rollback to previous value on error
+      if (context?.previousSingleLeads) {
+        queryClient.setQueryData(["/api/sheets", activeSheetId, "leads"], context.previousSingleLeads);
+      }
+      if (context?.previousMultiLeads) {
+        context.previousMultiLeads.forEach(([queryKey, data]) => {
+          if (data) {
+            queryClient.setQueryData(queryKey, data);
+          }
+        });
+      }
+      toast({
+        title: "Error saving",
+        description: "Failed to save changes. Please try again.",
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      // Always refetch after error or success to ensure server state is synced
       if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
       } else {
