@@ -2630,3 +2630,101 @@ export function getOperatorLabel(operator: RowFilterOperator): string {
   };
   return labels[operator] || operator;
 }
+
+// ============================================================================
+// SHEET SNAPSHOTS (Point-in-Time Recovery for SuperAdmin)
+// ============================================================================
+
+// Snapshot contains the complete state of a sheet at a moment in time
+export interface SheetSnapshotData {
+  leads: Array<{
+    id: string;
+    owner_user_id: string;
+    custom_fields: Record<string, any>;
+    meta: Record<string, any>;
+    deleted_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  lead_updates: Array<{
+    id: string;
+    lead_id: string;
+    update_via: "whatsapp" | "call" | "transfer";
+    update_on: string;
+    remark: string;
+    created_by_user_id?: string | null;
+    created_at: string;
+  }>;
+  columns: Array<{
+    id: string;
+    name: string;
+    column_key: string;
+    type: string;
+    config: Record<string, any>;
+    order_index: number;
+  }>;
+}
+
+export interface SheetSnapshot {
+  id: string;
+  company_id: string;
+  sheet_id: string;
+  sheet_name: string; // Stored for historical reference (sheet name may change)
+  snapshot_data: SheetSnapshotData;
+  lead_count: number;
+  update_count: number;
+  data_hash: string; // MD5 hash to detect changes - skip if same as previous
+  created_at: string;
+}
+
+export const sheet_snapshots = pgTable('sheet_snapshots', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  sheet_name: varchar('sheet_name', { length: 255 }).notNull(),
+  snapshot_data: jsonb('snapshot_data').notNull(), // Compressed JSON of leads + updates + columns
+  lead_count: integer('lead_count').notNull().default(0),
+  update_count: integer('update_count').notNull().default(0),
+  data_hash: varchar('data_hash', { length: 64 }).notNull(), // MD5 hash for change detection
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type SheetSnapshotRecord = typeof sheet_snapshots.$inferSelect;
+export type InsertSheetSnapshot = typeof sheet_snapshots.$inferInsert;
+
+export const insertSheetSnapshotSchema = createInsertSchema(sheet_snapshots).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertSheetSnapshotData = z.infer<typeof insertSheetSnapshotSchema>;
+
+// Restore log entry for tracking who restored what and when
+export interface SnapshotRestoreLog {
+  id: string;
+  snapshot_id: string;
+  company_id: string;
+  sheet_id: string;
+  restored_by_user_id: string;
+  leads_restored: number;
+  updates_restored: number;
+  restore_type: "full" | "leads_only" | "selective";
+  notes: string | null;
+  created_at: string;
+}
+
+export const snapshot_restore_logs = pgTable('snapshot_restore_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  snapshot_id: varchar('snapshot_id').notNull().references(() => sheet_snapshots.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  restored_by_user_id: varchar('restored_by_user_id').notNull().references(() => users.id),
+  leads_restored: integer('leads_restored').notNull().default(0),
+  updates_restored: integer('updates_restored').notNull().default(0),
+  restore_type: varchar('restore_type', { length: 50 }).notNull().default('full'),
+  notes: text('notes'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type SnapshotRestoreLogRecord = typeof snapshot_restore_logs.$inferSelect;
+export type InsertSnapshotRestoreLog = typeof snapshot_restore_logs.$inferInsert;
