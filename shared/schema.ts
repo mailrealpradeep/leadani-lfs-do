@@ -329,12 +329,24 @@ export type InsertValidationRule = z.infer<typeof insertValidationRuleSchema>;
 
 // Preset highlight colors (with their CSS variable names for dark/light mode support)
 export const highlightColors = [
+  // Red variants
+  { id: "red_light", label: "Light Red", light: "hsl(0, 86%, 97%)", dark: "hsl(0, 50%, 15%)" },
   { id: "red", label: "Red", light: "hsl(0, 84%, 95%)", dark: "hsl(0, 70%, 20%)" },
-  { id: "yellow", label: "Yellow", light: "hsl(48, 96%, 89%)", dark: "hsl(48, 70%, 20%)" },
+  { id: "red_dark", label: "Dark Red", light: "hsl(0, 72%, 91%)", dark: "hsl(0, 80%, 25%)" },
+  // Green variants
+  { id: "green_light", label: "Light Green", light: "hsl(142, 76%, 95%)", dark: "hsl(142, 40%, 12%)" },
   { id: "green", label: "Green", light: "hsl(142, 69%, 90%)", dark: "hsl(142, 50%, 18%)" },
+  { id: "green_dark", label: "Dark Green", light: "hsl(142, 60%, 85%)", dark: "hsl(142, 60%, 22%)" },
+  // Blue variants
+  { id: "blue_light", label: "Light Blue", light: "hsl(210, 100%, 96%)", dark: "hsl(210, 50%, 15%)" },
   { id: "blue", label: "Blue", light: "hsl(210, 100%, 93%)", dark: "hsl(210, 70%, 20%)" },
+  { id: "blue_dark", label: "Dark Blue", light: "hsl(210, 80%, 88%)", dark: "hsl(210, 80%, 28%)" },
+  // Other colors
+  { id: "yellow", label: "Yellow", light: "hsl(48, 96%, 89%)", dark: "hsl(48, 70%, 20%)" },
   { id: "orange", label: "Orange", light: "hsl(24, 100%, 92%)", dark: "hsl(24, 70%, 20%)" },
   { id: "purple", label: "Purple", light: "hsl(270, 80%, 93%)", dark: "hsl(270, 60%, 22%)" },
+  { id: "pink", label: "Pink", light: "hsl(330, 80%, 95%)", dark: "hsl(330, 60%, 20%)" },
+  { id: "teal", label: "Teal", light: "hsl(174, 72%, 90%)", dark: "hsl(174, 55%, 18%)" },
 ] as const;
 
 export type HighlightColorId = typeof highlightColors[number]["id"];
@@ -363,7 +375,7 @@ export type HighlightingCondition = z.infer<typeof highlightingConditionSchema>;
 export interface HighlightingRule {
   id: string;
   company_id: string;
-  sheet_id: string;
+  sheet_id: string | null; // null means applies to all sheets
   name: string;
   conditions: HighlightingCondition[];
   logical_operator: "and" | "or"; // How conditions are combined
@@ -377,11 +389,16 @@ export interface HighlightingRule {
 
 export const insertHighlightingRuleSchema = z.object({
   company_id: z.string(),
-  sheet_id: z.string(),
+  sheet_id: z.string().nullable().optional(), // null means applies to all sheets
   name: z.string().min(1, "Rule name is required"),
   conditions: z.array(highlightingConditionSchema).min(1, "At least one condition is required"),
   logical_operator: z.enum(["and", "or"]).default("and"),
-  row_color: z.enum(["red", "yellow", "green", "blue", "orange", "purple"]),
+  row_color: z.enum([
+    "red_light", "red", "red_dark",
+    "green_light", "green", "green_dark",
+    "blue_light", "blue", "blue_dark",
+    "yellow", "orange", "purple", "pink", "teal"
+  ]),
   priority: z.number().int().default(0),
   is_active: z.boolean().default(true),
   created_by_user_id: z.string(),
@@ -814,7 +831,7 @@ export const validation_rules = pgTable('validation_rules', {
 export const highlighting_rules = pgTable('highlighting_rules', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
-  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'cascade' }), // null means applies to all sheets
   name: varchar('name', { length: 255 }).notNull(),
   conditions: json('conditions').$type<HighlightingCondition[]>().notNull(),
   logical_operator: varchar('logical_operator', { length: 10 }).notNull().default('and'),

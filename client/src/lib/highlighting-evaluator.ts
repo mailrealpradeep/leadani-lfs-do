@@ -2,12 +2,24 @@ import { startOfDay, startOfWeek, endOfWeek, addWeeks, subWeeks, parseISO, isVal
 import type { HighlightingRule, HighlightingCondition, Lead } from "@shared/schema";
 
 const HIGHLIGHT_COLORS = {
+  // Red variants
+  red_light: { light: "hsl(0, 86%, 97%)", dark: "hsl(0, 50%, 15%)" },
   red: { light: "hsl(0, 84%, 95%)", dark: "hsl(0, 70%, 20%)" },
-  yellow: { light: "hsl(48, 96%, 89%)", dark: "hsl(48, 70%, 20%)" },
+  red_dark: { light: "hsl(0, 72%, 91%)", dark: "hsl(0, 80%, 25%)" },
+  // Green variants
+  green_light: { light: "hsl(142, 76%, 95%)", dark: "hsl(142, 40%, 12%)" },
   green: { light: "hsl(142, 69%, 90%)", dark: "hsl(142, 50%, 18%)" },
+  green_dark: { light: "hsl(142, 60%, 85%)", dark: "hsl(142, 60%, 22%)" },
+  // Blue variants
+  blue_light: { light: "hsl(210, 100%, 96%)", dark: "hsl(210, 50%, 15%)" },
   blue: { light: "hsl(210, 100%, 93%)", dark: "hsl(210, 70%, 20%)" },
+  blue_dark: { light: "hsl(210, 80%, 88%)", dark: "hsl(210, 80%, 28%)" },
+  // Other colors
+  yellow: { light: "hsl(48, 96%, 89%)", dark: "hsl(48, 70%, 20%)" },
   orange: { light: "hsl(24, 100%, 92%)", dark: "hsl(24, 70%, 20%)" },
   purple: { light: "hsl(270, 80%, 93%)", dark: "hsl(270, 60%, 22%)" },
+  pink: { light: "hsl(330, 80%, 95%)", dark: "hsl(330, 60%, 20%)" },
+  teal: { light: "hsl(174, 72%, 90%)", dark: "hsl(174, 55%, 18%)" },
 } as const;
 
 export type HighlightColor = keyof typeof HIGHLIGHT_COLORS;
