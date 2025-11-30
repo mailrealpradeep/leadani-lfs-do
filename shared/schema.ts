@@ -324,6 +324,72 @@ export const insertValidationRuleSchema = z.object({
 export type InsertValidationRule = z.infer<typeof insertValidationRuleSchema>;
 
 // ============================================================================
+// HIGHLIGHTING RULES (Row Highlighting based on Conditions)
+// ============================================================================
+
+// Preset highlight colors (with their CSS variable names for dark/light mode support)
+export const highlightColors = [
+  { id: "red", label: "Red", light: "hsl(0, 84%, 95%)", dark: "hsl(0, 70%, 20%)" },
+  { id: "yellow", label: "Yellow", light: "hsl(48, 96%, 89%)", dark: "hsl(48, 70%, 20%)" },
+  { id: "green", label: "Green", light: "hsl(142, 69%, 90%)", dark: "hsl(142, 50%, 18%)" },
+  { id: "blue", label: "Blue", light: "hsl(210, 100%, 93%)", dark: "hsl(210, 70%, 20%)" },
+  { id: "orange", label: "Orange", light: "hsl(24, 100%, 92%)", dark: "hsl(24, 70%, 20%)" },
+  { id: "purple", label: "Purple", light: "hsl(270, 80%, 93%)", dark: "hsl(270, 60%, 22%)" },
+] as const;
+
+export type HighlightColorId = typeof highlightColors[number]["id"];
+
+// Highlighting condition schema (column + operator + value)
+export const highlightingConditionSchema = z.object({
+  column_key: z.string().min(1, "Column key is required"),
+  operator: z.enum([
+    // Text/General operators
+    "equals", "not_equals", "contains", "not_contains", 
+    "starts_with", "ends_with",
+    "is_empty", "is_not_empty",
+    // Number operators
+    "greater_than", "less_than", "greater_equal", "less_equal", "between",
+    // Date operators
+    "date_equals", "date_before", "date_after", "date_between",
+    "is_today", "is_before_today", "is_after_today", 
+    "is_this_week", "is_next_week", "is_last_week"
+  ]),
+  value: z.union([z.string(), z.number(), z.array(z.string()), z.null()]).optional(),
+  value2: z.union([z.string(), z.number(), z.null()]).optional(), // For "between" operators
+});
+
+export type HighlightingCondition = z.infer<typeof highlightingConditionSchema>;
+
+export interface HighlightingRule {
+  id: string;
+  company_id: string;
+  sheet_id: string;
+  name: string;
+  conditions: HighlightingCondition[];
+  logical_operator: "and" | "or"; // How conditions are combined
+  row_color: HighlightColorId;
+  priority: number; // Lower number = higher priority (evaluated first)
+  is_active: boolean;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const insertHighlightingRuleSchema = z.object({
+  company_id: z.string(),
+  sheet_id: z.string(),
+  name: z.string().min(1, "Rule name is required"),
+  conditions: z.array(highlightingConditionSchema).min(1, "At least one condition is required"),
+  logical_operator: z.enum(["and", "or"]).default("and"),
+  row_color: z.enum(["red", "yellow", "green", "blue", "orange", "purple"]),
+  priority: z.number().int().default(0),
+  is_active: z.boolean().default(true),
+  created_by_user_id: z.string(),
+});
+
+export type InsertHighlightingRule = z.infer<typeof insertHighlightingRuleSchema>;
+
+// ============================================================================
 // QUICK FILTERS (Company-wide Quick Filters)
 // ============================================================================
 
@@ -741,6 +807,21 @@ export const validation_rules = pgTable('validation_rules', {
   required_fields: json('required_fields').$type<string[]>().notNull(),
   conditions: json('conditions').$type<ValidationCondition[]>(),
   logical_operator: varchar('logical_operator', { length: 10 }).default('and'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const highlighting_rules = pgTable('highlighting_rules', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  conditions: json('conditions').$type<HighlightingCondition[]>().notNull(),
+  logical_operator: varchar('logical_operator', { length: 10 }).notNull().default('and'),
+  row_color: varchar('row_color', { length: 50 }).notNull(),
+  priority: integer('priority').notNull().default(0),
+  is_active: boolean('is_active').notNull().default(true),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

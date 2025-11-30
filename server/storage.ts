@@ -16,6 +16,8 @@ import type {
   InsertCustomColumn,
   ValidationRule,
   InsertValidationRule,
+  HighlightingRule,
+  InsertHighlightingRule,
   QuickFilter,
   InsertQuickFilter,
   Audit,
@@ -180,6 +182,14 @@ export interface IStorage {
   createValidationRule(rule: InsertValidationRule): Promise<ValidationRule>;
   updateValidationRule(id: string, updates: Partial<ValidationRule>): Promise<ValidationRule | undefined>;
   deleteValidationRule(id: string): Promise<boolean>;
+
+  // Highlighting Rules (Row Highlighting based on Conditions)
+  getHighlightingRules(sheetId: string): Promise<HighlightingRule[]>;
+  getHighlightingRuleById(id: string): Promise<HighlightingRule | undefined>;
+  createHighlightingRule(rule: InsertHighlightingRule): Promise<HighlightingRule>;
+  updateHighlightingRule(id: string, updates: Partial<HighlightingRule>): Promise<HighlightingRule | undefined>;
+  deleteHighlightingRule(id: string): Promise<boolean>;
+  reorderHighlightingRules(sheetId: string, ruleIds: string[]): Promise<boolean>;
 
   // Quick Filters (Company-wide Quick Filters)
   getQuickFilters(companyId: string): Promise<QuickFilter[]>;
@@ -1063,6 +1073,59 @@ export class MemStorage implements IStorage {
 
   async deleteValidationRule(id: string): Promise<boolean> {
     return this.validationRules.delete(id);
+  }
+
+  // Highlighting Rules (Row Highlighting based on Conditions)
+  private highlightingRules: Map<string, HighlightingRule> = new Map();
+
+  async getHighlightingRules(sheetId: string): Promise<HighlightingRule[]> {
+    return Array.from(this.highlightingRules.values())
+      .filter((rule) => rule.sheet_id === sheetId && rule.is_active)
+      .sort((a, b) => a.priority - b.priority);
+  }
+
+  async getHighlightingRuleById(id: string): Promise<HighlightingRule | undefined> {
+    return this.highlightingRules.get(id);
+  }
+
+  async createHighlightingRule(insertRule: InsertHighlightingRule): Promise<HighlightingRule> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const rule: HighlightingRule = {
+      ...insertRule,
+      id,
+      created_at: now,
+      updated_at: now,
+    };
+    this.highlightingRules.set(id, rule);
+    return rule;
+  }
+
+  async updateHighlightingRule(
+    id: string,
+    updates: Partial<HighlightingRule>
+  ): Promise<HighlightingRule | undefined> {
+    const rule = this.highlightingRules.get(id);
+    if (!rule) return undefined;
+    const updated = { ...rule, ...updates, updated_at: new Date().toISOString() };
+    this.highlightingRules.set(id, updated);
+    return updated;
+  }
+
+  async deleteHighlightingRule(id: string): Promise<boolean> {
+    return this.highlightingRules.delete(id);
+  }
+
+  async reorderHighlightingRules(sheetId: string, ruleIds: string[]): Promise<boolean> {
+    ruleIds.forEach((id, index) => {
+      const rule = this.highlightingRules.get(id);
+      if (rule && rule.sheet_id === sheetId) {
+        rule.priority = index;
+        rule.updated_at = new Date().toISOString();
+        this.highlightingRules.set(id, rule);
+      }
+    });
+    return true;
   }
 
   // Quick Filters (Company-wide Quick Filters)
@@ -2699,6 +2762,85 @@ export class PgStorage implements IStorage {
 
   async deleteValidationRule(id: string): Promise<boolean> {
     await db.delete(dbSchema.validation_rules).where(eq(dbSchema.validation_rules.id, id));
+    return true;
+  }
+
+  // Highlighting Rules (Row Highlighting based on Conditions)
+  private mapHighlightingRule(row: any): HighlightingRule {
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      sheet_id: row.sheet_id,
+      name: row.name,
+      conditions: row.conditions || [],
+      logical_operator: row.logical_operator || 'and',
+      row_color: row.row_color,
+      priority: row.priority || 0,
+      is_active: row.is_active ?? true,
+      created_by_user_id: row.created_by_user_id,
+      created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+      updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
+    };
+  }
+
+  async getHighlightingRules(sheetId: string): Promise<HighlightingRule[]> {
+    const result = await db.select()
+      .from(dbSchema.highlighting_rules)
+      .where(and(
+        eq(dbSchema.highlighting_rules.sheet_id, sheetId),
+        eq(dbSchema.highlighting_rules.is_active, true)
+      ))
+      .orderBy(dbSchema.highlighting_rules.priority);
+    return result.map(this.mapHighlightingRule);
+  }
+
+  async getHighlightingRuleById(id: string): Promise<HighlightingRule | undefined> {
+    const result = await db.select().from(dbSchema.highlighting_rules).where(eq(dbSchema.highlighting_rules.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapHighlightingRule(result[0]);
+  }
+
+  async createHighlightingRule(rule: InsertHighlightingRule): Promise<HighlightingRule> {
+    const id = randomUUID();
+    const now = new Date();
+    const newRule = {
+      id,
+      ...rule,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.highlighting_rules).values(newRule);
+    return this.mapHighlightingRule(newRule as any);
+  }
+
+  async updateHighlightingRule(id: string, updates: Partial<HighlightingRule>): Promise<HighlightingRule | undefined> {
+    const updated_at = new Date();
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    if (updates.updated_at && typeof updates.updated_at === 'string') {
+      convertedUpdates.updated_at = new Date(updates.updated_at);
+    }
+    convertedUpdates.updated_at = updated_at;
+    await db.update(dbSchema.highlighting_rules).set(convertedUpdates).where(eq(dbSchema.highlighting_rules.id, id));
+    return this.getHighlightingRuleById(id);
+  }
+
+  async deleteHighlightingRule(id: string): Promise<boolean> {
+    await db.delete(dbSchema.highlighting_rules).where(eq(dbSchema.highlighting_rules.id, id));
+    return true;
+  }
+
+  async reorderHighlightingRules(sheetId: string, ruleIds: string[]): Promise<boolean> {
+    for (let i = 0; i < ruleIds.length; i++) {
+      await db.update(dbSchema.highlighting_rules)
+        .set({ priority: i, updated_at: new Date() })
+        .where(and(
+          eq(dbSchema.highlighting_rules.id, ruleIds[i]),
+          eq(dbSchema.highlighting_rules.sheet_id, sheetId)
+        ));
+    }
     return true;
   }
 

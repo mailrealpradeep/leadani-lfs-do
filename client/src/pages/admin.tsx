@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,8 @@ import { CompanyColumnManager } from "@/components/company-column-manager";
 import { QuickFilterManager } from "@/components/quick-filter-manager";
 import { MobileCardSettings } from "@/components/mobile-card-settings";
 import { NotificationSettings } from "@/components/notification-settings";
+import { HighlightingRulesManager } from "@/components/highlighting-rules-manager";
+import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
   const [createOpen, setCreateOpen] = useState(false);
@@ -252,10 +254,15 @@ function CompanyAdminView() {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
   const [userToReset, setUserToReset] = useState<User | null>(null);
+  const [selectedHighlightingSheetId, setSelectedHighlightingSheetId] = useState<string>("");
   const { toast } = useToast();
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["/api/admin/company/users"],
+  });
+
+  const { data: companySheets = [] } = useQuery<Sheet[]>({
+    queryKey: ["/api/sheets"],
   });
 
   const form = useForm<InsertUser>({
@@ -623,6 +630,53 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <QuickFilterManager headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="highlighting" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-highlighting">
+              <div className="flex items-center gap-3">
+                <Palette className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Highlighting Rules</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure row highlighting based on column conditions
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select Sheet</label>
+                  <Select
+                    value={selectedHighlightingSheetId}
+                    onValueChange={setSelectedHighlightingSheetId}
+                  >
+                    <SelectTrigger data-testid="select-highlighting-sheet">
+                      <SelectValue placeholder="Choose a sheet to configure highlighting..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {companySheets.map((sheet) => (
+                        <SelectItem key={sheet.id} value={sheet.id}>
+                          {sheet.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {selectedHighlightingSheetId ? (
+                  <HighlightingRulesManager 
+                    sheetId={selectedHighlightingSheetId}
+                    sheetName={companySheets.find(s => s.id === selectedHighlightingSheetId)?.name}
+                  />
+                ) : (
+                  <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                    <Palette className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-muted-foreground">Select a sheet to manage highlighting rules</p>
+                  </div>
+                )}
               </div>
             </AccordionContent>
           </AccordionItem>

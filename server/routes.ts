@@ -6090,6 +6090,175 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // HIGHLIGHTING RULES (Admin-only, Sheet-scoped)
+  // ============================================================================
+  
+  // GET /api/sheets/:sheetId/highlighting-rules - Fetch highlighting rules for a sheet
+  app.get("/api/sheets/:sheetId/highlighting-rules", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
+    try {
+      const sheetId = req.params.sheetId;
+      const rules = await storage.getHighlightingRules(sheetId);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get highlighting rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/company/sheets/:sheetId/highlighting-rules - Create highlighting rule (Admin only)
+  app.post("/api/company/sheets/:sheetId/highlighting-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const sheetId = req.params.sheetId;
+      
+      // Get sheet to validate company ownership
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Validate company admin access
+      if (req.userRole === "company_admin" && sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot create rules for sheets in other companies" });
+      }
+      
+      const { name, conditions, logical_operator, row_color, priority, is_active } = req.body;
+      
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Rule name is required" });
+      }
+      
+      if (!conditions || !Array.isArray(conditions) || conditions.length === 0) {
+        return res.status(400).json({ error: "At least one condition is required" });
+      }
+      
+      if (!row_color) {
+        return res.status(400).json({ error: "Row color is required" });
+      }
+      
+      // Get max priority for this sheet
+      const existingRules = await storage.getHighlightingRules(sheetId);
+      const maxPriority = existingRules.reduce((max, r) => Math.max(max, r.priority), -1);
+      
+      const rule = await storage.createHighlightingRule({
+        company_id: sheet.company_id,
+        sheet_id: sheetId,
+        name: name.trim(),
+        conditions,
+        logical_operator: logical_operator || "and",
+        row_color,
+        priority: priority ?? maxPriority + 1,
+        is_active: is_active ?? true,
+        created_by_user_id: req.userId!,
+      });
+      
+      // Emit socket event for real-time updates
+      io.to(`company:${sheet.company_id}`).emit("highlighting_rules.updated", { sheetId });
+      
+      res.status(201).json(rule);
+    } catch (error: any) {
+      console.error("Create highlighting rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // PATCH /api/company/highlighting-rules/:ruleId - Update highlighting rule (Admin only)
+  app.patch("/api/company/highlighting-rules/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const ruleId = req.params.ruleId;
+      
+      const existingRule = await storage.getHighlightingRuleById(ruleId);
+      if (!existingRule) {
+        return res.status(404).json({ error: "Highlighting rule not found" });
+      }
+      
+      // Validate company admin access
+      if (req.userRole === "company_admin" && existingRule.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update rules for other companies" });
+      }
+      
+      const { name, conditions, logical_operator, row_color, priority, is_active } = req.body;
+      
+      const updates: Partial<typeof existingRule> = {};
+      if (name !== undefined) updates.name = name.trim();
+      if (conditions !== undefined) updates.conditions = conditions;
+      if (logical_operator !== undefined) updates.logical_operator = logical_operator;
+      if (row_color !== undefined) updates.row_color = row_color;
+      if (priority !== undefined) updates.priority = priority;
+      if (is_active !== undefined) updates.is_active = is_active;
+      
+      const rule = await storage.updateHighlightingRule(ruleId, updates);
+      
+      // Emit socket event for real-time updates
+      io.to(`company:${existingRule.company_id}`).emit("highlighting_rules.updated", { sheetId: existingRule.sheet_id });
+      
+      res.json(rule);
+    } catch (error: any) {
+      console.error("Update highlighting rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // DELETE /api/company/highlighting-rules/:ruleId - Delete highlighting rule (Admin only)
+  app.delete("/api/company/highlighting-rules/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const ruleId = req.params.ruleId;
+      
+      const existingRule = await storage.getHighlightingRuleById(ruleId);
+      if (!existingRule) {
+        return res.status(404).json({ error: "Highlighting rule not found" });
+      }
+      
+      // Validate company admin access
+      if (req.userRole === "company_admin" && existingRule.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete rules for other companies" });
+      }
+      
+      await storage.deleteHighlightingRule(ruleId);
+      
+      // Emit socket event for real-time updates
+      io.to(`company:${existingRule.company_id}`).emit("highlighting_rules.updated", { sheetId: existingRule.sheet_id });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete highlighting rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/company/sheets/:sheetId/highlighting-rules/reorder - Reorder rules (Admin only)
+  app.post("/api/company/sheets/:sheetId/highlighting-rules/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const sheetId = req.params.sheetId;
+      const { ruleIds } = req.body;
+      
+      if (!ruleIds || !Array.isArray(ruleIds)) {
+        return res.status(400).json({ error: "ruleIds array is required" });
+      }
+      
+      // Get sheet to validate company ownership
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Validate company admin access
+      if (req.userRole === "company_admin" && sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot reorder rules for sheets in other companies" });
+      }
+      
+      await storage.reorderHighlightingRules(sheetId, ruleIds);
+      
+      // Emit socket event for real-time updates
+      io.to(`company:${sheet.company_id}`).emit("highlighting_rules.updated", { sheetId });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Reorder highlighting rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // WEBHOOKS
   // ============================================================================
   app.post("/api/webhooks/leads", webhookLimiter, async (req, res) => {
