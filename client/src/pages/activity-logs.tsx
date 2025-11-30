@@ -453,24 +453,41 @@ export default function ActivityLogs() {
 
                         {log.details && Object.keys(log.details).length > 0 && (() => {
                           const formatted = formatDetails(log.details);
-                          if (!formatted) return null;
+                          if (!formatted || formatted.items.length === 0) return null;
+                          const maxVisible = 3;
+                          const visibleItems = formatted.items.slice(0, maxVisible);
+                          const hiddenCount = formatted.items.length - maxVisible;
+                          
                           return (
-                            <details className="mt-2">
-                              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                                View details
-                              </summary>
-                              <div className="mt-2 p-3 bg-muted rounded-md space-y-1">
-                                {formatted.items.map((item, idx) => (
-                                  <div key={idx} className="text-sm flex items-start gap-2">
-                                    {item.type === 'change' ? (
-                                      <span className="text-foreground">{item.text}</span>
-                                    ) : (
-                                      <span className="text-muted-foreground">{item.text}</span>
-                                    )}
+                            <div className="mt-2 pl-3 border-l-2 border-primary/40 space-y-0.5">
+                              {visibleItems.map((item, idx) => (
+                                <div key={idx} className="text-sm">
+                                  {item.type === 'change' ? (
+                                    <span className="text-foreground font-medium">{item.text}</span>
+                                  ) : (
+                                    <span className="text-muted-foreground">{item.text}</span>
+                                  )}
+                                </div>
+                              ))}
+                              {hiddenCount > 0 && (
+                                <details className="text-xs">
+                                  <summary className="text-muted-foreground cursor-pointer hover:text-foreground">
+                                    +{hiddenCount} more
+                                  </summary>
+                                  <div className="mt-1 space-y-0.5">
+                                    {formatted.items.slice(maxVisible).map((item, idx) => (
+                                      <div key={idx} className="text-sm">
+                                        {item.type === 'change' ? (
+                                          <span className="text-foreground font-medium">{item.text}</span>
+                                        ) : (
+                                          <span className="text-muted-foreground">{item.text}</span>
+                                        )}
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
-                              </div>
-                            </details>
+                                </details>
+                              )}
+                            </div>
                           );
                         })()}
                       </div>
