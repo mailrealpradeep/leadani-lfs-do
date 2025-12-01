@@ -3332,12 +3332,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // Create an update entry to track the merge
-      const user = await storage.getUser(req.userId!);
       await storage.createLeadUpdate({
         lead_id: existingLead.id,
-        user_id: req.userId!,
-        update_text: `Lead data merged from ${source || "duplicate entry"}`,
-        update_type: "note",
+        update_on: new Date().toISOString().split('T')[0],
+        remark: `Lead data merged from ${source || "duplicate entry"}`,
+        update_via: source === "webhook" ? "webhook" : "merge",
+        created_by_user_id: req.userId!,
       });
       
       // Audit log
@@ -3431,9 +3431,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Create an update entry to track the merge
           await storage.createLeadUpdate({
             lead_id: existingLead.id,
-            user_id: req.userId!,
-            update_text: `Lead data merged from ${source}`,
-            update_type: "note",
+            update_on: new Date().toISOString().split('T')[0],
+            remark: `Lead data merged from ${source}`,
+            update_via: "import",
+            created_by_user_id: req.userId!,
           });
           
           // Audit log
