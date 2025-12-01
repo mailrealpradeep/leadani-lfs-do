@@ -913,6 +913,8 @@ export const webhook_field_mappings = pgTable('webhook_field_mappings', {
   webhook_id: varchar('webhook_id').notNull().references(() => company_webhooks.id, { onDelete: 'cascade' }),
   webhook_field: varchar('webhook_field', { length: 255 }).notNull(),
   sheet_column_key: varchar('sheet_column_key', { length: 255 }).notNull(),
+  use_default_value: boolean('use_default_value').notNull().default(false),
+  default_value: varchar('default_value', { length: 500 }),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 

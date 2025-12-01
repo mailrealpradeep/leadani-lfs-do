@@ -371,11 +371,15 @@ function formatPathSuffix(path: string): string {
 interface FieldMapping {
   webhook_field: string;
   sheet_column_key: string;
+  use_default_value?: boolean;
+  default_value?: string;
 }
 
 interface UpdateFieldMapping {
   source_field: string;
   target_column: string;
+  use_default_value?: boolean;
+  default_value?: string;
 }
 
 type MatchMode = 'create_only' | 'match_and_update' | 'match_and_add_update' | 'match_or_create';
@@ -405,17 +409,11 @@ interface ConfigureWebhookProps {
   onClose: () => void;
 }
 
+// System columns with their actual column_key values (as defined in backend SYSTEM_COLUMNS)
 const AVAILABLE_CRM_FIELDS = [
-  { key: "name", label: "Name" },
-  { key: "mobile_no", label: "Mobile Number" },
-  { key: "whatsapp", label: "WhatsApp" },
-  { key: "lang", label: "Language" },
-  { key: "occupation", label: "Occupation" },
-  { key: "qualification", label: "Qualification" },
-  { key: "lead_date", label: "Lead Date" },
-  { key: "lead_time", label: "Lead Time" },
-  { key: "lead_status", label: "Lead Status" },
-  { key: "visit_status", label: "Visit Status" },
+  { key: "full_name", label: "Full Name" },
+  { key: "mobile_no", label: "Mobile No" },
+  { key: "created_at", label: "Created At" },
 ];
 
 // Default sample payload (used as fallback when API fails)
@@ -481,6 +479,76 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const { data: sheets = [] } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
   });
+  
+  // Fetch custom columns to determine field types (dropdown, checkbox, text)
+  const { data: customColumns = [] } = useQuery<Array<{
+    id: string;
+    name: string;
+    column_key: string;
+    type: string;
+    config: { dropdown_options?: string[]; required?: boolean };
+  }>>({
+    queryKey: ["/api/admin/company/custom-columns"],
+  });
+  
+  // Fetch dropdown options for the company (all sheets)
+  const firstSheet = sheets[0];
+  const { data: dropdownOptions = [] } = useQuery<Array<{
+    id: string;
+    column_key: string;
+    value: string;
+    sheet_id: string | null;
+  }>>({
+    queryKey: ["/api/sheets", firstSheet?.id, "dropdowns"],
+    enabled: !!firstSheet?.id,
+  });
+  
+  // Build a map of CRM field types and their dropdown options
+  const crmFieldInfo = useMemo(() => {
+    const info: Record<string, { 
+      type: 'text' | 'dropdown' | 'checkbox' | 'date' | 'number';
+      options: string[];
+    }> = {};
+    
+    // Fixed field defaults (using actual column_key values from backend SYSTEM_COLUMNS)
+    const fixedFields: Record<string, { type: 'text' | 'dropdown' | 'checkbox' | 'date' | 'number'; options: string[] }> = {
+      'full_name': { type: 'text', options: [] },
+      'mobile_no': { type: 'text', options: [] },
+      'created_at': { type: 'date', options: [] },
+      'lead_status': { type: 'dropdown', options: [] }, // Will be populated from dropdown_options
+      'visit_status': { type: 'dropdown', options: [] }, // Will be populated from dropdown_options
+    };
+    
+    // Initialize with fixed fields
+    Object.entries(fixedFields).forEach(([key, val]) => {
+      info[key] = { ...val };
+    });
+    
+    // Add custom columns
+    customColumns.forEach(col => {
+      const type = col.type === 'dropdown' ? 'dropdown' :
+                   col.type === 'checkbox' ? 'checkbox' :
+                   col.type === 'date' ? 'date' :
+                   col.type === 'number' ? 'number' : 'text';
+      info[col.column_key] = { 
+        type, 
+        options: col.config?.dropdown_options || [] 
+      };
+    });
+    
+    // Populate dropdown options from the API
+    dropdownOptions.forEach(opt => {
+      if (info[opt.column_key]) {
+        if (!info[opt.column_key].options.includes(opt.value)) {
+          info[opt.column_key].options.push(opt.value);
+        }
+      } else {
+        info[opt.column_key] = { type: 'dropdown', options: [opt.value] };
+      }
+    });
+    
+    return info;
+  }, [customColumns, dropdownOptions]);
 
   // Fetch current webhook configuration
   const { data: webhookDetails } = useQuery<{
@@ -662,6 +730,120 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       });
     },
   });
+  
+  // Helper to coerce default value based on field type
+  const coerceDefaultValue = (value: string, fieldKey: string): any => {
+    const fieldInfo = crmFieldInfo[fieldKey];
+    if (!fieldInfo) return value;
+    
+    switch (fieldInfo.type) {
+      case 'checkbox':
+        // Convert string to boolean
+        return value === 'true' || value === '1' || value === 'yes';
+      case 'number':
+        // Convert to number
+        const num = parseFloat(value);
+        return isNaN(num) ? 0 : num;
+      case 'date':
+        // Ensure YYYY-MM-DD format
+        if (value.includes('T')) {
+          return value.split('T')[0];
+        }
+        return value;
+      case 'dropdown':
+        // Validate against available options
+        if (fieldInfo.options.length > 0 && !fieldInfo.options.includes(value)) {
+          console.warn(`Value "${value}" not in dropdown options for ${fieldKey}`);
+        }
+        return value;
+      default:
+        return value;
+    }
+  };
+
+  // Push to CRM mutation - manually create a lead from current webhook payload
+  const pushToCrmMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedRequest?.payload) {
+        throw new Error("No webhook payload selected");
+      }
+      
+      // Build the lead data from field mappings
+      // Backend expects custom_fields object with column_key: value pairs
+      const customFields: Record<string, any> = {};
+      
+      for (const mapping of fieldMappings) {
+        if (!mapping.sheet_column_key) continue;
+        
+        if (mapping.use_default_value && mapping.default_value !== undefined && mapping.default_value !== '') {
+          // Use default value with type coercion
+          customFields[mapping.sheet_column_key] = coerceDefaultValue(mapping.default_value, mapping.sheet_column_key);
+        } else if (mapping.webhook_field) {
+          // Extract from webhook payload using path
+          const value = getValueFromPath(selectedRequest.payload, mapping.webhook_field);
+          if (value !== undefined && value !== null) {
+            // Apply type coercion for webhook values too
+            customFields[mapping.sheet_column_key] = coerceDefaultValue(String(value), mapping.sheet_column_key);
+          }
+        }
+      }
+      
+      // Auto-set created_at if not provided (it's a mandatory field)
+      if (!customFields.created_at) {
+        customFields.created_at = new Date().toISOString().split('T')[0] + ' ' + 
+          new Date().toTimeString().split(' ')[0];
+      }
+      
+      // Validate required system fields
+      const hasFullName = customFields.full_name && String(customFields.full_name).trim();
+      const hasMobileNo = customFields.mobile_no && String(customFields.mobile_no).trim();
+      
+      // Build missing fields list for clear error messaging
+      const missingRequired: string[] = [];
+      if (!hasFullName) missingRequired.push('Full Name');
+      if (!hasMobileNo) missingRequired.push('Mobile No');
+      
+      if (missingRequired.length > 0) {
+        throw new Error(`Required fields missing: ${missingRequired.join(', ')}. Please map these fields or set default values.`);
+      }
+      
+      // Push to CRM using the webhook's first allocation rule sheet
+      const targetSheetId = allocationRules[0]?.sheet_id;
+      if (!targetSheetId) {
+        throw new Error("No sheet selected for allocation. Please configure an allocation rule first.");
+      }
+      
+      return apiRequest("POST", `/api/sheets/${targetSheetId}/leads`, {
+        custom_fields: customFields,
+        source: `Webhook: ${webhook.name} (Manual Push)`,
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Lead Created",
+        description: "Lead has been successfully pushed to CRM from webhook data",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Push Failed",
+        description: error.message || "Failed to create lead from webhook data",
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Helper function to get value from nested path
+  const getValueFromPath = (obj: any, path: string): any => {
+    const parts = path.split('.');
+    let current = obj;
+    for (const part of parts) {
+      if (current === null || current === undefined) return undefined;
+      current = current[part];
+    }
+    return current;
+  };
 
   // Field Mapping Handlers
   const addFieldMapping = () => {
@@ -672,9 +854,9 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     setFieldMappings(fieldMappings.filter((_, i) => i !== index));
   };
 
-  const updateFieldMapping = (index: number, field: keyof FieldMapping, value: string) => {
+  const updateFieldMapping = (index: number, field: keyof FieldMapping, value: string | boolean) => {
     const updated = [...fieldMappings];
-    updated[index][field] = value;
+    (updated[index] as any)[field] = value;
     setFieldMappings(updated);
   };
 
@@ -747,9 +929,9 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     setUpdateFieldMappings(updateFieldMappings.filter((_, i) => i !== index));
   };
 
-  const updateUpdateFieldMapping = (index: number, field: keyof UpdateFieldMapping, value: string) => {
+  const updateUpdateFieldMapping = (index: number, field: keyof UpdateFieldMapping, value: string | boolean) => {
     const updated = [...updateFieldMappings];
-    updated[index][field] = value;
+    (updated[index] as any)[field] = value;
     setUpdateFieldMappings(updated);
   };
 
@@ -1092,11 +1274,14 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         <div className="space-y-3">
           <Label className="text-sm font-medium">Field Mappings</Label>
           <p className="text-xs text-muted-foreground">
-            Map your CRM fields to incoming webhook data. Green checkmark shows mapped fields.
+            Map your CRM fields to incoming webhook data, or set a default value. Green checkmark shows configured fields.
           </p>
           
           {fieldMappings.map((mapping, index) => {
-            const isCrmMapped = mapping.sheet_column_key && mapping.webhook_field;
+            const isCrmMapped = mapping.sheet_column_key && (mapping.webhook_field || (mapping.use_default_value && mapping.default_value));
+            const fieldInfo = crmFieldInfo[mapping.sheet_column_key];
+            const isUsingDefault = mapping.use_default_value;
+            
             return (
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
               {/* CRM Field - LEFT side */}
@@ -1109,7 +1294,13 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                 </Label>
                 <Select
                   value={mapping.sheet_column_key}
-                  onValueChange={(value) => updateFieldMapping(index, "sheet_column_key", value)}
+                  onValueChange={(value) => {
+                    updateFieldMapping(index, "sheet_column_key", value);
+                    // Reset default value when changing CRM field
+                    if (mapping.use_default_value) {
+                      updateFieldMapping(index, "default_value", "");
+                    }
+                  }}
                 >
                   <SelectTrigger 
                     className={`w-full ${isCrmMapped ? 'border-green-500 ring-1 ring-green-500/20' : ''}`} 
@@ -1120,7 +1311,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                   <SelectContent className="max-h-[300px] overflow-y-auto">
                     {sortedCrmFields.map((field) => {
                       const isFieldMapped = fieldMappings.some(
-                        (m, i) => i !== index && m.sheet_column_key === field.key && m.webhook_field
+                        (m, i) => i !== index && m.sheet_column_key === field.key && (m.webhook_field || (m.use_default_value && m.default_value))
                       );
                       return (
                         <SelectItem key={field.key} value={field.key}>
@@ -1136,45 +1327,114 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                   </SelectContent>
                 </Select>
               </div>
-              {/* Webhook Field - RIGHT side */}
+              
+              {/* Source Value - RIGHT side (Webhook Field OR Default Value) */}
               <div className="flex-1 min-w-0">
-                <Label className="text-xs text-muted-foreground">Webhook Field</Label>
-                {filteredWebhookFields.length > 0 ? (
-                  <Select
-                    value={mapping.webhook_field}
-                    onValueChange={(value) => updateFieldMapping(index, "webhook_field", value)}
-                  >
-                    <SelectTrigger className="w-full" data-testid={`select-webhook-field-${index}`}>
-                      <SelectValue placeholder="Select a field" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px] overflow-y-auto">
-                        {filteredWebhookFields.map((field, fieldIndex) => (
-                          <SelectItem 
-                            key={`${field.path}-${fieldIndex}`} 
-                            value={field.path}
-                          >
-                            <div className="flex flex-col">
-                              <span className="font-medium">{field.label}</span>
-                              <span className="text-xs text-muted-foreground">
-                                {field.sampleValue}
-                              </span>
-                            </div>
+                <div className="flex items-center justify-between mb-1">
+                  <Label className="text-xs text-muted-foreground">
+                    {isUsingDefault ? "Default Value" : "Webhook Field"}
+                  </Label>
+                  {mapping.sheet_column_key && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateFieldMapping(index, "use_default_value", !isUsingDefault);
+                        if (!isUsingDefault) {
+                          // Switching to default mode - clear webhook field
+                          updateFieldMapping(index, "webhook_field", "");
+                        } else {
+                          // Switching to webhook mode - clear default value
+                          updateFieldMapping(index, "default_value", "");
+                        }
+                      }}
+                      className="text-xs text-primary hover:underline"
+                      data-testid={`toggle-default-${index}`}
+                    >
+                      {isUsingDefault ? "Use Webhook Field" : "Set Default Value"}
+                    </button>
+                  )}
+                </div>
+                
+                {isUsingDefault ? (
+                  // Default Value Mode - show appropriate input based on field type
+                  fieldInfo?.type === 'dropdown' && fieldInfo.options.length > 0 ? (
+                    <Select
+                      value={mapping.default_value || ""}
+                      onValueChange={(value) => updateFieldMapping(index, "default_value", value)}
+                    >
+                      <SelectTrigger className="w-full" data-testid={`select-default-value-${index}`}>
+                        <SelectValue placeholder="Select default value" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px] overflow-y-auto">
+                        {fieldInfo.options.map((opt) => (
+                          <SelectItem key={opt} value={opt}>
+                            {opt}
                           </SelectItem>
                         ))}
-                    </SelectContent>
-                  </Select>
-                ) : availableWebhookFields.length > 0 ? (
-                  <div className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">
-                    No fields match your search. Try different keywords or disable "Values Only" filter.
-                  </div>
+                      </SelectContent>
+                    </Select>
+                  ) : fieldInfo?.type === 'checkbox' ? (
+                    <div className="flex items-center h-9 px-3 border rounded-md bg-background">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={mapping.default_value === "true"}
+                          onChange={(e) => updateFieldMapping(index, "default_value", e.target.checked ? "true" : "false")}
+                          className="w-4 h-4"
+                          data-testid={`checkbox-default-value-${index}`}
+                        />
+                        <span className="text-sm">{mapping.default_value === "true" ? "Checked" : "Unchecked"}</span>
+                      </label>
+                    </div>
+                  ) : (
+                    <Input
+                      value={mapping.default_value || ""}
+                      onChange={(e) => updateFieldMapping(index, "default_value", e.target.value)}
+                      placeholder="Enter default value"
+                      type={fieldInfo?.type === 'number' ? 'number' : fieldInfo?.type === 'date' ? 'date' : 'text'}
+                      className="w-full"
+                      data-testid={`input-default-value-${index}`}
+                    />
+                  )
                 ) : (
-                  <Input
-                    value={mapping.webhook_field}
-                    onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
-                    placeholder="Enter field path (e.g., name, user.email)"
-                    className="w-full"
-                    data-testid={`input-webhook-field-${index}`}
-                  />
+                  // Webhook Field Mode
+                  filteredWebhookFields.length > 0 ? (
+                    <Select
+                      value={mapping.webhook_field}
+                      onValueChange={(value) => updateFieldMapping(index, "webhook_field", value)}
+                    >
+                      <SelectTrigger className="w-full" data-testid={`select-webhook-field-${index}`}>
+                        <SelectValue placeholder="Select a field" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px] overflow-y-auto">
+                          {filteredWebhookFields.map((field, fieldIndex) => (
+                            <SelectItem 
+                              key={`${field.path}-${fieldIndex}`} 
+                              value={field.path}
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-medium">{field.label}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {field.sampleValue}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  ) : availableWebhookFields.length > 0 ? (
+                    <div className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">
+                      No fields match your search. Try different keywords or disable "Values Only" filter.
+                    </div>
+                  ) : (
+                    <Input
+                      value={mapping.webhook_field}
+                      onChange={(e) => updateFieldMapping(index, "webhook_field", e.target.value)}
+                      placeholder="Enter field path (e.g., name, user.email)"
+                      className="w-full"
+                      data-testid={`input-webhook-field-${index}`}
+                    />
+                  )
                 )}
               </div>
               <Button
@@ -1203,17 +1463,42 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           </Button>
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t mt-6">
-          <Button variant="outline" onClick={onClose} data-testid="button-cancel-mappings">
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSaveMappings}
-            disabled={updateMutation.isPending}
-            data-testid="button-save-mappings"
-          >
-            {updateMutation.isPending ? "Saving..." : "Save Mappings"}
-          </Button>
+        <div className="flex justify-between items-center pt-4 border-t mt-6">
+          {/* Push to CRM - only show when we have a payload and mappings */}
+          <div>
+            {selectedRequest?.payload && fieldMappings.some(m => m.sheet_column_key && (m.webhook_field || (m.use_default_value && m.default_value))) && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => pushToCrmMutation.mutate()}
+                disabled={pushToCrmMutation.isPending || !allocationRules[0]?.sheet_id}
+                data-testid="button-push-to-crm"
+                className="gap-2"
+              >
+                {pushToCrmMutation.isPending ? (
+                  "Pushing..."
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" />
+                    Push to CRM
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+          
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} data-testid="button-cancel-mappings">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveMappings}
+              disabled={updateMutation.isPending}
+              data-testid="button-save-mappings"
+            >
+              {updateMutation.isPending ? "Saving..." : "Save Mappings"}
+            </Button>
+          </div>
         </div>
       </TabsContent>
 
