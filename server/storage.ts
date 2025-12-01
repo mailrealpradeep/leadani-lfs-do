@@ -183,7 +183,7 @@ export interface IStorage {
   getLeadsBySheetId(sheetId: string): Promise<Lead[]>;
   getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult>;
   getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]>;
-  findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined>;
+  findLeadByMobileNo(companyId: string, mobileNo: string, fieldName?: string): Promise<Lead | undefined>;
   findLeadByField(companyId: string, fieldKey: string, fieldValue: string): Promise<Lead | undefined>;
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined>;
@@ -964,15 +964,15 @@ export class MemStorage implements IStorage {
     return Array.from(this.leads.values()).filter((lead) => lead.sheet_id === sheetId && lead.deleted_at);
   }
 
-  async findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined> {
+  async findLeadByMobileNo(companyId: string, mobileNo: string, fieldName: string = 'mobile_no'): Promise<Lead | undefined> {
     // Get all sheets for this company
     const companySheets = Array.from(this.sheets.values()).filter((s) => s.company_id === companyId);
     const sheetIds = new Set(companySheets.map((s) => s.id));
     
-    // Search for lead with matching mobile_no in any of the company's sheets (including soft-deleted)
+    // Search for lead with matching mobile number in the specified field in any of the company's sheets (including soft-deleted)
     return Array.from(this.leads.values()).find((lead) => 
       sheetIds.has(lead.sheet_id) && 
-      lead.custom_fields?.mobile_no === mobileNo
+      lead.custom_fields?.[fieldName] === mobileNo
     );
   }
 
@@ -2840,8 +2840,8 @@ export class PgStorage implements IStorage {
     return result.map(this.mapLead);
   }
 
-  async findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined> {
-    // Find lead by mobile_no across all sheets in the company (including soft-deleted)
+  async findLeadByMobileNo(companyId: string, mobileNo: string, fieldName: string = 'mobile_no'): Promise<Lead | undefined> {
+    // Find lead by mobile number in the specified field across all sheets in the company (including soft-deleted)
     // Uses normalized comparison: strips spaces, dashes, +, (), and takes last 10 digits
     // This matches leads regardless of how the mobile number was formatted when stored
     const result = await db
@@ -2854,7 +2854,8 @@ export class PgStorage implements IStorage {
         and(
           eq(dbSchema.sheets.company_id, companyId),
           // Normalize stored value to last 10 digits and compare with input (already normalized)
-          sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(${dbSchema.leads.custom_fields}->>'mobile_no', ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
+          // Use dynamic field name instead of hardcoded 'mobile_no'
+          sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(${dbSchema.leads.custom_fields}->>${fieldName}, ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
         )
       )
       .limit(1);

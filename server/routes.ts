@@ -777,8 +777,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Enhanced match-and-update logic based on webhook configuration
       const matchMode = webhook.match_mode || "create_only";
-      const matchField = webhook.match_field || "mobile_no";
-      const matchValue = leadData[matchField];
+      const matchRules = webhook.match_rules || [];
+      // Backward compatibility: if no match_rules but match_field exists, create a single rule
+      const effectiveMatchRules = matchRules.length > 0 
+        ? matchRules 
+        : webhook.match_field 
+          ? [{ webhookField: webhook.match_field, crmFields: [webhook.match_field] }]
+          : [{ webhookField: 'mobile_no', crmFields: ['mobile_no'] }];
       const noMatchAction = webhook.no_match_action || "create_lead";
       const updateFieldMappings = webhook.update_field_mappings || [];
       const sourceLabel = webhook.source_label || "Webhook";
@@ -814,9 +819,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       };
 
-      // Step 1: Check for existing lead if not create_only mode
-      if (matchMode !== "create_only" && matchValue) {
-        existingLead = await storage.findLeadByField(webhook.company_id, matchField, String(matchValue));
+      // Step 1: Check for existing lead if not create_only mode using multi-field matching rules
+      if (matchMode !== "create_only") {
+        // Try each match rule until we find a match (OR logic between rules)
+        for (const rule of effectiveMatchRules) {
+          if (existingLead) break; // Already found a match
+          
+          // Get the webhook field value from the incoming data
+          const webhookValue = leadData[rule.webhookField] || getNestedValue(incomingData, rule.webhookField);
+          if (!webhookValue) continue; // No value to match against
+          
+          // Try each CRM field in the rule (OR logic)
+          for (const crmField of rule.crmFields) {
+            // Use mobile number normalization for phone-related fields
+            const isMobileField = ['mobile_no', 'whatsapp', 'whatsapp_no', 'phone', 'phone_no'].some(
+              f => crmField.toLowerCase().includes(f.replace('_', '')) || rule.webhookField.toLowerCase().includes(f.replace('_', ''))
+            );
+            
+            if (isMobileField) {
+              // Normalize and find by mobile number (handles +91, spaces, dashes, etc.)
+              const normalizedValue = normalizePhoneNumber(String(webhookValue));
+              const found = await storage.findLeadByMobileNo(webhook.company_id, normalizedValue, crmField);
+              if (found) {
+                existingLead = found;
+                break;
+              }
+            } else {
+              // Exact match for non-mobile fields
+              const found = await storage.findLeadByField(webhook.company_id, crmField, String(webhookValue));
+              if (found) {
+                existingLead = found;
+                break;
+              }
+            }
+          }
+        }
       }
 
       if (existingLead) {
@@ -1903,7 +1940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Cannot update webhooks from other companies" });
       }
 
-      const { name, is_active, field_mappings, allocation_rules, match_mode, match_field, update_field_mappings, no_match_action, skip_allocation_on_match } = req.body;
+      const { name, is_active, field_mappings, allocation_rules, match_mode, match_field, match_rules, update_field_mappings, no_match_action, skip_allocation_on_match } = req.body;
 
       // Update webhook basic info
       const updates: any = {};
@@ -1911,6 +1948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (is_active !== undefined) updates.is_active = is_active;
       if (match_mode !== undefined) updates.match_mode = match_mode;
       if (match_field !== undefined) updates.match_field = match_field;
+      if (match_rules !== undefined) updates.match_rules = match_rules;
       if (update_field_mappings !== undefined) updates.update_field_mappings = update_field_mappings;
       if (no_match_action !== undefined) updates.no_match_action = no_match_action;
       if (skip_allocation_on_match !== undefined) updates.skip_allocation_on_match = skip_allocation_on_match;

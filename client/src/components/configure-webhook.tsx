@@ -405,6 +405,12 @@ interface UpdateFieldMapping {
 type MatchMode = 'create_only' | 'match_and_update' | 'match_and_add_update' | 'match_or_create';
 type NoMatchAction = 'create_lead' | 'ignore' | 'log_only';
 
+// Multi-field matching rule - webhook field can match against multiple CRM fields (OR logic)
+interface MatchRule {
+  webhookField: string;  // The webhook field to check (e.g., "mobile_no", "whatsapp_no")
+  crmFields: string[];   // CRM fields to match against (OR logic) - e.g., ["mobile_no", "whatsapp_no"]
+}
+
 interface WebhookCondition {
   field: string;
   operator: string;
@@ -507,7 +513,10 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
 
   // Match Mode State
   const [matchMode, setMatchMode] = useState<MatchMode>('create_only');
-  const [matchField, setMatchField] = useState<string>('mobile_no');
+  const [matchField, setMatchField] = useState<string>('mobile_no'); // DEPRECATED: For backward compatibility
+  const [matchRules, setMatchRules] = useState<MatchRule[]>([
+    { webhookField: 'mobile_no', crmFields: ['mobile_no'] }
+  ]);
   const [updateFieldMappings, setUpdateFieldMappings] = useState<UpdateFieldMapping[]>([
     { source_field: "", target_column: "" },
   ]);
@@ -605,6 +614,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     allocation_rules: AllocationRule[];
     match_mode?: MatchMode;
     match_field?: string;
+    match_rules?: MatchRule[];
     update_field_mappings?: UpdateFieldMapping[];
     no_match_action?: NoMatchAction;
     skip_allocation_on_match?: boolean;
@@ -750,7 +760,12 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     if (webhookDetails?.match_mode) {
       setMatchMode(webhookDetails.match_mode);
     }
-    if (webhookDetails?.match_field) {
+    // Load match rules - if available, use them; otherwise migrate from legacy match_field
+    if (webhookDetails?.match_rules && webhookDetails.match_rules.length > 0) {
+      setMatchRules(webhookDetails.match_rules);
+    } else if (webhookDetails?.match_field) {
+      // Backward compatibility: convert legacy match_field to new match_rules format
+      setMatchRules([{ webhookField: webhookDetails.match_field, crmFields: [webhookDetails.match_field] }]);
       setMatchField(webhookDetails.match_field);
     }
     if (webhookDetails?.update_field_mappings && webhookDetails.update_field_mappings.length > 0) {
@@ -770,6 +785,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       allocation_rules?: AllocationRule[];
       match_mode?: MatchMode;
       match_field?: string;
+      match_rules?: MatchRule[];
       update_field_mappings?: UpdateFieldMapping[];
       no_match_action?: NoMatchAction;
       skip_allocation_on_match?: boolean;
@@ -1335,13 +1351,18 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       (m) => m.source_field.trim() && m.target_column.trim()
     );
 
+    // Filter out empty/incomplete match rules - at least one valid rule required
+    const validMatchRules = matchRules.filter(
+      (rule) => rule.webhookField.trim() && rule.crmFields.length > 0
+    );
+
     // Note: We allow saving with zero update mappings - the user may rely on
     // default behaviors or configure mappings later. Empty/incomplete rows 
     // are simply filtered out rather than blocking the save.
 
     updateMutation.mutate({
       match_mode: matchMode,
-      match_field: matchField,
+      match_rules: validMatchRules.length > 0 ? validMatchRules : undefined,
       update_field_mappings: validUpdateMappings, // Only send complete mappings, filter out empty rows
       no_match_action: noMatchAction,
       skip_allocation_on_match: skipAllocationOnMatch,
@@ -2439,25 +2460,206 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           </p>
         </div>
 
-        {/* Match Field Selection */}
+        {/* Match Rules Builder - Multi-field matching */}
         {matchMode !== 'create_only' && (
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Match Field</Label>
-            <Select value={matchField} onValueChange={setMatchField}>
-              <SelectTrigger data-testid="select-match-field">
-                <SelectValue placeholder="Select field to match on" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px] overflow-y-auto">
-                {sortedCrmFields.map((field) => (
-                  <SelectItem key={field.key} value={field.key}>
-                    {field.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              The CRM field used to find matching leads (e.g., Mobile Number for phone-based matching).
-            </p>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-medium">Match Rules</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Define how to find matching leads. Webhook field matches if it equals ANY of the selected CRM fields.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setMatchRules([...matchRules, { webhookField: '', crmFields: [] }])}
+                data-testid="button-add-match-rule"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add Rule
+              </Button>
+            </div>
+
+            {matchRules.length === 0 && (
+              <Alert className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/30">
+                <AlertCircle className="h-4 w-4 text-yellow-600" />
+                <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                  No match rules configured. Add at least one rule to enable lead matching.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-3">
+              {matchRules.map((rule, ruleIndex) => (
+                <div 
+                  key={ruleIndex} 
+                  className="border rounded-lg p-4 space-y-3 bg-muted/20"
+                  data-testid={`match-rule-${ruleIndex}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline" className="text-xs">Rule {ruleIndex + 1}</Badge>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        const newRules = matchRules.filter((_, i) => i !== ruleIndex);
+                        setMatchRules(newRules.length > 0 ? newRules : [{ webhookField: '', crmFields: [] }]);
+                      }}
+                      data-testid={`button-delete-rule-${ruleIndex}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Webhook Field - LEFT side */}
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Webhook Field</Label>
+                      {filteredWebhookFields.length > 0 ? (
+                        <Select
+                          value={rule.webhookField}
+                          onValueChange={(value) => {
+                            const newRules = [...matchRules];
+                            newRules[ruleIndex] = { ...newRules[ruleIndex], webhookField: value };
+                            setMatchRules(newRules);
+                          }}
+                        >
+                          <SelectTrigger data-testid={`select-webhook-field-${ruleIndex}`}>
+                            <SelectValue placeholder="Select webhook field" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px] overflow-y-auto">
+                            {filteredWebhookFields.map((field, fieldIndex) => (
+                              <SelectItem 
+                                key={`${field.path}-${fieldIndex}`} 
+                                value={field.path}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{field.label}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    ({field.sampleValue})
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Select
+                          value={rule.webhookField}
+                          onValueChange={(value) => {
+                            const newRules = [...matchRules];
+                            newRules[ruleIndex] = { ...newRules[ruleIndex], webhookField: value };
+                            setMatchRules(newRules);
+                          }}
+                        >
+                          <SelectTrigger data-testid={`select-webhook-field-${ruleIndex}`}>
+                            <SelectValue placeholder="Select webhook field" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px] overflow-y-auto">
+                            {sortedCrmFields.map((field) => (
+                              <SelectItem key={field.key} value={field.key}>
+                                {field.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    {/* CRM Fields - RIGHT side (Multi-select) */}
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">
+                        Matches if equals ANY of these CRM fields (OR logic)
+                      </Label>
+                      <div className="border rounded-md p-2 min-h-[40px] bg-background">
+                        {/* Selected CRM fields as badges */}
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {rule.crmFields.map((crmField, cfIndex) => {
+                            const fieldLabel = sortedCrmFields.find(f => f.key === crmField)?.label || crmField;
+                            return (
+                              <Badge 
+                                key={cfIndex} 
+                                variant="secondary" 
+                                className="text-xs cursor-pointer hover:bg-destructive/20"
+                                onClick={() => {
+                                  const newRules = [...matchRules];
+                                  newRules[ruleIndex] = {
+                                    ...newRules[ruleIndex],
+                                    crmFields: newRules[ruleIndex].crmFields.filter((_, i) => i !== cfIndex)
+                                  };
+                                  setMatchRules(newRules);
+                                }}
+                                data-testid={`badge-crm-field-${ruleIndex}-${cfIndex}`}
+                              >
+                                {fieldLabel}
+                                <X className="h-3 w-3 ml-1" />
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                        {/* Add CRM field dropdown */}
+                        <Select
+                          value=""
+                          onValueChange={(value) => {
+                            if (value && !rule.crmFields.includes(value)) {
+                              const newRules = [...matchRules];
+                              newRules[ruleIndex] = {
+                                ...newRules[ruleIndex],
+                                crmFields: [...newRules[ruleIndex].crmFields, value]
+                              };
+                              setMatchRules(newRules);
+                            }
+                          }}
+                        >
+                          <SelectTrigger 
+                            className="h-8 text-xs" 
+                            data-testid={`select-add-crm-field-${ruleIndex}`}
+                          >
+                            <SelectValue placeholder="+ Add CRM field to match" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px] overflow-y-auto">
+                            {sortedCrmFields
+                              .filter(f => !rule.crmFields.includes(f.key))
+                              .map((field) => (
+                                <SelectItem key={field.key} value={field.key}>
+                                  {field.label}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Rule preview */}
+                  {rule.webhookField && rule.crmFields.length > 0 && (
+                    <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2">
+                      <span className="font-medium">Match logic:</span> If webhook's "{rule.webhookField}" equals CRM's{' '}
+                      {rule.crmFields.map((cf, i) => {
+                        const label = sortedCrmFields.find(f => f.key === cf)?.label || cf;
+                        return (
+                          <span key={i}>
+                            {i > 0 && <span className="text-primary font-medium"> OR </span>}
+                            "{label}"
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {matchRules.length > 1 && (
+              <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/30">
+                <AlertCircle className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-800 dark:text-blue-200">
+                  Multiple rules work with OR logic - a lead matches if ANY rule matches.
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
         )}
 
