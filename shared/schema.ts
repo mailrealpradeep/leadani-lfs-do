@@ -895,6 +895,10 @@ export const lead_updates = pgTable('lead_updates', {
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Type for tracking weighted round-robin allocation counts per condition group
+// Key format: "conditionGroupKey" -> { sheetId: count }
+export type AllocationCounts = Record<string, Record<string, number>>;
+
 export const company_webhooks = pgTable('company_webhooks', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
@@ -910,6 +914,8 @@ export const company_webhooks = pgTable('company_webhooks', {
   update_field_mappings: json('update_field_mappings').$type<Array<{source_field: string; target_column: string}>>().default([]),
   no_match_action: varchar('no_match_action', { length: 50 }).default('create_lead'), // 'create_lead', 'ignore', 'log_only'
   source_label: varchar('source_label', { length: 100 }), // e.g., 'WhatsApp', 'Website', 'Facebook'
+  // Weighted round-robin allocation tracking: { conditionGroupKey: { sheetId: count } }
+  allocation_counts: json('allocation_counts').$type<AllocationCounts>().default({}),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
