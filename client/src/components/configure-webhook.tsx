@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle, Check, X, ChevronDown, Eye, Clock, ChevronUp, Search, Filter } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check, X, ChevronDown, Eye, Clock, ChevronUp, Search, Filter, AlertTriangle, GitMerge, XCircle, Loader2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,10 +17,30 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import type { CompanyWebhook, Sheet } from "@shared/schema";
+import type { CompanyWebhook, Sheet, Lead } from "@shared/schema";
+
+// Duplicate lead info interface
+interface DuplicateLeadInfo {
+  id: string;
+  sheet_id: string;
+  sheet_name: string;
+  custom_fields: Record<string, any>;
+  created_at: string;
+  owner_user_id: string;
+}
 
 // Interface for extracted webhook fields with friendly display
 interface ExtractedWebhookField {
@@ -475,6 +495,11 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   ]);
   const [noMatchAction, setNoMatchAction] = useState<NoMatchAction>('create_lead');
 
+  // Duplicate detection state for Push to CRM
+  const [duplicateInfo, setDuplicateInfo] = useState<DuplicateLeadInfo | null>(null);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [pendingCustomFields, setPendingCustomFields] = useState<Record<string, any> | null>(null);
+
   // Fetch sheets for allocation
   const { data: sheets = [] } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -761,44 +786,88 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     }
   };
 
+  // Check for duplicate mobile number
+  const checkDuplicateMutation = useMutation({
+    mutationFn: async (mobileNo: string) => {
+      const targetSheetId = allocationRules[0]?.sheet_id;
+      return await apiRequest<{ isDuplicate: boolean; existingLead?: DuplicateLeadInfo }>(
+        "POST", 
+        "/api/leads/check-duplicate", 
+        { mobile_no: mobileNo, sheet_id: targetSheetId }
+      );
+    },
+  });
+
+  // Merge data into existing lead
+  const mergeMutation = useMutation({
+    mutationFn: async (leadId: string) => {
+      return await apiRequest<{ success: boolean; lead: Lead }>(
+        "POST",
+        `/api/leads/${leadId}/merge`,
+        {
+          custom_fields: pendingCustomFields,
+          source: `Webhook: ${webhook.name} (Manual Push - Merged)`,
+          merge_strategy: "update_empty",
+        }
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+      setShowDuplicateDialog(false);
+      setDuplicateInfo(null);
+      setPendingCustomFields(null);
+      toast({
+        title: "Lead Merged",
+        description: "New data has been merged into the existing lead",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Merge Failed",
+        description: error.message || "Failed to merge lead data",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Build custom fields from field mappings (reusable helper)
+  const buildCustomFieldsFromMappings = () => {
+    if (!selectedRequest?.payload) {
+      throw new Error("No webhook payload selected");
+    }
+    
+    const customFields: Record<string, any> = {};
+    
+    for (const mapping of fieldMappings) {
+      if (!mapping.sheet_column_key) continue;
+      
+      if (mapping.use_default_value && mapping.default_value !== undefined && mapping.default_value !== '') {
+        customFields[mapping.sheet_column_key] = coerceDefaultValue(mapping.default_value, mapping.sheet_column_key);
+      } else if (mapping.webhook_field) {
+        const value = getValueFromPath(selectedRequest.payload, mapping.webhook_field);
+        if (value !== undefined && value !== null) {
+          customFields[mapping.sheet_column_key] = coerceDefaultValue(String(value), mapping.sheet_column_key);
+        }
+      }
+    }
+    
+    if (!customFields.created_at) {
+      customFields.created_at = new Date().toISOString().split('T')[0] + ' ' + 
+        new Date().toTimeString().split(' ')[0];
+    }
+    
+    return customFields;
+  };
+
   // Push to CRM mutation - manually create a lead from current webhook payload
   const pushToCrmMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedRequest?.payload) {
-        throw new Error("No webhook payload selected");
-      }
-      
-      // Build the lead data from field mappings
-      // Backend expects custom_fields object with column_key: value pairs
-      const customFields: Record<string, any> = {};
-      
-      for (const mapping of fieldMappings) {
-        if (!mapping.sheet_column_key) continue;
-        
-        if (mapping.use_default_value && mapping.default_value !== undefined && mapping.default_value !== '') {
-          // Use default value with type coercion
-          customFields[mapping.sheet_column_key] = coerceDefaultValue(mapping.default_value, mapping.sheet_column_key);
-        } else if (mapping.webhook_field) {
-          // Extract from webhook payload using path
-          const value = getValueFromPath(selectedRequest.payload, mapping.webhook_field);
-          if (value !== undefined && value !== null) {
-            // Apply type coercion for webhook values too
-            customFields[mapping.sheet_column_key] = coerceDefaultValue(String(value), mapping.sheet_column_key);
-          }
-        }
-      }
-      
-      // Auto-set created_at if not provided (it's a mandatory field)
-      if (!customFields.created_at) {
-        customFields.created_at = new Date().toISOString().split('T')[0] + ' ' + 
-          new Date().toTimeString().split(' ')[0];
-      }
+      const customFields = buildCustomFieldsFromMappings();
       
       // Validate required system fields
       const hasFullName = customFields.full_name && String(customFields.full_name).trim();
       const hasMobileNo = customFields.mobile_no && String(customFields.mobile_no).trim();
       
-      // Build missing fields list for clear error messaging
       const missingRequired: string[] = [];
       if (!hasFullName) missingRequired.push('Full Name');
       if (!hasMobileNo) missingRequired.push('Mobile No');
@@ -807,10 +876,18 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         throw new Error(`Required fields missing: ${missingRequired.join(', ')}. Please map these fields or set default values.`);
       }
       
-      // Push to CRM using the webhook's first allocation rule sheet
       const targetSheetId = allocationRules[0]?.sheet_id;
       if (!targetSheetId) {
         throw new Error("No sheet selected for allocation. Please configure an allocation rule first.");
+      }
+      
+      // Check for duplicate before creating
+      const duplicateResult = await checkDuplicateMutation.mutateAsync(customFields.mobile_no);
+      if (duplicateResult.isDuplicate && duplicateResult.existingLead) {
+        setPendingCustomFields(customFields);
+        setDuplicateInfo(duplicateResult.existingLead);
+        setShowDuplicateDialog(true);
+        return { skipped: true };
       }
       
       return apiRequest("POST", `/api/sheets/${targetSheetId}/leads`, {
@@ -818,7 +895,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         source: `Webhook: ${webhook.name} (Manual Push)`,
       });
     },
-    onSuccess: () => {
+    onSuccess: (result: any) => {
+      if (result?.skipped) return; // Duplicate detected, dialog shown
       toast({
         title: "Lead Created",
         description: "Lead has been successfully pushed to CRM from webhook data",
@@ -833,6 +911,24 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       });
     },
   });
+
+  // Handle merge action from duplicate dialog
+  const handleMergeDuplicate = () => {
+    if (duplicateInfo) {
+      mergeMutation.mutate(duplicateInfo.id);
+    }
+  };
+
+  // Handle skip action from duplicate dialog
+  const handleSkipDuplicate = () => {
+    setShowDuplicateDialog(false);
+    setDuplicateInfo(null);
+    setPendingCustomFields(null);
+    toast({
+      title: "Lead Not Added",
+      description: "Duplicate lead was skipped",
+    });
+  };
   
   // Helper function to get value from nested path
   const getValueFromPath = (obj: any, path: string): any => {
@@ -1980,6 +2076,60 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           </Button>
         </div>
       </TabsContent>
+
+      {/* Duplicate Lead Dialog */}
+      <AlertDialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Duplicate Lead Found
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  A lead with mobile number <strong>{pendingCustomFields?.mobile_no}</strong> already exists in your company.
+                </p>
+                {duplicateInfo && (
+                  <div className="bg-muted p-3 rounded-md text-sm space-y-1">
+                    <p><strong>Existing Lead:</strong></p>
+                    <p>Name: {duplicateInfo.custom_fields?.full_name || "N/A"}</p>
+                    <p>Mobile: {duplicateInfo.custom_fields?.mobile_no || "N/A"}</p>
+                    <p>Sheet: {duplicateInfo.sheet_name}</p>
+                    <p>Created: {new Date(duplicateInfo.created_at).toLocaleDateString()}</p>
+                  </div>
+                )}
+                <p className="text-muted-foreground">
+                  What would you like to do?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel
+              onClick={handleSkipDuplicate}
+              data-testid="button-skip-duplicate-webhook"
+              className="flex items-center gap-2"
+            >
+              <XCircle className="h-4 w-4" />
+              Don't Add
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleMergeDuplicate}
+              disabled={mergeMutation.isPending}
+              data-testid="button-merge-duplicate-webhook"
+              className="flex items-center gap-2 bg-primary"
+            >
+              {mergeMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <GitMerge className="h-4 w-4" />
+              )}
+              Merge Data
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Tabs>
   );
 }

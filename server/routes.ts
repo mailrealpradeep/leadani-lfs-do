@@ -3138,6 +3138,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // SERVER-SIDE DUPLICATE DETECTION: Check for existing lead with same mobile number
+      // This enforces uniqueness at the API level even if client bypasses UI checks
+      const mobileNo = leadData.custom_fields?.mobile_no;
+      if (mobileNo && typeof mobileNo === 'string' && mobileNo.trim()) {
+        // Normalize mobile number consistently (remove spaces, dashes, +, country code, take last 10)
+        const normalizedMobile = mobileNo.replace(/[\s\-\+\(\)]/g, '').replace(/^91/, '').slice(-10);
+        
+        if (normalizedMobile.length >= 10) {
+          const existingLead = await storage.findLeadByMobileNo(sheet.company_id, normalizedMobile);
+          if (existingLead) {
+            const existingSheet = await storage.getSheet(existingLead.sheet_id);
+            return res.status(409).json({
+              error: "Duplicate mobile number",
+              message: `A lead with this mobile number already exists in ${existingSheet?.name || "another sheet"}`,
+              existingLead: {
+                id: existingLead.id,
+                sheet_id: existingLead.sheet_id,
+                sheet_name: existingSheet?.name || "Unknown Sheet",
+                full_name: existingLead.custom_fields?.full_name,
+                mobile_no: existingLead.custom_fields?.mobile_no,
+                created_at: existingLead.created_at,
+              }
+            });
+          }
+        }
+      }
+      
       const lead = await storage.createLead({
         ...leadData,
         sheet_id: req.params.id,
@@ -3180,6 +3207,264 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(lead);
     } catch (error: any) {
       console.error("Create lead error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check for duplicate mobile number within a company
+  // SECURITY: Company scope is derived from authenticated user's company, NOT from client input
+  // SECURITY: Access check is performed BEFORE any lead data is retrieved to prevent metadata leakage
+  app.post("/api/leads/check-duplicate", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { mobile_no, sheet_id } = req.body;
+      
+      if (!mobile_no) {
+        return res.status(400).json({ error: "Mobile number is required" });
+      }
+      
+      // SECURITY: Derive company ID from authenticated user's context
+      // For super_admin without company, require sheet_id and validate access FIRST
+      let companyId = req.companyId;
+      
+      if (sheet_id) {
+        // SECURITY: Verify user has access BEFORE retrieving any sheet/lead data
+        const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, sheet_id);
+        if (!hasAccess) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+        
+        const sheet = await storage.getSheet(sheet_id);
+        if (!sheet) {
+          return res.status(404).json({ error: "Sheet not found" });
+        }
+        
+        // Use sheet's company for duplicate detection
+        companyId = sheet.company_id;
+      }
+      
+      if (!companyId) {
+        return res.status(400).json({ error: "Company context required. Please provide a valid sheet_id." });
+      }
+      
+      // Normalize mobile number: remove all non-digits, then take last 10 digits
+      const digitsOnly = mobile_no.toString().replace(/\D/g, '');
+      const normalizedMobile = digitsOnly.slice(-10);
+      
+      if (normalizedMobile.length < 10) {
+        return res.status(400).json({ error: "Mobile number must have at least 10 digits" });
+      }
+      
+      // Find existing lead with this mobile number in the company
+      const existingLead = await storage.findLeadByMobileNo(companyId, normalizedMobile);
+      
+      if (existingLead) {
+        // Get the sheet name for context
+        const existingSheet = await storage.getSheet(existingLead.sheet_id);
+        
+        res.json({
+          isDuplicate: true,
+          existingLead: {
+            id: existingLead.id,
+            sheet_id: existingLead.sheet_id,
+            sheet_name: existingSheet?.name || "Unknown Sheet",
+            custom_fields: existingLead.custom_fields,
+            created_at: existingLead.created_at,
+            owner_user_id: existingLead.owner_user_id,
+          }
+        });
+      } else {
+        res.json({ isDuplicate: false });
+      }
+    } catch (error: any) {
+      console.error("Check duplicate error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Merge incoming lead data into an existing lead
+  app.post("/api/leads/:id/merge", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { custom_fields, source, merge_strategy = "update_empty" } = req.body;
+      
+      const existingLead = await storage.getLead(req.params.id);
+      if (!existingLead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      // Check if user has access to the lead's sheet
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, existingLead.sheet_id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Get sheet to access company_id
+      const sheet = await storage.getSheet(existingLead.sheet_id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Build merged custom_fields based on strategy
+      let mergedFields = { ...existingLead.custom_fields };
+      
+      if (merge_strategy === "update_empty") {
+        // Only update fields that are empty/null in existing lead
+        for (const [key, value] of Object.entries(custom_fields || {})) {
+          const existingValue = mergedFields[key];
+          if (existingValue === null || existingValue === undefined || existingValue === "") {
+            mergedFields[key] = value;
+          }
+        }
+      } else if (merge_strategy === "overwrite") {
+        // Overwrite all incoming fields
+        mergedFields = { ...mergedFields, ...custom_fields };
+      } else if (merge_strategy === "keep_existing") {
+        // Keep existing values, only add new fields that don't exist
+        for (const [key, value] of Object.entries(custom_fields || {})) {
+          if (!(key in mergedFields)) {
+            mergedFields[key] = value;
+          }
+        }
+      }
+      
+      // Update the lead
+      const updatedLead = await storage.updateLead(existingLead.id, {
+        custom_fields: mergedFields,
+      });
+      
+      // Create an update entry to track the merge
+      const user = await storage.getUser(req.userId!);
+      await storage.createLeadUpdate({
+        lead_id: existingLead.id,
+        user_id: req.userId!,
+        update_text: `Lead data merged from ${source || "duplicate entry"}`,
+        update_type: "note",
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: sheet.company_id,
+        action: "update",
+        model: "lead",
+        model_id: existingLead.id,
+        payload: { merge_strategy, source, fields_merged: Object.keys(custom_fields || {}) },
+      });
+      
+      // Realtime update
+      const io = app.get("io") as SocketIOServer;
+      io.to(`sheet:${existingLead.sheet_id}`).emit("lead_updated", updatedLead);
+      
+      res.json({ 
+        success: true, 
+        lead: updatedLead,
+        message: "Lead data has been merged successfully"
+      });
+    } catch (error: any) {
+      console.error("Merge lead error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Bulk merge duplicates from import
+  app.post("/api/leads/bulk-merge", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { duplicates, merge_strategy = "update_empty", source = "Bulk Import Merge" } = req.body;
+      
+      if (!Array.isArray(duplicates) || duplicates.length === 0) {
+        return res.status(400).json({ error: "No duplicates provided for merge" });
+      }
+      
+      const results: { success: number; failed: number; errors: string[] } = {
+        success: 0,
+        failed: 0,
+        errors: [],
+      };
+      
+      const io = app.get("io") as SocketIOServer;
+      
+      for (const dup of duplicates) {
+        try {
+          const { existingLeadId, newData } = dup;
+          
+          const existingLead = await storage.getLead(existingLeadId);
+          if (!existingLead) {
+            results.failed++;
+            results.errors.push(`Lead ${existingLeadId} not found`);
+            continue;
+          }
+          
+          // Check if user has access to the lead's sheet
+          const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, existingLead.sheet_id);
+          if (!hasAccess) {
+            results.failed++;
+            results.errors.push(`No access to lead ${existingLeadId}`);
+            continue;
+          }
+          
+          // Get sheet for company_id
+          const sheet = await storage.getSheet(existingLead.sheet_id);
+          if (!sheet) {
+            results.failed++;
+            results.errors.push(`Sheet not found for lead ${existingLeadId}`);
+            continue;
+          }
+          
+          // Build merged custom_fields based on strategy
+          let mergedFields = { ...existingLead.custom_fields };
+          
+          if (merge_strategy === "update_empty") {
+            for (const [key, value] of Object.entries(newData || {})) {
+              const existingValue = mergedFields[key];
+              if (existingValue === null || existingValue === undefined || existingValue === "") {
+                mergedFields[key] = value;
+              }
+            }
+          } else if (merge_strategy === "overwrite") {
+            mergedFields = { ...mergedFields, ...newData };
+          }
+          
+          // Update the lead
+          const updatedLead = await storage.updateLead(existingLead.id, {
+            custom_fields: mergedFields,
+          });
+          
+          // Create an update entry to track the merge
+          await storage.createLeadUpdate({
+            lead_id: existingLead.id,
+            user_id: req.userId!,
+            update_text: `Lead data merged from ${source}`,
+            update_type: "note",
+          });
+          
+          // Audit log
+          await storage.createAuditLog({
+            user_id: req.userId!,
+            company_id: sheet.company_id,
+            action: "update",
+            model: "lead",
+            model_id: existingLead.id,
+            payload: { merge_strategy, source, fields_merged: Object.keys(newData || {}) },
+          });
+          
+          // Realtime update
+          io.to(`sheet:${existingLead.sheet_id}`).emit("lead_updated", updatedLead);
+          
+          results.success++;
+        } catch (error: any) {
+          results.failed++;
+          results.errors.push(error.message);
+        }
+      }
+      
+      res.json({
+        success: true,
+        merged: results.success,
+        failed: results.failed,
+        errors: results.errors.slice(0, 10),
+        message: `Merged ${results.success} leads, ${results.failed} failed`,
+      });
+    } catch (error: any) {
+      console.error("Bulk merge error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -6985,7 +7270,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const imported: any[] = [];
       const errors: any[] = [];
       const warnings: any[] = [];
+      const duplicates: Array<{
+        row: number;
+        mobile_no: string;
+        existingLead: {
+          id: string;
+          full_name: string;
+          mobile_no: string;
+          sheet_id: string;
+          sheet_name: string;
+          created_at: Date;
+        };
+        newData: Record<string, any>;
+      }> = [];
       const io = app.get("io") as SocketIOServer;
+
+      // Pre-fetch all existing mobile numbers in this company for faster duplicate detection
+      const existingLeads = await storage.getAllLeadsByCompany(sheet.company_id);
+      const mobileNumberMap = new Map<string, { id: string; full_name: string; mobile_no: string; sheet_id: string; created_at: Date }>();
+      for (const lead of existingLeads) {
+        const mobileNo = lead.custom_fields?.mobile_no;
+        if (mobileNo && typeof mobileNo === 'string') {
+          const normalizedMobile = mobileNo.replace(/[\s\-\(\)]/g, '').slice(-10);
+          if (normalizedMobile) {
+            mobileNumberMap.set(normalizedMobile, {
+              id: lead.id,
+              full_name: lead.custom_fields?.full_name || 'Unknown',
+              mobile_no: mobileNo,
+              sheet_id: lead.sheet_id,
+              created_at: lead.created_at,
+            });
+          }
+        }
+      }
+
+      // Build sheet name map for duplicate display
+      const allSheets = await storage.getSheetsByCompany(sheet.company_id);
+      const sheetNameMap = new Map(allSheets.map(s => [s.id, s.name]));
 
       for (let i = 0; i < rows.length; i++) {
         const rowWarnings: string[] = [];
@@ -7155,8 +7476,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           });
 
+          // Check for duplicate mobile number before creating
+          const mobileNo = leadData.custom_fields.mobile_no;
+          if (mobileNo && typeof mobileNo === 'string') {
+            const normalizedMobile = mobileNo.replace(/[\s\-\(\)]/g, '').slice(-10);
+            const existingLead = mobileNumberMap.get(normalizedMobile);
+            if (existingLead) {
+              // This is a duplicate - add to duplicates array instead of creating
+              duplicates.push({
+                row: i + 1,
+                mobile_no: mobileNo,
+                existingLead: {
+                  ...existingLead,
+                  sheet_name: sheetNameMap.get(existingLead.sheet_id) || 'Unknown Sheet',
+                },
+                newData: leadData.custom_fields,
+              });
+              continue; // Skip to next row
+            }
+          }
+
           const lead = await storage.createLead(leadData);
           imported.push(lead);
+          
+          // Add newly created lead to the mobile map to detect duplicates within the same import file
+          const newLeadMobile = lead.custom_fields?.mobile_no;
+          if (newLeadMobile && typeof newLeadMobile === 'string') {
+            const normalizedNew = newLeadMobile.replace(/[\s\-\(\)]/g, '').slice(-10);
+            if (normalizedNew) {
+              mobileNumberMap.set(normalizedNew, {
+                id: lead.id,
+                full_name: lead.custom_fields?.full_name || 'Unknown',
+                mobile_no: newLeadMobile,
+                sheet_id: lead.sheet_id,
+                created_at: lead.created_at,
+              });
+            }
+          }
 
           // Create lead updates if provided
           if (leadUpdatesText) {
@@ -7240,8 +7596,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imported: imported.length,
         errors: errors.length,
         warnings: warnings.length,
+        duplicates: duplicates.length,
         errorDetails: errors.slice(0, 50), // Increased from 10 to 50
         warningDetails: warnings.slice(0, 50),
+        duplicateDetails: duplicates.slice(0, 100), // Show up to 100 duplicate details
         skippedHeaders, // Headers explicitly mapped to "_skip"
       });
     } catch (error: any) {

@@ -10,6 +10,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,8 +27,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle, GitMerge, XCircle } from "lucide-react";
 import type { Lead, CustomColumn, Sheet } from "@shared/schema";
+
+interface DuplicateLeadInfo {
+  id: string;
+  sheet_id: string;
+  sheet_name: string;
+  custom_fields: Record<string, any>;
+  created_at: string;
+  owner_user_id: string;
+}
 
 const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at"] as const;
 
@@ -35,6 +54,8 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
   const { toast } = useToast();
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [selectedSheetId, setSelectedSheetId] = useState<string>(sheetId);
+  const [duplicateInfo, setDuplicateInfo] = useState<DuplicateLeadInfo | null>(null);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
 
   const { data: sheets = [] } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -61,6 +82,8 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
       }));
     } else {
       setFormData({});
+      setDuplicateInfo(null);
+      setShowDuplicateDialog(false);
     }
   }, [open]);
 
@@ -69,6 +92,54 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
   const { data: columns = [] } = useQuery<CustomColumn[]>({
     queryKey: ["/api/sheets", activeSheetId, "columns"],
     enabled: open && !!activeSheetId,
+  });
+
+  // Check for duplicate mobile number
+  const checkDuplicateMutation = useMutation({
+    mutationFn: async (mobileNo: string) => {
+      return await apiRequest<{ isDuplicate: boolean; existingLead?: DuplicateLeadInfo }>(
+        "POST", 
+        "/api/leads/check-duplicate", 
+        { mobile_no: mobileNo, sheet_id: activeSheetId }
+      );
+    },
+  });
+
+  // Merge data into existing lead
+  const mergeMutation = useMutation({
+    mutationFn: async (leadId: string) => {
+      return await apiRequest<{ success: boolean; lead: Lead }>(
+        "POST",
+        `/api/leads/${leadId}/merge`,
+        {
+          custom_fields: formData,
+          source: "Manual entry (merged)",
+          merge_strategy: "update_empty", // Only fill empty fields
+        }
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", duplicateInfo?.sheet_id, "leads"] });
+      if (isMultiSheetMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+      }
+      onOpenChange(false);
+      setFormData({});
+      setDuplicateInfo(null);
+      setShowDuplicateDialog(false);
+      toast({
+        title: "Lead merged",
+        description: "New data has been merged into the existing lead",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to merge lead",
+        description: error.message || "An error occurred while merging",
+        variant: "destructive",
+      });
+    },
   });
 
   const createMutation = useMutation({
@@ -101,7 +172,7 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validate mandatory system columns first (Full Name, Mobile No)
@@ -147,7 +218,35 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
       return;
     }
     
+    // Check for duplicate mobile number before creating
+    try {
+      const result = await checkDuplicateMutation.mutateAsync(formData.mobile_no);
+      if (result.isDuplicate && result.existingLead) {
+        setDuplicateInfo(result.existingLead);
+        setShowDuplicateDialog(true);
+        return;
+      }
+    } catch (error) {
+      console.error("Duplicate check failed:", error);
+      // Continue with creation if check fails
+    }
+    
     createMutation.mutate();
+  };
+
+  const handleMerge = () => {
+    if (duplicateInfo) {
+      mergeMutation.mutate(duplicateInfo.id);
+    }
+  };
+
+  const handleSkip = () => {
+    setShowDuplicateDialog(false);
+    setDuplicateInfo(null);
+    toast({
+      title: "Lead not added",
+      description: "Duplicate lead was skipped",
+    });
   };
 
   const handleChange = (key: string, value: any) => {
@@ -322,67 +421,125 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
     return a.order_index - b.order_index;
   });
 
+  const isPending = createMutation.isPending || checkDuplicateMutation.isPending;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] md:max-h-[85vh] overflow-y-auto w-[95vw] md:w-auto">
-        <DialogHeader>
-          <DialogTitle>Add New Lead</DialogTitle>
-          <DialogDescription>
-            Enter lead information based on your company's custom fields.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit}>
-          {isMultiSheetMode && availableSheets.length > 1 && (
-            <div className="space-y-2 pb-4 border-b mb-4">
-              <Label htmlFor="sheet-selector">Sheet *</Label>
-              <Select
-                value={selectedSheetId}
-                onValueChange={setSelectedSheetId}
-              >
-                <SelectTrigger data-testid="select-sheet">
-                  <SelectValue placeholder="Select sheet" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableSheets.map((sheet) => (
-                    <SelectItem key={sheet.id} value={sheet.id}>
-                      {sheet.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl max-h-[90vh] md:max-h-[85vh] overflow-y-auto w-[95vw] md:w-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Lead</DialogTitle>
+            <DialogDescription>
+              Enter lead information based on your company's custom fields.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit}>
+            {isMultiSheetMode && availableSheets.length > 1 && (
+              <div className="space-y-2 pb-4 border-b mb-4">
+                <Label htmlFor="sheet-selector">Sheet *</Label>
+                <Select
+                  value={selectedSheetId}
+                  onValueChange={setSelectedSheetId}
+                >
+                  <SelectTrigger data-testid="select-sheet">
+                    <SelectValue placeholder="Select sheet" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableSheets.map((sheet) => (
+                      <SelectItem key={sheet.id} value={sheet.id}>
+                        {sheet.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+              {sortedColumns.map((col) => renderField(col))}
             </div>
-          )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-            {sortedColumns.map((col) => renderField(col))}
-          </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              data-testid="button-cancel-add-lead"
-              className="min-h-[44px] w-full sm:w-auto"
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                data-testid="button-cancel-add-lead"
+                className="min-h-[44px] w-full sm:w-auto"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isPending}
+                data-testid="button-save-lead"
+                className="min-h-[44px] w-full sm:w-auto"
+              >
+                {isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {checkDuplicateMutation.isPending ? "Checking..." : "Creating..."}
+                  </>
+                ) : (
+                  "Add Lead"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate Lead Dialog */}
+      <AlertDialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Duplicate Lead Found
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  A lead with mobile number <strong>{formData.mobile_no}</strong> already exists in your company.
+                </p>
+                {duplicateInfo && (
+                  <div className="bg-muted p-3 rounded-md text-sm space-y-1">
+                    <p><strong>Existing Lead:</strong></p>
+                    <p>Name: {duplicateInfo.custom_fields?.full_name || "N/A"}</p>
+                    <p>Mobile: {duplicateInfo.custom_fields?.mobile_no || "N/A"}</p>
+                    <p>Sheet: {duplicateInfo.sheet_name}</p>
+                    <p>Created: {new Date(duplicateInfo.created_at).toLocaleDateString()}</p>
+                  </div>
+                )}
+                <p className="text-muted-foreground">
+                  What would you like to do?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel
+              onClick={handleSkip}
+              data-testid="button-skip-duplicate"
+              className="flex items-center gap-2"
             >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending}
-              data-testid="button-save-lead"
-              className="min-h-[44px] w-full sm:w-auto"
+              <XCircle className="h-4 w-4" />
+              Don't Add
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleMerge}
+              disabled={mergeMutation.isPending}
+              data-testid="button-merge-duplicate"
+              className="flex items-center gap-2 bg-primary"
             >
-              {createMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
-                </>
+              {mergeMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Add Lead"
+                <GitMerge className="h-4 w-4" />
               )}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+              Merge Data
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

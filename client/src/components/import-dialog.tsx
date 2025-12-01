@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Upload, FileSpreadsheet, Check, AlertCircle } from "lucide-react";
+import { Loader2, Upload, FileSpreadsheet, Check, AlertCircle, AlertTriangle, GitMerge, XCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ImportDialogProps {
   sheetId: string;
@@ -37,15 +39,31 @@ interface PreviewData {
   companyColumns?: any[];
 }
 
+interface DuplicateInfo {
+  row: number;
+  mobile_no: string;
+  existingLead: {
+    id: string;
+    full_name: string;
+    mobile_no: string;
+    sheet_id: string;
+    sheet_name: string;
+    created_at: Date;
+  };
+  newData: Record<string, any>;
+}
+
 export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [step, setStep] = useState<"upload" | "mapping" | "complete">("upload");
+  const [step, setStep] = useState<"upload" | "mapping" | "duplicates" | "complete">("upload");
   const [fileData, setFileData] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [fieldMapping, setFieldMapping] = useState<Record<string, string>>({});
   const [importResult, setImportResult] = useState<any>(null);
+  const [duplicates, setDuplicates] = useState<DuplicateInfo[]>([]);
+  const [selectedDuplicates, setSelectedDuplicates] = useState<Set<number>>(new Set());
 
   const previewMutation = useMutation({
     mutationFn: async (data: { fileData: string; fileName: string }) => {
@@ -82,20 +100,37 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
     },
     onSuccess: (result) => {
       // Ensure result has expected structure with defaults
-      setImportResult({
+      const resultData = {
         imported: result.imported || 0,
         errors: result.errors || 0,
         warnings: result.warnings || 0,
+        duplicates: result.duplicates || 0,
         errorDetails: Array.isArray(result.errorDetails) ? result.errorDetails : [],
         warningDetails: Array.isArray(result.warningDetails) ? result.warningDetails : [],
+        duplicateDetails: Array.isArray(result.duplicateDetails) ? result.duplicateDetails : [],
         skippedHeaders: Array.isArray(result.skippedHeaders) ? result.skippedHeaders : [],
-      });
-      setStep("complete");
+      };
+      
+      setImportResult(resultData);
+      
+      // If there are duplicates, show the duplicates step
+      if (resultData.duplicates > 0 && resultData.duplicateDetails.length > 0) {
+        setDuplicates(resultData.duplicateDetails);
+        setSelectedDuplicates(new Set()); // Reset selection
+        setStep("duplicates");
+        toast({
+          title: "Duplicates Found",
+          description: `Imported ${resultData.imported} leads. Found ${resultData.duplicates} duplicates that need review.`,
+        });
+      } else {
+        setStep("complete");
+        toast({
+          title: "Import complete",
+          description: `Successfully imported ${resultData.imported} leads`,
+        });
+      }
+      
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
-      toast({
-        title: "Import complete",
-        description: `Successfully imported ${result.imported || 0} leads`,
-      });
     },
     onError: (error: any) => {
       // For validation errors (e.g., unmapped required columns), show detailed message
@@ -107,6 +142,35 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
       // Clear stale import result and reset to mapping step so user can fix the issue
       setImportResult(null);
       setStep("mapping");
+    },
+  });
+
+  // Bulk merge duplicates mutation
+  const bulkMergeMutation = useMutation({
+    mutationFn: async (duplicatesToMerge: DuplicateInfo[]) => {
+      return await apiRequest<any>("POST", "/api/leads/bulk-merge", {
+        duplicates: duplicatesToMerge.map(d => ({
+          existingLeadId: d.existingLead.id,
+          newData: d.newData,
+        })),
+        merge_strategy: "update_empty",
+        source: `Import: ${previewData?.fileName || "upload"}`,
+      });
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      toast({
+        title: "Merge Complete",
+        description: result.message || `Merged ${result.merged} leads`,
+      });
+      setStep("complete");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Merge Failed",
+        description: error.message || "Failed to merge duplicates",
+        variant: "destructive",
+      });
     },
   });
 
@@ -162,7 +226,48 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
     setPreviewData(null);
     setFieldMapping({});
     setImportResult(null);
+    setDuplicates([]);
+    setSelectedDuplicates(new Set());
     onOpenChange(false);
+  };
+
+  // Toggle duplicate selection
+  const toggleDuplicateSelection = (rowNumber: number) => {
+    setSelectedDuplicates(prev => {
+      const next = new Set(prev);
+      if (next.has(rowNumber)) {
+        next.delete(rowNumber);
+      } else {
+        next.add(rowNumber);
+      }
+      return next;
+    });
+  };
+
+  // Select/deselect all duplicates
+  const toggleSelectAll = () => {
+    if (selectedDuplicates.size === duplicates.length) {
+      setSelectedDuplicates(new Set());
+    } else {
+      setSelectedDuplicates(new Set(duplicates.map(d => d.row)));
+    }
+  };
+
+  // Merge selected duplicates
+  const handleMergeSelected = () => {
+    const toMerge = duplicates.filter(d => selectedDuplicates.has(d.row));
+    if (toMerge.length > 0) {
+      bulkMergeMutation.mutate(toMerge);
+    }
+  };
+
+  // Skip duplicates and complete
+  const handleSkipDuplicates = () => {
+    toast({
+      title: "Duplicates Skipped",
+      description: `${duplicates.length} duplicate leads were not imported`,
+    });
+    setStep("complete");
   };
 
   const handleFieldMappingChange = (excelHeader: string, crmField: string) => {
@@ -180,6 +285,7 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
           <DialogDescription>
             {step === "upload" && "Upload an Excel or CSV file to import leads"}
             {step === "mapping" && "Map Excel columns to CRM fields"}
+            {step === "duplicates" && "Review duplicate leads found in your import"}
             {step === "complete" && "Import complete"}
           </DialogDescription>
         </DialogHeader>
@@ -316,6 +422,76 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
             );
           })()}
 
+          {step === "duplicates" && duplicates.length > 0 && (
+            <div className="space-y-4 py-4">
+              <Alert className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                <AlertDescription className="text-amber-800 dark:text-amber-200">
+                  <strong>{duplicates.length} duplicate leads</strong> were found with mobile numbers that already exist in your company.
+                  Select which ones you want to merge into existing leads, or skip all to complete the import.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="select-all"
+                    checked={selectedDuplicates.size === duplicates.length}
+                    onCheckedChange={toggleSelectAll}
+                    data-testid="checkbox-select-all-duplicates"
+                  />
+                  <Label htmlFor="select-all" className="text-sm cursor-pointer">
+                    Select all ({duplicates.length})
+                  </Label>
+                </div>
+                <span className="text-sm text-muted-foreground">
+                  {selectedDuplicates.size} selected for merge
+                </span>
+              </div>
+
+              <ScrollArea className="h-[300px] border rounded-lg">
+                <div className="p-4 space-y-3">
+                  {duplicates.map((dup) => (
+                    <div
+                      key={dup.row}
+                      className={`p-3 border rounded-lg transition-colors ${
+                        selectedDuplicates.has(dup.row)
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                      data-testid={`duplicate-row-${dup.row}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          id={`dup-${dup.row}`}
+                          checked={selectedDuplicates.has(dup.row)}
+                          onCheckedChange={() => toggleDuplicateSelection(dup.row)}
+                          className="mt-1"
+                          data-testid={`checkbox-duplicate-${dup.row}`}
+                        />
+                        <div className="flex-1 grid md:grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">Row {dup.row} - New Data:</p>
+                            <p className="text-sm font-medium">{dup.newData.full_name || "N/A"}</p>
+                            <p className="text-sm">{dup.mobile_no}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">Existing Lead:</p>
+                            <p className="text-sm font-medium">{dup.existingLead.full_name}</p>
+                            <p className="text-sm">{dup.existingLead.mobile_no}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Sheet: {dup.existingLead.sheet_name}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
+
           {step === "complete" && importResult && (
             <div className="space-y-4 py-8">
               <div className="flex flex-col items-center gap-4">
@@ -403,6 +579,35 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
                 Import {previewData?.totalRows} Leads
               </Button>
             </>
+          )}
+          {step === "duplicates" && (
+            <div className="flex items-center gap-2 w-full justify-between">
+              <div className="text-sm text-muted-foreground">
+                {importResult?.imported || 0} leads imported
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSkipDuplicates}
+                  disabled={bulkMergeMutation.isPending}
+                  data-testid="button-skip-duplicates"
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Skip All ({duplicates.length})
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleMergeSelected}
+                  disabled={selectedDuplicates.size === 0 || bulkMergeMutation.isPending}
+                  data-testid="button-merge-selected"
+                >
+                  {bulkMergeMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {!bulkMergeMutation.isPending && <GitMerge className="mr-2 h-4 w-4" />}
+                  Merge Selected ({selectedDuplicates.size})
+                </Button>
+              </div>
+            </div>
           )}
           {step === "complete" && (
             <Button onClick={handleClose} data-testid="button-close-import">

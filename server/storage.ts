@@ -2829,6 +2829,8 @@ export class PgStorage implements IStorage {
 
   async findLeadByMobileNo(companyId: string, mobileNo: string): Promise<Lead | undefined> {
     // Find lead by mobile_no across all sheets in the company (including soft-deleted)
+    // Uses normalized comparison: strips spaces, dashes, +, (), and takes last 10 digits
+    // This matches leads regardless of how the mobile number was formatted when stored
     const result = await db
       .select({
         lead: dbSchema.leads,
@@ -2838,7 +2840,8 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(dbSchema.sheets.company_id, companyId),
-          sql`${dbSchema.leads.custom_fields}->>'mobile_no' = ${mobileNo}`
+          // Normalize stored value to last 10 digits and compare with input (already normalized)
+          sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(${dbSchema.leads.custom_fields}->>'mobile_no', ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
         )
       )
       .limit(1);
