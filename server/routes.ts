@@ -2121,6 +2121,577 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Allocate a pending webhook request to a specific sheet
+  app.post("/api/admin/company/webhooks/:webhookId/requests/:requestId/allocate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { webhookId, requestId } = req.params;
+      const { sheet_id } = req.body;
+
+      if (!sheet_id) {
+        return res.status(400).json({ error: "Sheet ID is required" });
+      }
+
+      // Get the webhook request
+      const webhookRequest = await storage.getWebhookRequest(requestId);
+      if (!webhookRequest) {
+        return res.status(404).json({ error: "Webhook request not found" });
+      }
+
+      // Verify it belongs to this webhook
+      if (webhookRequest.webhook_id !== webhookId) {
+        return res.status(403).json({ error: "Request does not belong to this webhook" });
+      }
+
+      // Get the webhook to verify company access
+      const webhook = await storage.getCompanyWebhook(webhookId);
+      if (!webhook || webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access webhooks from other companies" });
+      }
+
+      // Check if already allocated
+      if (webhookRequest.status === 'success' && webhookRequest.lead_id) {
+        return res.status(400).json({ error: "This request has already been allocated" });
+      }
+
+      // Get field mappings for this webhook
+      const fieldMappings = await storage.getWebhookFieldMappings(webhookId);
+
+      // Helper function to extract value from nested object using dot notation
+      const getNestedValue = (obj: any, path: string): any => {
+        const keys = path.split('.');
+        let current = obj;
+        for (const key of keys) {
+          if (current && typeof current === 'object' && key in current) {
+            current = current[key];
+          } else {
+            return undefined;
+          }
+        }
+        return current;
+      };
+
+      // Apply field mappings to transform webhook payload to lead data
+      const incomingData = webhookRequest.payload;
+      const leadData: any = {};
+
+      for (const mapping of fieldMappings) {
+        // Check for default value first (if configured)
+        if ((mapping as any).use_default_value && (mapping as any).default_value !== undefined) {
+          leadData[mapping.sheet_column_key] = (mapping as any).default_value;
+        } else if (mapping.webhook_field) {
+          const value = getNestedValue(incomingData, mapping.webhook_field);
+          if (value !== undefined && value !== null) {
+            leadData[mapping.sheet_column_key] = value;
+          }
+        }
+      }
+
+      // Set default values for required fields
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Build the custom fields
+      const customFields = {
+        name: leadData.name || leadData.full_name || "",
+        mobile_no: leadData.mobile_no || leadData.mobile || leadData.phone || "",
+        whatsapp: leadData.whatsapp || leadData.mobile_no || leadData.mobile || leadData.phone || "",
+        lang: leadData.lang || leadData.language || "",
+        occupation: leadData.occupation || "",
+        qualification: leadData.qualification || "",
+        lead_date: leadData.lead_date || today,
+        lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+        lead_status: leadData.lead_status || "New",
+        visit_status: leadData.visit_status || "Not Visited",
+        ...leadData,
+      };
+      
+      // Normalize mobile for duplicate check
+      const mobileNo = String(customFields.mobile_no || "");
+      const normalizedMobile = mobileNo.replace(/[\s\-\+\(\)]/g, '').replace(/^91/, '').slice(-10);
+      
+      // Check for duplicates using webhook's match_mode
+      const matchMode = webhook.match_mode || "create_only";
+      
+      if (matchMode !== "create_only" && normalizedMobile.length >= 10) {
+        const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile);
+        
+        if (existingLead) {
+          // Check force_allocate flag - if true, skip duplicate check
+          const forceAllocate = req.body.force_allocate === true;
+          
+          if (!forceAllocate) {
+            // Return duplicate info for admin to decide
+            const existingSheet = await storage.getSheet(existingLead.sheet_id);
+            return res.status(409).json({
+              error: "Duplicate lead found",
+              duplicate: true,
+              existing_lead: {
+                id: existingLead.id,
+                sheet_id: existingLead.sheet_id,
+                sheet_name: existingSheet?.name || "Unknown",
+                custom_fields: existingLead.custom_fields,
+              }
+            });
+          }
+        }
+      }
+
+      // Create the lead
+      const lead = await storage.createLead({
+        sheet_id,
+        owner_user_id: webhook.created_by_user_id,
+        custom_fields,
+        meta: leadData.meta || {},
+      });
+
+      // Update the webhook request status
+      await storage.updateWebhookRequest(requestId, {
+        status: 'success',
+        lead_id: lead.id,
+        allocated_sheet_id: sheet_id,
+        error_message: null,
+      });
+
+      // Emit real-time update
+      const io = (req as any).io;
+      if (io) {
+        io.to(`sheet:${sheet_id}`).emit("lead_created", lead);
+      }
+
+      // Create audit log
+      await storage.createAuditLog({
+        company_id: req.companyId,
+        user_id: req.userId,
+        action: "manual_webhook_allocation",
+        model: "WebhookRequest",
+        model_id: requestId,
+        payload: { lead_id: lead.id, sheet_id },
+      });
+
+      res.json({ 
+        success: true, 
+        lead_id: lead.id,
+        message: "Lead created and allocated successfully" 
+      });
+    } catch (error: any) {
+      console.error("Allocate pending webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Bulk allocate multiple pending webhook requests to a sheet
+  app.post("/api/admin/company/webhooks/:webhookId/requests/bulk-allocate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { webhookId } = req.params;
+      const { request_ids, sheet_id } = req.body;
+
+      if (!sheet_id || !request_ids || !Array.isArray(request_ids) || request_ids.length === 0) {
+        return res.status(400).json({ error: "Sheet ID and request IDs are required" });
+      }
+
+      // Get the webhook to verify company access
+      const webhook = await storage.getCompanyWebhook(webhookId);
+      if (!webhook || webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access webhooks from other companies" });
+      }
+
+      // Get field mappings for this webhook
+      const fieldMappings = await storage.getWebhookFieldMappings(webhookId);
+
+      // Helper function to extract value from nested object using dot notation
+      const getNestedValue = (obj: any, path: string): any => {
+        const keys = path.split('.');
+        let current = obj;
+        for (const key of keys) {
+          if (current && typeof current === 'object' && key in current) {
+            current = current[key];
+          } else {
+            return undefined;
+          }
+        }
+        return current;
+      };
+
+      const results: { request_id: string; success: boolean; lead_id?: string; error?: string }[] = [];
+      const today = new Date().toISOString().split('T')[0];
+
+      for (const requestId of request_ids) {
+        try {
+          // Get the webhook request
+          const webhookRequest = await storage.getWebhookRequest(requestId);
+          if (!webhookRequest || webhookRequest.webhook_id !== webhookId) {
+            results.push({ request_id: requestId, success: false, error: "Request not found or wrong webhook" });
+            continue;
+          }
+
+          // Check if already allocated
+          if (webhookRequest.status === 'success' && webhookRequest.lead_id) {
+            results.push({ request_id: requestId, success: false, error: "Already allocated" });
+            continue;
+          }
+
+          // Apply field mappings
+          const incomingData = webhookRequest.payload;
+          const leadData: any = {};
+
+          for (const mapping of fieldMappings) {
+            // Check for default value first (if configured)
+            if ((mapping as any).use_default_value && (mapping as any).default_value !== undefined) {
+              leadData[mapping.sheet_column_key] = (mapping as any).default_value;
+            } else if (mapping.webhook_field) {
+              const value = getNestedValue(incomingData, mapping.webhook_field);
+              if (value !== undefined && value !== null) {
+                leadData[mapping.sheet_column_key] = value;
+              }
+            }
+          }
+
+          // Build custom fields
+          const customFields = {
+            name: leadData.name || leadData.full_name || "",
+            mobile_no: leadData.mobile_no || leadData.mobile || leadData.phone || "",
+            whatsapp: leadData.whatsapp || leadData.mobile_no || leadData.mobile || leadData.phone || "",
+            lang: leadData.lang || leadData.language || "",
+            occupation: leadData.occupation || "",
+            qualification: leadData.qualification || "",
+            lead_date: leadData.lead_date || today,
+            lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+            lead_status: leadData.lead_status || "New",
+            visit_status: leadData.visit_status || "Not Visited",
+            ...leadData,
+          };
+          
+          // Check for duplicates
+          const mobileNo = String(customFields.mobile_no || "");
+          const normalizedMobile = mobileNo.replace(/[\s\-\+\(\)]/g, '').replace(/^91/, '').slice(-10);
+          const matchMode = webhook.match_mode || "create_only";
+          
+          if (matchMode !== "create_only" && normalizedMobile.length >= 10) {
+            const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile);
+            if (existingLead) {
+              results.push({ request_id: requestId, success: false, error: `Duplicate mobile: ${mobileNo}` });
+              continue;
+            }
+          }
+
+          // Create the lead
+          const lead = await storage.createLead({
+            sheet_id,
+            owner_user_id: webhook.created_by_user_id,
+            custom_fields,
+            meta: leadData.meta || {},
+          });
+
+          // Update the webhook request status
+          await storage.updateWebhookRequest(requestId, {
+            status: 'success',
+            lead_id: lead.id,
+            allocated_sheet_id: sheet_id,
+            error_message: null,
+          });
+
+          // Emit real-time update
+          const io = (req as any).io;
+          if (io) {
+            io.to(`sheet:${sheet_id}`).emit("lead_created", lead);
+          }
+
+          results.push({ request_id: requestId, success: true, lead_id: lead.id });
+        } catch (err: any) {
+          results.push({ request_id: requestId, success: false, error: err.message });
+        }
+      }
+
+      // Create audit log
+      await storage.createAuditLog({
+        company_id: req.companyId,
+        user_id: req.userId,
+        action: "bulk_manual_webhook_allocation",
+        model: "WebhookRequest",
+        model_id: webhookId,
+        payload: { request_ids, sheet_id, results_count: results.filter(r => r.success).length },
+      });
+
+      const successCount = results.filter(r => r.success).length;
+      const duplicateCount = results.filter(r => !r.success && r.error?.includes("Duplicate")).length;
+      let message = `${successCount} of ${request_ids.length} leads allocated successfully`;
+      if (duplicateCount > 0) {
+        message += `. ${duplicateCount} skipped as duplicates.`;
+      }
+      res.json({ 
+        success: true, 
+        message,
+        results
+      });
+    } catch (error: any) {
+      console.error("Bulk allocate pending webhooks error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Re-process pending webhook requests through current allocation rules
+  app.post("/api/admin/company/webhooks/:webhookId/requests/reprocess", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { webhookId } = req.params;
+      const { request_ids } = req.body;
+
+      if (!request_ids || !Array.isArray(request_ids) || request_ids.length === 0) {
+        return res.status(400).json({ error: "Request IDs are required" });
+      }
+
+      // Get the webhook to verify company access
+      const webhook = await storage.getCompanyWebhook(webhookId);
+      if (!webhook || webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access webhooks from other companies" });
+      }
+
+      // Get allocation rules
+      const allocationRules = await storage.getWebhookAllocationRules(webhookId);
+      if (allocationRules.length === 0) {
+        return res.status(400).json({ error: "No allocation rules configured. Please set up allocation rules first." });
+      }
+
+      // Get field mappings
+      const fieldMappings = await storage.getWebhookFieldMappings(webhookId);
+
+      // Helper function to extract value from nested object
+      const getNestedValue = (obj: any, path: string): any => {
+        const keys = path.split('.');
+        let current = obj;
+        for (const key of keys) {
+          if (current && typeof current === 'object' && key in current) {
+            current = current[key];
+          } else {
+            return undefined;
+          }
+        }
+        return current;
+      };
+
+      // Helper to evaluate a single condition
+      const evaluateSingleCondition = (condition: any, data: any): boolean => {
+        const fieldValue = getNestedValue(data, condition.field);
+        const condValue = condition.value;
+
+        switch (condition.operator) {
+          case 'equals':
+            return String(fieldValue || '').toLowerCase() === String(condValue || '').toLowerCase();
+          case 'not_equals':
+            return String(fieldValue || '').toLowerCase() !== String(condValue || '').toLowerCase();
+          case 'contains':
+            return String(fieldValue || '').toLowerCase().includes(String(condValue || '').toLowerCase());
+          case 'not_contains':
+            return !String(fieldValue || '').toLowerCase().includes(String(condValue || '').toLowerCase());
+          case 'starts_with':
+            return String(fieldValue || '').toLowerCase().startsWith(String(condValue || '').toLowerCase());
+          case 'ends_with':
+            return String(fieldValue || '').toLowerCase().endsWith(String(condValue || '').toLowerCase());
+          case 'is_empty':
+            return !fieldValue || String(fieldValue).trim() === '';
+          case 'is_not_empty':
+            return fieldValue && String(fieldValue).trim() !== '';
+          default:
+            return false;
+        }
+      };
+
+      // Helper to evaluate all conditions for a rule
+      const evaluateCondition = (rule: any, data: any): boolean => {
+        if (rule.is_default) return false;
+        const conditions = rule.conditions || [];
+        if (conditions.length === 0) {
+          if (rule.condition_field && rule.condition_operator) {
+            return evaluateSingleCondition({
+              field: rule.condition_field,
+              operator: rule.condition_operator,
+              value: rule.condition_value
+            }, data);
+          }
+          return false;
+        }
+        const logicalOp = rule.logical_operator || 'and';
+        if (logicalOp === 'and') {
+          return conditions.every((c: any) => evaluateSingleCondition(c, data));
+        } else {
+          return conditions.some((c: any) => evaluateSingleCondition(c, data));
+        }
+      };
+
+      const results: { request_id: string; success: boolean; lead_id?: string; sheet_id?: string; error?: string }[] = [];
+      const today = new Date().toISOString().split('T')[0];
+
+      for (const requestId of request_ids) {
+        try {
+          const webhookRequest = await storage.getWebhookRequest(requestId);
+          if (!webhookRequest || webhookRequest.webhook_id !== webhookId) {
+            results.push({ request_id: requestId, success: false, error: "Request not found" });
+            continue;
+          }
+
+          if (webhookRequest.status === 'success' && webhookRequest.lead_id) {
+            results.push({ request_id: requestId, success: false, error: "Already allocated" });
+            continue;
+          }
+
+          const incomingData = webhookRequest.payload;
+
+          // Find matching rules
+          let applicableRules = allocationRules.filter(rule => evaluateCondition(rule, incomingData));
+          if (applicableRules.length === 0) {
+            applicableRules = allocationRules.filter(rule => rule.is_default === true);
+          }
+
+          if (applicableRules.length === 0) {
+            results.push({ request_id: requestId, success: false, error: "No matching allocation rules" });
+            continue;
+          }
+
+          // Use weighted round-robin distribution based on allocation_counts
+          // Build condition group key for tracking allocations
+          const firstRule = applicableRules[0];
+          let groupKey = firstRule.is_default ? "default" : "";
+          if (!firstRule.is_default) {
+            const conditions = firstRule.conditions || [];
+            if (conditions.length > 0) {
+              groupKey = JSON.stringify(conditions);
+            } else if (firstRule.condition_field && firstRule.condition_operator) {
+              groupKey = `${firstRule.condition_field}:${firstRule.condition_operator}:${firstRule.condition_value || ""}`;
+            }
+          }
+          
+          // Get current allocation counts from the webhook
+          const allocationCounts = (webhook.allocation_counts || {}) as Record<string, Record<string, number>>;
+          const groupCounts = allocationCounts[groupKey] || {};
+          
+          // Calculate which sheet is most behind its target using weighted round-robin
+          const totalPercentage = applicableRules.reduce((sum, r) => sum + r.percentage, 0);
+          const totalAllocated = applicableRules.reduce((sum, r) => sum + (groupCounts[r.sheet_id] || 0), 0);
+          
+          let selectedSheet = applicableRules[0].sheet_id;
+          let bestGap = -Infinity;
+          
+          for (const rule of applicableRules) {
+            const targetPercentage = rule.percentage / totalPercentage;
+            const currentCount = groupCounts[rule.sheet_id] || 0;
+            let gap: number;
+            
+            if (totalAllocated === 0) {
+              gap = targetPercentage; // First allocation - use target percentage as priority
+            } else {
+              const actualShare = currentCount / totalAllocated;
+              gap = targetPercentage - actualShare; // Select sheet most behind target
+            }
+            
+            if (gap > bestGap) {
+              bestGap = gap;
+              selectedSheet = rule.sheet_id;
+            }
+          }
+          
+          // Update allocation counts
+          if (!allocationCounts[groupKey]) {
+            allocationCounts[groupKey] = {};
+          }
+          allocationCounts[groupKey][selectedSheet] = (allocationCounts[groupKey][selectedSheet] || 0) + 1;
+          
+          // Persist the updated allocation counts (we'll batch this at the end)
+          await storage.updateCompanyWebhook(webhookId, {
+            allocation_counts: allocationCounts,
+          });
+
+          // Apply field mappings
+          const leadData: any = {};
+          for (const mapping of fieldMappings) {
+            // Check for default value first (if configured)
+            if ((mapping as any).use_default_value && (mapping as any).default_value !== undefined) {
+              leadData[mapping.sheet_column_key] = (mapping as any).default_value;
+            } else if (mapping.webhook_field) {
+              const value = getNestedValue(incomingData, mapping.webhook_field);
+              if (value !== undefined && value !== null) {
+                leadData[mapping.sheet_column_key] = value;
+              }
+            }
+          }
+
+          // Build custom fields
+          const customFields = {
+            name: leadData.name || leadData.full_name || "",
+            mobile_no: leadData.mobile_no || leadData.mobile || leadData.phone || "",
+            whatsapp: leadData.whatsapp || leadData.mobile_no || leadData.mobile || leadData.phone || "",
+            lang: leadData.lang || leadData.language || "",
+            occupation: leadData.occupation || "",
+            qualification: leadData.qualification || "",
+            lead_date: leadData.lead_date || today,
+            lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+            lead_status: leadData.lead_status || "New",
+            visit_status: leadData.visit_status || "Not Visited",
+            ...leadData,
+          };
+          
+          // Check for duplicates
+          const mobileNo = String(customFields.mobile_no || "");
+          const normalizedMobile = mobileNo.replace(/[\s\-\+\(\)]/g, '').replace(/^91/, '').slice(-10);
+          const matchMode = webhook.match_mode || "create_only";
+          
+          if (matchMode !== "create_only" && normalizedMobile.length >= 10) {
+            const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile);
+            if (existingLead) {
+              results.push({ request_id: requestId, success: false, error: `Duplicate mobile: ${mobileNo}` });
+              continue;
+            }
+          }
+
+          // Create the lead
+          const lead = await storage.createLead({
+            sheet_id: selectedSheet,
+            owner_user_id: webhook.created_by_user_id,
+            custom_fields,
+            meta: leadData.meta || {},
+          });
+
+          await storage.updateWebhookRequest(requestId, {
+            status: 'success',
+            lead_id: lead.id,
+            allocated_sheet_id: selectedSheet,
+            error_message: null,
+          });
+
+          const io = (req as any).io;
+          if (io) {
+            io.to(`sheet:${selectedSheet}`).emit("lead_created", lead);
+          }
+
+          results.push({ request_id: requestId, success: true, lead_id: lead.id, sheet_id: selectedSheet });
+        } catch (err: any) {
+          results.push({ request_id: requestId, success: false, error: err.message });
+        }
+      }
+
+      await storage.createAuditLog({
+        company_id: req.companyId,
+        user_id: req.userId,
+        action: "reprocess_webhook_requests",
+        model: "WebhookRequest",
+        model_id: webhookId,
+        payload: { request_ids, results_count: results.filter(r => r.success).length },
+      });
+
+      const successCount = results.filter(r => r.success).length;
+      const duplicateCount = results.filter(r => !r.success && r.error?.includes("Duplicate")).length;
+      let message = `${successCount} of ${request_ids.length} leads processed successfully`;
+      if (duplicateCount > 0) {
+        message += `. ${duplicateCount} skipped as duplicates.`;
+      }
+      res.json({ 
+        success: true, 
+        message,
+        results
+      });
+    } catch (error: any) {
+      console.error("Reprocess pending webhooks error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // OUTGOING WEBHOOKS (Send data out when events happen)
   // ============================================================================

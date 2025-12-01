@@ -273,7 +273,9 @@ export interface IStorage {
   // Webhook Requests
   getWebhookRequests(webhookId: string): Promise<WebhookRequest[]>;
   getWebhookRequestsByCompanyId(companyId: string): Promise<WebhookRequest[]>;
+  getWebhookRequest(id: string): Promise<WebhookRequest | undefined>;
   createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest>;
+  updateWebhookRequest(id: string, updates: Partial<WebhookRequest>): Promise<WebhookRequest | undefined>;
 
   // Outgoing Webhooks
   getOutgoingWebhook(id: string): Promise<OutgoingWebhook | undefined>;
@@ -1484,8 +1486,16 @@ export class MemStorage implements IStorage {
   async getWebhookRequestsByCompanyId(companyId: string): Promise<WebhookRequest[]> {
     return [];
   }
+
+  async getWebhookRequest(id: string): Promise<WebhookRequest | undefined> {
+    return undefined;
+  }
   
   async createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest> {
+    throw new Error("Webhook management not supported in MemStorage");
+  }
+
+  async updateWebhookRequest(id: string, updates: Partial<WebhookRequest>): Promise<WebhookRequest | undefined> {
     throw new Error("Webhook management not supported in MemStorage");
   }
 
@@ -3624,6 +3634,23 @@ export class PgStorage implements IStorage {
     };
     await db.insert(dbSchema.webhook_requests).values(newRequest);
     return this.mapWebhookRequest(newRequest as any);
+  }
+
+  async getWebhookRequest(id: string): Promise<WebhookRequest | undefined> {
+    const result = await db.select().from(dbSchema.webhook_requests).where(eq(dbSchema.webhook_requests.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapWebhookRequest(result[0]);
+  }
+
+  async updateWebhookRequest(id: string, updates: Partial<WebhookRequest>): Promise<WebhookRequest | undefined> {
+    const convertedUpdates: any = { ...updates };
+    if (updates.created_at && typeof updates.created_at === 'string') {
+      convertedUpdates.created_at = new Date(updates.created_at);
+    }
+    await db.update(dbSchema.webhook_requests).set(convertedUpdates).where(eq(dbSchema.webhook_requests.id, id));
+    const result = await db.select().from(dbSchema.webhook_requests).where(eq(dbSchema.webhook_requests.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapWebhookRequest(result[0]);
   }
 
   // Outgoing Webhooks

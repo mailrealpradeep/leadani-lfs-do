@@ -518,6 +518,11 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [pendingCustomFields, setPendingCustomFields] = useState<Record<string, any> | null>(null);
 
+  // Pending allocations state
+  const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
+  const [allocateToSheetId, setAllocateToSheetId] = useState<string>("");
+  const [expandedPendingId, setExpandedPendingId] = useState<string | null>(null);
+
   // Fetch sheets for allocation
   const { data: sheets = [] } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -702,8 +707,16 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           fieldCount: Object.keys(request.payload || {}).length,
           status: request.status,
           date,
+          payload: request.payload,
         };
       });
+  }, [webhookRequests]);
+
+  // Get pending allocation requests
+  const pendingRequests = useMemo(() => {
+    return webhookRequests
+      .filter(r => r.status === 'pending_allocation')
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [webhookRequests]);
 
   // Helper function to format time ago
@@ -844,6 +857,124 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       toast({
         title: "Merge Failed",
         description: error.message || "Failed to merge lead data",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Allocate single pending request to a sheet
+  const allocatePendingMutation = useMutation({
+    mutationFn: async ({ requestId, sheetId }: { requestId: string; sheetId: string }) => {
+      return await apiRequest<{ success: boolean; lead_id: string }>(
+        "POST",
+        `/api/admin/company/webhooks/${webhook.id}/requests/${requestId}/allocate`,
+        { sheet_id: sheetId }
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/webhooks", webhook.id, "requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+      setSelectedPendingIds(new Set());
+      toast({
+        title: "Lead Allocated",
+        description: "Pending lead has been allocated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Allocation Failed",
+        description: error.message || "Failed to allocate pending lead",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Bulk allocate pending requests to a sheet
+  const bulkAllocatePendingMutation = useMutation({
+    mutationFn: async ({ requestIds, sheetId }: { requestIds: string[]; sheetId: string }) => {
+      return await apiRequest<{ success: boolean; message: string; results: Array<{ request_id: string; success: boolean; lead_id?: string; error?: string }> }>(
+        "POST",
+        `/api/admin/company/webhooks/${webhook.id}/requests/bulk-allocate`,
+        { request_ids: requestIds, sheet_id: sheetId }
+      );
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/webhooks", webhook.id, "requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+      setSelectedPendingIds(new Set());
+      setAllocateToSheetId("");
+      
+      const successCount = data.results?.filter(r => r.success).length || 0;
+      const failedResults = data.results?.filter(r => !r.success) || [];
+      
+      if (failedResults.length > 0) {
+        const failedMessages = failedResults.slice(0, 3).map(r => r.error).join(", ");
+        toast({
+          title: "Partial Success",
+          description: `${successCount} allocated. ${failedResults.length} failed: ${failedMessages}${failedResults.length > 3 ? '...' : ''}`,
+          variant: failedResults.length === data.results?.length ? "destructive" : "default",
+        });
+      } else {
+        toast({
+          title: "Leads Allocated",
+          description: data.message || "Pending leads have been allocated successfully",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Bulk Allocation Failed",
+        description: error.message || "Failed to allocate pending leads",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Re-process pending requests through current allocation rules
+  const reprocessPendingMutation = useMutation({
+    mutationFn: async (requestIds: string[]) => {
+      return await apiRequest<{ success: boolean; message: string; results: Array<{ request_id: string; success: boolean; lead_id?: string; sheet_id?: string; error?: string }> }>(
+        "POST",
+        `/api/admin/company/webhooks/${webhook.id}/requests/reprocess`,
+        { request_ids: requestIds }
+      );
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/webhooks", webhook.id, "requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+      setSelectedPendingIds(new Set());
+      
+      const successCount = data.results?.filter(r => r.success).length || 0;
+      const failedResults = data.results?.filter(r => !r.success) || [];
+      
+      if (failedResults.length > 0) {
+        const stillPendingCount = failedResults.filter(r => r.error === "No matching allocation rules").length;
+        const otherErrors = failedResults.filter(r => r.error !== "No matching allocation rules");
+        
+        let description = `${successCount} allocated.`;
+        if (stillPendingCount > 0) {
+          description += ` ${stillPendingCount} still have no matching rules.`;
+        }
+        if (otherErrors.length > 0) {
+          description += ` ${otherErrors.length} failed: ${otherErrors.slice(0, 2).map(r => r.error).join(", ")}`;
+        }
+        
+        toast({
+          title: successCount > 0 ? "Partial Success" : "No Matching Rules",
+          description,
+          variant: failedResults.length === data.results?.length ? "destructive" : "default",
+        });
+      } else {
+        toast({
+          title: "Leads Processed",
+          description: data.message || "All pending leads have been allocated successfully",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Re-process Failed",
+        description: error.message || "Failed to re-process pending leads",
         variant: "destructive",
       });
     },
@@ -1239,7 +1370,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="mappings" data-testid="tab-mappings">
           Field Mappings
         </TabsTrigger>
@@ -1248,6 +1379,14 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         </TabsTrigger>
         <TabsTrigger value="matchmode" data-testid="tab-matchmode">
           Match Mode
+        </TabsTrigger>
+        <TabsTrigger value="pending" data-testid="tab-pending" className="relative">
+          Pending
+          {pendingRequests.length > 0 && (
+            <Badge variant="destructive" className="ml-1 h-5 min-w-[20px] px-1 text-xs">
+              {pendingRequests.length}
+            </Badge>
+          )}
         </TabsTrigger>
       </TabsList>
 
@@ -2454,6 +2593,208 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             data-testid="button-save-matchmode"
           >
             {updateMutation.isPending ? "Saving..." : "Save Match Mode"}
+          </Button>
+        </div>
+      </TabsContent>
+
+      {/* Pending Allocations Tab */}
+      <TabsContent value="pending" className="space-y-4 py-2">
+        {pendingRequests.length === 0 ? (
+          <Alert className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
+            <Check className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800 dark:text-green-200">
+              No pending allocations. All webhook requests have been processed.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            <Alert className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
+              <AlertCircle className="h-4 w-4 text-amber-600" />
+              <AlertDescription className="text-amber-800 dark:text-amber-200">
+                {pendingRequests.length} lead{pendingRequests.length !== 1 ? 's' : ''} waiting to be allocated. 
+                These came in when no allocation rules matched.
+              </AlertDescription>
+            </Alert>
+
+            {/* Bulk Actions */}
+            <div className="p-3 border rounded-lg bg-muted/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Bulk Actions</Label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (selectedPendingIds.size === pendingRequests.length) {
+                        setSelectedPendingIds(new Set());
+                      } else {
+                        setSelectedPendingIds(new Set(pendingRequests.map(r => r.id)));
+                      }
+                    }}
+                    data-testid="button-select-all-pending"
+                  >
+                    {selectedPendingIds.size === pendingRequests.length ? "Deselect All" : "Select All"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedPendingIds.size} selected
+                  </span>
+                </div>
+              </div>
+
+              {selectedPendingIds.size > 0 && (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Select value={allocateToSheetId} onValueChange={setAllocateToSheetId}>
+                    <SelectTrigger className="flex-1" data-testid="select-allocate-sheet">
+                      <SelectValue placeholder="Select sheet to allocate to..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sheets.map(sheet => (
+                        <SelectItem key={sheet.id} value={sheet.id}>
+                          {sheet.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    disabled={!allocateToSheetId || bulkAllocatePendingMutation.isPending}
+                    onClick={() => {
+                      bulkAllocatePendingMutation.mutate({
+                        requestIds: Array.from(selectedPendingIds),
+                        sheetId: allocateToSheetId,
+                      });
+                    }}
+                    data-testid="button-bulk-allocate"
+                    className="shrink-0"
+                  >
+                    {bulkAllocatePendingMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : null}
+                    Allocate to Sheet
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={reprocessPendingMutation.isPending}
+                    onClick={() => {
+                      reprocessPendingMutation.mutate(Array.from(selectedPendingIds));
+                    }}
+                    data-testid="button-reprocess"
+                    className="shrink-0"
+                  >
+                    {reprocessPendingMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : null}
+                    Re-process with Rules
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Pending Requests List */}
+            <ScrollArea className="h-[350px] border rounded-lg">
+              <div className="p-3 space-y-2">
+                {pendingRequests.map((request) => {
+                  const date = new Date(request.created_at);
+                  const isSelected = selectedPendingIds.has(request.id);
+                  const isExpanded = expandedPendingId === request.id;
+                  const payloadKeys = Object.keys(request.payload || {});
+                  
+                  return (
+                    <div 
+                      key={request.id} 
+                      className={cn(
+                        "border rounded-md p-3 transition-colors",
+                        isSelected && "bg-primary/5 border-primary/30"
+                      )}
+                      data-testid={`pending-request-${request.id}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            const newSet = new Set(selectedPendingIds);
+                            if (e.target.checked) {
+                              newSet.add(request.id);
+                            } else {
+                              newSet.delete(request.id);
+                            }
+                            setSelectedPendingIds(newSet);
+                          }}
+                          className="mt-1 h-4 w-4 rounded border-gray-300"
+                          data-testid={`checkbox-pending-${request.id}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge variant="destructive" className="text-xs">
+                              pending_allocation
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {formatTimeAgo(date)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {payloadKeys.length} fields: {payloadKeys.slice(0, 4).join(", ")}{payloadKeys.length > 4 ? "..." : ""}
+                          </p>
+                          
+                          {/* Expandable payload preview */}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="mt-1 h-6 px-2 text-xs"
+                            onClick={() => setExpandedPendingId(isExpanded ? null : request.id)}
+                            data-testid={`button-toggle-pending-${request.id}`}
+                          >
+                            {isExpanded ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                            {isExpanded ? "Hide Data" : "View Data"}
+                          </Button>
+                          
+                          {isExpanded && (
+                            <div className="mt-2 p-2 bg-muted rounded text-xs">
+                              <ScrollArea className="max-h-[150px]">
+                                <pre className="font-mono whitespace-pre-wrap break-all">
+                                  {JSON.stringify(request.payload, null, 2)}
+                                </pre>
+                              </ScrollArea>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Quick allocate for single item */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Select
+                            value=""
+                            onValueChange={(sheetId) => {
+                              allocatePendingMutation.mutate({ requestId: request.id, sheetId });
+                            }}
+                          >
+                            <SelectTrigger className="w-[140px] h-8 text-xs" data-testid={`select-quick-allocate-${request.id}`}>
+                              <SelectValue placeholder="Allocate to..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sheets.map(sheet => (
+                                <SelectItem key={sheet.id} value={sheet.id}>
+                                  {sheet.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          </>
+        )}
+
+        <div className="flex justify-end pt-4 border-t mt-6">
+          <Button variant="outline" onClick={onClose} data-testid="button-close-pending">
+            Close
           </Button>
         </div>
       </TabsContent>
