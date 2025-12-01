@@ -374,32 +374,43 @@ export default function Webhooks() {
                   ? Object.keys(request.payload) 
                   : [];
                 
+                const isPendingAllocation = request.status === "pending_allocation";
+                const isPendingConfiguration = request.status === "pending_configuration";
+                
                 return (
                   <div
                     key={request.id}
-                    className="border rounded-lg p-3"
+                    className={`border rounded-lg p-3 ${isPendingAllocation ? "border-yellow-500/50 bg-yellow-50/30 dark:bg-yellow-900/10" : ""}`}
                     data-testid={`request-${request.id}`}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <Badge variant={
                           request.status === "success" ? "default" : 
-                          request.status === "pending_configuration" ? "secondary" : 
+                          isPendingConfiguration ? "secondary" : 
+                          isPendingAllocation ? "outline" :
                           "destructive"
-                        }>
-                          {request.status === "pending_configuration" ? "pending setup" : request.status}
+                        } className={isPendingAllocation ? "border-yellow-500 text-yellow-600" : ""}>
+                          {isPendingConfiguration ? "pending setup" : 
+                           isPendingAllocation ? "pending allocation" : 
+                           request.status}
                         </Badge>
                         <span className="text-sm text-muted-foreground">
                           {format(new Date(request.created_at), "PPpp")}
                         </span>
                       </div>
                     </div>
-                    {request.error_message && (
+                    {request.error_message && !isPendingAllocation && (
                       <p className="text-xs text-destructive mb-2">{request.error_message}</p>
                     )}
-                    {request.status === "pending_configuration" && !request.error_message && (
+                    {isPendingConfiguration && !request.error_message && (
                       <p className="text-xs text-muted-foreground mb-2">
-                        ✓ Data received successfully. Configure allocation rules to start creating leads.
+                        Data received successfully. Configure allocation rules to start creating leads.
+                      </p>
+                    )}
+                    {isPendingAllocation && (
+                      <p className="text-xs text-yellow-600 dark:text-yellow-500 mb-2">
+                        Data received but not allocated. {request.error_message || "Please configure or fix your allocation rules."}
                       </p>
                     )}
                     

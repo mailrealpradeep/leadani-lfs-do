@@ -1373,9 +1373,12 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const log: WebhookLog = {
       ...insertLog,
+      webhook_id: insertLog.webhook_id ?? null,
       sheet_id: insertLog.sheet_id ?? null,
+      mapped_data: insertLog.mapped_data ?? null,
       error_message: insertLog.error_message ?? null,
       lead_id: insertLog.lead_id ?? null,
+      allocation_issue: insertLog.allocation_issue ?? null,
       id,
       created_at: new Date().toISOString(),
     };

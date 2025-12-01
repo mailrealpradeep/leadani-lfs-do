@@ -522,23 +522,29 @@ export type InsertAudit = z.infer<typeof insertAuditSchema>;
 export interface WebhookLog {
   id: string;
   company_id: string;
+  webhook_id: string | null;
   sheet_id: string | null;
   payload: Record<string, any>;
+  mapped_data: Record<string, any> | null;
   headers: Record<string, any>;
-  status: "success" | "error";
+  status: "success" | "error" | "pending";
   error_message: string | null;
   lead_id: string | null;
+  allocation_issue: string | null;
   created_at: string;
 }
 
 export const insertWebhookLogSchema = z.object({
   company_id: z.string(),
+  webhook_id: z.string().nullable().optional(),
   sheet_id: z.string().nullable().optional(),
   payload: z.record(z.any()),
+  mapped_data: z.record(z.any()).nullable().optional(),
   headers: z.record(z.any()),
-  status: z.enum(["success", "error"]),
+  status: z.enum(["success", "error", "pending"]),
   error_message: z.string().nullable().optional(),
   lead_id: z.string().nullable().optional(),
+  allocation_issue: z.string().nullable().optional(),
 });
 
 export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;

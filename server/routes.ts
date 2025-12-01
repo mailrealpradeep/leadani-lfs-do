@@ -629,17 +629,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
         applicableRules = allocationRules.filter(rule => rule.is_default === true);
       }
 
-      // If still no rules, error out
+      // If still no rules, store as pending and return success
       if (applicableRules.length === 0) {
-        errorMessage = "No allocation rules match the incoming data and no default rules configured";
-        return res.status(400).json({ error: errorMessage });
+        const allocationIssue = "No allocation rules match the incoming data. Please configure allocation rules.";
+        
+        // Log webhook request with pending_allocation status
+        await storage.createWebhookRequest({
+          webhook_id: webhook.id,
+          status: "pending_allocation",
+          payload: req.body,
+          headers: req.headers as any,
+          error_message: allocationIssue,
+          lead_id: null,
+          allocated_sheet_id: null,
+        });
+        
+        // Emit notification to company admins via Socket.io
+        const io = (req as any).io;
+        if (io) {
+          io.to(`company:${webhook.company_id}`).emit("webhook_notification", {
+            type: "allocation_issue",
+            webhook_name: webhook.name,
+            message: allocationIssue,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        
+        alreadyLogged = true;
+        return res.status(200).json({ 
+          success: true,
+          message: "Data received successfully. Pending allocation - please configure allocation rules.",
+          status: "pending_allocation"
+        });
       }
 
       // Validate percentages sum to 100 for applicable rules
       const totalPercentage = applicableRules.reduce((sum, rule) => sum + rule.percentage, 0);
       if (totalPercentage !== 100) {
-        errorMessage = `Matching allocation rules percentages must sum to 100 (current: ${totalPercentage}%)`;
-        return res.status(400).json({ error: errorMessage });
+        const allocationIssue = `Allocation rules percentages must sum to 100% (current: ${totalPercentage}%). Please fix your rules.`;
+        
+        // Log webhook request with pending_allocation status
+        await storage.createWebhookRequest({
+          webhook_id: webhook.id,
+          status: "pending_allocation",
+          payload: req.body,
+          headers: req.headers as any,
+          error_message: allocationIssue,
+          lead_id: null,
+          allocated_sheet_id: null,
+        });
+        
+        // Emit notification to company admins via Socket.io
+        const io = (req as any).io;
+        if (io) {
+          io.to(`company:${webhook.company_id}`).emit("webhook_notification", {
+            type: "allocation_issue",
+            webhook_name: webhook.name,
+            message: allocationIssue,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        
+        alreadyLogged = true;
+        return res.status(200).json({ 
+          success: true,
+          message: "Data received successfully. Pending allocation - please fix allocation rules percentages.",
+          status: "pending_allocation"
+        });
       }
 
       // Determine which sheet to allocate to using round-robin with percentage distribution

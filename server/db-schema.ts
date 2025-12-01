@@ -148,12 +148,15 @@ export const audit_logs = pgTable('audit_logs', {
 export const webhook_logs = pgTable('webhook_logs', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  webhook_id: varchar('webhook_id'),
   sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'cascade' }),
   payload: json('payload').$type<Record<string, any>>().default({}).notNull(),
+  mapped_data: json('mapped_data').$type<Record<string, any>>(),
   headers: json('headers').$type<Record<string, any>>().default({}).notNull(),
-  status: varchar('status', { length: 50 }).notNull(), // success, error
+  status: varchar('status', { length: 50 }).notNull(), // success, error, pending
   error_message: text('error_message'),
   lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  allocation_issue: text('allocation_issue'),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
