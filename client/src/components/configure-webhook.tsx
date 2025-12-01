@@ -977,7 +977,11 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
 
   // Allocation Rule Handlers
   const addAllocationRule = () => {
-    setAllocationRules([...allocationRules, { sheet_id: "", percentage: 0 }]);
+    setAllocationRules([...allocationRules, { 
+      sheet_id: "", 
+      percentage: 0,
+      _clientId: generateClientId() 
+    }]);
   };
 
   const removeAllocationRule = (index: number) => {
@@ -1642,19 +1646,12 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
               ruleClientIds: string[];
             }> = [];
             
-            // Track if any rules need client IDs added
-            let needsClientIdUpdate = false;
-            
             allocationRules.forEach((rule) => {
               const { key, label } = getConditionGroupKey(rule);
               const existingGroup = groups.find(g => g.key === key);
               
-              // Use existing client ID or mark for update
-              let clientId = rule._clientId;
-              if (!clientId) {
-                clientId = generateClientId();
-                needsClientIdUpdate = true;
-              }
+              // Use existing client ID or generate one for grouping purposes only
+              const clientId = rule._clientId || generateClientId();
               
               if (existingGroup) {
                 existingGroup.ruleClientIds.push(clientId);
@@ -1670,13 +1667,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
               }
             });
             
-            // If any rules were missing client IDs, update the state
-            if (needsClientIdUpdate) {
-              // Use setTimeout to avoid setState during render
-              setTimeout(() => {
-                setAllocationRules(prev => ensureClientIds(prev));
-              }, 0);
-            }
             
             // Helper to get rule by client ID
             const getRuleByClientId = (clientId: string) => 
@@ -1759,8 +1749,11 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
               
               if (!firstRule) return null;
               
+              // Use the first rule's client ID as a stable React key (not the condition-based key which changes on value edits)
+              const stableGroupKey = group.ruleClientIds[0] || `group-${groupIndex}`;
+              
               return (
-                <div key={group.key} className="border rounded-lg p-4 space-y-4" data-testid={`condition-group-${groupIndex}`}>
+                <div key={stableGroupKey} className="border rounded-lg p-4 space-y-4" data-testid={`condition-group-${groupIndex}`}>
                   {/* Condition Configuration - shown once per group */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
