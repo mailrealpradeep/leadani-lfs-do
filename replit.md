@@ -45,6 +45,7 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
     - Configurable field mapping with dropdown auto-detection
     - Conditional allocation logic with multi-condition support (AND/OR logic)
     - **Multi-sheet allocation per condition group**: Split leads matching a condition across multiple sheets with custom percentage splits (e.g., Odia leads: Priyanka 30%, Nandini 20%, Monica 50%). Each group must total exactly 100%
+    - **Weighted Round-Robin Distribution**: Leads are distributed according to percentages over time. The system tracks allocation counts per condition group and assigns each lead to the sheet most "behind" its target percentage, ensuring fair distribution (e.g., 40/30/30 split will result in 4/3/3 distribution over 10 leads)
     - Allocation health indicator showing overall coverage across all condition paths
     - Graceful handling when allocation rules are missing (returns success to sender, notifies users)
 *   **Self-Service Onboarding**: Multi-step flow for company registration, admin setup, and user invitations.
