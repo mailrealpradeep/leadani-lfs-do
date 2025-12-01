@@ -2854,8 +2854,8 @@ export class PgStorage implements IStorage {
         and(
           eq(dbSchema.sheets.company_id, companyId),
           // Normalize stored value to last 10 digits and compare with input (already normalized)
-          // Use dynamic field name instead of hardcoded 'mobile_no'
-          sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(${dbSchema.leads.custom_fields}->>${fieldName}, ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
+          // Use jsonb_extract_path_text for proper key parameterization (handles dynamic field names)
+          sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(jsonb_extract_path_text(${dbSchema.leads.custom_fields}, ${fieldName}), ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
         )
       )
       .limit(1);
