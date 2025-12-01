@@ -1733,20 +1733,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { key: 'visit_status', label: 'Visit Status', type: 'dropdown' },
       ];
       
-      // Create a set of fixed field keys for deduplication
-      const fixedFieldKeys = new Set(fixedFields.map(f => f.key));
-      // Also add common variations/aliases to prevent duplicates
-      const fixedFieldAliases = new Set([
-        'name', 'full_name', 'fullname',
-        'mobile_no', 'mobile', 'phone', 'mobileno',
-        'whatsapp', 'whatsapp_no', 'whatsappno',
+      // Helper function to normalize field key for comparison
+      const normalizeKey = (key: string): string => {
+        return key.toLowerCase().trim().replace(/[\s_\-\.]/g, '');
+      };
+      
+      // Create a set of normalized fixed field keys and all their aliases
+      // This comprehensive list prevents any duplicates from appearing
+      const normalizedFixedKeys = new Set([
+        // Full Name variations
+        'name', 'fullname', 'fname', 'firstname', 'lastname',
+        // Mobile variations
+        'mobileno', 'mobile', 'phone', 'phoneno', 'phonenumber', 'mobilenumber', 'mob',
+        // WhatsApp variations
+        'whatsapp', 'whatsappno', 'whatsappnumber', 'wa', 'wano',
+        // Language variations
         'lang', 'language',
-        'occupation',
-        'qualification',
-        'lead_date', 'leaddate',
-        'lead_time', 'leadtime',
-        'lead_status', 'leadstatus',
-        'visit_status', 'visitstatus',
+        // Occupation variations
+        'occupation', 'job', 'work',
+        // Qualification variations
+        'qualification', 'education', 'degree',
+        // Date/Time variations
+        'leaddate', 'date', 'createddate',
+        'leadtime', 'time', 'createdtime',
+        // Status variations
+        'leadstatus', 'status',
+        'visitstatus', 'visit',
       ]);
       
       fixedFields.forEach(field => {
@@ -1757,10 +1769,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const customFieldOptions: Array<{ key: string; label: string }> = [];
       customColumns.forEach(column => {
         const fieldKey = column.column_key;
-        const normalizedKey = fieldKey.toLowerCase().replace(/[\s_-]/g, '');
+        const normalizedKey = normalizeKey(fieldKey);
         
-        // Skip if this key matches a fixed field or its alias
-        if (fixedFieldKeys.has(fieldKey) || fixedFieldAliases.has(normalizedKey)) {
+        // Skip if this normalized key matches any fixed field or alias
+        if (normalizedFixedKeys.has(normalizedKey)) {
           return;
         }
         
