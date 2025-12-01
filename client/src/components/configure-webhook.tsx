@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle, Check, X, ChevronDown, Eye, Clock, ChevronUp } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check, X, ChevronDown, Eye, Clock, ChevronUp, Search, Filter } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,10 +27,14 @@ interface ExtractedWebhookField {
   path: string;       // The actual path to use (e.g., "user.name" or "fields.0.value")
   label: string;      // Friendly display name (e.g., "Name")
   sampleValue: string; // Sample value for preview
+  fieldType: 'value' | 'metadata'; // 'value' = actual user data, 'metadata' = technical fields like type, key
 }
 
+// Metadata field keys that should be hidden in "Values Only" mode
+const METADATA_KEYS = ['type', 'key', 'description', 'custom_key', 'id', '_id', 'field_type', 'fieldType'];
+
 // Universal webhook field extraction - handles ANY response type
-function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWebhookField[] {
+function extractWebhookFields(payload: any, prefix = "", depth = 0, isMetadataContext = false): ExtractedWebhookField[] {
   const fields: ExtractedWebhookField[] = [];
   const MAX_DEPTH = 10; // Prevent infinite recursion
   
@@ -46,10 +51,13 @@ function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWe
   if (typeof payload !== "object") {
     const value = truncateValue(payload);
     if (value) {
+      const lastKey = prefix.split(".").pop() || "value";
+      const isMetadata = isMetadataContext || METADATA_KEYS.includes(lastKey.toLowerCase());
       fields.push({
         path: prefix || "value",
-        label: prefix ? formatLabel(prefix.split(".").pop() || "Value") : "Response Value",
-        sampleValue: value
+        label: prefix ? formatLabel(lastKey) : "Response Value",
+        sampleValue: value,
+        fieldType: isMetadata ? 'metadata' : 'value'
       });
     }
     return fields;
@@ -75,7 +83,8 @@ function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWe
           fields.push({
             path: itemPath,
             label: prefix ? `${formatLabel(prefix.split(".").pop() || "Item")} ${index + 1}` : `Item ${index + 1}`,
-            sampleValue: value
+            sampleValue: value,
+            fieldType: 'value'
           });
         }
         continue;
@@ -92,34 +101,38 @@ function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWe
           const sampleValue = truncateValue(item[valueKey]);
           
           if (sampleValue) {
+            // This is the actual user-entered VALUE - mark as 'value'
             fields.push({
               path: `${itemPath}.${valueKey}`,
               label: fieldLabel,
-              sampleValue
+              sampleValue,
+              fieldType: 'value'
             });
             
-            // Also add key-based access if available
+            // Key-based access is metadata (duplicate access method)
             if (item.key && typeof item.key === "string") {
               fields.push({
                 path: item.key,
                 label: `${fieldLabel} (by key)`,
-                sampleValue
+                sampleValue,
+                fieldType: 'metadata'
               });
             }
           }
-          // Also extract other fields from this object (excluding title/value keys)
+          // Extract other fields from this object as METADATA (type, description, etc.)
           for (const [key, val] of Object.entries(item)) {
             if (key !== titleKey && key !== valueKey && key !== "key") {
-              fields.push(...extractWebhookFields(val, `${itemPath}.${key}`, depth + 1));
+              // These are metadata fields within form field objects
+              fields.push(...extractWebhookFields(val, `${itemPath}.${key}`, depth + 1, true));
             }
           }
         } else {
-          // Regular object - recurse into all fields
-          fields.push(...extractWebhookFields(item, itemPath, depth + 1));
+          // Regular object - recurse into all fields (maintain current context)
+          fields.push(...extractWebhookFields(item, itemPath, depth + 1, isMetadataContext));
         }
       } else {
         // Nested array - recurse
-        fields.push(...extractWebhookFields(item, itemPath, depth + 1));
+        fields.push(...extractWebhookFields(item, itemPath, depth + 1, isMetadataContext));
       }
     }
     
@@ -129,6 +142,7 @@ function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWe
   // Handle objects
   for (const [key, value] of Object.entries(payload)) {
     const fieldPath = prefix ? `${prefix}.${key}` : key;
+    const isMetadataKey = METADATA_KEYS.includes(key.toLowerCase());
     
     if (value === null || value === undefined) {
       continue;
@@ -141,15 +155,16 @@ function extractWebhookFields(payload: any, prefix = "", depth = 0): ExtractedWe
         fields.push({
           path: fieldPath,
           label: formatLabel(key),
-          sampleValue
+          sampleValue,
+          fieldType: isMetadataContext || isMetadataKey ? 'metadata' : 'value'
         });
       }
     } else if (Array.isArray(value)) {
-      // Array - recurse
-      fields.push(...extractWebhookFields(value, fieldPath, depth + 1));
+      // Array - recurse (pass metadata context for nested arrays)
+      fields.push(...extractWebhookFields(value, fieldPath, depth + 1, isMetadataContext || isMetadataKey));
     } else {
       // Nested object - recurse
-      fields.push(...extractWebhookFields(value, fieldPath, depth + 1));
+      fields.push(...extractWebhookFields(value, fieldPath, depth + 1, isMetadataContext || isMetadataKey));
     }
   }
 
@@ -422,6 +437,10 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const [activeTab, setActiveTab] = useState("mappings");
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [showPayloadPreview, setShowPayloadPreview] = useState(false);
+  
+  // Field filtering state
+  const [fieldSearch, setFieldSearch] = useState("");
+  const [showValuesOnly, setShowValuesOnly] = useState(true); // Default ON for cleaner UX
 
   // Fetch dynamic sample payload and available fields based on company's custom columns
   const { data: sampleData, isLoading: isLoadingSample, error: sampleError } = useQuery<{
@@ -515,6 +534,35 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     }
     return [];
   }, [selectedRequest]);
+
+  // Filtered webhook fields based on search and "values only" toggle
+  const filteredWebhookFields = useMemo(() => {
+    let filtered = availableWebhookFields;
+    
+    // Apply "values only" filter
+    if (showValuesOnly) {
+      filtered = filtered.filter(f => f.fieldType === 'value');
+    }
+    
+    // Apply search filter
+    if (fieldSearch.trim()) {
+      const searchLower = fieldSearch.toLowerCase();
+      filtered = filtered.filter(f => 
+        f.label.toLowerCase().includes(searchLower) ||
+        f.sampleValue.toLowerCase().includes(searchLower) ||
+        f.path.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    return filtered;
+  }, [availableWebhookFields, showValuesOnly, fieldSearch]);
+
+  // Count stats for display
+  const fieldStats = useMemo(() => {
+    const valueCount = availableWebhookFields.filter(f => f.fieldType === 'value').length;
+    const metadataCount = availableWebhookFields.filter(f => f.fieldType === 'metadata').length;
+    return { total: availableWebhookFields.length, values: valueCount, metadata: metadataCount };
+  }, [availableWebhookFields]);
 
   // Format recent requests for the selector dropdown
   const recentRequestsForSelector = useMemo(() => {
@@ -968,7 +1016,10 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           <Alert className="mb-4 border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
             <Check className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800 dark:text-green-200">
-              Found {availableWebhookFields.length} extractable fields from the selected webhook. Select the fields you want to map to your CRM.
+              Found {fieldStats.values} value fields{!showValuesOnly && ` and ${fieldStats.metadata} technical fields`} from the webhook.
+              {showValuesOnly && fieldStats.metadata > 0 && (
+                <span className="text-xs opacity-75"> ({fieldStats.metadata} technical fields hidden)</span>
+              )}
             </AlertDescription>
           </Alert>
         ) : webhookRequests.length > 0 ? (
@@ -987,6 +1038,50 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           </Alert>
         )}
 
+        {/* Field Search and Filter Controls */}
+        {availableWebhookFields.length > 0 && (
+          <div className="mb-4 p-3 border rounded-lg bg-muted/30 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3">
+              {/* Search Input */}
+              <div className="flex-1 relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search fields by name or value..."
+                  value={fieldSearch}
+                  onChange={(e) => setFieldSearch(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-field-search"
+                />
+              </div>
+              
+              {/* Values Only Toggle */}
+              <div className="flex items-center gap-2 shrink-0 px-3 py-2 border rounded-md bg-background">
+                <Switch
+                  id="values-only"
+                  checked={showValuesOnly}
+                  onCheckedChange={setShowValuesOnly}
+                  data-testid="switch-values-only"
+                />
+                <Label htmlFor="values-only" className="text-sm cursor-pointer whitespace-nowrap">
+                  Values Only
+                </Label>
+                <span className="text-xs text-muted-foreground">
+                  ({showValuesOnly ? fieldStats.values : fieldStats.total})
+                </span>
+              </div>
+            </div>
+            
+            {/* Show result count when filtering */}
+            {(fieldSearch || !showValuesOnly) && (
+              <p className="text-xs text-muted-foreground">
+                Showing {filteredWebhookFields.length} of {fieldStats.total} fields
+                {fieldSearch && ` matching "${fieldSearch}"`}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Field Mappings */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Field Mappings</Label>
@@ -998,7 +1093,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
               <div className="flex-1 min-w-0">
                 <Label className="text-xs text-muted-foreground">Webhook Field</Label>
-                {availableWebhookFields.length > 0 ? (
+                {filteredWebhookFields.length > 0 ? (
                   <Select
                     value={mapping.webhook_field}
                     onValueChange={(value) => updateFieldMapping(index, "webhook_field", value)}
@@ -1007,7 +1102,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                       <SelectValue placeholder="Select a field" />
                     </SelectTrigger>
                     <SelectContent className="max-h-[300px] overflow-y-auto">
-                        {availableWebhookFields.map((field, fieldIndex) => (
+                        {filteredWebhookFields.map((field, fieldIndex) => (
                           <SelectItem 
                             key={`${field.path}-${fieldIndex}`} 
                             value={field.path}
@@ -1022,6 +1117,10 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                         ))}
                     </SelectContent>
                   </Select>
+                ) : availableWebhookFields.length > 0 ? (
+                  <div className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">
+                    No fields match your search. Try different keywords or disable "Values Only" filter.
+                  </div>
                 ) : (
                   <Input
                     value={mapping.webhook_field}
@@ -1150,7 +1249,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                           </Badge>
                         )}
                         <div className="flex-1 grid grid-cols-3 gap-2">
-                          {availableWebhookFields.length > 0 ? (
+                          {filteredWebhookFields.length > 0 ? (
                             <Select
                               value={condition.field}
                               onValueChange={(value) => updateConditionInRule(index, condIndex, "field", value)}
@@ -1159,7 +1258,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                                 <SelectValue placeholder="Select field" />
                               </SelectTrigger>
                               <SelectContent className="max-h-[300px] overflow-y-auto">
-                                  {availableWebhookFields.map((field, fieldIndex) => (
+                                  {filteredWebhookFields.map((field, fieldIndex) => (
                                     <SelectItem 
                                       key={`${field.path}-${fieldIndex}`} 
                                       value={field.path}
@@ -1432,7 +1531,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
               <div key={index} className="flex items-end gap-2" data-testid={`update-mapping-row-${index}`}>
                 <div className="flex-1 min-w-0">
                   <Label className="text-xs text-muted-foreground">Webhook Field</Label>
-                  {availableWebhookFields.length > 0 ? (
+                  {filteredWebhookFields.length > 0 ? (
                     <Select
                       value={mapping.source_field}
                       onValueChange={(value) => updateUpdateFieldMapping(index, "source_field", value)}
@@ -1441,7 +1540,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                         <SelectValue placeholder="Select a field" />
                       </SelectTrigger>
                       <SelectContent className="max-h-[300px] overflow-y-auto">
-                          {availableWebhookFields.map((field, fieldIndex) => (
+                          {filteredWebhookFields.map((field, fieldIndex) => (
                             <SelectItem 
                               key={`${field.path}-${fieldIndex}`} 
                               value={field.path}
