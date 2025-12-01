@@ -1793,6 +1793,121 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           </Button>
         </div>
 
+        {/* Overall Allocation Health Summary */}
+        {allocationRules.length > 0 && (() => {
+          // Calculate overall allocation health
+          const hasDefaultGroup = 'default' in conditionGroups;
+          const defaultTotal = hasDefaultGroup ? conditionGroups.default.total : 0;
+          const conditionalGroups = Object.entries(conditionGroups).filter(([key]) => key !== 'default' && key !== 'incomplete');
+          const incompleteGroup = conditionGroups.incomplete;
+          
+          // Check if all leads are fully allocated:
+          // - If default/fallback exists at 100%, all unmatched leads are covered
+          // - Each conditional group should also be at 100% for matched leads
+          const isDefaultFullyCovered = hasDefaultGroup && defaultTotal === 100;
+          const allConditionalsFullyCovered = conditionalGroups.every(([_, group]) => group.total === 100);
+          const hasIncompleteRules = incompleteGroup && incompleteGroup.rules.length > 0;
+          
+          // Calculate worst-case unallocated percentage considering ALL groups
+          // Each conditional group is mutually exclusive - a lead matches at most one condition
+          // But we need to show the WORST case across any path a lead could take
+          let worstCaseUnallocated = 0;
+          
+          if (!hasDefaultGroup && conditionalGroups.length === 0) {
+            // No rules at all = 100% unallocated
+            worstCaseUnallocated = 100;
+          } else {
+            // Check each path a lead could take
+            const gaps: number[] = [];
+            
+            // Default/fallback gap (for leads that don't match any condition)
+            if (!isDefaultFullyCovered) {
+              gaps.push(100 - defaultTotal);
+            }
+            
+            // Conditional group gaps (for leads that match each condition)
+            conditionalGroups.forEach(([_, group]) => {
+              if (group.total < 100) {
+                gaps.push(100 - group.total);
+              }
+            });
+            
+            // The worst case is the maximum gap across all possible paths
+            if (gaps.length > 0) {
+              worstCaseUnallocated = Math.max(...gaps);
+            }
+          }
+          
+          // Final determination: fully allocated if no gaps anywhere
+          const isFullyAllocated = isDefaultFullyCovered && allConditionalsFullyCovered && !hasIncompleteRules;
+          
+          return (
+            <div
+              className={cn(
+                "border rounded-lg p-4 mb-4",
+                isFullyAllocated 
+                  ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/50" 
+                  : "border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-950/50"
+              )}
+              data-testid="allocation-health-summary"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {isFullyAllocated ? (
+                    <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                      <Check className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    </div>
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
+                      <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-500" />
+                    </div>
+                  )}
+                  <div>
+                    <div className="font-medium">
+                      {isFullyAllocated ? (
+                        "All Webhook Leads Fully Allocated"
+                      ) : (
+                        "Allocation Incomplete"
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {isFullyAllocated ? (
+                        "Every incoming lead will be assigned to a sheet"
+                      ) : worstCaseUnallocated > 0 ? (
+                        `Up to ${worstCaseUnallocated}% of leads may not be allocated`
+                      ) : hasIncompleteRules ? (
+                        "Some rules have incomplete conditions"
+                      ) : !allConditionalsFullyCovered ? (
+                        "Some condition groups don't add up to 100%"
+                      ) : (
+                        "Review the breakdown below"
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className={cn(
+                    "text-2xl font-bold",
+                    isFullyAllocated ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-500"
+                  )}>
+                    {isFullyAllocated ? "100%" : `${100 - worstCaseUnallocated}%`}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {isFullyAllocated ? "coverage" : "minimum coverage"}
+                  </div>
+                </div>
+              </div>
+              {!isFullyAllocated && !isDefaultFullyCovered && (
+                <div className="mt-3 pt-3 border-t border-yellow-200 dark:border-yellow-800">
+                  <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                    Tip: Add a Default/Fallback rule with 100% allocation to catch all leads that don't match other conditions.
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Percentage Summary with Condition Breakdown */}
         {allocationRules.length > 0 && (
           <div className="border rounded-lg p-4 space-y-3">
