@@ -1187,8 +1187,11 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
 
   // Validation
   const validateMappings = () => {
+    // A valid mapping has a sheet_column_key AND either:
+    // 1. A webhook_field to map from, OR
+    // 2. A default value set (use_default_value=true with default_value)
     const validMappings = fieldMappings.filter(
-      (m) => m.webhook_field.trim() && m.sheet_column_key.trim()
+      (m) => m.sheet_column_key.trim() && (m.webhook_field.trim() || (m.use_default_value && m.default_value))
     );
     if (validMappings.length === 0) {
       toast({
@@ -1298,8 +1301,11 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const handleSaveMappings = () => {
     if (!validateMappings()) return;
 
+    // Include mappings that either:
+    // 1. Have a webhook_field mapped to a sheet_column_key, OR
+    // 2. Have use_default_value=true with a default_value set
     const validMappings = fieldMappings.filter(
-      (m) => m.webhook_field.trim() && m.sheet_column_key.trim()
+      (m) => m.sheet_column_key.trim() && (m.webhook_field.trim() || (m.use_default_value && m.default_value))
     );
     updateMutation.mutate({ field_mappings: validMappings });
   };
