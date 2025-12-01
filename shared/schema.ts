@@ -899,6 +899,20 @@ export const lead_updates = pgTable('lead_updates', {
 // Key format: "conditionGroupKey" -> { sheetId: count }
 export type AllocationCounts = Record<string, Record<string, number>>;
 
+// Match rule for webhook lead matching - webhook field can match against multiple CRM fields (OR logic)
+export interface WebhookMatchRule {
+  webhookField: string;  // The webhook field to check (e.g., "mobile_no", "whatsapp_no")
+  crmFields: string[];   // CRM fields to match against (OR logic) - e.g., ["mobile_no", "whatsapp_no"]
+}
+
+// Zod schema for match rules validation
+export const webhookMatchRuleSchema = z.object({
+  webhookField: z.string().min(1),
+  crmFields: z.array(z.string().min(1)).min(1),
+});
+
+export const webhookMatchRulesSchema = z.array(webhookMatchRuleSchema);
+
 export const company_webhooks = pgTable('company_webhooks', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
@@ -910,7 +924,8 @@ export const company_webhooks = pgTable('company_webhooks', {
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   // New columns for match-and-update functionality
   match_mode: varchar('match_mode', { length: 50 }).notNull().default('create_only'), // 'create_only', 'match_and_update', 'match_and_add_update', 'match_or_create'
-  match_field: varchar('match_field', { length: 255 }).default('mobile_no'), // column_key to match against (e.g., 'mobile_no', 'whatsapp_no')
+  match_field: varchar('match_field', { length: 255 }).default('mobile_no'), // DEPRECATED: Use match_rules instead
+  match_rules: json('match_rules').$type<WebhookMatchRule[]>().default([]), // Multi-field matching rules (OR logic within each rule)
   update_field_mappings: json('update_field_mappings').$type<Array<{source_field: string; target_column: string}>>().default([]),
   no_match_action: varchar('no_match_action', { length: 50 }).default('create_lead'), // 'create_lead', 'ignore', 'log_only'
   skip_allocation_on_match: boolean('skip_allocation_on_match').notNull().default(false), // Skip allocation rules when a match is found
