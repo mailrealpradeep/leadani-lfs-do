@@ -698,29 +698,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Determine which sheet to allocate to using round-robin with percentage distribution
+      // Determine which sheet to allocate to using weighted round-robin
+      // This ensures leads are distributed according to percentage weights over time
       let targetSheetId: string;
       
-      // Get the last allocated sheet to continue round-robin
-      const lastAllocatedSheetId = webhook.last_allocated_sheet_id;
-      
-      // Find next sheet in round-robin order within applicable rules
-      if (!lastAllocatedSheetId) {
-        // First allocation - use the first sheet in the applicable rules
-        targetSheetId = applicableRules[0].sheet_id;
-      } else {
-        // Find current sheet index in applicable rules
-        const currentIndex = applicableRules.findIndex(rule => rule.sheet_id === lastAllocatedSheetId);
+      // Generate a unique key for this condition group based on the matching conditions
+      const generateConditionGroupKey = (rules: typeof applicableRules): string => {
+        if (rules.length === 0) return 'default';
+        const firstRule = rules[0];
+        if (firstRule.is_default) return 'default';
         
-        if (currentIndex === -1) {
-          // Last allocated sheet not found in current applicable rules, start from first
-          targetSheetId = applicableRules[0].sheet_id;
+        // Use conditions array if available
+        if (firstRule.conditions && firstRule.conditions.length > 0) {
+          return firstRule.conditions.map(c => `${c.field}|${c.operator}|${c.value || ''}`).join('::');
+        }
+        // Fallback to legacy single condition fields
+        return `${firstRule.condition_field || ''}|${firstRule.condition_operator || ''}|${firstRule.condition_value || ''}`;
+      };
+      
+      const conditionGroupKey = generateConditionGroupKey(applicableRules);
+      
+      // Get current allocation counts for this webhook
+      const allocationCounts = (webhook.allocation_counts as Record<string, Record<string, number>>) || {};
+      const groupCounts = allocationCounts[conditionGroupKey] || {};
+      
+      // Calculate total allocated for this group
+      const totalAllocated = Object.values(groupCounts).reduce((sum, count) => sum + count, 0);
+      
+      // Weighted round-robin: find the sheet that is most behind its target percentage
+      // For each sheet, calculate: (current_count / total_allocated) vs (target_percentage / 100)
+      // The sheet with the largest negative gap (most behind) gets the next lead
+      let bestSheetId = applicableRules[0].sheet_id;
+      let bestGap = -Infinity;
+      
+      for (const rule of applicableRules) {
+        const currentCount = groupCounts[rule.sheet_id] || 0;
+        const targetPercentage = rule.percentage / 100;
+        
+        // Calculate how "behind" this sheet is
+        // If total is 0, use negative percentage (higher percentage = more behind)
+        let gap: number;
+        if (totalAllocated === 0) {
+          // First allocation - prefer higher percentage sheets first
+          gap = targetPercentage;
         } else {
-          // Use weighted round-robin: rotate through sheets
-          const nextIndex = (currentIndex + 1) % applicableRules.length;
-          targetSheetId = applicableRules[nextIndex].sheet_id;
+          // Gap = target share - actual share (positive means behind target)
+          const actualShare = currentCount / totalAllocated;
+          gap = targetPercentage - actualShare;
+        }
+        
+        // Select the sheet that is most behind its target (largest positive gap)
+        if (gap > bestGap) {
+          bestGap = gap;
+          bestSheetId = rule.sheet_id;
         }
       }
+      
+      targetSheetId = bestSheetId;
 
       // Verify target sheet exists and belongs to the company
       const targetSheet = await storage.getSheet(targetSheetId);
@@ -968,9 +1002,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Update webhook's last allocated sheet for round-robin
+      // Update webhook's allocation counts and last allocated sheet
+      // Increment the count for this sheet in this condition group
+      const updatedAllocationCounts = { ...allocationCounts };
+      if (!updatedAllocationCounts[conditionGroupKey]) {
+        updatedAllocationCounts[conditionGroupKey] = {};
+      }
+      updatedAllocationCounts[conditionGroupKey][targetSheetId] = 
+        (updatedAllocationCounts[conditionGroupKey][targetSheetId] || 0) + 1;
+      
       await storage.updateCompanyWebhook(webhook.id, {
         last_allocated_sheet_id: targetSheetId,
+        allocation_counts: updatedAllocationCounts,
       });
 
       // Emit real-time events for frontend sync
