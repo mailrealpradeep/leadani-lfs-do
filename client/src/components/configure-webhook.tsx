@@ -535,7 +535,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     return [];
   }, [selectedRequest]);
 
-  // Filtered webhook fields based on search and "values only" toggle
+  // Filtered webhook fields based on search and "values only" toggle, sorted alphabetically
   const filteredWebhookFields = useMemo(() => {
     let filtered = availableWebhookFields;
     
@@ -554,8 +554,14 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       );
     }
     
-    return filtered;
+    // Sort alphabetically by label
+    return [...filtered].sort((a, b) => a.label.localeCompare(b.label));
   }, [availableWebhookFields, showValuesOnly, fieldSearch]);
+  
+  // Sorted CRM fields (alphabetically by label)
+  const sortedCrmFields = useMemo(() => {
+    return [...availableCrmFields].sort((a, b) => a.label.localeCompare(b.label));
+  }, [availableCrmFields]);
 
   // Count stats for display
   const fieldStats = useMemo(() => {
@@ -1086,11 +1092,51 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
         <div className="space-y-3">
           <Label className="text-sm font-medium">Field Mappings</Label>
           <p className="text-xs text-muted-foreground">
-            Select which webhook fields should be saved to your CRM fields.
+            Map your CRM fields to incoming webhook data. Green checkmark shows mapped fields.
           </p>
           
-          {fieldMappings.map((mapping, index) => (
+          {fieldMappings.map((mapping, index) => {
+            const isCrmMapped = mapping.sheet_column_key && mapping.webhook_field;
+            return (
             <div key={index} className="flex items-end gap-2" data-testid={`mapping-row-${index}`}>
+              {/* CRM Field - LEFT side */}
+              <div className="flex-1 min-w-0">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                  CRM Field
+                  {isCrmMapped && (
+                    <Check className="h-3 w-3 text-green-600" />
+                  )}
+                </Label>
+                <Select
+                  value={mapping.sheet_column_key}
+                  onValueChange={(value) => updateFieldMapping(index, "sheet_column_key", value)}
+                >
+                  <SelectTrigger 
+                    className={`w-full ${isCrmMapped ? 'border-green-500 ring-1 ring-green-500/20' : ''}`} 
+                    data-testid={`select-crm-field-${index}`}
+                  >
+                    <SelectValue placeholder="Select CRM field" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px] overflow-y-auto">
+                    {sortedCrmFields.map((field) => {
+                      const isFieldMapped = fieldMappings.some(
+                        (m, i) => i !== index && m.sheet_column_key === field.key && m.webhook_field
+                      );
+                      return (
+                        <SelectItem key={field.key} value={field.key}>
+                          <div className="flex items-center gap-2">
+                            {isFieldMapped && (
+                              <Check className="h-3 w-3 text-green-600 shrink-0" />
+                            )}
+                            <span>{field.label}</span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* Webhook Field - RIGHT side */}
               <div className="flex-1 min-w-0">
                 <Label className="text-xs text-muted-foreground">Webhook Field</Label>
                 {filteredWebhookFields.length > 0 ? (
@@ -1131,24 +1177,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                   />
                 )}
               </div>
-              <div className="flex-1 min-w-0">
-                <Label className="text-xs text-muted-foreground">CRM Field</Label>
-                <Select
-                  value={mapping.sheet_column_key}
-                  onValueChange={(value) => updateFieldMapping(index, "sheet_column_key", value)}
-                >
-                  <SelectTrigger className="w-full" data-testid={`select-crm-field-${index}`}>
-                    <SelectValue placeholder="Select CRM field" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableCrmFields.map((field) => (
-                      <SelectItem key={field.key} value={field.key}>
-                        {field.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
               <Button
                 type="button"
                 variant="ghost"
@@ -1161,7 +1189,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
-          ))}
+          );})}
           <Button
             type="button"
             variant="outline"
@@ -1505,8 +1533,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
               <SelectTrigger data-testid="select-match-field">
                 <SelectValue placeholder="Select field to match on" />
               </SelectTrigger>
-              <SelectContent>
-                {availableCrmFields.map((field) => (
+              <SelectContent className="max-h-[300px] overflow-y-auto">
+                {sortedCrmFields.map((field) => (
                   <SelectItem key={field.key} value={field.key}>
                     {field.label}
                   </SelectItem>
@@ -1524,11 +1552,51 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           <div className="space-y-3">
             <Label className="text-sm font-medium">Update Field Mappings</Label>
             <p className="text-xs text-muted-foreground mb-2">
-              Select webhook fields to update in your CRM when a matching lead is found.
+              Map CRM fields to webhook data for updating matched leads. Green checkmark shows mapped fields.
             </p>
             
-            {updateFieldMappings.map((mapping, index) => (
+            {updateFieldMappings.map((mapping, index) => {
+              const isUpdateMapped = mapping.target_column && mapping.source_field;
+              return (
               <div key={index} className="flex items-end gap-2" data-testid={`update-mapping-row-${index}`}>
+                {/* CRM Field to Update - LEFT side */}
+                <div className="flex-1 min-w-0">
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                    CRM Field to Update
+                    {isUpdateMapped && (
+                      <Check className="h-3 w-3 text-green-600" />
+                    )}
+                  </Label>
+                  <Select
+                    value={mapping.target_column}
+                    onValueChange={(value) => updateUpdateFieldMapping(index, "target_column", value)}
+                  >
+                    <SelectTrigger 
+                      className={`w-full ${isUpdateMapped ? 'border-green-500 ring-1 ring-green-500/20' : ''}`} 
+                      data-testid={`select-update-target-${index}`}
+                    >
+                      <SelectValue placeholder="Select CRM field" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px] overflow-y-auto">
+                      {sortedCrmFields.map((field) => {
+                        const isFieldMapped = updateFieldMappings.some(
+                          (m, i) => i !== index && m.target_column === field.key && m.source_field
+                        );
+                        return (
+                          <SelectItem key={field.key} value={field.key}>
+                            <div className="flex items-center gap-2">
+                              {isFieldMapped && (
+                                <Check className="h-3 w-3 text-green-600 shrink-0" />
+                              )}
+                              <span>{field.label}</span>
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Webhook Field - RIGHT side */}
                 <div className="flex-1 min-w-0">
                   <Label className="text-xs text-muted-foreground">Webhook Field</Label>
                   {filteredWebhookFields.length > 0 ? (
@@ -1565,24 +1633,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                     />
                   )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <Label className="text-xs text-muted-foreground">CRM Field to Update</Label>
-                  <Select
-                    value={mapping.target_column}
-                    onValueChange={(value) => updateUpdateFieldMapping(index, "target_column", value)}
-                  >
-                    <SelectTrigger className="w-full" data-testid={`select-update-target-${index}`}>
-                      <SelectValue placeholder="Select CRM field" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableCrmFields.map((field) => (
-                        <SelectItem key={field.key} value={field.key}>
-                          {field.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
                 <Button
                   type="button"
                   variant="ghost"
@@ -1595,7 +1645,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
-            ))}
+            );})}
             <Button
               type="button"
               variant="outline"
