@@ -1719,34 +1719,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Build sample payload with fixed fields + custom fields
       const samplePayload: Record<string, string> = {};
       
-      // Add fixed CRM fields with labels
+      // Add fixed CRM fields with labels - these are the core system fields
       const fixedFields = [
-        { key: 'name', label: 'Name', type: 'text' },
-        { key: 'mobile_no', label: 'Mobile Number', type: 'text' },
-        { key: 'whatsapp', label: 'WhatsApp', type: 'text' },
+        { key: 'name', label: 'Full Name', type: 'text' },
+        { key: 'mobile_no', label: 'Mobile No', type: 'text' },
+        { key: 'whatsapp', label: 'WhatsApp No', type: 'text' },
         { key: 'lang', label: 'Language', type: 'text' },
         { key: 'occupation', label: 'Occupation', type: 'text' },
         { key: 'qualification', label: 'Qualification', type: 'text' },
         { key: 'lead_date', label: 'Lead Date', type: 'date' },
         { key: 'lead_time', label: 'Lead Time', type: 'text' },
-        { key: 'lead_status', label: 'Lead Status', type: 'text' },
-        { key: 'visit_status', label: 'Visit Status', type: 'text' },
+        { key: 'lead_status', label: 'Lead Status', type: 'dropdown' },
+        { key: 'visit_status', label: 'Visit Status', type: 'dropdown' },
       ];
+      
+      // Create a set of fixed field keys for deduplication
+      const fixedFieldKeys = new Set(fixedFields.map(f => f.key));
+      // Also add common variations/aliases to prevent duplicates
+      const fixedFieldAliases = new Set([
+        'name', 'full_name', 'fullname',
+        'mobile_no', 'mobile', 'phone', 'mobileno',
+        'whatsapp', 'whatsapp_no', 'whatsappno',
+        'lang', 'language',
+        'occupation',
+        'qualification',
+        'lead_date', 'leaddate',
+        'lead_time', 'leadtime',
+        'lead_status', 'leadstatus',
+        'visit_status', 'visitstatus',
+      ]);
       
       fixedFields.forEach(field => {
         samplePayload[field.key] = generateMockValue(field.key, field.type);
       });
       
-      // Add custom columns from the company
+      // Add custom columns from the company, but filter out any that duplicate fixed fields
       const customFieldOptions: Array<{ key: string; label: string }> = [];
       customColumns.forEach(column => {
-        // Use the column_key for the field key
         const fieldKey = column.column_key;
+        const normalizedKey = fieldKey.toLowerCase().replace(/[\s_-]/g, '');
+        
+        // Skip if this key matches a fixed field or its alias
+        if (fixedFieldKeys.has(fieldKey) || fixedFieldAliases.has(normalizedKey)) {
+          return;
+        }
+        
         samplePayload[fieldKey] = generateMockValue(fieldKey, column.type);
         customFieldOptions.push({ key: fieldKey, label: column.name });
       });
       
-      // Return both sample payload and available field options (fixed + custom)
+      // Return both sample payload and available field options (fixed + custom, deduplicated)
       res.json({
         samplePayload,
         availableFields: [
@@ -1883,12 +1905,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Delete existing mappings
         await storage.deleteWebhookFieldMappingsByWebhookId(req.params.id);
         
-        // Create new mappings
+        // Create new mappings - include use_default_value and default_value
         for (const mapping of field_mappings) {
           await storage.createWebhookFieldMapping({
             webhook_id: req.params.id,
-            webhook_field: mapping.webhook_field,
+            webhook_field: mapping.webhook_field || '',
             sheet_column_key: mapping.sheet_column_key,
+            use_default_value: mapping.use_default_value || false,
+            default_value: mapping.default_value || null,
           });
         }
       }
