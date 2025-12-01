@@ -927,8 +927,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
               <SelectTrigger className="w-full" data-testid="select-webhook-request">
                 <SelectValue placeholder="Choose a recent webhook request" />
               </SelectTrigger>
-              <SelectContent>
-                <ScrollArea className="max-h-[250px]">
+              <SelectContent className="max-h-[300px] overflow-y-auto">
                   {recentRequestsForSelector.map((request) => (
                     <SelectItem key={request.id} value={request.id}>
                       <div className="flex flex-col py-1">
@@ -947,7 +946,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                       </div>
                     </SelectItem>
                   ))}
-                </ScrollArea>
               </SelectContent>
             </Select>
 
@@ -1008,8 +1006,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                     <SelectTrigger className="w-full" data-testid={`select-webhook-field-${index}`}>
                       <SelectValue placeholder="Select a field" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <ScrollArea className="max-h-[200px]">
+                    <SelectContent className="max-h-[300px] overflow-y-auto">
                         {availableWebhookFields.map((field, fieldIndex) => (
                           <SelectItem 
                             key={`${field.path}-${fieldIndex}`} 
@@ -1023,7 +1020,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                             </div>
                           </SelectItem>
                         ))}
-                      </ScrollArea>
                     </SelectContent>
                   </Select>
                 ) : (
@@ -1162,8 +1158,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                               <SelectTrigger className="w-full" data-testid={`select-condition-field-${index}-${condIndex}`}>
                                 <SelectValue placeholder="Select field" />
                               </SelectTrigger>
-                              <SelectContent>
-                                <ScrollArea className="max-h-[200px]">
+                              <SelectContent className="max-h-[300px] overflow-y-auto">
                                   {availableWebhookFields.map((field, fieldIndex) => (
                                     <SelectItem 
                                       key={`${field.path}-${fieldIndex}`} 
@@ -1172,7 +1167,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                                       <span>{field.label}</span>
                                     </SelectItem>
                                   ))}
-                                </ScrollArea>
                               </SelectContent>
                             </Select>
                           ) : (
@@ -1446,8 +1440,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                       <SelectTrigger className="w-full" data-testid={`select-update-source-${index}`}>
                         <SelectValue placeholder="Select a field" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <ScrollArea className="max-h-[200px]">
+                      <SelectContent className="max-h-[300px] overflow-y-auto">
                           {availableWebhookFields.map((field, fieldIndex) => (
                             <SelectItem 
                               key={`${field.path}-${fieldIndex}`} 
@@ -1461,7 +1454,6 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                               </div>
                             </SelectItem>
                           ))}
-                        </ScrollArea>
                       </SelectContent>
                     </Select>
                   ) : (
