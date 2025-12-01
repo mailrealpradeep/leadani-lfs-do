@@ -920,7 +920,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Check if lead needs to be transferred to different sheet
-        if (existingLead.sheet_id !== targetSheetId) {
+        // If skip_allocation_on_match is true, don't transfer - keep lead in its current sheet
+        const skipAllocationOnMatch = webhook.skip_allocation_on_match === true;
+        
+        if (!skipAllocationOnMatch && existingLead.sheet_id !== targetSheetId) {
           oldSheetId = existingLead.sheet_id;
           
           const previousOwner = await storage.getUser(existingLead.owner_user_id);
@@ -1900,7 +1903,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Cannot update webhooks from other companies" });
       }
 
-      const { name, is_active, field_mappings, allocation_rules, match_mode, match_field, update_field_mappings, no_match_action } = req.body;
+      const { name, is_active, field_mappings, allocation_rules, match_mode, match_field, update_field_mappings, no_match_action, skip_allocation_on_match } = req.body;
 
       // Update webhook basic info
       const updates: any = {};
@@ -1910,6 +1913,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (match_field !== undefined) updates.match_field = match_field;
       if (update_field_mappings !== undefined) updates.update_field_mappings = update_field_mappings;
       if (no_match_action !== undefined) updates.no_match_action = no_match_action;
+      if (skip_allocation_on_match !== undefined) updates.skip_allocation_on_match = skip_allocation_on_match;
 
       const updatedWebhook = await storage.updateCompanyWebhook(req.params.id, updates);
 

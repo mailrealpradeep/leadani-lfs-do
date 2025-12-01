@@ -512,6 +512,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     { source_field: "", target_column: "" },
   ]);
   const [noMatchAction, setNoMatchAction] = useState<NoMatchAction>('create_lead');
+  const [skipAllocationOnMatch, setSkipAllocationOnMatch] = useState<boolean>(false);
 
   // Duplicate detection state for Push to CRM
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicateLeadInfo | null>(null);
@@ -606,6 +607,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     match_field?: string;
     update_field_mappings?: UpdateFieldMapping[];
     no_match_action?: NoMatchAction;
+    skip_allocation_on_match?: boolean;
   }>({
     queryKey: ["/api/admin/company/webhooks", webhook.id],
     enabled: !!webhook.id,
@@ -757,6 +759,9 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     if (webhookDetails?.no_match_action) {
       setNoMatchAction(webhookDetails.no_match_action);
     }
+    if (webhookDetails?.skip_allocation_on_match !== undefined) {
+      setSkipAllocationOnMatch(webhookDetails.skip_allocation_on_match);
+    }
   }, [webhookDetails]);
 
   const updateMutation = useMutation({
@@ -767,6 +772,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       match_field?: string;
       update_field_mappings?: UpdateFieldMapping[];
       no_match_action?: NoMatchAction;
+      skip_allocation_on_match?: boolean;
     }) => {
       return apiRequest("PUT", `/api/admin/company/webhooks/${webhook.id}`, data);
     },
@@ -1338,6 +1344,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       match_field: matchField,
       update_field_mappings: validUpdateMappings, // Only send complete mappings, filter out empty rows
       no_match_action: noMatchAction,
+      skip_allocation_on_match: skipAllocationOnMatch,
     });
   };
 
@@ -2451,6 +2458,26 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             <p className="text-xs text-muted-foreground">
               The CRM field used to find matching leads (e.g., Mobile Number for phone-based matching).
             </p>
+          </div>
+        )}
+
+        {/* Skip Allocation Rules Option */}
+        {matchMode !== 'create_only' && (
+          <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/30">
+            <Switch
+              id="skip-allocation"
+              checked={skipAllocationOnMatch}
+              onCheckedChange={setSkipAllocationOnMatch}
+              data-testid="switch-skip-allocation"
+            />
+            <div className="flex-1">
+              <Label htmlFor="skip-allocation" className="text-sm font-medium cursor-pointer">
+                Skip Allocation Rules
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                When a matching lead is found, keep it in its current sheet instead of applying allocation rules.
+              </p>
+            </div>
           </div>
         )}
 
