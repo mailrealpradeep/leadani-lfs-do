@@ -2239,7 +2239,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const lead = await storage.createLead({
         sheet_id,
         owner_user_id: webhook.created_by_user_id,
-        custom_fields,
+        custom_fields: customFields,
         meta: leadData.meta || {},
       });
 
@@ -2377,7 +2377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const lead = await storage.createLead({
             sheet_id,
             owner_user_id: webhook.created_by_user_id,
-            custom_fields,
+            custom_fields: customFields,
             meta: leadData.meta || {},
           });
 
@@ -2644,7 +2644,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const lead = await storage.createLead({
             sheet_id: selectedSheet,
             owner_user_id: webhook.created_by_user_id,
-            custom_fields,
+            custom_fields: customFields,
             meta: leadData.meta || {},
           });
 
