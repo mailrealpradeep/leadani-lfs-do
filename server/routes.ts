@@ -1734,8 +1734,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
       
       // Helper function to normalize field key for comparison
+      // Strips ALL non-alphanumeric characters for robust matching
       const normalizeKey = (key: string): string => {
-        return key.toLowerCase().trim().replace(/[\s_\-\.]/g, '');
+        return key.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
       };
       
       // Create a set of normalized fixed field keys and all their aliases
@@ -1918,13 +1919,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.deleteWebhookFieldMappingsByWebhookId(req.params.id);
         
         // Create new mappings - include use_default_value and default_value
+        // Use nullish coalescing to preserve explicit falsy values like false or ''
         for (const mapping of field_mappings) {
           await storage.createWebhookFieldMapping({
             webhook_id: req.params.id,
-            webhook_field: mapping.webhook_field || '',
+            webhook_field: mapping.webhook_field ?? '',
             sheet_column_key: mapping.sheet_column_key,
-            use_default_value: mapping.use_default_value || false,
-            default_value: mapping.default_value || null,
+            use_default_value: mapping.use_default_value ?? false,
+            default_value: mapping.default_value ?? null,
           });
         }
       }
