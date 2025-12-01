@@ -41,7 +41,12 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 *   **Highlighting Rules Engine**: Conditional row highlighting based on multi-condition rules with AND/OR logic, supporting 12 color variants (yellow, orange, red, green, blue, purple, pink, dark_red, light_green, dark_green, light_blue, dark_blue). Features include sheet-specific rules and global rules (apply to all sheets), with real-time synchronization across clients.
 *   **Mobile Experience**: Mobile-first design with specific layouts, configurable mobile lead cards, mobile lead editing, and mobile sort & filter functionalities.
 *   **Reporting & Analytics**: Comprehensive Reports section with a dynamic Report Builder, multi-sheet lead selection for admins, and a dedicated Team Performance section with drill-down capabilities.
-*   **Webhooks**: Integration for external systems to create leads via HTTP POST requests, including configurable field mapping and conditional allocation logic with multi-condition support (AND/OR logic between conditions).
+*   **Webhooks**: Integration for external systems to create leads via HTTP POST requests, including:
+    - Configurable field mapping with dropdown auto-detection
+    - Conditional allocation logic with multi-condition support (AND/OR logic)
+    - **Multi-sheet allocation per condition group**: Split leads matching a condition across multiple sheets with custom percentage splits (e.g., Odia leads: Priyanka 30%, Nandini 20%, Monica 50%). Each group must total exactly 100%
+    - Allocation health indicator showing overall coverage across all condition paths
+    - Graceful handling when allocation rules are missing (returns success to sender, notifies users)
 *   **Self-Service Onboarding**: Multi-step flow for company registration, admin setup, and user invitations.
 *   **Attendance System**: Mobile-first PWA for daily entry/exit tracking with configurable exit rules (e.g., minimum leads/hours/updates, NFDT compliance), force exit requests with admin review, and attendance history.
 *   **Mandatory System Columns**: Protected "Full Name" and "Mobile No" columns with enforced configurations.
