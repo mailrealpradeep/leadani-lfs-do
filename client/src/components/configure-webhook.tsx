@@ -422,7 +422,25 @@ interface AllocationRule {
   logical_operator?: "and" | "or";
   is_default?: boolean;
   priority?: number;
+  _clientId?: string; // Client-side only ID for stable UI identification
 }
+
+// Generate unique client ID for allocation rules
+let clientIdCounter = 0;
+const generateClientId = () => `rule_${Date.now()}_${++clientIdCounter}`;
+
+// Ensure all rules have client IDs
+const ensureClientIds = (rules: AllocationRule[]): AllocationRule[] => {
+  return rules.map(rule => ({
+    ...rule,
+    _clientId: rule._clientId || generateClientId()
+  }));
+};
+
+// Strip client IDs before saving to backend
+const stripClientIds = (rules: AllocationRule[]): AllocationRule[] => {
+  return rules.map(({ _clientId, ...rule }) => rule);
+};
 
 interface ConfigureWebhookProps {
   webhook: CompanyWebhook;
@@ -482,10 +500,10 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     { webhook_field: "", sheet_column_key: "" },
   ]);
 
-  // Allocation Rules State
-  const [allocationRules, setAllocationRules] = useState<AllocationRule[]>([
-    { sheet_id: "", percentage: 100 },
-  ]);
+  // Allocation Rules State - with client IDs for stable identification
+  const [allocationRules, setAllocationRules] = useState<AllocationRule[]>(
+    ensureClientIds([{ sheet_id: "", percentage: 100 }])
+  );
 
   // Match Mode State
   const [matchMode, setMatchMode] = useState<MatchMode>('create_only');
@@ -710,7 +728,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       setFieldMappings(webhookDetails.field_mappings);
     }
     if (webhookDetails?.allocation_rules && webhookDetails.allocation_rules.length > 0) {
-      setAllocationRules(webhookDetails.allocation_rules);
+      // Ensure client IDs are added for stable UI identification
+      setAllocationRules(ensureClientIds(webhookDetails.allocation_rules));
     }
     // Load match mode settings
     if (webhookDetails?.match_mode) {
@@ -1159,7 +1178,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       return true;
     });
     
-    updateMutation.mutate({ allocation_rules: validRules });
+    // Strip client IDs before saving to backend
+    updateMutation.mutate({ allocation_rules: stripClientIds(validRules) });
   };
 
   const handleSaveMatchMode = () => {
@@ -1606,181 +1626,434 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
           </AlertDescription>
         </Alert>
 
-        {/* Allocation Rules */}
+        {/* Allocation Rules - Grouped by Condition */}
         <div className="space-y-4">
           <Label className="text-sm font-medium">Allocation Rules</Label>
-          {allocationRules.map((rule, index) => (
-            <div key={index} className="border rounded-lg p-4 space-y-3" data-testid={`rule-row-${index}`}>
-              {/* Condition Configuration */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs font-medium">Conditions</Label>
-                  <input
-                    type="checkbox"
-                    checked={rule.is_default === true}
-                    onChange={(e) => updateAllocationRule(index, "is_default", e.target.checked)}
-                    className="h-4 w-4"
-                    data-testid={`checkbox-is-default-${index}`}
-                  />
-                  <Label className="text-xs text-muted-foreground">Mark as Default/Fallback</Label>
-                </div>
+          
+          {/* Group rules by condition signature for display */}
+          {(() => {
+            // Build condition groups with their rule client IDs (stable identifiers)
+            const groups: Array<{
+              key: string;
+              label: string;
+              isDefault: boolean;
+              conditions: WebhookCondition[];
+              logicalOperator: "and" | "or";
+              ruleClientIds: string[];
+            }> = [];
+            
+            // Track if any rules need client IDs added
+            let needsClientIdUpdate = false;
+            
+            allocationRules.forEach((rule) => {
+              const { key, label } = getConditionGroupKey(rule);
+              const existingGroup = groups.find(g => g.key === key);
+              
+              // Use existing client ID or mark for update
+              let clientId = rule._clientId;
+              if (!clientId) {
+                clientId = generateClientId();
+                needsClientIdUpdate = true;
+              }
+              
+              if (existingGroup) {
+                existingGroup.ruleClientIds.push(clientId);
+              } else {
+                groups.push({
+                  key,
+                  label,
+                  isDefault: rule.is_default === true,
+                  conditions: rule.conditions ? [...rule.conditions] : [],
+                  logicalOperator: rule.logical_operator || "and",
+                  ruleClientIds: [clientId]
+                });
+              }
+            });
+            
+            // If any rules were missing client IDs, update the state
+            if (needsClientIdUpdate) {
+              // Use setTimeout to avoid setState during render
+              setTimeout(() => {
+                setAllocationRules(prev => ensureClientIds(prev));
+              }, 0);
+            }
+            
+            // Helper to get rule by client ID
+            const getRuleByClientId = (clientId: string) => 
+              allocationRules.find(r => r._clientId === clientId);
+            
+            // Helper to add a new sheet to a condition group (using functional update)
+            const addSheetToGroup = (groupKey: string) => {
+              setAllocationRules(prev => {
+                const group = groups.find(g => g.key === groupKey);
+                if (!group || group.ruleClientIds.length === 0) return prev;
                 
-                {!rule.is_default && (
+                const firstRule = prev.find(r => r._clientId === group.ruleClientIds[0]);
+                if (!firstRule) return prev;
+                
+                // Create a new rule with the same conditions but empty sheet
+                const newRule: AllocationRule = {
+                  sheet_id: "",
+                  percentage: 0,
+                  is_default: firstRule.is_default,
+                  conditions: firstRule.conditions ? [...firstRule.conditions.map(c => ({ ...c }))] : [],
+                  logical_operator: firstRule.logical_operator,
+                  _clientId: generateClientId()
+                };
+                
+                return [...prev, newRule];
+              });
+            };
+            
+            // Helper to delete entire condition group (using functional update)
+            const deleteConditionGroup = (ruleClientIds: string[]) => {
+              setAllocationRules(prev => {
+                if (prev.length <= 1) return prev;
+                const newRules = prev.filter(r => !ruleClientIds.includes(r._clientId || ''));
+                if (newRules.length === 0) {
+                  return ensureClientIds([{ sheet_id: "", percentage: 100 }]);
+                }
+                return newRules;
+              });
+            };
+            
+            // Helper to update a field on a rule by client ID (with defensive fallback)
+            const updateRuleByClientId = (clientId: string, field: keyof AllocationRule, value: any) => {
+              if (!clientId) return; // Guard against empty client IDs
+              setAllocationRules(prev => prev.map(rule => {
+                // Match by _clientId, or ensure rules have IDs
+                if (rule._clientId === clientId) {
+                  return { ...rule, [field]: field === "percentage" ? Number(value) : value };
+                }
+                // Ensure all rules have client IDs
+                return rule._clientId ? rule : { ...rule, _clientId: generateClientId() };
+              }));
+            };
+            
+            // Helper to remove a rule by client ID (with defensive fallback)
+            const removeRuleByClientId = (clientId: string) => {
+              if (!clientId) return; // Guard against empty client IDs
+              setAllocationRules(prev => {
+                if (prev.length <= 1) return prev;
+                return prev.filter(r => r._clientId !== clientId);
+              });
+            };
+            
+            // Helper to update all rules in a group (for condition sync)
+            const updateGroupRules = (ruleClientIds: string[], updater: (rule: AllocationRule) => AllocationRule) => {
+              const validClientIds = ruleClientIds.filter(Boolean);
+              if (validClientIds.length === 0) return; // Guard against empty IDs
+              setAllocationRules(prev => prev.map(rule => {
+                if (validClientIds.includes(rule._clientId || '')) {
+                  return updater(rule);
+                }
+                // Ensure all rules have client IDs
+                return rule._clientId ? rule : { ...rule, _clientId: generateClientId() };
+              }));
+            };
+            
+            return groups.map((group, groupIndex) => {
+              const rulesInGroup = group.ruleClientIds.map(id => getRuleByClientId(id)).filter(Boolean) as AllocationRule[];
+              const firstRule = rulesInGroup[0];
+              const groupTotal = rulesInGroup.reduce((sum, rule) => sum + (rule?.percentage || 0), 0);
+              
+              if (!firstRule) return null;
+              
+              return (
+                <div key={group.key} className="border rounded-lg p-4 space-y-4" data-testid={`condition-group-${groupIndex}`}>
+                  {/* Condition Configuration - shown once per group */}
                   <div className="space-y-3">
-                    {/* AND/OR Toggle */}
-                    {(rule.conditions?.length || 0) > 1 && (
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Label className="text-xs text-muted-foreground">Match:</Label>
-                        <ToggleGroup
-                          type="single"
-                          value={rule.logical_operator || "and"}
-                          onValueChange={(value) => {
-                            if (value) updateAllocationRule(index, "logical_operator", value as "and" | "or");
+                        <Label className="text-xs font-medium">Conditions</Label>
+                        <input
+                          type="checkbox"
+                          checked={group.isDefault}
+                          onChange={(e) => {
+                            // Update is_default for all rules in this group using stable IDs
+                            updateGroupRules(group.ruleClientIds, rule => ({
+                              ...rule,
+                              is_default: e.target.checked
+                            }));
                           }}
-                          className="h-7"
-                        >
-                          <ToggleGroupItem value="and" className="h-7 px-3 text-xs">
-                            All (AND)
-                          </ToggleGroupItem>
-                          <ToggleGroupItem value="or" className="h-7 px-3 text-xs">
-                            Any (OR)
-                          </ToggleGroupItem>
-                        </ToggleGroup>
+                          className="h-4 w-4"
+                          data-testid={`checkbox-is-default-group-${groupIndex}`}
+                        />
+                        <Label className="text-xs text-muted-foreground">Mark as Default/Fallback</Label>
                       </div>
-                    )}
-
-                    {/* Conditions List */}
-                    {(rule.conditions || []).map((condition, condIndex) => (
-                      <div key={condIndex} className="flex items-center gap-2">
-                        {condIndex > 0 && (
-                          <Badge variant="outline" className="text-xs shrink-0">
-                            {(rule.logical_operator || "and").toUpperCase()}
-                          </Badge>
-                        )}
-                        <div className="flex-1 grid grid-cols-3 gap-2">
-                          {filteredWebhookFields.length > 0 ? (
-                            <Select
-                              value={condition.field}
-                              onValueChange={(value) => updateConditionInRule(index, condIndex, "field", value)}
+                      {groups.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteConditionGroup(group.ruleClientIds)}
+                          className="text-destructive hover:text-destructive h-7 px-2"
+                          data-testid={`button-delete-group-${groupIndex}`}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          Delete Group
+                        </Button>
+                      )}
+                    </div>
+                    
+                    {!group.isDefault && (
+                      <div className="space-y-3">
+                        {/* AND/OR Toggle */}
+                        {(firstRule.conditions?.length || 0) > 1 && (
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-muted-foreground">Match:</Label>
+                            <ToggleGroup
+                              type="single"
+                              value={firstRule.logical_operator || "and"}
+                              onValueChange={(value) => {
+                                if (value) {
+                                  // Update logical_operator for all rules in this group
+                                  updateGroupRules(group.ruleClientIds, rule => ({
+                                    ...rule,
+                                    logical_operator: value as "and" | "or"
+                                  }));
+                                }
+                              }}
+                              className="h-7"
                             >
-                              <SelectTrigger className="w-full" data-testid={`select-condition-field-${index}-${condIndex}`}>
-                                <SelectValue placeholder="Select field" />
-                              </SelectTrigger>
-                              <SelectContent className="max-h-[300px] overflow-y-auto">
-                                  {filteredWebhookFields.map((field, fieldIndex) => (
-                                    <SelectItem 
-                                      key={`${field.path}-${fieldIndex}`} 
-                                      value={field.path}
-                                    >
-                                      <span>{field.label}</span>
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Input
-                              value={condition.field}
-                              onChange={(e) => updateConditionInRule(index, condIndex, "field", e.target.value)}
-                              placeholder="e.g., language"
-                              className="w-full"
-                              data-testid={`input-condition-field-${index}-${condIndex}`}
-                            />
-                          )}
-                          <select
-                            value={condition.operator}
-                            onChange={(e) => updateConditionInRule(index, condIndex, "operator", e.target.value)}
-                            className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            data-testid={`select-condition-operator-${index}-${condIndex}`}
-                          >
-                            <option value="">Operator</option>
-                            <option value="equals">Equals</option>
-                            <option value="not_equals">Not Equals</option>
-                            <option value="contains">Contains</option>
-                            <option value="not_contains">Not Contains</option>
-                            <option value="starts_with">Starts With</option>
-                            <option value="ends_with">Ends With</option>
-                            <option value="greater_than">Greater Than</option>
-                            <option value="less_than">Less Than</option>
-                          </select>
-                          <Input
-                            value={condition.value}
-                            onChange={(e) => updateConditionInRule(index, condIndex, "value", e.target.value)}
-                            placeholder="Value"
-                            className="w-full"
-                            data-testid={`input-condition-value-${index}-${condIndex}`}
-                          />
-                        </div>
+                              <ToggleGroupItem value="and" className="h-7 px-3 text-xs">
+                                All (AND)
+                              </ToggleGroupItem>
+                              <ToggleGroupItem value="or" className="h-7 px-3 text-xs">
+                                Any (OR)
+                              </ToggleGroupItem>
+                            </ToggleGroup>
+                          </div>
+                        )}
+
+                        {/* Conditions List - edit syncs across all rules in group */}
+                        {(firstRule.conditions || []).map((condition, condIndex) => (
+                          <div key={condIndex} className="flex items-center gap-2">
+                            {condIndex > 0 && (
+                              <Badge variant="outline" className="text-xs shrink-0">
+                                {(firstRule.logical_operator || "and").toUpperCase()}
+                              </Badge>
+                            )}
+                            <div className="flex-1 grid grid-cols-3 gap-2">
+                              {filteredWebhookFields.length > 0 ? (
+                                <Select
+                                  value={condition.field}
+                                  onValueChange={(value) => {
+                                    // Update condition in all rules of this group
+                                    updateGroupRules(group.ruleClientIds, rule => {
+                                      if (!rule.conditions) return rule;
+                                      const newConditions = [...rule.conditions];
+                                      if (newConditions[condIndex]) {
+                                        newConditions[condIndex] = { ...newConditions[condIndex], field: value };
+                                      }
+                                      return { ...rule, conditions: newConditions };
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="w-full" data-testid={`select-condition-field-${groupIndex}-${condIndex}`}>
+                                    <SelectValue placeholder="Select field" />
+                                  </SelectTrigger>
+                                  <SelectContent className="max-h-[300px] overflow-y-auto">
+                                      {filteredWebhookFields.map((field, fieldIndex) => (
+                                        <SelectItem 
+                                          key={`${field.path}-${fieldIndex}`} 
+                                          value={field.path}
+                                        >
+                                          <span>{field.label}</span>
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input
+                                  value={condition.field}
+                                  onChange={(e) => {
+                                    updateGroupRules(group.ruleClientIds, rule => {
+                                      if (!rule.conditions) return rule;
+                                      const newConditions = [...rule.conditions];
+                                      if (newConditions[condIndex]) {
+                                        newConditions[condIndex] = { ...newConditions[condIndex], field: e.target.value };
+                                      }
+                                      return { ...rule, conditions: newConditions };
+                                    });
+                                  }}
+                                  placeholder="e.g., language"
+                                  className="w-full"
+                                  data-testid={`input-condition-field-${groupIndex}-${condIndex}`}
+                                />
+                              )}
+                              <select
+                                value={condition.operator}
+                                onChange={(e) => {
+                                  updateGroupRules(group.ruleClientIds, rule => {
+                                    if (!rule.conditions) return rule;
+                                    const newConditions = [...rule.conditions];
+                                    if (newConditions[condIndex]) {
+                                      newConditions[condIndex] = { ...newConditions[condIndex], operator: e.target.value };
+                                    }
+                                    return { ...rule, conditions: newConditions };
+                                  });
+                                }}
+                                className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                data-testid={`select-condition-operator-${groupIndex}-${condIndex}`}
+                              >
+                                <option value="">Operator</option>
+                                <option value="equals">Equals</option>
+                                <option value="not_equals">Not Equals</option>
+                                <option value="contains">Contains</option>
+                                <option value="not_contains">Not Contains</option>
+                                <option value="starts_with">Starts With</option>
+                                <option value="ends_with">Ends With</option>
+                                <option value="greater_than">Greater Than</option>
+                                <option value="less_than">Less Than</option>
+                              </select>
+                              <Input
+                                value={condition.value}
+                                onChange={(e) => {
+                                  updateGroupRules(group.ruleClientIds, rule => {
+                                    if (!rule.conditions) return rule;
+                                    const newConditions = [...rule.conditions];
+                                    if (newConditions[condIndex]) {
+                                      newConditions[condIndex] = { ...newConditions[condIndex], value: e.target.value };
+                                    }
+                                    return { ...rule, conditions: newConditions };
+                                  });
+                                }}
+                                placeholder="Value"
+                                className="w-full"
+                                data-testid={`input-condition-value-${groupIndex}-${condIndex}`}
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                // Remove condition from all rules in this group
+                                updateGroupRules(group.ruleClientIds, rule => {
+                                  if (!rule.conditions) return rule;
+                                  return {
+                                    ...rule,
+                                    conditions: rule.conditions.filter((_, i) => i !== condIndex)
+                                  };
+                                });
+                              }}
+                              className="shrink-0 h-8 w-8"
+                              data-testid={`button-remove-condition-${groupIndex}-${condIndex}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+
+                        {/* Add Condition Button */}
                         <Button
                           type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeConditionFromRule(index, condIndex)}
-                          className="shrink-0 h-8 w-8"
-                          data-testid={`button-remove-condition-${index}-${condIndex}`}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            // Add condition to all rules in this group
+                            updateGroupRules(group.ruleClientIds, rule => ({
+                              ...rule,
+                              conditions: [...(rule.conditions || []), { field: "", operator: "", value: "" }]
+                            }));
+                          }}
+                          data-testid={`button-add-condition-${groupIndex}`}
                         >
-                          <X className="h-4 w-4" />
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Condition
                         </Button>
                       </div>
-                    ))}
+                    )}
+                  </div>
 
-                    {/* Add Condition Button */}
+                  {/* Sheet Allocations - Multiple sheets per condition group */}
+                  <div className="space-y-2 pt-3 border-t">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-medium">Sheet Allocations</Label>
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "text-xs font-medium",
+                          groupTotal === 100 ? "text-green-600 dark:text-green-400" : 
+                          groupTotal > 100 ? "text-destructive" : "text-yellow-600 dark:text-yellow-500"
+                        )}>
+                          Total: {groupTotal}%
+                        </span>
+                        {groupTotal === 100 && <Check className="h-3 w-3 text-green-600 dark:text-green-400" />}
+                        {groupTotal !== 100 && <AlertCircle className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />}
+                      </div>
+                    </div>
+                    
+                    {rulesInGroup.map((rule, sheetIndex) => {
+                      const clientId = rule._clientId || '';
+                      return (
+                        <div key={clientId} className="flex items-center gap-2" data-testid={`sheet-row-${groupIndex}-${sheetIndex}`}>
+                          <div className="flex-1 min-w-0">
+                            <select
+                              value={rule.sheet_id}
+                              onChange={(e) => updateRuleByClientId(clientId, "sheet_id", e.target.value)}
+                              data-testid={`select-sheet-${groupIndex}-${sheetIndex}`}
+                              className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            >
+                              <option value="">Select sheet</option>
+                              {sheets.map((sheet) => (
+                                <option key={sheet.id} value={sheet.id}>
+                                  {sheet.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="w-20">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={rule.percentage}
+                              onChange={(e) => updateRuleByClientId(clientId, "percentage", e.target.value)}
+                              placeholder="0"
+                              className="text-center"
+                              data-testid={`input-percentage-${groupIndex}-${sheetIndex}`}
+                            />
+                          </div>
+                          <span className="text-sm text-muted-foreground w-4">%</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              if (rulesInGroup.length === 1 && groups.length === 1) {
+                                // Can't remove the last sheet of the last group
+                                return;
+                              }
+                              removeRuleByClientId(clientId);
+                            }}
+                            disabled={rulesInGroup.length === 1 && groups.length === 1}
+                            data-testid={`button-remove-sheet-${groupIndex}-${sheetIndex}`}
+                            className="flex-shrink-0 h-8 w-8"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                    
+                    {/* Add Sheet Button */}
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => addConditionToRule(index)}
-                      data-testid={`button-add-condition-${index}`}
+                      onClick={() => addSheetToGroup(group.key)}
+                      data-testid={`button-add-sheet-${groupIndex}`}
+                      className="w-full mt-2"
                     >
                       <Plus className="h-4 w-4 mr-1" />
-                      Add Condition
+                      Add Sheet
                     </Button>
                   </div>
-                )}
-              </div>
-
-              {/* Sheet & Percentage */}
-              <div className="flex items-end gap-2">
-                <div className="flex-1 min-w-0">
-                  <Label className="text-xs text-muted-foreground">Executive Sheet</Label>
-                  <select
-                    value={rule.sheet_id}
-                    onChange={(e) => updateAllocationRule(index, "sheet_id", e.target.value)}
-                    data-testid={`select-sheet-${index}`}
-                    className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">Select sheet</option>
-                    {sheets.map((sheet) => (
-                      <option key={sheet.id} value={sheet.id}>
-                        {sheet.name}
-                      </option>
-                    ))}
-                  </select>
                 </div>
-                <div className="w-28">
-                  <Label className="text-xs text-muted-foreground">Percentage</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={rule.percentage}
-                    onChange={(e) => updateAllocationRule(index, "percentage", e.target.value)}
-                    placeholder="0"
-                    data-testid={`input-percentage-${index}`}
-                  />
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeAllocationRule(index)}
-                  disabled={allocationRules.length === 1}
-                  data-testid={`button-remove-rule-${index}`}
-                  className="flex-shrink-0"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
+              );
+            });
+          })()}
+          
+          {/* Add New Condition Group Button */}
           <Button
             variant="outline"
             size="sm"
@@ -1789,7 +2062,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             className="mt-2"
           >
             <Plus className="h-4 w-4 mr-2" />
-            Add Rule
+            Add Condition Group
           </Button>
         </div>
 
