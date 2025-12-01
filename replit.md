@@ -29,6 +29,12 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 ### Key Features
 
 *   **Lead Management**: Features include chronological lead update tracking, Excel/CSV import/export with intelligent column mapping, field validation, bulk lead transfer, soft-delete with recovery, and Lead Thought marking (Sure/May Be) with visual highlighting.
+*   **Duplicate Lead Prevention**: Mobile number serves as a unique identifier within each company. System normalizes mobile numbers (strips spaces, dashes, +, country codes, compares last 10 digits) and detects duplicates across all entry points:
+    - **Add Lead Dialog**: Checks for duplicates before saving, shows existing lead details with Merge/Don't Add options
+    - **Bulk Import**: Dedicated duplicates review step showing all conflicts with Merge All/Skip All/individual decisions
+    - **Webhook Integration**: Configurable match_mode (create_new, update_existing, skip_duplicate) for automated handling
+    - **Push to CRM**: Duplicate detection with user choice before pushing queued leads
+    - **Server-side Enforcement**: API-level validation blocks duplicates even if client bypasses UI checks
 *   **Real-time Synchronization**: Socket.io facilitates real-time data updates across clients.
 *   **Role-Based Access Control**: Three-tier system (Super Admin, Company Admin, User) with sheet-level permissions and audit logging.
 *   **Dynamic UI**: Customizable grid interface with dynamic column management, conditional validation, and "Next Follow-up Date Time" (NFDT) highlighting.
