@@ -48,6 +48,8 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
     - **Weighted Round-Robin Distribution**: Leads are distributed according to percentages over time. The system tracks allocation counts per condition group and assigns each lead to the sheet most "behind" its target percentage, ensuring fair distribution (e.g., 40/30/30 split will result in 4/3/3 distribution over 10 leads)
     - Allocation health indicator showing overall coverage across all condition paths
     - Graceful handling when allocation rules are missing (returns success to sender, notifies users)
+    - **Multi-field matching**: Match one webhook field against multiple CRM fields with OR logic (e.g., mobile_no OR whatsapp fields)
+    - **Update-only flow**: Webhooks configured with match_mode=match_and_update, no_match_action=ignore, and skip_allocation_on_match=true can update existing leads without requiring allocation rules
 *   **Self-Service Onboarding**: Multi-step flow for company registration, admin setup, and user invitations.
 *   **Attendance System**: Mobile-first PWA for daily entry/exit tracking with configurable exit rules (e.g., minimum leads/hours/updates, NFDT compliance), force exit requests with admin review, and attendance history.
 *   **Mandatory System Columns**: Protected "Full Name" and "Mobile No" columns with enforced configurations.

@@ -539,9 +539,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fieldMappings = await storage.getWebhookFieldMappings(webhook.id);
       const allocationRules = await storage.getWebhookAllocationRules(webhook.id);
 
-      // If no allocation rules configured, accept the data but don't create a lead
+      // Check if this webhook is configured for match_and_update mode with no_match_action=ignore
+      // In this case, we don't need allocation rules - we only want to update existing leads
+      const matchMode = webhook.match_mode || "create_only";
+      const noMatchAction = webhook.no_match_action || "create_lead";
+      const canProcessWithoutAllocation = 
+        matchMode === "match_and_update" && noMatchAction === "ignore";
+      
+      // If no allocation rules configured and we can't process without them, accept the data but don't create a lead
       // This allows users to test webhooks and see field names before completing configuration
-      if (allocationRules.length === 0) {
+      if (allocationRules.length === 0 && !canProcessWithoutAllocation) {
         requestStatus = "pending_configuration";
         // Log request before returning so status is properly recorded
         await storage.createWebhookRequest({
@@ -629,8 +636,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         applicableRules = allocationRules.filter(rule => rule.is_default === true);
       }
 
-      // If still no rules, store as pending and return success
-      if (applicableRules.length === 0) {
+      // If still no rules, check if we can process without allocation (match_and_update mode)
+      // Otherwise, store as pending and return success
+      if (applicableRules.length === 0 && !canProcessWithoutAllocation) {
         const allocationIssue = "No allocation rules match the incoming data. Please configure allocation rules.";
         
         // Log webhook request with pending_allocation status
@@ -663,9 +671,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Validate percentages sum to 100 for applicable rules
+      // Validate percentages sum to 100 for applicable rules (skip if processing without allocation)
       const totalPercentage = applicableRules.reduce((sum, rule) => sum + rule.percentage, 0);
-      if (totalPercentage !== 100) {
+      if (totalPercentage !== 100 && !canProcessWithoutAllocation) {
         const allocationIssue = `Allocation rules percentages must sum to 100% (current: ${totalPercentage}%). Please fix your rules.`;
         
         // Log webhook request with pending_allocation status
@@ -698,74 +706,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Determine which sheet to allocate to using weighted round-robin
+      // Determine which sheet to allocate to using weighted round-robin (only if we have allocation rules)
       // This ensures leads are distributed according to percentage weights over time
-      let targetSheetId: string;
+      let targetSheetId: string | null = null;
+      let conditionGroupKey = 'default';
       
-      // Generate a unique key for this condition group based on the matching conditions
-      const generateConditionGroupKey = (rules: typeof applicableRules): string => {
-        if (rules.length === 0) return 'default';
-        const firstRule = rules[0];
-        if (firstRule.is_default) return 'default';
+      // Only do allocation if we have applicable rules
+      if (applicableRules.length > 0) {
+        // Generate a unique key for this condition group based on the matching conditions
+        const generateConditionGroupKey = (rules: typeof applicableRules): string => {
+          if (rules.length === 0) return 'default';
+          const firstRule = rules[0];
+          if (firstRule.is_default) return 'default';
+          
+          // Use conditions array if available
+          if (firstRule.conditions && firstRule.conditions.length > 0) {
+            return firstRule.conditions.map(c => `${c.field}|${c.operator}|${c.value || ''}`).join('::');
+          }
+          // Fallback to legacy single condition fields
+          return `${firstRule.condition_field || ''}|${firstRule.condition_operator || ''}|${firstRule.condition_value || ''}`;
+        };
         
-        // Use conditions array if available
-        if (firstRule.conditions && firstRule.conditions.length > 0) {
-          return firstRule.conditions.map(c => `${c.field}|${c.operator}|${c.value || ''}`).join('::');
-        }
-        // Fallback to legacy single condition fields
-        return `${firstRule.condition_field || ''}|${firstRule.condition_operator || ''}|${firstRule.condition_value || ''}`;
-      };
-      
-      const conditionGroupKey = generateConditionGroupKey(applicableRules);
-      
-      // Get current allocation counts for this webhook
-      const allocationCounts = (webhook.allocation_counts as Record<string, Record<string, number>>) || {};
-      const groupCounts = allocationCounts[conditionGroupKey] || {};
-      
-      // Calculate total allocated for this group
-      const totalAllocated = Object.values(groupCounts).reduce((sum, count) => sum + count, 0);
-      
-      // Weighted round-robin: find the sheet that is most behind its target percentage
-      // For each sheet, calculate: (current_count / total_allocated) vs (target_percentage / 100)
-      // The sheet with the largest negative gap (most behind) gets the next lead
-      let bestSheetId = applicableRules[0].sheet_id;
-      let bestGap = -Infinity;
-      
-      for (const rule of applicableRules) {
-        const currentCount = groupCounts[rule.sheet_id] || 0;
-        const targetPercentage = rule.percentage / 100;
+        conditionGroupKey = generateConditionGroupKey(applicableRules);
         
-        // Calculate how "behind" this sheet is
-        // If total is 0, use negative percentage (higher percentage = more behind)
-        let gap: number;
-        if (totalAllocated === 0) {
-          // First allocation - prefer higher percentage sheets first
-          gap = targetPercentage;
-        } else {
-          // Gap = target share - actual share (positive means behind target)
-          const actualShare = currentCount / totalAllocated;
-          gap = targetPercentage - actualShare;
+        // Get current allocation counts for this webhook
+        const allocationCounts = (webhook.allocation_counts as Record<string, Record<string, number>>) || {};
+        const groupCounts = allocationCounts[conditionGroupKey] || {};
+        
+        // Calculate total allocated for this group
+        const totalAllocated = Object.values(groupCounts).reduce((sum, count) => sum + count, 0);
+        
+        // Weighted round-robin: find the sheet that is most behind its target percentage
+        // For each sheet, calculate: (current_count / total_allocated) vs (target_percentage / 100)
+        // The sheet with the largest negative gap (most behind) gets the next lead
+        let bestSheetId = applicableRules[0].sheet_id;
+        let bestGap = -Infinity;
+        
+        for (const rule of applicableRules) {
+          const currentCount = groupCounts[rule.sheet_id] || 0;
+          const targetPercentage = rule.percentage / 100;
+          
+          // Calculate how "behind" this sheet is
+          // If total is 0, use negative percentage (higher percentage = more behind)
+          let gap: number;
+          if (totalAllocated === 0) {
+            // First allocation - prefer higher percentage sheets first
+            gap = targetPercentage;
+          } else {
+            // Gap = target share - actual share (positive means behind target)
+            const actualShare = currentCount / totalAllocated;
+            gap = targetPercentage - actualShare;
+          }
+          
+          // Select the sheet that is most behind its target (largest positive gap)
+          if (gap > bestGap) {
+            bestGap = gap;
+            bestSheetId = rule.sheet_id;
+          }
         }
         
-        // Select the sheet that is most behind its target (largest positive gap)
-        if (gap > bestGap) {
-          bestGap = gap;
-          bestSheetId = rule.sheet_id;
-        }
-      }
-      
-      targetSheetId = bestSheetId;
+        targetSheetId = bestSheetId;
 
-      // Verify target sheet exists and belongs to the company
-      const targetSheet = await storage.getSheet(targetSheetId);
-      if (!targetSheet) {
-        errorMessage = "Target sheet not found";
-        return res.status(404).json({ error: errorMessage });
-      }
+        // Verify target sheet exists and belongs to the company
+        const targetSheet = await storage.getSheet(targetSheetId);
+        if (!targetSheet) {
+          errorMessage = "Target sheet not found";
+          return res.status(404).json({ error: errorMessage });
+        }
 
-      if (targetSheet.company_id !== webhook.company_id) {
-        errorMessage = "Sheet does not belong to webhook company";
-        return res.status(403).json({ error: errorMessage });
+        if (targetSheet.company_id !== webhook.company_id) {
+          errorMessage = "Sheet does not belong to webhook company";
+          return res.status(403).json({ error: errorMessage });
+        }
       }
 
       // Get webhook creator to use as lead owner
@@ -776,7 +788,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Enhanced match-and-update logic based on webhook configuration
-      const matchMode = webhook.match_mode || "create_only";
+      // Note: matchMode and noMatchAction are already defined above for canProcessWithoutAllocation check
       const matchRules = webhook.match_rules || [];
       // Backward compatibility: if no match_rules but match_field exists, create a single rule
       const effectiveMatchRules = matchRules.length > 0 
@@ -784,7 +796,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : webhook.match_field 
           ? [{ webhookField: webhook.match_field, crmFields: [webhook.match_field] }]
           : [{ webhookField: 'mobile_no', crmFields: ['mobile_no'] }];
-      const noMatchAction = webhook.no_match_action || "create_lead";
+      // Get the primary match field for logging purposes (first rule's webhook field)
+      const matchField = effectiveMatchRules[0]?.webhookField || 'mobile_no';
+      const matchValue = leadData[matchField] || getNestedValue(incomingData, matchField) || 'unknown';
       const updateFieldMappings = webhook.update_field_mappings || [];
       const sourceLabel = webhook.source_label || "Webhook";
       const today = new Date().toISOString().split('T')[0];
@@ -797,8 +811,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let previousOwnerName = "";
       let oldSheetId: string | null = null;
 
-      // Helper function to create a new lead
+      // Helper function to create a new lead (only called when targetSheetId is set)
       const createNewLead = async () => {
+        if (!targetSheetId) {
+          throw new Error("Cannot create lead without a target sheet");
+        }
         return await storage.createLead({
           sheet_id: targetSheetId,
           owner_user_id: webhook.created_by_user_id,
@@ -958,9 +975,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Check if lead needs to be transferred to different sheet
         // If skip_allocation_on_match is true, don't transfer - keep lead in its current sheet
+        // If targetSheetId is null (no allocation rules), don't transfer
         const skipAllocationOnMatch = webhook.skip_allocation_on_match === true;
         
-        if (!skipAllocationOnMatch && existingLead.sheet_id !== targetSheetId) {
+        if (!skipAllocationOnMatch && targetSheetId && existingLead.sheet_id !== targetSheetId) {
           oldSheetId = existingLead.sheet_id;
           
           const previousOwner = await storage.getUser(existingLead.owner_user_id);
@@ -1042,24 +1060,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Update webhook's allocation counts and last allocated sheet
-      // Increment the count for this sheet in this condition group
-      const updatedAllocationCounts = { ...allocationCounts };
-      if (!updatedAllocationCounts[conditionGroupKey]) {
-        updatedAllocationCounts[conditionGroupKey] = {};
-      }
-      updatedAllocationCounts[conditionGroupKey][targetSheetId] = 
-        (updatedAllocationCounts[conditionGroupKey][targetSheetId] || 0) + 1;
+      // Determine the effective sheet for events and response
+      // If we updated an existing lead without allocation, use the lead's current sheet
+      const effectiveSheetId = targetSheetId || lead.sheet_id;
       
-      await storage.updateCompanyWebhook(webhook.id, {
-        last_allocated_sheet_id: targetSheetId,
-        allocation_counts: updatedAllocationCounts,
-      });
+      // Update webhook's allocation counts and last allocated sheet (only if we have allocation rules)
+      if (targetSheetId) {
+        const allocationCounts = (webhook.allocation_counts as Record<string, Record<string, number>>) || {};
+        const updatedAllocationCounts = { ...allocationCounts };
+        if (!updatedAllocationCounts[conditionGroupKey]) {
+          updatedAllocationCounts[conditionGroupKey] = {};
+        }
+        updatedAllocationCounts[conditionGroupKey][targetSheetId] = 
+          (updatedAllocationCounts[conditionGroupKey][targetSheetId] || 0) + 1;
+        
+        await storage.updateCompanyWebhook(webhook.id, {
+          last_allocated_sheet_id: targetSheetId,
+          allocation_counts: updatedAllocationCounts,
+        });
+      }
 
       // Emit real-time events for frontend sync
       const io = app.get("io") as SocketIOServer;
       if (isDuplicate) {
-        if (isTransferred) {
+        if (isTransferred && targetSheetId) {
           // Lead was transferred - emit delete from old sheet and create in new sheet
           if (oldSheetId) {
             io.to(`sheet:${oldSheetId}`).emit("lead_deleted", { id: lead.id });
@@ -1067,9 +1091,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           io.to(`sheet:${targetSheetId}`).emit("lead_created", lead);
         } else {
           // Lead was updated in same sheet
-          io.to(`sheet:${targetSheetId}`).emit("lead_updated", lead);
+          io.to(`sheet:${effectiveSheetId}`).emit("lead_updated", lead);
         }
-      } else {
+      } else if (targetSheetId) {
         // New lead created
         io.to(`sheet:${targetSheetId}`).emit("lead_created", lead);
       }
@@ -1077,13 +1101,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       requestStatus = "success";
       
       // Send webhook received notification
-      const sheet = await storage.getSheet(targetSheetId);
+      const sheet = await storage.getSheet(effectiveSheetId);
       const leadName = lead.custom_fields?.name || lead.custom_fields?.full_name || "New Lead";
       notifyWebhookReceived(
         webhook.company_id,
         leadName,
         sheet?.name || "Sheet",
-        targetSheetId,
+        effectiveSheetId,
         lead.id
       ).catch(err => {
         console.error("Failed to send webhook notification:", err);
@@ -1111,7 +1135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json({ 
         success: true, 
         lead_id: lead.id,
-        sheet_id: targetSheetId,
+        sheet_id: effectiveSheetId,
         is_duplicate: isDuplicate,
         is_transferred: isTransferred,
         is_update_added: isUpdateAdded,
@@ -1133,7 +1157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             headers: req.headers as any,
             error_message: errorMessage,
             lead_id: createdLeadId,
-            allocated_sheet_id: createdLeadId ? targetSheetId : null,
+            allocated_sheet_id: targetSheetId || null,
           });
         } catch (logError: any) {
           console.error("Failed to log webhook request:", logError);

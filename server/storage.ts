@@ -2844,6 +2844,7 @@ export class PgStorage implements IStorage {
     // Find lead by mobile number in the specified field across all sheets in the company (including soft-deleted)
     // Uses normalized comparison: strips spaces, dashes, +, (), and takes last 10 digits
     // This matches leads regardless of how the mobile number was formatted when stored
+    // Cast json to jsonb for jsonb_extract_path_text function
     const result = await db
       .select({
         lead: dbSchema.leads,
@@ -2855,7 +2856,8 @@ export class PgStorage implements IStorage {
           eq(dbSchema.sheets.company_id, companyId),
           // Normalize stored value to last 10 digits and compare with input (already normalized)
           // Use jsonb_extract_path_text for proper key parameterization (handles dynamic field names)
-          sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(jsonb_extract_path_text(${dbSchema.leads.custom_fields}, ${fieldName}), ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
+          // Cast json to jsonb to ensure compatibility
+          sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${fieldName}), ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
         )
       )
       .limit(1);
@@ -2867,6 +2869,7 @@ export class PgStorage implements IStorage {
   async findLeadByField(companyId: string, fieldKey: string, fieldValue: string): Promise<Lead | undefined> {
     // Find lead by any custom field across all sheets in the company (including soft-deleted)
     // Use jsonb_extract_path_text for proper key parameterization
+    // Cast json to jsonb for jsonb_extract_path_text function
     const result = await db
       .select({
         lead: dbSchema.leads,
@@ -2876,7 +2879,7 @@ export class PgStorage implements IStorage {
       .where(
         and(
           eq(dbSchema.sheets.company_id, companyId),
-          sql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}, ${fieldKey}) = ${fieldValue}`
+          sql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${fieldKey}) = ${fieldValue}`
         )
       )
       .limit(1);
