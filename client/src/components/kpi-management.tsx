@@ -89,13 +89,13 @@ import type {
 } from "@shared/schema";
 
 const METRIC_TYPES = [
-  { value: "lead_count", label: "Lead Count", icon: Hash, description: "Count leads matching conditions" },
-  { value: "status_transition", label: "Status Transition", icon: RefreshCw, description: "Track status changes (e.g., Lead → Admission)" },
-  { value: "field_sum", label: "Field Sum", icon: Sigma, description: "Sum of a numeric field" },
-  { value: "field_average", label: "Field Average", icon: BarChart3, description: "Average of a numeric field" },
-  { value: "updates_count", label: "Update Count", icon: Activity, description: "Number of lead updates" },
-  { value: "hours_worked", label: "Hours Worked", icon: Clock, description: "Attendance hours" },
-  { value: "conversion_rate", label: "Conversion Rate", icon: Percent, description: "Conversion percentage" },
+  { value: "lead_count", label: "Lead Count", icon: Hash, description: "Count leads matching conditions", requiresColumn: false },
+  { value: "status_transition", label: "Status Transition", icon: RefreshCw, description: "Track status changes (e.g., Lead → Admission)", requiresColumn: true, columnType: "dropdown" },
+  { value: "field_sum", label: "Field Sum", icon: Sigma, description: "Sum of a numeric field", requiresColumn: true, columnType: "number" },
+  { value: "field_average", label: "Field Average", icon: BarChart3, description: "Average of a numeric field", requiresColumn: true, columnType: "number" },
+  { value: "updates_count", label: "Update Count", icon: Activity, description: "Number of lead updates", requiresColumn: false },
+  { value: "hours_worked", label: "Hours Worked", icon: Clock, description: "Attendance hours", requiresColumn: false },
+  { value: "conversion_rate", label: "Conversion Rate", icon: Percent, description: "Conversion percentage", requiresColumn: true, columnType: "dropdown" },
 ] as const;
 
 const PERIOD_TYPES = [
@@ -109,6 +109,7 @@ const kpiFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   metric_type: z.string().min(1, "Metric type is required"),
+  column_id: z.string().optional(), // For metrics that require column selection
   sheet_scope: z.enum(["all", "specific"]),
   sheet_ids: z.array(z.string()).optional(),
   config: z.any().optional(),
@@ -165,12 +166,18 @@ export function KpiManagement() {
     queryKey: ["/api/users"],
   });
 
+  // Fetch all company columns for dynamic column picker
+  const { data: allColumns = [] } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/company/columns"],
+  });
+
   const kpiForm = useForm<KpiFormData>({
     resolver: zodResolver(kpiFormSchema),
     defaultValues: {
       name: "",
       description: "",
       metric_type: "",
+      column_id: "",
       sheet_scope: "all",
       sheet_ids: [],
       is_active: true,
@@ -190,15 +197,41 @@ export function KpiManagement() {
     },
   });
 
+  // Watch for metric type changes to filter columns
+  const watchedMetricType = kpiForm.watch("metric_type");
+  const selectedMetric = METRIC_TYPES.find(m => m.value === watchedMetricType);
+  
+  const filteredColumns = allColumns.filter(col => {
+    if (!selectedMetric?.requiresColumn) return false;
+    if (selectedMetric.columnType === "dropdown") {
+      return col.type === "dropdown";
+    }
+    if (selectedMetric.columnType === "number") {
+      return col.type === "number" || col.type === "percentage";
+    }
+    return false;
+  });
+
   const createKpiMutation = useMutation({
     mutationFn: async (data: KpiFormData) => {
+      // Find the selected column to include its details in config
+      const selectedColumn = allColumns.find(col => col.id === data.column_id);
+      const config: Record<string, any> = data.config || {};
+      
+      // If metric requires a column, add column reference to config
+      if (data.column_id && selectedColumn) {
+        config.column_id = selectedColumn.id;
+        config.column_key = selectedColumn.column_key;
+        config.column_name = selectedColumn.name;
+      }
+      
       const payload = {
         name: data.name,
         description: data.description || null,
         metric_type: data.metric_type,
         scope_type: data.sheet_scope === "specific" ? "sheet_specific" : "company_wide",
         scope_sheet_ids: data.sheet_scope === "specific" ? data.sheet_ids : null,
-        config: data.config || {},
+        config,
         is_active: data.is_active,
       };
       return apiRequest("POST", "/api/kpis", payload);
@@ -216,13 +249,24 @@ export function KpiManagement() {
 
   const updateKpiMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<KpiFormData> }) => {
+      // Find the selected column to include its details in config
+      const selectedColumn = allColumns.find(col => col.id === data.column_id);
+      const config: Record<string, any> = data.config || {};
+      
+      // If metric requires a column, add column reference to config
+      if (data.column_id && selectedColumn) {
+        config.column_id = selectedColumn.id;
+        config.column_key = selectedColumn.column_key;
+        config.column_name = selectedColumn.name;
+      }
+      
       const payload = {
         name: data.name,
         description: data.description || null,
         metric_type: data.metric_type,
         scope_type: data.sheet_scope === "specific" ? "sheet_specific" : "company_wide",
         scope_sheet_ids: data.sheet_scope === "specific" ? data.sheet_ids : null,
-        config: data.config || {},
+        config,
         is_active: data.is_active,
       };
       return apiRequest("PATCH", `/api/kpis/${id}`, payload);
@@ -323,10 +367,12 @@ export function KpiManagement() {
 
   const openEditKpi = (kpi: CompanyKpiRecord) => {
     setEditingKpi(kpi);
+    const config = kpi.config as Record<string, any> || {};
     kpiForm.reset({
       name: kpi.name,
       description: kpi.description || "",
       metric_type: kpi.metric_type,
+      column_id: config.column_id || "",
       sheet_scope: kpi.scope_type === "sheet_specific" ? "specific" : "all",
       sheet_ids: kpi.scope_sheet_ids || [],
       is_active: kpi.is_active ?? true,
@@ -439,6 +485,8 @@ export function KpiManagement() {
               {kpis.map((kpi) => {
                 const Icon = getMetricIcon(kpi.metric_type);
                 const targetCount = targets.filter(t => t.kpi_id === kpi.id).length;
+                const kpiConfig = kpi.config as Record<string, any> || {};
+                const metricInfo = METRIC_TYPES.find(m => m.value === kpi.metric_type);
                 return (
                   <Card key={kpi.id} className="hover-elevate">
                     <CardHeader className="pb-2">
@@ -467,6 +515,22 @@ export function KpiManagement() {
                     <CardContent className="space-y-3">
                       {kpi.description && (
                         <p className="text-sm text-muted-foreground">{kpi.description}</p>
+                      )}
+                      {/* Show tracked column if metric requires one */}
+                      {metricInfo?.requiresColumn && kpiConfig.column_name && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Tracking Column:</span>
+                          <Badge variant="outline" className="font-medium">
+                            {kpiConfig.column_name}
+                          </Badge>
+                        </div>
+                      )}
+                      {/* Warning if column is required but not set */}
+                      {metricInfo?.requiresColumn && !kpiConfig.column_id && (
+                        <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/30 rounded-md p-2">
+                          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                          <span>No column selected - edit to configure</span>
+                        </div>
                       )}
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Scope:</span>
@@ -662,7 +726,11 @@ export function KpiManagement() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Metric Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={(value) => {
+                      field.onChange(value);
+                      // Reset column selection when metric type changes
+                      kpiForm.setValue("column_id", "");
+                    }} value={field.value}>
                       <FormControl>
                         <SelectTrigger data-testid="select-kpi-metric-type">
                           <SelectValue placeholder="Select metric type" />
@@ -689,6 +757,52 @@ export function KpiManagement() {
                   </FormItem>
                 )}
               />
+
+              {/* Column picker - shown when metric type requires a column selection */}
+              {selectedMetric?.requiresColumn && (
+                <FormField
+                  control={kpiForm.control}
+                  name="column_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {selectedMetric.columnType === "dropdown" ? "Select Status/Stage Column" : "Select Numeric Column"}
+                      </FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-kpi-column">
+                            <SelectValue placeholder={`Select a ${selectedMetric.columnType} column`} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {filteredColumns.length === 0 ? (
+                            <div className="p-2 text-sm text-muted-foreground text-center">
+                              No {selectedMetric.columnType} columns found in your company schema
+                            </div>
+                          ) : (
+                            filteredColumns.map((col) => (
+                              <SelectItem key={col.id} value={col.id}>
+                                <div className="flex items-center gap-2">
+                                  <span>{col.name}</span>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {col.type}
+                                  </Badge>
+                                </div>
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {selectedMetric.columnType === "dropdown" 
+                          ? "Choose the column that tracks status or stage transitions" 
+                          : "Choose the numeric column to sum or average"}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={kpiForm.control}
