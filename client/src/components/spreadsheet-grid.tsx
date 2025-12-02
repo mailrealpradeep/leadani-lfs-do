@@ -1287,8 +1287,18 @@ export function SpreadsheetGrid({
           
           // Handle created_at as a date type
           if (effectiveSortColumn === "created_at") {
-            const aDate = a.created_at ? new Date(a.created_at).getTime() : -Infinity;
-            const bDate = b.created_at ? new Date(b.created_at).getTime() : -Infinity;
+            // Parse dates robustly - handle both ISO and PostgreSQL formats
+            const parseCreatedAt = (dateStr: string | Date | undefined): number => {
+              if (!dateStr) return -Infinity;
+              // If it's already a Date object
+              if (dateStr instanceof Date) return dateStr.getTime();
+              // Convert PostgreSQL format (space) to ISO format (T) for consistent parsing
+              const isoStr = String(dateStr).replace(' ', 'T');
+              const timestamp = new Date(isoStr).getTime();
+              return isNaN(timestamp) ? -Infinity : timestamp;
+            };
+            const aDate = parseCreatedAt(a.created_at);
+            const bDate = parseCreatedAt(b.created_at);
             const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
             return effectiveSortDirection === "asc" ? comparison : -comparison;
           }
