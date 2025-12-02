@@ -6545,22 +6545,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Fetch all leads from accessible sheets (excluding soft-deleted)
-      // Build sheet ID to name map for pivot table column fields using "sheet" as special field
+      // Check if we need special column resolution (sheet_name or user_name)
+      // Note: "sheet" is legacy, "sheet_name" is preferred - both work identically
+      const xAxis = report.config?.x_axis;
+      const columnField = report.config?.column_field;
+      const rowFields = report.config?.row_fields || [];
+      const needsSheetName = xAxis === "sheet_name" || xAxis === "sheet" || 
+                             columnField === "sheet_name" || columnField === "sheet" || 
+                             rowFields.includes("sheet_name") || rowFields.includes("sheet");
+      const needsUserName = xAxis === "user_name" || columnField === "user_name" || rowFields.includes("user_name");
+      
+      // Build sheet ID to name map
       const sheetNameMap: Record<string, string> = {};
-      if (report.report_type === "pivot_table" && report.config?.column_field === "sheet") {
+      if (needsSheetName) {
         const companyId = req.companyId || report.company_id;
         const sheets = await storage.getSheetsByCompanyId(companyId);
         sheets.forEach(s => { sheetNameMap[s.id] = s.name; });
       }
       
+      // Build user ID to name map
+      const userNameMap: Record<string, string> = {};
+      if (needsUserName) {
+        const companyId = req.companyId || report.company_id;
+        const users = await storage.getUsersByCompanyId(companyId);
+        users.forEach(u => { userNameMap[u.id] = u.name || u.email; });
+      }
+      
       const allLeads = (await Promise.all(
         accessibleSheetIds.map(async (sheetId) => {
           const leads = await storage.getLeadsBySheetId(sheetId);
-          // Add sheet name to each lead if using "sheet" as column field
-          if (Object.keys(sheetNameMap).length > 0 && sheetNameMap[sheetId]) {
-            return leads.map(l => ({ ...l, sheet: sheetNameMap[sheetId] }));
-          }
-          return leads;
+          // Add derived fields to each lead
+          return leads.map(l => {
+            const enrichedLead: any = { ...l };
+            // Add sheet_name field
+            if (needsSheetName && sheetNameMap[sheetId]) {
+              enrichedLead.sheet_name = sheetNameMap[sheetId];
+              enrichedLead.sheet = sheetNameMap[sheetId]; // Also support legacy "sheet" field
+            }
+            // Add user_name field (from assigned_to user ID)
+            if (needsUserName && l.assigned_to && userNameMap[l.assigned_to]) {
+              enrichedLead.user_name = userNameMap[l.assigned_to];
+            } else if (needsUserName) {
+              enrichedLead.user_name = "Unassigned";
+            }
+            return enrichedLead;
+          });
         })
       )).flat().filter(lead => !lead.deleted_at);
 
@@ -6729,14 +6758,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Fetch all leads from accessible sheets (excluding soft-deleted)
+      // Check if filters include special columns that need lookup
+      const needsSheetName = filters.sheet_name !== undefined || filters.sheet !== undefined;
+      const needsUserName = filters.user_name !== undefined;
+      
+      // Build sheet ID to name map
+      const sheetNameMap: Record<string, string> = {};
+      const sheetIdByName: Record<string, string> = {};
+      if (needsSheetName) {
+        const companyId = req.companyId || report.company_id;
+        const sheets = await storage.getSheetsByCompanyId(companyId);
+        sheets.forEach(s => { 
+          sheetNameMap[s.id] = s.name; 
+          sheetIdByName[s.name] = s.id;
+        });
+      }
+      
+      // Build user ID to name map
+      const userNameMap: Record<string, string> = {};
+      const userIdByName: Record<string, string> = {};
+      if (needsUserName) {
+        const companyId = req.companyId || report.company_id;
+        const users = await storage.getUsersByCompanyId(companyId);
+        users.forEach(u => { 
+          userNameMap[u.id] = u.name || u.email; 
+          userIdByName[u.name || u.email] = u.id;
+        });
+      }
+      
       const allLeads = (await Promise.all(
-        accessibleSheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
+        accessibleSheetIds.map(async sheetId => {
+          const leads = await storage.getLeadsBySheetId(sheetId);
+          // Enrich leads with derived fields for filtering
+          return leads.map(l => {
+            const enrichedLead: any = { ...l };
+            if (needsSheetName && sheetNameMap[sheetId]) {
+              enrichedLead.sheet_name = sheetNameMap[sheetId];
+              enrichedLead.sheet = sheetNameMap[sheetId];
+            }
+            if (needsUserName) {
+              enrichedLead.user_name = l.assigned_to && userNameMap[l.assigned_to] 
+                ? userNameMap[l.assigned_to] 
+                : "Unassigned";
+            }
+            return enrichedLead;
+          });
+        })
       )).flat().filter(lead => !lead.deleted_at);
 
       // Apply filters
       let filteredLeads = allLeads.filter(lead => {
         for (const [key, value] of Object.entries(filters)) {
-          // Check both direct properties and custom_fields
+          // Check direct properties (including enriched sheet_name, user_name), or custom_fields
           const leadValue = lead[key as keyof typeof lead] || lead.custom_fields?.[key];
           
           // Handle null/undefined comparisons
@@ -6769,16 +6842,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Apply pagination
       const paginatedLeads = filteredLeads.slice(offset, offset + limit);
 
-      // Enrich leads with sheet and owner information
+      // Enrich leads with sheet, owner, and assigned user information
       const enrichedLeads = await Promise.all(
         paginatedLeads.map(async (lead) => {
           const sheet = await storage.getSheet(lead.sheet_id);
           const owner = await storage.getUser(lead.owner_user_id);
+          const assignedUser = lead.assigned_to ? await storage.getUser(lead.assigned_to) : null;
           
           return {
             ...lead,
             sheet_name: sheet?.name || "Unknown",
             owner_name: owner?.name || "Unknown",
+            user_name: assignedUser?.name || assignedUser?.email || "Unassigned",
           };
         })
       );

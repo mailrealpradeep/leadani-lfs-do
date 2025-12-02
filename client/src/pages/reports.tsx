@@ -228,9 +228,11 @@ export default function Reports() {
       "pincode",
     ];
     
-    // Special columns for pivot tables (not actual fields but derived)
+    // Special columns for reporting (not actual fields but derived)
+    // Note: "sheet" is legacy, "sheet_name" is the new name - both work identically
     const specialColumns = [
-      "sheet", // Sheet name (derived from sheet_id, useful for Executive columns)
+      "sheet_name", // Sheet name (derived from sheet_id) - preferred
+      "user_name", // Assigned user name (derived from assigned_to user ID)
     ];
 
     const customColumnKeys = companyColumns?.map((col: any) => col.column_key) || [];
