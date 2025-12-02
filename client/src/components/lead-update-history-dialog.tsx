@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { format } from "date-fns";
 import type { LeadUpdate } from "@shared/schema";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,7 @@ export function LeadUpdateHistoryDialog({
 }: LeadUpdateHistoryDialogProps) {
   const { toast } = useToast();
   const { isSuperAdmin, isCompanyAdmin } = useAuth();
+  const { formatInTimezone } = useCompanyTimezone();
   const isAdmin = isSuperAdmin || isCompanyAdmin;
 
   const { data: updates = [], isLoading } = useQuery<LeadUpdateWithUser[]>({
@@ -126,10 +127,10 @@ export function LeadUpdateHistoryDialog({
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground mb-1.5">
-                        {format(new Date(update.created_at), "MMM dd, yyyy HH:mm")}
+                        {formatInTimezone(update.created_at, "MMM dd, yyyy HH:mm")}
                         {update.update_on && (
                           <span className="ml-2">
-                            (Updated on: {format(new Date(update.update_on), "MMM dd, yyyy")})
+                            (Updated on: {formatInTimezone(update.update_on, "MMM dd, yyyy")})
                           </span>
                         )}
                       </div>

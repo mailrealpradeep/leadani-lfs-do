@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +33,7 @@ import type { CompanyWebhook, WebhookRequest } from "@shared/schema";
 
 export default function Webhooks() {
   const { toast } = useToast();
+  const { formatDateOnly, formatDateTime } = useCompanyTimezone();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [configureDialogOpen, setConfigureDialogOpen] = useState(false);
   const [requestsDialogOpen, setRequestsDialogOpen] = useState(false);
@@ -209,7 +210,7 @@ export default function Webhooks() {
                           </Badge>
                         </div>
                         <CardDescription className="mt-2">
-                          Created {format(new Date(webhook.created_at), "PPP")}
+                          Created {formatDateOnly(webhook.created_at)}
                         </CardDescription>
                       </div>
                       <div className="flex items-center gap-2">
@@ -396,7 +397,7 @@ export default function Webhooks() {
                            request.status}
                         </Badge>
                         <span className="text-sm text-muted-foreground">
-                          {format(new Date(request.created_at), "PPpp")}
+                          {formatDateTime(request.created_at)}
                         </span>
                       </div>
                     </div>

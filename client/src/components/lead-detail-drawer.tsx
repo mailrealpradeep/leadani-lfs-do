@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Lead, Audit, CustomColumn } from "@shared/schema";
-import { format } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 
 interface LeadDetailDrawerProps {
   leadId: string | null;
@@ -21,6 +21,8 @@ interface LeadDetailDrawerProps {
 }
 
 export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawerProps) {
+  const { formatDateOnly, formatDateTime } = useCompanyTimezone();
+  
   const { data: lead, isLoading } = useQuery<Lead>({
     queryKey: ["/api/leads", leadId],
     enabled: !!leadId && open,
@@ -49,7 +51,7 @@ export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawe
     // Handle different types
     if (type === "date") {
       try {
-        return format(new Date(value), "PPP");
+        return formatDateOnly(value);
       } catch {
         return String(value);
       }
@@ -167,7 +169,7 @@ export function LeadDetailDrawer({ leadId, open, onOpenChange }: LeadDetailDrawe
                         >
                           <div className="font-medium">{log.action}</div>
                           <div className="text-muted-foreground">
-                            {format(new Date(log.created_at), "PPpp")}
+                            {formatDateTime(log.created_at)}
                           </div>
                         </div>
                       ))}

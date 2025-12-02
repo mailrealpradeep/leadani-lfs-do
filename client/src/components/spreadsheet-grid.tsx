@@ -118,6 +118,24 @@ import { DropdownFilter } from "./filters/dropdown-filter";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { Pagination } from "./pagination";
 
+// Helper to safely format dates, handling both ISO strings and legacy dd/MM/yy formats
+const safeFormatDate = (value: string | Date | null | undefined, formatPattern: string, formatInTimezoneFn: (date: string | Date, pattern: string) => string): string => {
+  if (!value) return "-";
+  try {
+    const strValue = String(value);
+    // If it's already in dd/MM/yy or similar local format, return as-is
+    if (strValue.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/)) {
+      return strValue;
+    }
+    // Check if it's a valid ISO string or parseable date
+    const parsed = new Date(value);
+    if (!isNaN(parsed.getTime())) {
+      return formatInTimezoneFn(value, formatPattern);
+    }
+  } catch (e) {}
+  return String(value);
+};
+
 interface SpreadsheetGridProps {
   sheetId?: string;
   sheetIds?: string[];
@@ -206,7 +224,7 @@ export function SpreadsheetGrid({
   const { toast } = useToast();
   const isMobile = useIsMobile();
   const { theme } = useTheme();
-  const { timezone } = useCompanyTimezone();
+  const { timezone, formatInTimezone } = useCompanyTimezone();
   const isDarkMode = theme === "dark";
   const { 
     searchQuery, 
@@ -1971,7 +1989,7 @@ export function SpreadsheetGrid({
                                 <span className="text-muted-foreground">{col.label}:</span>
                                 <p className={`truncate ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
                                   {(col.type === "date" || col.type === "datetime") && value 
-                                    ? format(new Date(value), col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy")
+                                    ? formatInTimezone(value, col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy")
                                     : value || "—"}
                                 </p>
                               </div>
@@ -2370,7 +2388,7 @@ export function SpreadsheetGrid({
                                   data-testid={`date-picker-trigger-${col.key}`}
                                 >
                                   {editingCell?.originalValue 
-                                    ? format(new Date(editingCell.originalValue), "dd/MM/yy") 
+                                    ? safeFormatDate(editingCell.originalValue, "dd/MM/yy", formatInTimezone) 
                                     : "Pick a date"}
                                 </Button>
                               </PopoverTrigger>
@@ -2449,7 +2467,7 @@ export function SpreadsheetGrid({
                             <span className={`text-sm flex items-center gap-1 flex-1 min-w-0 ${col.width === "260px" || col.key === "name" ? "break-words" : ""} ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
                               {isPastNFDT && <Clock className="h-3 w-3 flex-shrink-0" />}
                               {(col.type === "date" || col.type === "datetime") && value
-                                ? format(new Date(value), col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy")
+                                ? safeFormatDate(value, col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy", formatInTimezone)
                                 : col.type === "percentage" && value != null && value !== ""
                                 ? `${value}%`
                                 : value || "-"}

@@ -24,7 +24,8 @@ import { Badge } from "@/components/ui/badge";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LeadUpdateHistoryDialog } from "@/components/lead-update-history-dialog";
 import type { CustomColumn, DropdownOption } from "@shared/schema";
-import { format, parse } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
+import { parse } from "date-fns";
 
 interface ExecutivePerformanceData {
   column_key: string;
@@ -50,6 +51,7 @@ interface DrilldownResponse {
 
 export function ExecutivePerformanceCard() {
   const isMobile = useIsMobile();
+  const { formatInTimezone } = useCompanyTimezone();
   const [selectedColumn, setSelectedColumn] = useState<string>("");
   const [selectedOption, setSelectedOption] = useState<string>("");
   
@@ -203,17 +205,20 @@ export function ExecutivePerformanceCard() {
     setDrilldownOpen(true);
   };
 
-  // Format date for display
+  // Format date for display - handles both ISO strings and user-entered formatted dates
   const formatDateForDisplay = (value: any): string => {
     if (!value) return "-";
     try {
-      const parsedDate = parse(String(value), "dd/MM/yy", new Date());
-      if (!isNaN(parsedDate.getTime())) {
-        return format(parsedDate, "dd/MM/yy");
+      const strValue = String(value);
+      // If it's already in dd/MM/yy format, return as-is (user-entered local date)
+      const localDateMatch = strValue.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/);
+      if (localDateMatch) {
+        return strValue;
       }
+      // For ISO strings or Date objects, use company timezone
       const isoDate = new Date(value);
       if (!isNaN(isoDate.getTime())) {
-        return format(isoDate, "dd/MM/yy");
+        return formatInTimezone(value, "dd/MM/yy");
       }
     } catch (e) {}
     return String(value);
@@ -426,7 +431,7 @@ export function ExecutivePerformanceCard() {
                               {lead.sheet_name}
                             </Badge>
                             <span className="text-xs text-muted-foreground">
-                              {format(new Date(lead.created_at), "dd/MM/yy")}
+                              {formatInTimezone(lead.created_at, "dd/MM/yy")}
                             </span>
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-xs">
@@ -487,7 +492,7 @@ export function ExecutivePerformanceCard() {
                             </TableCell>
                           ))}
                           <TableCell className="text-xs">
-                            {format(new Date(lead.created_at), "dd/MM/yy")}
+                            {formatInTimezone(lead.created_at, "dd/MM/yy")}
                           </TableCell>
                           <TableCell>
                             <Button

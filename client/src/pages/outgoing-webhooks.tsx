@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Send,
   Plus,
@@ -82,6 +82,7 @@ interface WebhookFormData {
 
 export default function OutgoingWebhooks() {
   const { toast } = useToast();
+  const { formatDateOnly, formatDateTime } = useCompanyTimezone();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [configureDialogOpen, setConfigureDialogOpen] = useState(false);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
@@ -545,7 +546,7 @@ export default function OutgoingWebhooks() {
                       </div>
                     )}
                     <div className="text-xs text-muted-foreground">
-                      Created {format(new Date(webhook.created_at), "PPP")}
+                      Created {formatDateOnly(webhook.created_at)}
                     </div>
                   </CardContent>
                 </Card>
@@ -945,7 +946,7 @@ export default function OutgoingWebhooks() {
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {format(new Date(log.created_at), "PPpp")}
+                              {formatDateTime(log.created_at)}
                             </p>
                           </div>
                         </div>

@@ -4,10 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { format } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import type { Audit } from "@shared/schema";
 
 export default function AuditLogs() {
+  const { formatDateTime } = useCompanyTimezone();
   const { data: auditLogs = [], isLoading } = useQuery<Audit[]>({
     queryKey: ["/api/audit"],
   });
@@ -79,7 +80,7 @@ export default function AuditLogs() {
                         </span>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {format(new Date(log.created_at), "PPpp")}
+                        {formatDateTime(log.created_at)}
                       </p>
                       {log.payload && Object.keys(log.payload).length > 0 && (
                         <details className="mt-2">

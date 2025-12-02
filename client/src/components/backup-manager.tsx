@@ -12,12 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Sheet } from "@shared/schema";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 
 interface BackupConfig {
   id: string;
@@ -103,6 +104,7 @@ export function BackupManager() {
   const [expandedConfigs, setExpandedConfigs] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { formatInTimezone } = useCompanyTimezone();
 
   const { data: configs = [], isLoading: configsLoading } = useQuery<BackupConfig[]>({
     queryKey: ["/api/backup-configs"],
@@ -649,7 +651,7 @@ export function BackupManager() {
                 </div>
                 <div className="flex items-center gap-4 text-muted-foreground">
                   <span>{log.leads_created} created, {log.leads_updated} updated</span>
-                  <span>{format(new Date(log.created_at), 'MMM d, yyyy HH:mm')}</span>
+                  <span>{formatInTimezone(log.created_at, 'MMM d, yyyy HH:mm')}</span>
                 </div>
               </div>
             ))}
@@ -681,6 +683,7 @@ export function BackupManager() {
 }
 
 function BackupSyncLogs({ configId }: { configId: string }) {
+  const { formatInTimezone } = useCompanyTimezone();
   const { data: logs = [], isLoading } = useQuery<BackupSyncLog[]>({
     queryKey: ["/api/backup-configs", configId, "logs"],
     queryFn: async () => {
@@ -714,7 +717,7 @@ function BackupSyncLogs({ configId }: { configId: string }) {
             </div>
             <div className="flex items-center gap-4 text-muted-foreground">
               {log.rows_synced !== null && <span>{log.rows_synced} rows</span>}
-              <span>{format(new Date(log.started_at), 'MMM d, HH:mm')}</span>
+              <span>{formatInTimezone(log.started_at, 'MMM d, HH:mm')}</span>
             </div>
           </div>
         ))}

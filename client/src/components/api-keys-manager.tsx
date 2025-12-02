@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Key,
   Plus,
@@ -82,6 +82,7 @@ interface NewKeyResponse extends ApiKeyWithDetails {
 
 export function ApiKeysManager() {
   const { toast } = useToast();
+  const { formatInTimezone } = useCompanyTimezone();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isRevokeDialogOpen, setIsRevokeDialogOpen] = useState(false);
   const [isNewKeyDialogOpen, setIsNewKeyDialogOpen] = useState(false);
@@ -223,13 +224,13 @@ export function ApiKeysManager() {
                         </code>
                       </TableCell>
                       <TableCell>
-                        {format(new Date(key.created_at), "dd/MM/yy HH:mm")}
+                        {formatInTimezone(key.created_at, "dd/MM/yy HH:mm")}
                       </TableCell>
                       <TableCell>
                         {key.last_used_at ? (
                           <div className="flex items-center gap-1 text-sm">
                             <Clock className="h-3 w-3" />
-                            {format(new Date(key.last_used_at), "dd/MM/yy HH:mm")}
+                            {formatInTimezone(key.last_used_at, "dd/MM/yy HH:mm")}
                           </div>
                         ) : (
                           <span className="text-muted-foreground text-sm">Never</span>
@@ -283,7 +284,7 @@ export function ApiKeysManager() {
                       <TableCell className="font-medium">{key.name}</TableCell>
                       <TableCell>{key.company_name}</TableCell>
                       <TableCell>
-                        {key.revoked_at && format(new Date(key.revoked_at), "dd/MM/yy HH:mm")}
+                        {key.revoked_at && formatInTimezone(key.revoked_at, "dd/MM/yy HH:mm")}
                       </TableCell>
                     </TableRow>
                   ))}

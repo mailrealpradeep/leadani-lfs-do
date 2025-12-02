@@ -46,6 +46,9 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
     - Comprehensive IANA timezone support with 100+ options
     - Automatic canonicalization to proper IANA format
     - Default fallback to Asia/Kolkata if not configured
+    - **Backend utilities**: `server/timezone-utils.ts` - Used by webhooks, activity logger, target evaluator, Google Sheets backup, highlighting rules
+    - **Frontend utilities**: `client/src/lib/timezone-utils.ts` and `client/src/hooks/use-company-timezone.ts` - Shared hook with `formatInTimezone`, `formatDateTime`, `formatDateOnly`, `formatTimeOnly` functions
+    - All date/time displays across the application use company timezone: spreadsheet grid, lead details, activity logs, attendance, webhooks, targets, backup logs, audit logs, etc.
 *   **Webhooks**: Integration for external systems to create leads via HTTP POST requests, including:
     - Configurable field mapping with dropdown auto-detection
     - Conditional allocation logic with multi-condition support (AND/OR logic)

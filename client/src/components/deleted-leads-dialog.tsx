@@ -4,9 +4,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Trash2, RotateCcw, Calendar, User, Phone, MessageCircle, FileSpreadsheet } from "lucide-react";
-import { format } from "date-fns";
 import type { Lead } from "@shared/schema";
 
 interface EnrichedDeletedLead extends Lead {
@@ -25,6 +25,7 @@ interface DeletedLeadsDialogProps {
 
 export function DeletedLeadsDialog({ sheetId, open, onOpenChange }: DeletedLeadsDialogProps) {
   const { toast } = useToast();
+  const { formatInTimezone } = useCompanyTimezone();
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
 
   const { data: deletedLeads = [], isLoading } = useQuery<EnrichedDeletedLead[]>({
@@ -197,7 +198,7 @@ export function DeletedLeadsDialog({ sheetId, open, onOpenChange }: DeletedLeads
                             <Calendar className="w-3 h-3 shrink-0" />
                             <span>
                               {lead.deleted_at
-                                ? format(new Date(lead.deleted_at), "dd/MM/yy")
+                                ? formatInTimezone(lead.deleted_at, "dd/MM/yy")
                                 : "-"}
                             </span>
                           </div>

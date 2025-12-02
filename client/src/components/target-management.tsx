@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { format } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Target,
   Plus,
@@ -1000,6 +1000,7 @@ interface TargetCardProps {
 }
 
 function TargetCard({ target, onEdit, onDelete, onRecalculate }: TargetCardProps) {
+  const { formatInTimezone } = useCompanyTimezone();
   const statusColors = {
     draft: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
     active: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
@@ -1079,8 +1080,8 @@ function TargetCard({ target, onEdit, onDelete, onRecalculate }: TargetCardProps
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Period</span>
             <span>
-              {format(new Date(target.start_date), "MMM d, yyyy")}
-              {target.end_date && ` - ${format(new Date(target.end_date), "MMM d, yyyy")}`}
+              {formatInTimezone(target.start_date, "MMM d, yyyy")}
+              {target.end_date && ` - ${formatInTimezone(target.end_date, "MMM d, yyyy")}`}
             </span>
           </div>
           <div className="flex items-center justify-between text-sm">
