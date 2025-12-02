@@ -1482,7 +1482,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             {showPayloadPreview && selectedRequest && (
               <div className="mt-2 p-3 rounded-md bg-background border">
                 <Label className="text-xs font-medium text-muted-foreground mb-2 block">Raw Payload Data</Label>
-                <ScrollArea className="max-h-[150px]">
+                <ScrollArea className="h-[200px] w-full rounded border bg-muted/30 p-2">
                   <pre className="text-xs font-mono whitespace-pre-wrap break-all">
                     {JSON.stringify(selectedRequest.payload, null, 2)}
                   </pre>
