@@ -344,15 +344,19 @@ export function SpreadsheetGrid({
         sortOrder: sortColumn ? sortDirection : "desc",
         filters: JSON.stringify(buildBackendFilters()),
       });
+      const token = localStorage.getItem("auth_token");
       const response = await fetch(`/api/sheets/${activeSheetId}/leads?${params}`, {
         credentials: 'include',
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!response.ok) {
         throw new Error('Failed to fetch leads');
       }
       return response.json();
     },
-    enabled: !!activeSheetId && !isMultiMode && singleSheetColumns.length > 0,
+    enabled: !!activeSheetId && !isMultiMode && !isLoadingSingleColumns,
   });
 
   // Multi-sheet mode data fetching - server-side filtering, sorting, and pagination
