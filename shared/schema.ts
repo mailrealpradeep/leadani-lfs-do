@@ -1127,6 +1127,7 @@ export const reports = pgTable('reports', {
     value_field?: string; // Field to aggregate (for pivot tables)
     aggregation?: string; // Aggregation type for pivot tables
   }>().default({}).notNull(),
+  is_user_report: boolean('is_user_report').default(false).notNull(), // true = visible to all users (filtered by their data), false = admin-only
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
