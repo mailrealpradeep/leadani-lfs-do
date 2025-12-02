@@ -12,6 +12,12 @@ import {
   ChevronDown,
   Filter,
   Check,
+  Library,
+  Play,
+  Copy,
+  Globe,
+  Building2,
+  FileText,
 } from "lucide-react";
 import {
   BarChart as RechartsBarChart,
@@ -42,7 +48,9 @@ import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
-import type { DrilldownFilters } from "@shared/schema";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import type { DrilldownFilters, SavedReportRecord } from "@shared/schema";
 
 interface ReportDataResponse {
   report: Report;
@@ -95,9 +103,18 @@ export default function Reports() {
   const [drilldownReportId, setDrilldownReportId] = useState("");
   const [drilldownSheetIds, setDrilldownSheetIds] = useState<string[]>([]);
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState("my-reports");
+
   // Fetch all reports
   const { data: reports, isLoading: reportsLoading } = useQuery<Report[]>({
     queryKey: ["/api/company/reports"],
+  });
+
+  // Fetch saved/fixed reports (templates)
+  const { data: savedReports, isLoading: savedReportsLoading } = useQuery<SavedReportRecord[]>({
+    queryKey: ["/api/reports/saved"],
+    enabled: user?.role !== "user",
   });
 
   // Fetch all sheets for selection
@@ -189,6 +206,89 @@ export default function Reports() {
     onError: (error: any) => {
       toast({
         title: "Failed to delete report",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Duplicate saved report mutation
+  const duplicateMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      return apiRequest<SavedReportRecord>("POST", `/api/reports/saved/${reportId}/duplicate`, {});
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/saved"] });
+      toast({ 
+        title: "Report duplicated", 
+        description: `"${data.name}" has been copied to your company. You can now run it with your data.`
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to duplicate report",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Run saved report mutation - creates a custom report from template and switches to My Reports
+  const runReportMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      // Super admins without a company cannot create reports
+      if (user?.role === "super_admin" && !user?.company_id) {
+        throw new Error("Super Admins must log in as a Company Admin to run reports. Use Duplicate instead to copy this template to a specific company.");
+      }
+      
+      // First call the run API to increment count and get config + accessible sheets
+      const runResult = await apiRequest<{
+        report: SavedReportRecord;
+        accessible_sheets: { id: string; name: string }[];
+        config: any;
+      }>("POST", `/api/reports/saved/${reportId}/run`, {});
+      
+      // Create a custom report from the template
+      const config = (runResult.config || {}) as any;
+      const reportType = config.row_fields ? "pivot_table" : "custom";
+      
+      // Use accessible sheets from the run response
+      const accessibleSheets = runResult.accessible_sheets || [];
+      
+      if (accessibleSheets.length === 0) {
+        throw new Error("No sheets available in your company to run this report. Please create a sheet first.");
+      }
+      
+      // Use all accessible sheet IDs for the report
+      const sheetIds = accessibleSheets.map((s) => s.id);
+      
+      // Create the custom report (company_id is automatically set by the API based on current user)
+      const customReport = await apiRequest<Report>("POST", "/api/company/reports", {
+        name: `${runResult.report.name} (from template)`,
+        report_type: reportType,
+        sheet_ids: sheetIds,
+        config: config,
+      });
+      
+      return { customReport, savedReport: runResult.report };
+    },
+    onSuccess: (data) => {
+      // Invalidate custom reports to show the new one
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/saved"] });
+      
+      // Switch to My Reports tab to show the new report
+      setActiveTab("my-reports");
+      
+      const sheetCount = (data.customReport as any).sheet_ids?.length || 0;
+      toast({ 
+        title: "Report created and ready", 
+        description: `"${data.savedReport.name}" is now showing data from ${sheetCount} sheet${sheetCount !== 1 ? 's' : ''}.`
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to run report",
         description: error.message,
         variant: "destructive",
       });
@@ -374,7 +474,7 @@ export default function Reports() {
             Build custom reports with dynamic axis selection
           </p>
         </div>
-        {user?.role !== "user" && (
+        {user?.role !== "user" && activeTab === "my-reports" && (
           <Button 
             onClick={() => setBuilderOpen(true)} 
             data-testid="button-create-report"
@@ -387,39 +487,160 @@ export default function Reports() {
         )}
       </div>
 
-      {/* Custom Reports */}
-      {!reports || reports.length === 0 ? (
-        <Card className="p-6 md:p-12">
-          <div className="flex flex-col items-center justify-center text-center">
-            <BarChart3 className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
-            <h3 className="text-base md:text-lg font-semibold mb-2">No custom reports yet</h3>
-            <p className="text-xs md:text-sm text-muted-foreground mb-4">
-              Create your first custom report to visualize your data
-            </p>
-            {user?.role !== "user" && (
-              <Button 
-                onClick={() => setBuilderOpen(true)} 
-                data-testid="button-create-first-report"
-                size="sm"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create Report
-              </Button>
-            )}
-          </div>
-        </Card>
-      ) : (
-        <div className="flex flex-wrap gap-4 md:gap-6">
-          {reports.map((report) => (
-            <ReportCard
-              key={report.id}
-              report={report}
-              onEdit={() => handleEditReport(report)}
-              onDelete={() => deleteMutation.mutate(report.id)}
-              canEdit={user?.role !== "user"}
-              canDelete={user?.role !== "user"}
-            />
-          ))}
+      {/* Tabs for My Reports and Report Library */}
+      {user?.role !== "user" && (
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+          <TabsList>
+            <TabsTrigger value="my-reports" data-testid="tab-my-reports">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              My Reports
+            </TabsTrigger>
+            <TabsTrigger value="report-library" data-testid="tab-report-library">
+              <Library className="h-4 w-4 mr-2" />
+              Report Library
+              {savedReports && savedReports.length > 0 && (
+                <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                  {savedReports.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
+      {/* My Reports Tab Content */}
+      {(activeTab === "my-reports" || user?.role === "user") && (
+        <>
+          {!reports || reports.length === 0 ? (
+            <Card className="p-6 md:p-12">
+              <div className="flex flex-col items-center justify-center text-center">
+                <BarChart3 className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
+                <h3 className="text-base md:text-lg font-semibold mb-2">No custom reports yet</h3>
+                <p className="text-xs md:text-sm text-muted-foreground mb-4">
+                  Create your first custom report to visualize your data
+                </p>
+                {user?.role !== "user" && (
+                  <Button 
+                    onClick={() => setBuilderOpen(true)} 
+                    data-testid="button-create-first-report"
+                    size="sm"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Report
+                  </Button>
+                )}
+              </div>
+            </Card>
+          ) : (
+            <div className="flex flex-wrap gap-4 md:gap-6">
+              {reports.map((report) => (
+                <ReportCard
+                  key={report.id}
+                  report={report}
+                  onEdit={() => handleEditReport(report)}
+                  onDelete={() => deleteMutation.mutate(report.id)}
+                  canEdit={user?.role !== "user"}
+                  canDelete={user?.role !== "user"}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Report Library Tab Content */}
+      {activeTab === "report-library" && user?.role !== "user" && (
+        <div className="space-y-4">
+          {savedReportsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-48" />
+              ))}
+            </div>
+          ) : !savedReports || savedReports.length === 0 ? (
+            <Card className="p-6 md:p-12">
+              <div className="flex flex-col items-center justify-center text-center">
+                <Library className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
+                <h3 className="text-base md:text-lg font-semibold mb-2">No report templates available</h3>
+                <p className="text-xs md:text-sm text-muted-foreground">
+                  Report templates created by Super Admin will appear here
+                </p>
+              </div>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {savedReports.map((savedReport) => (
+                <Card key={savedReport.id} className="hover-elevate">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-base truncate" data-testid={`saved-report-name-${savedReport.id}`}>
+                          {savedReport.name}
+                        </CardTitle>
+                        {savedReport.description && (
+                          <CardDescription className="mt-1 line-clamp-2">
+                            {savedReport.description}
+                          </CardDescription>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0">
+                        {savedReport.company_id === null ? (
+                          <Badge variant="secondary" className="text-xs">
+                            <Globe className="h-3 w-3 mr-1" />
+                            Global
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs">
+                            <Building2 className="h-3 w-3 mr-1" />
+                            Company
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="flex flex-col gap-3">
+                      {savedReport.category && (
+                        <Badge variant="outline" className="w-fit">
+                          <FileText className="h-3 w-3 mr-1" />
+                          {savedReport.category}
+                        </Badge>
+                      )}
+                      <div className="text-xs text-muted-foreground">
+                        {savedReport.run_count > 0 && (
+                          <span>Run {savedReport.run_count} time{savedReport.run_count !== 1 ? 's' : ''}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => runReportMutation.mutate(savedReport.id)}
+                          disabled={runReportMutation.isPending}
+                          data-testid={`run-saved-report-${savedReport.id}`}
+                        >
+                          <Play className="h-3.5 w-3.5 mr-1.5" />
+                          Run
+                        </Button>
+                        {savedReport.is_template && savedReport.company_id === null && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => duplicateMutation.mutate(savedReport.id)}
+                            disabled={duplicateMutation.isPending}
+                            data-testid={`duplicate-saved-report-${savedReport.id}`}
+                          >
+                            <Copy className="h-3.5 w-3.5 mr-1.5" />
+                            Duplicate
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

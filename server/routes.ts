@@ -8079,14 +8079,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // The frontend will use the report builder to execute with this config
       // This allows flexibility for different report types
       
-      // Get sheets the user can access
-      let accessibleSheets;
-      if (req.userRole === "super_admin" && report.company_id) {
-        accessibleSheets = await storage.getSheetsByCompanyId(report.company_id);
-      } else if (req.companyId) {
+      // Get sheets the user can access - prioritize user's company first
+      let accessibleSheets: any[] = [];
+      
+      // For company admins, always use their company's sheets
+      if (req.companyId) {
         accessibleSheets = await storage.getSheetsByCompanyId(req.companyId);
-      } else {
-        accessibleSheets = [];
+      }
+      
+      // For super admins without a company, get all sheets (they can run reports on any data)
+      if (req.userRole === "super_admin" && accessibleSheets.length === 0) {
+        // If the report belongs to a specific company, use that company's sheets
+        if (report.company_id) {
+          accessibleSheets = await storage.getSheetsByCompanyId(report.company_id);
+        } else {
+          // For global templates, get sheets from the first available company
+          const allSheets = await storage.getAllSheets();
+          accessibleSheets = allSheets.slice(0, 20); // Limit to 20 sheets for performance
+        }
       }
 
       res.json({
