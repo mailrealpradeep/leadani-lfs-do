@@ -598,15 +598,18 @@ export function SpreadsheetGrid({
       return await apiRequest("PATCH", `/api/leads/${leadId}`, { custom_fields: customFields });
     },
     onMutate: async ({ leadId, customFields }) => {
+      // Build the exact paginated query key for single-sheet mode
+      const singleSheetQueryKey = ["/api/sheets", activeSheetId, "leads", pagination.page, pagination.limit, sortColumn, sortDirection, columnFilters, searchQuery, thoughtFilter];
+      
       // Cancel any outgoing refetches to avoid overwriting our optimistic update
       if (isMultiMode) {
         await queryClient.cancelQueries({ queryKey: ["/api/leads/query"] });
       } else {
-        await queryClient.cancelQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+        await queryClient.cancelQueries({ queryKey: singleSheetQueryKey });
       }
 
-      // Snapshot the previous value
-      const previousSingleLeads = queryClient.getQueryData<Lead[]>(["/api/sheets", activeSheetId, "leads"]);
+      // Snapshot the previous value with correct types
+      const previousSingleLeads = queryClient.getQueryData<SingleSheetPaginatedResponse>(singleSheetQueryKey);
       const previousMultiLeads = queryClient.getQueriesData<PaginatedLeadsResponse>({ queryKey: ["/api/leads/query"] });
 
       // Optimistically update the lead in the cache
@@ -626,26 +629,30 @@ export function SpreadsheetGrid({
           }
         );
       } else {
-        queryClient.setQueryData<Lead[]>(
-          ["/api/sheets", activeSheetId, "leads"],
+        // Update the paginated response structure
+        queryClient.setQueryData<SingleSheetPaginatedResponse>(
+          singleSheetQueryKey,
           (old) => {
             if (!old) return old;
-            return old.map((lead) =>
-              lead.id === leadId
-                ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
-                : lead
-            );
+            return {
+              ...old,
+              leads: old.leads.map((lead) =>
+                lead.id === leadId
+                  ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
+                  : lead
+              ),
+            };
           }
         );
       }
 
       // Return context with previous values for rollback
-      return { previousSingleLeads, previousMultiLeads };
+      return { previousSingleLeads, previousMultiLeads, singleSheetQueryKey };
     },
     onError: (err, variables, context) => {
       // Rollback to previous value on error
-      if (context?.previousSingleLeads) {
-        queryClient.setQueryData(["/api/sheets", activeSheetId, "leads"], context.previousSingleLeads);
+      if (context?.previousSingleLeads && context?.singleSheetQueryKey) {
+        queryClient.setQueryData(context.singleSheetQueryKey, context.previousSingleLeads);
       }
       if (context?.previousMultiLeads) {
         context.previousMultiLeads.forEach(([queryKey, data]) => {
