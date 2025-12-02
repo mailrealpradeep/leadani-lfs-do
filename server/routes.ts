@@ -13548,6 +13548,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Evaluate working targets for current user (live calculation)
+  app.get("/api/working-targets/evaluate/me", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(400).json({ error: "Company ID and User ID required" });
+      }
+      
+      const { evaluateAllTargetsForUser } = await import("./working-target-evaluator");
+      const results = await evaluateAllTargetsForUser(req.companyId, req.userId);
+      res.json(results);
+    } catch (error: any) {
+      console.error("Evaluate working targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Evaluate a specific working target for current user
+  app.get("/api/working-targets/:id/evaluate", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(400).json({ error: "User ID required" });
+      }
+      
+      const target = await storage.getWorkingTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Working target not found" });
+      }
+      
+      // Verify company access
+      if (target.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const { evaluateWorkingTarget, getPeriodBoundaries } = await import("./working-target-evaluator");
+      const { periodStart, periodEnd } = await getPeriodBoundaries(target.company_id, target.period_type);
+      const result = await evaluateWorkingTarget(target, req.userId);
+      
+      res.json({
+        target,
+        result,
+        period: { start: periodStart, end: periodEnd }
+      });
+    } catch (error: any) {
+      console.error("Evaluate working target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
