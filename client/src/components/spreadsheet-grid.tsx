@@ -752,8 +752,8 @@ export function SpreadsheetGrid({
     
     // Reset filters and sort to defaults when switching sheets
     setColumnFilters({});
-    // Default sort: lead_date descending (newest first), falls back gracefully if column doesn't exist
-    setSortColumn("lead_date");
+    // Default sort: created_at descending (newest leads first)
+    setSortColumn("created_at");
     setSortDirection("desc");
   }, [activeSheetId, isMultiMode]);
 
