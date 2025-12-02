@@ -5366,6 +5366,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   ];
 
   // Get company-wide columns (and optionally sheet-specific overrides)
+  // Optional query params: 
+  //   - types: comma-separated list of column types to filter (e.g., "dropdown,number")
+  //   - company_id: for super_admin to query specific company
   app.get("/api/company/columns", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId && req.userRole !== "super_admin") {
@@ -5418,6 +5421,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Refetch with updated order
         columns = await storage.getCompanyColumns(companyId);
+      }
+      
+      // Filter by types if specified (e.g., ?types=dropdown,number)
+      const typesParam = req.query.types as string | undefined;
+      if (typesParam) {
+        const allowedTypes = typesParam.split(',').map(t => t.trim());
+        columns = columns.filter(col => allowedTypes.includes(col.type));
       }
       
       res.json(columns);
