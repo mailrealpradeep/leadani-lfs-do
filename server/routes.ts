@@ -5723,6 +5723,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Check if any KPIs reference this column
+      const kpis = await storage.getCompanyKpisByCompany(column.company_id);
+      const kpisUsingColumn = kpis.filter(kpi => {
+        const config = kpi.config as Record<string, any> | null;
+        return config?.column_id === req.params.columnId;
+      });
+      
+      if (kpisUsingColumn.length > 0) {
+        const kpiNames = kpisUsingColumn.map(k => k.name).join(", ");
+        return res.status(400).json({ 
+          error: "Column is referenced by KPIs", 
+          message: `This column is used by the following KPIs: ${kpiNames}. Please update or delete these KPIs before deleting this column.`,
+          referenced_kpis: kpisUsingColumn.map(k => ({ id: k.id, name: k.name }))
+        });
+      }
+
       // Activity log for column deletion (before deletion to capture name)
       const user = await storage.getUser(req.userId!);
       if (user) {
