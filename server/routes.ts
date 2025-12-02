@@ -6251,30 +6251,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // GET /api/company/reports/user-reports - Get all user reports (admin view for managing)
+  // GET /api/company/reports/user-reports - Get user reports (Company Admin only)
   app.get("/api/company/reports/user-reports", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      if (!req.companyId && req.userRole !== "super_admin") {
+      // Only Company Admins can access user reports management
+      if (req.userRole === "super_admin") {
+        return res.status(403).json({ error: "Super Admins cannot manage user reports" });
+      }
+
+      if (!req.companyId) {
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      let reports: any[] = [];
-      
-      // Super Admins see ALL user reports across all companies
-      if (req.userRole === "super_admin") {
-        // Get all companies and their user reports
-        const companies = await storage.getAllCompanies();
-        for (const company of companies) {
-          const companyReports = await storage.getReportsByCompanyId(company.id);
-          const userReports = companyReports.filter(report => report.is_user_report === true);
-          reports.push(...userReports);
-        }
-      } else {
-        // Company Admins see only their company's user reports
-        const companyId = req.companyId!;
-        reports = await storage.getReportsByCompanyId(companyId);
-        reports = reports.filter(report => report.is_user_report === true);
-      }
+      // Company Admins see only their company's user reports
+      let reports = await storage.getReportsByCompanyId(req.companyId);
+      reports = reports.filter(report => report.is_user_report === true);
 
       res.json(reports);
     } catch (error: any) {
@@ -6318,6 +6309,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/company/reports - Create a new report
   app.post("/api/company/reports", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
+      const isUserReport = req.body.is_user_report === true;
+      
+      // Super Admins cannot create user reports - only Company Admins can
+      if (req.userRole === "super_admin" && isUserReport) {
+        return res.status(403).json({ error: "Only Company Admins can create user reports" });
+      }
+
       // Determine company_id
       let companyId: string;
       if (req.userRole === "super_admin") {

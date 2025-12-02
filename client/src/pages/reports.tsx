@@ -200,24 +200,17 @@ export default function Reports() {
     enabled: user?.role !== "user",
   });
 
-  // Fetch user reports (admin view for managing)
+  // Fetch user reports (Company Admin only - for managing user-visible reports)
   const { data: userReports, isLoading: userReportsLoading } = useQuery<Report[]>({
     queryKey: ["/api/company/reports/user-reports"],
-    enabled: user?.role !== "user",
+    enabled: user?.role === "company_admin",
   });
 
-  // State for user report creation/editing
+  // State for user report creation/editing (Company Admin only)
   const [userReportBuilderOpen, setUserReportBuilderOpen] = useState(false);
   const [editingUserReport, setEditingUserReport] = useState<Report | null>(null);
   const [userReportToDelete, setUserReportToDelete] = useState<Report | null>(null);
   const [userReportDeleteDialogOpen, setUserReportDeleteDialogOpen] = useState(false);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
-
-  // Fetch companies for Super Admin (required for user reports)
-  const { data: companies } = useQuery<any[]>({
-    queryKey: ["/api/super-admin/companies"],
-    enabled: user?.role === "super_admin",
-  });
 
   // Fetch all sheets for selection
   const { data: sheets } = useQuery<any[]>({
@@ -669,16 +662,10 @@ export default function Reports() {
     setUserReportBuilderOpen(true);
   };
 
-  // Handler for saving user reports
+  // Handler for saving user reports (Company Admin only)
   const handleSaveUserReport = () => {
     if (!reportName.trim()) {
       toast({ title: "Report name is required", variant: "destructive" });
-      return;
-    }
-
-    // Super Admins must select a company for user reports
-    if (user?.role === "super_admin" && !selectedCompanyId && !editingUserReport) {
-      toast({ title: "Please select a company for this user report", variant: "destructive" });
       return;
     }
 
@@ -728,14 +715,9 @@ export default function Reports() {
       };
     }
 
-    // For Super Admins, only include sheets from the selected company
-    // If no sheets selected, use all sheets from the selected company
+    // If no sheets selected, use all available sheets
     let effectiveSheetIds = selectedSheetIds;
-    if (effectiveSheetIds.length === 0 && user?.role === "super_admin" && selectedCompanyId) {
-      // Filter sheets to only those belonging to the selected company
-      effectiveSheetIds = sheets?.filter(s => s.company_id === selectedCompanyId).map(s => s.id) || [];
-    } else if (effectiveSheetIds.length === 0) {
-      // Non-super admin: use all available sheets
+    if (effectiveSheetIds.length === 0) {
       effectiveSheetIds = sheets?.map(s => s.id) || [];
     }
 
@@ -743,7 +725,7 @@ export default function Reports() {
     if (effectiveSheetIds.length === 0) {
       toast({ 
         title: "No sheets available", 
-        description: "The selected company has no sheets. Please create sheets first or select a different company.",
+        description: "Please create sheets first before creating user reports.",
         variant: "destructive" 
       });
       return;
@@ -755,11 +737,6 @@ export default function Reports() {
       sheet_ids: effectiveSheetIds,
       config,
     };
-
-    // Add company_id for Super Admins
-    if (user?.role === "super_admin" && selectedCompanyId) {
-      data.company_id = selectedCompanyId;
-    }
 
     if (editingUserReport) {
       updateUserReportMutation.mutate({ id: editingUserReport.id, data });
@@ -804,7 +781,7 @@ export default function Reports() {
             New Report
           </Button>
         )}
-        {user?.role !== "user" && activeTab === "user-reports" && (
+        {user?.role === "company_admin" && activeTab === "user-reports" && (
           <Button 
             onClick={() => {
               resetBuilder();
@@ -829,15 +806,17 @@ export default function Reports() {
               <BarChart3 className="h-4 w-4 mr-2" />
               My Reports
             </TabsTrigger>
-            <TabsTrigger value="user-reports" data-testid="tab-user-reports">
-              <Users className="h-4 w-4 mr-2" />
-              User Reports
-              {userReports && userReports.length > 0 && (
-                <Badge variant="secondary" className="ml-2 h-5 px-1.5">
-                  {userReports.length}
-                </Badge>
-              )}
-            </TabsTrigger>
+            {user?.role === "company_admin" && (
+              <TabsTrigger value="user-reports" data-testid="tab-user-reports">
+                <Users className="h-4 w-4 mr-2" />
+                User Reports
+                {userReports && userReports.length > 0 && (
+                  <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                    {userReports.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="report-library" data-testid="tab-report-library">
               <Library className="h-4 w-4 mr-2" />
               Report Library
@@ -894,8 +873,8 @@ export default function Reports() {
         </>
       )}
 
-      {/* User Reports Tab Content (Admin view for managing user-visible reports) */}
-      {activeTab === "user-reports" && user?.role !== "user" && (
+      {/* User Reports Tab Content (Company Admin only - for managing user-visible reports) */}
+      {activeTab === "user-reports" && user?.role === "company_admin" && (
         <div className="space-y-4">
           <div className="text-sm text-muted-foreground mb-4">
             Create reports here that will be visible to all users. Each user will see their own data (filtered by assigned leads).
@@ -1390,31 +1369,6 @@ export default function Reports() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            {/* Company Selector for Super Admin */}
-            {user?.role === "super_admin" && !editingUserReport && (
-              <div className="space-y-2">
-                <Label>Company</Label>
-                <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
-                  <SelectTrigger data-testid="select-user-report-company">
-                    <SelectValue placeholder="Select company for this report" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companies?.filter(c => c.is_active).map((company) => (
-                      <SelectItem key={company.id} value={company.id}>
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4" />
-                          {company.name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  As Super Admin, select which company this user report belongs to
-                </p>
-              </div>
-            )}
-
             {/* Report Name */}
             <div className="space-y-2">
               <Label htmlFor="user-report-name">Report Name</Label>
@@ -1606,14 +1560,11 @@ export default function Reports() {
               </>
             )}
 
-            {/* Sheet Selection - Filter by selected company for Super Admin */}
+            {/* Sheet Selection */}
             <div className="space-y-2">
               <Label>Include Sheets (leave empty for all)</Label>
               <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
-                {(user?.role === "super_admin" && selectedCompanyId
-                  ? sheets?.filter(s => s.company_id === selectedCompanyId)
-                  : sheets
-                )?.map((sheet) => (
+                {sheets?.map((sheet) => (
                   <div key={sheet.id} className="flex items-center space-x-2">
                     <Checkbox
                       id={`user-sheet-${sheet.id}`}
@@ -1625,9 +1576,6 @@ export default function Reports() {
                     </label>
                   </div>
                 ))}
-                {user?.role === "super_admin" && !selectedCompanyId && (
-                  <p className="text-xs text-muted-foreground">Please select a company first to see available sheets</p>
-                )}
               </div>
               {selectedSheetIds.length > 0 && (
                 <div className="text-xs text-muted-foreground">
