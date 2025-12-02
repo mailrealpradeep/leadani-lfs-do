@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -243,6 +243,132 @@ function SuperAdminView() {
               </div>
             </CardContent>
           </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// General Company Settings Component
+function GeneralCompanySettings() {
+  const { toast } = useToast();
+  const [selectedTimezone, setSelectedTimezone] = useState<string>('');
+  const [hasError, setHasError] = useState(false);
+
+  // Define available timezones with display labels
+  const timezones = [
+    { value: 'Asia/Kolkata', label: 'India Standard Time (IST)' },
+    { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
+    { value: 'America/New_York', label: 'Eastern Time (US & Canada)' },
+    { value: 'America/Chicago', label: 'Central Time (US & Canada)' },
+    { value: 'America/Denver', label: 'Mountain Time (US & Canada)' },
+    { value: 'America/Los_Angeles', label: 'Pacific Time (US & Canada)' },
+    { value: 'Europe/London', label: 'London (GMT/BST)' },
+    { value: 'Europe/Paris', label: 'Paris, Berlin (CET)' },
+    { value: 'Asia/Dubai', label: 'Dubai (GST)' },
+    { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
+    { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+    { value: 'Australia/Sydney', label: 'Sydney (AEST)' },
+    { value: 'Pacific/Auckland', label: 'Auckland (NZST)' },
+  ];
+
+  // Fetch current company settings
+  const { data: settingsData, isLoading } = useQuery<{ settings: { timezone?: string } }>({
+    queryKey: ["/api/admin/company/settings"],
+  });
+
+  // Initialize local state from server data
+  const serverTimezone = settingsData?.settings?.timezone || 'Asia/Kolkata';
+  
+  // Sync local state with server data when it changes (e.g., after refetch)
+  useEffect(() => {
+    // Only reset if we have server data and local state differs
+    if (settingsData?.settings?.timezone && selectedTimezone && 
+        selectedTimezone !== settingsData.settings.timezone) {
+      // Server value takes precedence - reset local state
+      setSelectedTimezone('');
+    }
+  }, [settingsData?.settings?.timezone, selectedTimezone]);
+  
+  // Use local state if set, otherwise use server value
+  const displayedTimezone = selectedTimezone || serverTimezone;
+
+  // Update timezone mutation
+  const updateMutation = useMutation({
+    mutationFn: async (timezone: string) => {
+      return await apiRequest("PATCH", "/api/admin/company/settings", {
+        settings: { timezone }
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/settings"] });
+      setHasError(false);
+      toast({
+        title: "Settings updated",
+        description: "Company timezone has been updated successfully.",
+      });
+    },
+    onError: (error: any) => {
+      // Reset to server value on error
+      setSelectedTimezone('');
+      setHasError(true);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update settings. Change has been reverted.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleTimezoneChange = (value: string) => {
+    setSelectedTimezone(value);
+    setHasError(false);
+    updateMutation.mutate(value);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <div className="flex items-start gap-3">
+          <Globe className="h-5 w-5 text-muted-foreground mt-0.5" />
+          <div className="flex-1 space-y-2">
+            <div>
+              <h4 className="font-medium text-sm">Company Timezone</h4>
+              <p className="text-xs text-muted-foreground">
+                Used for webhook timestamps and date/time display across the system
+              </p>
+            </div>
+            <Select
+              value={displayedTimezone}
+              onValueChange={handleTimezoneChange}
+              disabled={updateMutation.isPending}
+            >
+              <SelectTrigger className="w-full max-w-md" data-testid="select-timezone">
+                <SelectValue placeholder="Select timezone" />
+              </SelectTrigger>
+              <SelectContent>
+                {timezones.map((tz) => (
+                  <SelectItem key={tz.value} value={tz.value}>
+                    {tz.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {updateMutation.isPending && (
+              <p className="text-xs text-muted-foreground">Saving...</p>
+            )}
+            {hasError && !updateMutation.isPending && (
+              <p className="text-xs text-destructive">Failed to save. Please try again.</p>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -495,6 +621,25 @@ function CompanyAdminView() {
 
       <div className="flex-1 overflow-auto px-6 py-6">
         <Accordion type="multiple" className="space-y-4" data-testid="admin-accordion">
+          <AccordionItem value="general" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-general">
+              <div className="flex items-center gap-3">
+                <Settings className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">General Settings</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure company-wide settings and preferences
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <GeneralCompanySettings />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
           <AccordionItem value="users" className="border rounded-lg px-4 bg-card">
             <AccordionTrigger className="hover:no-underline" data-testid="accordion-users">
               <div className="flex items-center gap-3">

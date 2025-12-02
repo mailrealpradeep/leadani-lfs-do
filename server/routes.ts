@@ -1476,8 +1476,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Validate timezone if present
+      if (incomingSettings.timezone !== undefined) {
+        if (typeof incomingSettings.timezone !== 'string') {
+          return res.status(400).json({ error: "timezone must be a string" });
+        }
+        // Validate that it's a known IANA timezone
+        const validTimezones = [
+          'Asia/Kolkata', 'Asia/Calcutta', 'UTC', 'GMT',
+          'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+          'Europe/London', 'Europe/Paris', 'Europe/Berlin',
+          'Asia/Dubai', 'Asia/Singapore', 'Asia/Tokyo',
+          'Australia/Sydney', 'Pacific/Auckland',
+        ];
+        if (!validTimezones.includes(incomingSettings.timezone)) {
+          return res.status(400).json({ error: `Invalid timezone. Allowed: ${validTimezones.join(', ')}` });
+        }
+      }
+
       // Merge new settings with existing settings (only allow known fields)
-      const allowedFields = ['mobile_card_columns'];
+      const allowedFields = ['mobile_card_columns', 'timezone'];
       const sanitizedSettings: Record<string, any> = {};
       for (const field of allowedFields) {
         if (incomingSettings[field] !== undefined) {
