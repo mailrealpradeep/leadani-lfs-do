@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
@@ -15,7 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertCircle, Camera, Check, Clock, LogIn, LogOut, MapPin, AlertTriangle, X, Settings, CheckCircle, XCircle, Loader2, Plus, Trash2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { AlertCircle, Camera, Check, Clock, LogIn, LogOut, MapPin, AlertTriangle, X, Settings, CheckCircle, XCircle, Loader2, Plus, Trash2, Target, FileEdit, Calendar, Users } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -74,6 +75,100 @@ interface AttendanceRule {
   config: Record<string, any>;
   created_at: string;
   updated_at: string;
+}
+
+interface ParsedBlockingCondition {
+  type: 'leads' | 'hours' | 'updates' | 'nfdt' | 'other';
+  label: string;
+  description: string;
+  current?: number;
+  required?: number;
+  progress?: number;
+  icon: 'target' | 'clock' | 'edit' | 'calendar' | 'alert';
+}
+
+function parseBlockingReason(reason: string): ParsedBlockingCondition {
+  const lowerReason = reason.toLowerCase();
+  
+  const numMatch = reason.match(/\(you have (\d+(?:\.\d+)?)\)/i);
+  const currentValue = numMatch ? parseFloat(numMatch[1]) : undefined;
+  
+  const minMatch = reason.match(/minimum (\d+(?:\.\d+)?)/i);
+  const requiredValue = minMatch ? parseFloat(minMatch[1]) : undefined;
+  
+  let progress: number | undefined;
+  if (currentValue !== undefined && requiredValue !== undefined && requiredValue > 0) {
+    progress = Math.min(100, (currentValue / requiredValue) * 100);
+  }
+  
+  if (lowerReason.includes('lead') && lowerReason.includes('update')) {
+    return {
+      type: 'updates',
+      label: 'Lead Updates',
+      description: reason,
+      current: currentValue,
+      required: requiredValue,
+      progress,
+      icon: 'edit',
+    };
+  }
+  
+  if (lowerReason.includes('lead') && !lowerReason.includes('update')) {
+    return {
+      type: 'leads',
+      label: 'Leads Created',
+      description: reason,
+      current: currentValue,
+      required: requiredValue,
+      progress,
+      icon: 'target',
+    };
+  }
+  
+  if (lowerReason.includes('hour') || lowerReason.includes('minute') || lowerReason.includes('time')) {
+    return {
+      type: 'hours',
+      label: 'Working Hours',
+      description: reason,
+      current: currentValue,
+      required: requiredValue,
+      progress,
+      icon: 'clock',
+    };
+  }
+  
+  if (lowerReason.includes('nfdt') || lowerReason.includes('follow-up') || lowerReason.includes('followup')) {
+    return {
+      type: 'nfdt',
+      label: 'Follow-up Dates',
+      description: reason,
+      current: currentValue,
+      required: requiredValue,
+      progress,
+      icon: 'calendar',
+    };
+  }
+  
+  return {
+    type: 'other',
+    label: 'Condition',
+    description: reason,
+    current: currentValue,
+    required: requiredValue,
+    progress,
+    icon: 'alert',
+  };
+}
+
+function getConditionIcon(iconType: ParsedBlockingCondition['icon']) {
+  switch (iconType) {
+    case 'target': return Target;
+    case 'clock': return Clock;
+    case 'edit': return FileEdit;
+    case 'calendar': return Calendar;
+    case 'alert': return AlertCircle;
+    default: return AlertCircle;
+  }
 }
 
 export default function Attendance() {
@@ -155,15 +250,16 @@ export default function Attendance() {
         description: "Your attendance exit has been recorded successfully.",
       });
     },
-    onError: (error: any) => {
-      if (error.blocking_reasons) {
+    onError: (error: unknown) => {
+      if (error instanceof ApiError && error.blocking_reasons && error.blocking_reasons.length > 0) {
         setBlockingReasons(error.blocking_reasons);
         setForceExitDialogOpen(true);
       } else {
+        const message = error instanceof Error ? error.message : "Failed to record exit";
         toast({
           variant: "destructive",
           title: "Exit Failed",
-          description: error.message,
+          description: message,
         });
       }
     },
@@ -790,50 +886,106 @@ export default function Attendance() {
       </Tabs>
 
       <Dialog open={forceExitDialogOpen} onOpenChange={setForceExitDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-500" />
-              Exit Blocked
+            <DialogTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-5 w-5" />
+              Exit Requirements Not Met
             </DialogTitle>
             <DialogDescription>
-              You cannot exit normally because the following conditions are not met:
+              Please complete the following requirements before exiting, or submit a force exit request for admin review.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-950/30">
-              <ul className="list-disc list-inside space-y-1">
-                {blockingReasons.map((reason, idx) => (
-                  <li key={idx} className="text-sm">{reason}</li>
-                ))}
-              </ul>
+          
+          <div className="space-y-4 my-2">
+            <div className="space-y-3">
+              {blockingReasons.map((reason, idx) => {
+                const parsed = parseBlockingReason(reason);
+                const IconComponent = getConditionIcon(parsed.icon);
+                
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20"
+                    data-testid={`blocking-condition-${idx}`}
+                  >
+                    <div className="flex-shrink-0 p-2 rounded-full bg-amber-100 dark:bg-amber-900/50">
+                      <IconComponent className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium text-sm text-foreground">{parsed.label}</span>
+                        {parsed.current !== undefined && parsed.required !== undefined && (
+                          <Badge variant="secondary" className="text-xs">
+                            {parsed.current} / {parsed.required}
+                          </Badge>
+                        )}
+                      </div>
+                      
+                      {parsed.progress !== undefined && (
+                        <div className="mb-2">
+                          <Progress value={parsed.progress} className="h-2" />
+                        </div>
+                      )}
+                      
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {parsed.current !== undefined && parsed.required !== undefined ? (
+                          <>
+                            You need <span className="font-medium text-foreground">{parsed.required - parsed.current} more</span> to meet this requirement.
+                          </>
+                        ) : (
+                          parsed.description
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <XCircle className="h-4 w-4 text-amber-500" />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="force-exit-reason">
-                Reason for Force Exit <span className="text-destructive">*</span>
-              </Label>
-              <Textarea
-                id="force-exit-reason"
-                placeholder="Please explain why you need to exit early..."
-                value={forceExitReason}
-                onChange={(e) => setForceExitReason(e.target.value)}
-                className="min-h-[100px]"
-                data-testid="input-force-exit-reason"
-              />
+
+            <div className="border-t pt-4">
+              <div className="text-sm text-muted-foreground mb-3">
+                If you need to exit now, please explain why below. Your request will be reviewed by an admin.
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="force-exit-reason" className="text-sm font-medium">
+                  Reason for Early Exit <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  id="force-exit-reason"
+                  placeholder="Example: I need to leave early for a medical appointment..."
+                  value={forceExitReason}
+                  onChange={(e) => setForceExitReason(e.target.value)}
+                  className="min-h-[80px] resize-none"
+                  data-testid="input-force-exit-reason"
+                />
+              </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setForceExitDialogOpen(false)}>
-              Cancel
+          
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setForceExitDialogOpen(false);
+                setForceExitReason("");
+              }}
+              data-testid="button-cancel-force-exit"
+            >
+              Continue Working
             </Button>
             <Button
-              variant="destructive"
+              variant="default"
               onClick={handleForceExit}
               disabled={forceExitMutation.isPending || !forceExitReason.trim()}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
               data-testid="button-submit-force-exit"
             >
               {forceExitMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Submit Force Exit
+              Request Force Exit
             </Button>
           </DialogFooter>
         </DialogContent>
