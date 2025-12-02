@@ -521,12 +521,12 @@ export function UserReportsManager() {
 
                 <div className="space-y-2">
                   <Label>Column Field (Optional - for cross-tabulation)</Label>
-                  <Select value={columnField} onValueChange={setColumnField}>
+                  <Select value={columnField || "__none__"} onValueChange={(val) => setColumnField(val === "__none__" ? "" : val)}>
                     <SelectTrigger data-testid="select-user-column-field">
                       <SelectValue placeholder="None" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="__none__">None</SelectItem>
                       {availableColumns.map((col) => (
                         <SelectItem key={col} value={col}>
                           {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}

@@ -19,6 +19,7 @@ import {
   Building2,
   FileText,
   CalendarDays,
+  Users,
 } from "lucide-react";
 import {
   BarChart as RechartsBarChart,
@@ -199,6 +200,25 @@ export default function Reports() {
     enabled: user?.role !== "user",
   });
 
+  // Fetch user reports (admin view for managing)
+  const { data: userReports, isLoading: userReportsLoading } = useQuery<Report[]>({
+    queryKey: ["/api/company/reports/user-reports"],
+    enabled: user?.role !== "user",
+  });
+
+  // State for user report creation/editing
+  const [userReportBuilderOpen, setUserReportBuilderOpen] = useState(false);
+  const [editingUserReport, setEditingUserReport] = useState<Report | null>(null);
+  const [userReportToDelete, setUserReportToDelete] = useState<Report | null>(null);
+  const [userReportDeleteDialogOpen, setUserReportDeleteDialogOpen] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+
+  // Fetch companies for Super Admin (required for user reports)
+  const { data: companies } = useQuery<any[]>({
+    queryKey: ["/api/super-admin/companies"],
+    enabled: user?.role === "super_admin",
+  });
+
   // Fetch all sheets for selection
   const { data: sheets } = useQuery<any[]>({
     queryKey: ["/api/sheets"],
@@ -307,6 +327,76 @@ export default function Reports() {
     },
   });
 
+  // Create user report mutation
+  const createUserReportMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest<Report>("POST", "/api/company/reports", {
+        ...data,
+        is_user_report: true,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports/user-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+      toast({ title: "User report created successfully" });
+      setUserReportBuilderOpen(false);
+      resetBuilder();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to create user report",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Update user report mutation
+  const updateUserReportMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      return apiRequest<Report>("PATCH", `/api/company/reports/${id}`, {
+        ...data,
+        is_user_report: true,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports/user-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+      toast({ title: "User report updated successfully" });
+      setUserReportBuilderOpen(false);
+      setEditingUserReport(null);
+      resetBuilder();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update user report",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete user report mutation
+  const deleteUserReportMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      return apiRequest("DELETE", `/api/company/reports/${reportId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports/user-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+      toast({ title: "User report deleted successfully" });
+      setUserReportDeleteDialogOpen(false);
+      setUserReportToDelete(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to delete user report",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   // Duplicate saved report mutation
   const duplicateMutation = useMutation({
     mutationFn: async (reportId: string) => {
@@ -403,6 +493,7 @@ export default function Reports() {
     setAggregation("count");
     setSelectedSheetIds([]);
     setEditingReport(null);
+    setSelectedCompanyId("");
   };
 
   const handleEditReport = (report: Report) => {
@@ -544,6 +635,139 @@ export default function Reports() {
     );
   };
 
+  // Handler for editing user reports
+  const handleEditUserReport = (report: Report) => {
+    resetBuilder();
+    setEditingUserReport(report);
+    setReportName(report.name);
+    setSelectedSheetIds(report.sheet_ids || []);
+
+    if (report.report_type === "pivot_table") {
+      setVisualizationType("pivot_table");
+      const config = report.config || {};
+      setRowFields(config.row_fields || []);
+      setColumnField(config.column_field || "");
+      setAggregation(config.aggregation || "count");
+      setValueField(config.value_field || "");
+      setChartType("bar");
+      setXAxis("");
+      setYAxis("count");
+      setYAxisField("");
+    } else {
+      setVisualizationType("chart");
+      const config = report.config || {};
+      setChartType(config.chart_type || "bar");
+      setXAxis(config.x_axis || "");
+      setYAxis(config.y_axis || "count");
+      setYAxisField(config.y_axis_field || "");
+      setRowFields([]);
+      setColumnField("");
+      setAggregation("count");
+      setValueField("");
+    }
+
+    setUserReportBuilderOpen(true);
+  };
+
+  // Handler for saving user reports
+  const handleSaveUserReport = () => {
+    if (!reportName.trim()) {
+      toast({ title: "Report name is required", variant: "destructive" });
+      return;
+    }
+
+    // Super Admins must select a company for user reports
+    if (user?.role === "super_admin" && !selectedCompanyId && !editingUserReport) {
+      toast({ title: "Please select a company for this user report", variant: "destructive" });
+      return;
+    }
+
+    let reportType = "custom";
+    let config: any = {};
+
+    if (visualizationType === "chart") {
+      if (!xAxis) {
+        toast({ title: "X-axis selection is required", variant: "destructive" });
+        return;
+      }
+
+      if ((yAxis === "sum" || yAxis === "avg") && !yAxisField) {
+        toast({
+          title: `Please select a field to ${yAxis === "sum" ? "sum" : "average"}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      config = {
+        chart_type: chartType,
+        x_axis: xAxis,
+        y_axis: yAxis,
+        y_axis_field: yAxis !== "count" ? yAxisField : undefined,
+      };
+    } else {
+      if (rowFields.length === 0) {
+        toast({ title: "At least one row field is required", variant: "destructive" });
+        return;
+      }
+
+      if ((aggregation === "sum" || aggregation === "avg") && !valueField) {
+        toast({
+          title: `Please select a field to ${aggregation === "sum" ? "sum" : "average"}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      reportType = "pivot_table";
+      config = {
+        row_fields: rowFields,
+        column_field: columnField || undefined,
+        aggregation: aggregation,
+        value_field: aggregation !== "count" ? valueField : undefined,
+      };
+    }
+
+    // For Super Admins, only include sheets from the selected company
+    // If no sheets selected, use all sheets from the selected company
+    let effectiveSheetIds = selectedSheetIds;
+    if (effectiveSheetIds.length === 0 && user?.role === "super_admin" && selectedCompanyId) {
+      // Filter sheets to only those belonging to the selected company
+      effectiveSheetIds = sheets?.filter(s => s.company_id === selectedCompanyId).map(s => s.id) || [];
+    } else if (effectiveSheetIds.length === 0) {
+      // Non-super admin: use all available sheets
+      effectiveSheetIds = sheets?.map(s => s.id) || [];
+    }
+
+    // Validate that at least one sheet is available
+    if (effectiveSheetIds.length === 0) {
+      toast({ 
+        title: "No sheets available", 
+        description: "The selected company has no sheets. Please create sheets first or select a different company.",
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    const data: any = {
+      name: reportName,
+      report_type: reportType,
+      sheet_ids: effectiveSheetIds,
+      config,
+    };
+
+    // Add company_id for Super Admins
+    if (user?.role === "super_admin" && selectedCompanyId) {
+      data.company_id = selectedCompanyId;
+    }
+
+    if (editingUserReport) {
+      updateUserReportMutation.mutate({ id: editingUserReport.id, data });
+    } else {
+      createUserReportMutation.mutate(data);
+    }
+  };
+
   if (reportsLoading) {
     return (
       <div className="h-full overflow-y-auto p-4 md:p-6">
@@ -580,15 +804,39 @@ export default function Reports() {
             New Report
           </Button>
         )}
+        {user?.role !== "user" && activeTab === "user-reports" && (
+          <Button 
+            onClick={() => {
+              resetBuilder();
+              setEditingUserReport(null);
+              setUserReportBuilderOpen(true);
+            }} 
+            data-testid="button-create-user-report"
+            size="sm"
+            className="w-full sm:w-auto"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            New User Report
+          </Button>
+        )}
       </div>
 
-      {/* Tabs for My Reports and Report Library */}
+      {/* Tabs for My Reports, User Reports, and Report Library */}
       {user?.role !== "user" && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
           <TabsList>
             <TabsTrigger value="my-reports" data-testid="tab-my-reports">
               <BarChart3 className="h-4 w-4 mr-2" />
               My Reports
+            </TabsTrigger>
+            <TabsTrigger value="user-reports" data-testid="tab-user-reports">
+              <Users className="h-4 w-4 mr-2" />
+              User Reports
+              {userReports && userReports.length > 0 && (
+                <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                  {userReports.length}
+                </Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="report-library" data-testid="tab-report-library">
               <Library className="h-4 w-4 mr-2" />
@@ -644,6 +892,61 @@ export default function Reports() {
             </div>
           )}
         </>
+      )}
+
+      {/* User Reports Tab Content (Admin view for managing user-visible reports) */}
+      {activeTab === "user-reports" && user?.role !== "user" && (
+        <div className="space-y-4">
+          <div className="text-sm text-muted-foreground mb-4">
+            Create reports here that will be visible to all users. Each user will see their own data (filtered by assigned leads).
+          </div>
+          {userReportsLoading ? (
+            <div className="flex flex-wrap gap-4 md:gap-6">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-96 w-full md:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]" />
+              ))}
+            </div>
+          ) : !userReports || userReports.length === 0 ? (
+            <Card className="p-6 md:p-12">
+              <div className="flex flex-col items-center justify-center text-center">
+                <Users className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
+                <h3 className="text-base md:text-lg font-semibold mb-2">No user reports yet</h3>
+                <p className="text-xs md:text-sm text-muted-foreground mb-4">
+                  Create reports that all users can see, filtered to their assigned leads
+                </p>
+                <Button 
+                  onClick={() => {
+                    resetBuilder();
+                    setEditingUserReport(null);
+                    setUserReportBuilderOpen(true);
+                  }}
+                  data-testid="button-create-first-user-report"
+                  size="sm"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create First User Report
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            <div className="flex flex-wrap gap-4 md:gap-6">
+              {userReports.map((report) => (
+                <div key={report.id} className="w-full md:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]">
+                  <ReportCard
+                    report={report}
+                    onEdit={() => handleEditUserReport(report)}
+                    onDeleteClick={() => {
+                      setUserReportToDelete(report);
+                      setUserReportDeleteDialogOpen(true);
+                    }}
+                    canEdit={true}
+                    canDelete={true}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Report Library Tab Content */}
@@ -1070,6 +1373,315 @@ export default function Reports() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* User Report Builder Dialog */}
+      <Dialog open={userReportBuilderOpen} onOpenChange={(open) => {
+        setUserReportBuilderOpen(open);
+        if (!open) {
+          resetBuilder();
+          setEditingUserReport(null);
+        }
+      }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingUserReport ? "Edit User Report" : "Create User Report"}</DialogTitle>
+            <DialogDescription>
+              This report will be visible to all users. Each user will see their own data (filtered by assigned leads).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Company Selector for Super Admin */}
+            {user?.role === "super_admin" && !editingUserReport && (
+              <div className="space-y-2">
+                <Label>Company</Label>
+                <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
+                  <SelectTrigger data-testid="select-user-report-company">
+                    <SelectValue placeholder="Select company for this report" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {companies?.filter(c => c.is_active).map((company) => (
+                      <SelectItem key={company.id} value={company.id}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4" />
+                          {company.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  As Super Admin, select which company this user report belongs to
+                </p>
+              </div>
+            )}
+
+            {/* Report Name */}
+            <div className="space-y-2">
+              <Label htmlFor="user-report-name">Report Name</Label>
+              <Input
+                id="user-report-name"
+                placeholder="My Daily Performance"
+                value={reportName}
+                onChange={(e) => setReportName(e.target.value)}
+                data-testid="input-user-report-name"
+              />
+            </div>
+
+            {/* Visualization Type */}
+            <div className="space-y-2">
+              <Label>Visualization Type</Label>
+              <Select value={visualizationType} onValueChange={setVisualizationType}>
+                <SelectTrigger data-testid="select-user-viz-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {VISUALIZATION_TYPES.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      <div className="flex items-center gap-2">
+                        <type.icon className="h-4 w-4" />
+                        {type.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Chart Configuration */}
+            {visualizationType === "chart" && (
+              <>
+                <div className="space-y-2">
+                  <Label>Chart Type</Label>
+                  <Select value={chartType} onValueChange={setChartType}>
+                    <SelectTrigger data-testid="select-user-chart-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CHART_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          <div className="flex items-center gap-2">
+                            <type.icon className="h-4 w-4" />
+                            {type.label}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>X-Axis (Group By)</Label>
+                  <Select value={xAxis} onValueChange={setXAxis}>
+                    <SelectTrigger data-testid="select-user-x-axis">
+                      <SelectValue placeholder="Select column to group by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableColumns.map((col) => (
+                        <SelectItem key={col} value={col}>
+                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Y-Axis (Metric)</Label>
+                  <Select value={yAxis} onValueChange={setYAxis}>
+                    <SelectTrigger data-testid="select-user-y-axis">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Y_AXIS_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {yAxis !== "count" && (
+                  <div className="space-y-2">
+                    <Label>Field to {yAxis === "sum" ? "Sum" : "Average"}</Label>
+                    <Select value={yAxisField} onValueChange={setYAxisField}>
+                      <SelectTrigger data-testid="select-user-y-axis-field">
+                        <SelectValue placeholder="Select field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableColumns.map((col) => (
+                          <SelectItem key={col} value={col}>
+                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Pivot Table Configuration */}
+            {visualizationType === "pivot_table" && (
+              <>
+                <div className="space-y-2">
+                  <Label>Row Fields (Group By)</Label>
+                  <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
+                    {availableColumns.map((col) => (
+                      <div key={col} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`user-row-${col}`}
+                          checked={rowFields.includes(col)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setRowFields([...rowFields, col]);
+                            } else {
+                              setRowFields(rowFields.filter(f => f !== col));
+                            }
+                          }}
+                        />
+                        <label htmlFor={`user-row-${col}`} className="text-sm cursor-pointer">
+                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                  {rowFields.length > 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      Selected: {rowFields.map(f => f.replace(/_/g, " ")).join(", ")}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Column Field (Optional - for cross-tabulation)</Label>
+                  <Select value={columnField || "__none__"} onValueChange={(val) => setColumnField(val === "__none__" ? "" : val)}>
+                    <SelectTrigger data-testid="select-user-column-field">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {availableColumns.map((col) => (
+                        <SelectItem key={col} value={col}>
+                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Aggregation</Label>
+                  <Select value={aggregation} onValueChange={setAggregation}>
+                    <SelectTrigger data-testid="select-user-aggregation">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Y_AXIS_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {(aggregation === "sum" || aggregation === "avg") && (
+                  <div className="space-y-2">
+                    <Label>Value Field</Label>
+                    <Select value={valueField} onValueChange={setValueField}>
+                      <SelectTrigger data-testid="select-user-value-field">
+                        <SelectValue placeholder="Select field to aggregate" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableColumns.map((col) => (
+                          <SelectItem key={col} value={col}>
+                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Sheet Selection - Filter by selected company for Super Admin */}
+            <div className="space-y-2">
+              <Label>Include Sheets (leave empty for all)</Label>
+              <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
+                {(user?.role === "super_admin" && selectedCompanyId
+                  ? sheets?.filter(s => s.company_id === selectedCompanyId)
+                  : sheets
+                )?.map((sheet) => (
+                  <div key={sheet.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`user-sheet-${sheet.id}`}
+                      checked={selectedSheetIds.includes(sheet.id)}
+                      onCheckedChange={() => handleSheetToggle(sheet.id)}
+                    />
+                    <label htmlFor={`user-sheet-${sheet.id}`} className="text-sm cursor-pointer">
+                      {sheet.name}
+                    </label>
+                  </div>
+                ))}
+                {user?.role === "super_admin" && !selectedCompanyId && (
+                  <p className="text-xs text-muted-foreground">Please select a company first to see available sheets</p>
+                )}
+              </div>
+              {selectedSheetIds.length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  {selectedSheetIds.length} sheet(s) selected
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => {
+                setUserReportBuilderOpen(false);
+                resetBuilder();
+                setEditingUserReport(null);
+              }}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSaveUserReport}
+                disabled={createUserReportMutation.isPending || updateUserReportMutation.isPending}
+                data-testid="button-save-user-report"
+              >
+                {(createUserReportMutation.isPending || updateUserReportMutation.isPending) 
+                  ? "Saving..." 
+                  : editingUserReport ? "Update Report" : "Create Report"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* User Report Delete Confirmation Dialog */}
+      <AlertDialog open={userReportDeleteDialogOpen} onOpenChange={setUserReportDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User Report</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{userReportToDelete?.name}"? This report will no longer be available to users.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setUserReportDeleteDialogOpen(false);
+              setUserReportToDelete(null);
+            }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => userReportToDelete && deleteUserReportMutation.mutate(userReportToDelete.id)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-user-report"
+            >
+              {deleteUserReportMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

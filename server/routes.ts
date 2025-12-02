@@ -6258,13 +6258,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      const companyId = req.userRole === "super_admin" && req.query.company_id 
-        ? req.query.company_id as string
-        : req.companyId!;
-
-      // Get all reports for the company and filter to user reports only
-      let reports = await storage.getReportsByCompanyId(companyId);
-      reports = reports.filter(report => report.is_user_report === true);
+      let reports: any[] = [];
+      
+      // Super Admins see ALL user reports across all companies
+      if (req.userRole === "super_admin") {
+        // Get all companies and their user reports
+        const companies = await storage.getAllCompanies();
+        for (const company of companies) {
+          const companyReports = await storage.getReportsByCompanyId(company.id);
+          const userReports = companyReports.filter(report => report.is_user_report === true);
+          reports.push(...userReports);
+        }
+      } else {
+        // Company Admins see only their company's user reports
+        const companyId = req.companyId!;
+        reports = await storage.getReportsByCompanyId(companyId);
+        reports = reports.filter(report => report.is_user_report === true);
+      }
 
       res.json(reports);
     } catch (error: any) {
