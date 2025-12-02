@@ -1566,148 +1566,139 @@ function ReportCard({
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* Sheet Multi-Select and Date Range Filters */}
+          {/* Compact Inline Filter Bar */}
           {sheets && sheets.length > 0 && (
-            <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
-              {/* Sheet Multi-Select */}
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold">Filter by Sheets:</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-between h-8 text-xs"
-                      data-testid={`button-sheet-filter-${report.id}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Filter className="h-3 w-3" />
-                        {selectedSheetFilters.length === 0 ? (
-                          <span>All Sheets</span>
-                        ) : (
-                          <span>{selectedSheetFilters.length} sheet{selectedSheetFilters.length > 1 ? "s" : ""} selected</span>
-                        )}
+            <div className="flex flex-wrap items-center gap-2 p-2 rounded-md bg-muted/30">
+              {/* Sheet Filter */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    aria-label="Filter by sheets"
+                    data-testid={`button-sheet-filter-${report.id}`}
+                  >
+                    <Filter className="h-3.5 w-3.5 mr-1.5" />
+                    {selectedSheetFilters.length === 0 ? (
+                      "All Sheets"
+                    ) : (
+                      `${selectedSheetFilters.length} Sheet${selectedSheetFilters.length > 1 ? 's' : ''}`
+                    )}
+                    <ChevronDown className="h-3 w-3 ml-1 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-60 p-0" align="start">
+                  <div className="p-2.5 space-y-2">
+                    <div className="flex items-center justify-between pb-2 border-b">
+                      <span className="text-xs font-semibold">Filter by Sheets</span>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs px-2"
+                          onClick={() => {
+                            if (sheets) {
+                              setSelectedSheetFilters(sheets.map(s => s.id));
+                            }
+                          }}
+                          data-testid={`button-select-all-sheets-${report.id}`}
+                        >
+                          All
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs px-2"
+                          onClick={() => setSelectedSheetFilters([])}
+                          data-testid={`button-clear-sheets-${report.id}`}
+                        >
+                          Clear
+                        </Button>
                       </div>
-                      <ChevronDown className="h-3 w-3 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-64 p-0" align="start">
-                    <div className="p-3 space-y-2">
-                      <div className="flex items-center justify-between pb-2 border-b">
-                        <span className="text-xs font-semibold">Select Sheets</span>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs px-2"
-                            onClick={() => {
-                              if (sheets) {
-                                setSelectedSheetFilters(sheets.map(s => s.id));
-                              }
-                            }}
-                            data-testid={`button-select-all-sheets-${report.id}`}
+                    </div>
+                    <div className="max-h-52 overflow-y-auto space-y-1">
+                      {sheets && sheets.map((sheet) => (
+                        <div
+                          key={sheet.id}
+                          className="flex items-center space-x-2 px-2 py-1.5 rounded-md hover-elevate cursor-pointer"
+                          onClick={() => handleSheetToggle(sheet.id)}
+                          data-testid={`sheet-option-${report.id}-${sheet.id}`}
+                        >
+                          <Checkbox
+                            id={`sheet-${report.id}-${sheet.id}`}
+                            checked={selectedSheetFilters.includes(sheet.id)}
+                            onCheckedChange={() => handleSheetToggle(sheet.id)}
+                            data-testid={`checkbox-sheet-${report.id}-${sheet.id}`}
+                          />
+                          <label
+                            htmlFor={`sheet-${report.id}-${sheet.id}`}
+                            className="text-xs font-medium leading-none flex-1 cursor-pointer"
                           >
-                            Select All
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs px-2"
-                            onClick={() => setSelectedSheetFilters([])}
-                            data-testid={`button-clear-sheets-${report.id}`}
-                          >
-                            Clear
-                          </Button>
+                            {sheet.name}
+                          </label>
+                          {selectedSheetFilters.includes(sheet.id) && (
+                            <Check className="h-3.5 w-3.5 text-primary" />
+                          )}
                         </div>
-                      </div>
-                      <div className="max-h-64 overflow-y-auto space-y-1">
-                        {sheets && sheets.map((sheet) => (
-                          <div
-                            key={sheet.id}
-                            className="flex items-center space-x-2 p-2 rounded-md hover-elevate cursor-pointer"
-                            onClick={() => handleSheetToggle(sheet.id)}
-                            data-testid={`sheet-option-${report.id}-${sheet.id}`}
-                          >
-                            <Checkbox
-                              id={`sheet-${report.id}-${sheet.id}`}
-                              checked={selectedSheetFilters.includes(sheet.id)}
-                              onCheckedChange={() => handleSheetToggle(sheet.id)}
-                              data-testid={`checkbox-sheet-${report.id}-${sheet.id}`}
-                            />
-                            <label
-                              htmlFor={`sheet-${report.id}-${sheet.id}`}
-                              className="text-xs font-medium leading-none flex-1 cursor-pointer"
-                            >
-                              {sheet.name}
-                            </label>
-                            {selectedSheetFilters.includes(sheet.id) && (
-                              <Check className="h-3 w-3 text-primary" />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              
-              {/* Date Range Filter */}
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold">Filter by Date Range:</Label>
-                
-                {/* Date Preset Dropdown */}
-                <Select value={datePreset} onValueChange={handleDatePresetChange}>
-                  <SelectTrigger className="h-8 text-xs" data-testid={`select-date-preset-${report.id}`}>
-                    <div className="flex items-center gap-2">
-                      <CalendarDays className="h-3 w-3" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DATE_FILTER_PRESETS.map((preset) => (
-                      <SelectItem key={preset.value} value={preset.value}>
-                        {preset.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                
-                {/* Custom Date Picker - only shown when "custom" is selected */}
-                {datePreset === "custom" && (
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div className="space-y-1">
-                      <Label htmlFor={`date-start-${report.id}`} className="text-xs text-muted-foreground">From:</Label>
-                      <input
-                        id={`date-start-${report.id}`}
-                        type="date"
-                        value={dateRange.start}
-                        onChange={(e) => handleDateChange('start', e.target.value)}
-                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        data-testid={`input-date-start-${report.id}`}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor={`date-end-${report.id}`} className="text-xs text-muted-foreground">To:</Label>
-                      <input
-                        id={`date-end-${report.id}`}
-                        type="date"
-                        value={dateRange.end}
-                        onChange={(e) => handleDateChange('end', e.target.value)}
-                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        data-testid={`input-date-end-${report.id}`}
-                      />
+                      ))}
                     </div>
                   </div>
-                )}
-                
-                {/* Show current date range when not "all" */}
-                {datePreset !== "all" && datePreset !== "custom" && dateRange.start && (
-                  <p className="text-xs text-muted-foreground">
-                    {dateRange.start === dateRange.end 
-                      ? dateRange.start 
-                      : `${dateRange.start} to ${dateRange.end}`}
-                  </p>
-                )}
-              </div>
+                </PopoverContent>
+              </Popover>
+
+              {/* Date Filter */}
+              <Select value={datePreset} onValueChange={handleDatePresetChange}>
+                <SelectTrigger 
+                  className="w-auto min-w-[130px] text-xs" 
+                  aria-label="Filter by date range"
+                  data-testid={`select-date-preset-${report.id}`}
+                >
+                  <CalendarDays className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DATE_FILTER_PRESETS.map((preset) => (
+                    <SelectItem key={preset.value} value={preset.value} className="text-xs">
+                      {preset.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {/* Custom Date Range */}
+              {datePreset === "custom" && (
+                <>
+                  <input
+                    id={`date-start-${report.id}`}
+                    type="date"
+                    value={dateRange.start}
+                    onChange={(e) => handleDateChange('start', e.target.value)}
+                    aria-label="Start date"
+                    className="h-8 w-[115px] rounded-md border border-input bg-background px-2 text-xs"
+                    data-testid={`input-date-start-${report.id}`}
+                  />
+                  <span className="text-xs text-muted-foreground">to</span>
+                  <input
+                    id={`date-end-${report.id}`}
+                    type="date"
+                    value={dateRange.end}
+                    onChange={(e) => handleDateChange('end', e.target.value)}
+                    aria-label="End date"
+                    className="h-8 w-[115px] rounded-md border border-input bg-background px-2 text-xs"
+                    data-testid={`input-date-end-${report.id}`}
+                  />
+                </>
+              )}
+              
+              {/* Date Range Summary */}
+              {datePreset !== "all" && datePreset !== "custom" && dateRange.start && (
+                <Badge variant="secondary" className="text-[10px] font-normal">
+                  {dateRange.start === dateRange.end 
+                    ? dateRange.start 
+                    : `${dateRange.start} - ${dateRange.end}`}
+                </Badge>
+              )}
             </div>
           )}
           {renderVisualization()}
