@@ -486,7 +486,6 @@ export default function Reports() {
     setAggregation("count");
     setSelectedSheetIds([]);
     setEditingReport(null);
-    setSelectedCompanyId("");
   };
 
   const handleEditReport = (report: Report) => {
