@@ -3086,3 +3086,146 @@ export const simple_target_progress = pgTable('simple_target_progress', {
 
 export type SimpleTargetProgressRecord = typeof simple_target_progress.$inferSelect;
 export type InsertSimpleTargetProgress = typeof simple_target_progress.$inferInsert;
+
+// ============================================================================
+// WORKING TARGETS (Temporary Target System)
+// ============================================================================
+
+// Fixed Target Metrics
+export type FixedTargetMetric = 'lead_updates' | 'status_transitions' | 'leads_created';
+
+// Operators for Single Column targets
+export type SingleColumnOperator = 
+  | 'equals'           // Field equals specific value
+  | 'not_equals'       // Field does not equal value
+  | 'is_empty'         // Field is empty/null
+  | 'is_not_empty'     // Field has a value
+  | 'is_future_date'   // Date field is in the future
+  | 'is_today'         // Date field is today
+  | 'is_tomorrow'      // Date field is tomorrow
+  | 'greater_than'     // Numeric comparison
+  | 'less_than';       // Numeric comparison
+
+// Result type for Compare Columns (transition) targets
+export type TransitionResultType = 'count' | 'sum' | 'percentage';
+
+// Configuration for Fixed targets
+export interface FixedTargetConfig {
+  metric: FixedTargetMetric;
+  target_value: number;
+}
+
+// Configuration for Single Column targets (compliance check)
+export interface SingleColumnTargetConfig {
+  column_id: string;
+  column_key: string;
+  column_name: string;
+  operator: SingleColumnOperator;
+  value?: string | number;           // The value to compare against (for equals, not_equals, etc.)
+  dropdown_option_id?: string;       // If comparing to a dropdown value
+}
+
+// Configuration for Compare Columns (transition) targets
+export interface CompareColumnsTargetConfig {
+  column_id: string;
+  column_key: string;
+  column_name: string;
+  from_value?: string;               // "any" if not specified
+  from_dropdown_option_id?: string;
+  to_value: string;                  // Required - the target value to transition TO
+  to_dropdown_option_id?: string;
+  result_type: TransitionResultType;
+  target_value: number;
+}
+
+// Union type for all config types
+export type WorkingTargetConfig = 
+  | { type: 'fixed'; config: FixedTargetConfig }
+  | { type: 'single_column'; config: SingleColumnTargetConfig }
+  | { type: 'compare_columns'; config: CompareColumnsTargetConfig };
+
+// Working Target interface
+export interface WorkingTarget {
+  id: string;
+  company_id: string;
+  name: string;
+  description: string | null;
+  target_type: 'fixed' | 'single_column' | 'compare_columns';
+  period_type: 'daily' | 'weekly' | 'monthly';
+  config: WorkingTargetConfig;
+  is_active: boolean;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Database table for Working Targets
+export const working_targets = pgTable('working_targets', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  target_type: varchar('target_type', { length: 50 }).notNull(), // 'fixed' | 'single_column' | 'compare_columns'
+  period_type: varchar('period_type', { length: 50 }).notNull().default('daily'), // 'daily' | 'weekly' | 'monthly'
+  config: jsonb('config').notNull().$type<WorkingTargetConfig>(),
+  is_active: boolean('is_active').notNull().default(true),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WorkingTargetRecord = typeof working_targets.$inferSelect;
+export type InsertWorkingTarget = typeof working_targets.$inferInsert;
+
+export const insertWorkingTargetSchema = createInsertSchema(working_targets).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWorkingTargetData = z.infer<typeof insertWorkingTargetSchema>;
+
+// Working Target Result - stores evaluation results per user per period
+export interface WorkingTargetResult {
+  id: string;
+  working_target_id: string;
+  user_id: string;
+  period_start: string;              // ISO date - start of the period
+  period_end: string;                // ISO date - end of the period
+  current_value: number;             // Current progress value
+  target_value: number;              // Target to achieve (for fixed/compare) or 100 for compliance
+  compliance_percentage: number;     // For single_column: % of leads that comply
+  is_achieved: boolean;
+  details: Record<string, any>;      // Additional details (non-compliant leads, transition details, etc.)
+  last_calculated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Database table for Working Target Results
+export const working_target_results = pgTable('working_target_results', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  working_target_id: varchar('working_target_id').notNull().references(() => working_targets.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  period_start: timestamp('period_start').notNull(),
+  period_end: timestamp('period_end').notNull(),
+  current_value: doublePrecision('current_value').notNull().default(0),
+  target_value: doublePrecision('target_value').notNull(),
+  compliance_percentage: doublePrecision('compliance_percentage').notNull().default(0),
+  is_achieved: boolean('is_achieved').notNull().default(false),
+  details: jsonb('details').$type<Record<string, any>>().default({}),
+  last_calculated_at: timestamp('last_calculated_at').defaultNow().notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WorkingTargetResultRecord = typeof working_target_results.$inferSelect;
+export type InsertWorkingTargetResult = typeof working_target_results.$inferInsert;
+
+export const insertWorkingTargetResultSchema = createInsertSchema(working_target_results).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWorkingTargetResultData = z.infer<typeof insertWorkingTargetResultSchema>;
