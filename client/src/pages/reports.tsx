@@ -1,22 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import {
   BarChart3,
   Plus,
@@ -36,11 +19,6 @@ import {
   Building2,
   FileText,
   CalendarDays,
-  GripVertical,
-  Maximize2,
-  Minimize2,
-  ArrowLeftRight,
-  ArrowUpDown,
 } from "lucide-react";
 import {
   BarChart as RechartsBarChart,
@@ -83,17 +61,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-} from "@/components/ui/dropdown-menu";
 import type { DrilldownFilters, SavedReportRecord } from "@shared/schema";
 
 interface ReportDataResponse {
@@ -101,7 +68,6 @@ interface ReportDataResponse {
   data: any;
   total_leads: number;
   generated_at: string;
-  column_value_index?: Record<string, string[]>; // Unique values per configured column for filtering
 }
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
@@ -424,127 +390,6 @@ export default function Reports() {
     },
   });
 
-  // Reorder reports mutation (for drag and drop)
-  const reorderMutation = useMutation({
-    mutationFn: async (reportIds: string[]) => {
-      return apiRequest("POST", "/api/company/reports/reorder", { reportIds });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to reorder reports",
-        description: error.message,
-        variant: "destructive",
-      });
-      // Refetch to restore original order
-      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
-    },
-  });
-
-  // Resize report card mutation
-  const resizeMutation = useMutation({
-    mutationFn: async ({ reportId, size, originalConfig }: { 
-      reportId: string; 
-      size: { cols?: 1 | 2; rows?: 'sm' | 'md' | 'lg' };
-      originalConfig: any; // Pre-mutation config for proper merge
-    }) => {
-      const currentSize = originalConfig?.size || { cols: 1, rows: 'md' };
-      const newSize = { ...currentSize, ...size };
-      
-      return apiRequest<Report>("PATCH", `/api/company/reports/${reportId}`, {
-        config: {
-          ...originalConfig,
-          size: newSize
-        }
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to resize report",
-        description: error.message,
-        variant: "destructive",
-      });
-      // Refetch to revert optimistic state
-      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
-    },
-  });
-
-  // Handle resize
-  const handleResize = (reportId: string, size: { cols?: 1 | 2; rows?: 'sm' | 'md' | 'lg' }) => {
-    // Get original config before optimistic update
-    const currentReport = localReports.find(r => r.id === reportId);
-    const originalConfig = currentReport?.config ? { ...currentReport.config } : {};
-    
-    // Optimistic update
-    setLocalReports(prev => 
-      prev.map(r => {
-        if (r.id === reportId) {
-          const currentSize = r.config?.size || { cols: 1, rows: 'md' };
-          return {
-            ...r,
-            config: {
-              ...r.config,
-              size: { ...currentSize, ...size }
-            }
-          };
-        }
-        return r;
-      })
-    );
-    
-    // Save to server with original config for proper merge
-    resizeMutation.mutate({ reportId, size, originalConfig });
-  };
-
-  // Drag and drop sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8, // 8px movement before drag starts
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  // Local state for optimistic reordering
-  const [localReports, setLocalReports] = useState<Report[]>([]);
-  
-  // Sync reports from query to local state
-  useEffect(() => {
-    if (reports) {
-      setLocalReports(reports);
-    }
-  }, [reports]);
-
-  // Report IDs for sortable context
-  const reportIds = useMemo(() => localReports.map((r) => r.id), [localReports]);
-
-  // Handle drag end
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      const oldIndex = localReports.findIndex((r) => r.id === active.id);
-      const newIndex = localReports.findIndex((r) => r.id === over.id);
-
-      if (oldIndex !== -1 && newIndex !== -1) {
-        // Optimistic update
-        const newReports = arrayMove(localReports, oldIndex, newIndex);
-        setLocalReports(newReports);
-
-        // Persist to backend
-        reorderMutation.mutate(newReports.map((r) => r.id));
-      }
-    }
-  };
-
   const resetBuilder = () => {
     setReportName("");
     setVisualizationType("chart");
@@ -761,7 +606,7 @@ export default function Reports() {
       {/* My Reports Tab Content */}
       {(activeTab === "my-reports" || user?.role === "user") && (
         <>
-          {!localReports || localReports.length === 0 ? (
+          {!reports || reports.length === 0 ? (
             <Card className="p-6 md:p-12">
               <div className="flex flex-col items-center justify-center text-center">
                 <BarChart3 className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
@@ -782,30 +627,21 @@ export default function Reports() {
               </div>
             </Card>
           ) : (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext items={reportIds} strategy={rectSortingStrategy}>
-                <div className="flex flex-wrap gap-4 md:gap-6">
-                  {localReports.map((report) => (
-                    <SortableReportCard
-                      key={report.id}
-                      report={report}
-                      onEdit={() => handleEditReport(report)}
-                      onDeleteClick={() => {
-                        setReportToDelete(report);
-                        setDeleteDialogOpen(true);
-                      }}
-                      onResize={(size) => handleResize(report.id, size)}
-                      canEdit={user?.role !== "user"}
-                      canDelete={user?.role !== "user"}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
+            <div className="flex flex-wrap gap-4 md:gap-6">
+              {reports.map((report) => (
+                <ReportCard
+                  key={report.id}
+                  report={report}
+                  onEdit={() => handleEditReport(report)}
+                  onDeleteClick={() => {
+                    setReportToDelete(report);
+                    setDeleteDialogOpen(true);
+                  }}
+                  canEdit={user?.role !== "user"}
+                  canDelete={user?.role !== "user"}
+                />
+              ))}
+            </div>
           )}
         </>
       )}
@@ -1282,85 +1118,20 @@ function normalizeDate(dateStr: string): string {
   return ""; // Could not parse
 }
 
-// Sortable Report Card Wrapper
-function SortableReportCard({
-  report,
-  onEdit,
-  onDeleteClick,
-  onResize,
-  canEdit,
-  canDelete,
-}: {
-  report: Report;
-  onEdit: () => void;
-  onDeleteClick: () => void;
-  onResize?: (size: { cols?: 1 | 2; rows?: 'sm' | 'md' | 'lg' }) => void;
-  canEdit: boolean;
-  canDelete: boolean;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: report.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <div ref={setNodeRef} style={style}>
-      <ReportCard
-        report={report}
-        onEdit={onEdit}
-        onDeleteClick={onDeleteClick}
-        onResize={onResize}
-        canEdit={canEdit}
-        canDelete={canDelete}
-        dragHandleProps={{ ...attributes, ...listeners }}
-      />
-    </div>
-  );
-}
-
 // Report Card Component
 function ReportCard({
   report,
   onEdit,
   onDeleteClick,
-  onResize,
   canEdit,
   canDelete,
-  dragHandleProps,
 }: {
   report: Report;
   onEdit: () => void;
   onDeleteClick: () => void;
-  onResize?: (size: { cols?: 1 | 2; rows?: 'sm' | 'md' | 'lg' }) => void;
   canEdit: boolean;
   canDelete: boolean;
-  dragHandleProps?: Record<string, any>;
 }) {
-  // Get current size from config
-  const currentSize = report.config?.size || { cols: 1, rows: 'md' };
-  const cols = currentSize.cols || 1;
-  const rows = currentSize.rows || 'md';
-
-  // Compute width and height classes based on size
-  const widthClass = cols === 2 
-    ? "w-full lg:min-w-[920px] lg:max-w-[1200px]" 
-    : "w-full lg:w-auto lg:min-w-[450px] lg:max-w-[600px]";
-  
-  const heightClass = rows === 'sm' 
-    ? "min-h-[200px]" 
-    : rows === 'lg' 
-      ? "min-h-[500px]" 
-      : "min-h-[300px]";
   // Initialize date range from report config (normalize to ISO format)
   const initialDateRange = {
     start: normalizeDate(report.config?.date_range?.start || ""),
@@ -1370,32 +1141,6 @@ function ReportCard({
   const [selectedSheetFilters, setSelectedSheetFilters] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>(initialDateRange);
   const [datePreset, setDatePreset] = useState<string>("all");
-  
-  // Dynamic column filters - maps column key to selected values
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
-
-  // Get configured column fields from report (for filtering)
-  const getConfiguredColumns = (): string[] => {
-    const columns: string[] = [];
-    const config = report.config;
-    
-    // For pivot tables
-    if (config?.row_fields?.length) {
-      columns.push(...config.row_fields);
-    }
-    if (config?.column_field) {
-      columns.push(config.column_field);
-    }
-    
-    // For charts
-    if (config?.x_axis && !columns.includes(config.x_axis)) {
-      columns.push(config.x_axis);
-    }
-    
-    return columns;
-  };
-  
-  const configuredColumns = getConfiguredColumns();
   
   // Handle date preset change
   const handleDatePresetChange = (preset: string) => {
@@ -1434,30 +1179,6 @@ function ReportCard({
         ? prev.filter((id) => id !== sheetId)
         : [...prev, sheetId]
     );
-  };
-  
-  // Handle column filter toggle
-  const handleColumnFilterToggle = (columnKey: string, value: string) => {
-    setColumnFilters((prev) => {
-      const current = prev[columnKey] || [];
-      const newValues = current.includes(value)
-        ? current.filter((v) => v !== value)
-        : [...current, value];
-      
-      if (newValues.length === 0) {
-        const { [columnKey]: _, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [columnKey]: newValues };
-    });
-  };
-  
-  // Clear column filter
-  const handleClearColumnFilter = (columnKey: string) => {
-    setColumnFilters((prev) => {
-      const { [columnKey]: _, ...rest } = prev;
-      return rest;
-    });
   };
   
   // Handle drilldown click
@@ -1502,11 +1223,9 @@ function ReportCard({
   const dateRangeKey = `${dateRange.start || ''}|${dateRange.end || ''}`;
   // Serialize filteredSheetIds to prevent array reference changes (clone before sorting to avoid mutation)
   const sheetIdsKey = filteredSheetIds ? [...filteredSheetIds].sort().join(',') : 'all';
-  // Serialize column filters for stable query key
-  const columnFiltersKey = JSON.stringify(Object.entries(columnFilters).sort());
   
   const { data: reportData, isLoading, error } = useQuery<ReportDataResponse>({
-    queryKey: ["/api/company/reports", report.id, "data", sheetIdsKey, dateRangeKey, columnFiltersKey],
+    queryKey: ["/api/company/reports", report.id, "data", sheetIdsKey, dateRangeKey],
     enabled: !dateValidationError, // Don't run query if validation fails
     queryFn: async () => {
       const token = localStorage.getItem("auth_token");
@@ -1525,11 +1244,6 @@ function ReportCard({
         params.append("end_date", dateRange.end);
       }
       
-      // Add column filters
-      if (Object.keys(columnFilters).length > 0) {
-        params.append("column_filters", JSON.stringify(columnFilters));
-      }
-      
       const url = `/api/company/reports/${report.id}/data${params.toString() ? `?${params.toString()}` : ''}`;
       
       const response = await fetch(url, {
@@ -1545,60 +1259,6 @@ function ReportCard({
       return response.json();
     },
   });
-  
-  // Get unique values for a column from the API's column_value_index (preferred) or fall back to data extraction
-  const getUniqueColumnValues = (columnKey: string): string[] => {
-    // Prefer the pre-computed column_value_index from the API (extracted from allLeads before filtering)
-    if (reportData?.column_value_index?.[columnKey]) {
-      return reportData.column_value_index[columnKey];
-    }
-    
-    // Fallback: extract from aggregated data (less reliable)
-    if (!reportData?.data) return [];
-    
-    const uniqueValues = new Set<string>();
-    const data = reportData.data;
-    
-    // For pivot table data with rows
-    if (data.rows && Array.isArray(data.rows)) {
-      data.rows.forEach((row: any) => {
-        // Check rowValues object (used in pivot tables)
-        if (row.rowValues && row.rowValues[columnKey] !== undefined && row.rowValues[columnKey] !== null) {
-          const val = String(row.rowValues[columnKey]);
-          uniqueValues.add(val);
-        }
-        // Check if the key exists directly on the row (simple tables)
-        else if (row[columnKey] !== undefined && row[columnKey] !== null) {
-          const val = String(row[columnKey]);
-          uniqueValues.add(val);
-        }
-      });
-    }
-    
-    // For chart data (array of {name, value} objects)
-    if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
-      if (columnKey === report.config?.x_axis) {
-        data.forEach((item: any) => {
-          if (item.name !== undefined && item.name !== null) {
-            uniqueValues.add(String(item.name));
-          }
-        });
-      }
-    }
-    
-    // Check columnValues if it's a pivot with column field (matrix pivot tables)
-    if (data.columnValues && Array.isArray(data.columnValues) && columnKey === report.config?.column_field) {
-      data.columnValues.forEach((val: any) => {
-        if (val !== undefined && val !== null) {
-          uniqueValues.add(String(val));
-        }
-      });
-    }
-    
-    return Array.from(uniqueValues).sort((a, b) => 
-      a.toLowerCase().localeCompare(b.toLowerCase())
-    );
-  };
 
   const renderVisualization = () => {
     if (dateValidationError) {
@@ -1903,104 +1563,18 @@ function ReportCard({
     <>
       <Card 
         data-testid={`card-report-${report.id}`}
-        className={`${widthClass} ${heightClass}`}
+        className="w-full lg:w-auto lg:min-w-[450px] lg:max-w-[600px]"
       >
         <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 space-y-0 pb-2">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            {/* Drag Handle */}
-            {dragHandleProps && (
-              <button
-                type="button"
-                {...dragHandleProps}
-                className="cursor-grab active:cursor-grabbing p-1 -ml-1 rounded hover-elevate touch-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                aria-label={`Drag to reorder ${report.name}`}
-                aria-roledescription="sortable"
-                data-testid={`drag-handle-${report.id}`}
-              >
-                <GripVertical className="h-4 w-4 text-muted-foreground" />
-              </button>
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-base md:text-lg truncate">{report.name}</CardTitle>
+            {reportData && (
+              <CardDescription className="text-xs mt-1">
+                {reportData.total_leads} total leads
+              </CardDescription>
             )}
-            <div className="flex-1 min-w-0">
-              <CardTitle className="text-base md:text-lg truncate">{report.name}</CardTitle>
-              {reportData && (
-                <CardDescription className="text-xs mt-1">
-                  {reportData.total_leads} total leads
-                </CardDescription>
-              )}
-            </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {/* Resize Menu */}
-            {canEdit && onResize && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    data-testid={`button-resize-report-${report.id}`}
-                    className="h-8 w-8"
-                    aria-label="Resize report card"
-                  >
-                    <Maximize2 className="h-3 w-3 md:h-4 md:w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel className="text-xs">Card Size</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="text-xs">
-                      <ArrowLeftRight className="h-3.5 w-3.5 mr-2" />
-                      Width
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem 
-                        onClick={() => onResize({ cols: 1 })}
-                        data-testid={`resize-cols-1-${report.id}`}
-                      >
-                        <span className="flex-1 text-xs">Normal</span>
-                        {cols === 1 && <Check className="h-3.5 w-3.5" />}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => onResize({ cols: 2 })}
-                        data-testid={`resize-cols-2-${report.id}`}
-                      >
-                        <span className="flex-1 text-xs">Wide</span>
-                        {cols === 2 && <Check className="h-3.5 w-3.5" />}
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="text-xs">
-                      <ArrowUpDown className="h-3.5 w-3.5 mr-2" />
-                      Height
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem 
-                        onClick={() => onResize({ rows: 'sm' })}
-                        data-testid={`resize-rows-sm-${report.id}`}
-                      >
-                        <span className="flex-1 text-xs">Compact</span>
-                        {rows === 'sm' && <Check className="h-3.5 w-3.5" />}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => onResize({ rows: 'md' })}
-                        data-testid={`resize-rows-md-${report.id}`}
-                      >
-                        <span className="flex-1 text-xs">Normal</span>
-                        {rows === 'md' && <Check className="h-3.5 w-3.5" />}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        onClick={() => onResize({ rows: 'lg' })}
-                        data-testid={`resize-rows-lg-${report.id}`}
-                      >
-                        <span className="flex-1 text-xs">Tall</span>
-                        {rows === 'lg' && <Check className="h-3.5 w-3.5" />}
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
             {canEdit && (
               <Button
                 variant="ghost"
@@ -2158,85 +1732,6 @@ function ReportCard({
                     ? dateRange.start 
                     : `${dateRange.start} - ${dateRange.end}`}
                 </Badge>
-              )}
-              
-              {/* Dynamic Column Filters */}
-              {configuredColumns.length > 0 && (
-                <>
-                  {configuredColumns.map((columnKey) => {
-                    const uniqueValues = getUniqueColumnValues(columnKey);
-                    const selectedValues = columnFilters[columnKey] || [];
-                    const columnLabel = columnKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-                    
-                    if (uniqueValues.length === 0) return null;
-                    
-                    return (
-                      <Popover key={columnKey}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className={`text-xs ${selectedValues.length > 0 ? 'bg-primary/10 border-primary/50' : ''}`}
-                            aria-label={`Filter by ${columnLabel}`}
-                            data-testid={`button-column-filter-${report.id}-${columnKey}`}
-                          >
-                            <Filter className="h-3.5 w-3.5 mr-1.5" />
-                            {selectedValues.length === 0 ? (
-                              columnLabel
-                            ) : (
-                              `${columnLabel}: ${selectedValues.length}`
-                            )}
-                            <ChevronDown className="h-3 w-3 ml-1 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-60 p-0" align="start">
-                          <div className="p-2.5 space-y-2">
-                            <div className="flex items-center justify-between pb-2 border-b">
-                              <span className="text-xs font-semibold">{columnLabel}</span>
-                              {selectedValues.length > 0 && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-xs px-2"
-                                  onClick={() => handleClearColumnFilter(columnKey)}
-                                  data-testid={`button-clear-column-filter-${report.id}-${columnKey}`}
-                                >
-                                  Clear
-                                </Button>
-                              )}
-                            </div>
-                            <div className="max-h-52 overflow-y-auto space-y-1">
-                              {uniqueValues.map((value, idx) => (
-                                <div
-                                  key={value || `__empty_${idx}`}
-                                  className="flex items-center space-x-2 px-2 py-1.5 rounded-md hover-elevate cursor-pointer"
-                                  onClick={() => handleColumnFilterToggle(columnKey, value)}
-                                  data-testid={`column-filter-option-${report.id}-${columnKey}-${value || 'empty'}`}
-                                >
-                                  <Checkbox
-                                    id={`col-${report.id}-${columnKey}-${value || 'empty'}`}
-                                    checked={selectedValues.includes(value)}
-                                    onCheckedChange={() => handleColumnFilterToggle(columnKey, value)}
-                                    data-testid={`checkbox-column-filter-${report.id}-${columnKey}-${value || 'empty'}`}
-                                  />
-                                  <label
-                                    htmlFor={`col-${report.id}-${columnKey}-${value || 'empty'}`}
-                                    className="text-xs font-medium leading-none flex-1 cursor-pointer truncate"
-                                  >
-                                    {value || "(empty)"}
-                                  </label>
-                                  {selectedValues.includes(value) && (
-                                    <Check className="h-3.5 w-3.5 text-primary shrink-0" />
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                    );
-                  })}
-                </>
               )}
             </div>
           )}

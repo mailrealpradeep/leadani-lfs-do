@@ -6482,45 +6482,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // POST /api/company/reports/reorder - Reorder reports (drag and drop)
-  app.post("/api/company/reports/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
-    try {
-      const { reportIds } = req.body;
-      
-      if (!Array.isArray(reportIds) || reportIds.length === 0) {
-        return res.status(400).json({ error: "reportIds array is required" });
-      }
-
-      // Verify all reports belong to the user's company
-      const companyId = req.companyId;
-      if (!companyId) {
-        return res.status(403).json({ error: "Company ID required" });
-      }
-
-      // Update display_order for each report
-      for (let i = 0; i < reportIds.length; i++) {
-        const reportId = reportIds[i];
-        const report = await storage.getReport(reportId);
-        
-        if (!report) {
-          continue; // Skip non-existent reports
-        }
-        
-        // Verify company ownership
-        if (report.company_id !== companyId) {
-          return res.status(403).json({ error: "Cannot reorder reports from other companies" });
-        }
-
-        await storage.updateReport(reportId, { display_order: i });
-      }
-
-      res.json({ success: true, message: "Reports reordered" });
-    } catch (error: any) {
-      console.error("Reorder reports error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
   // GET /api/company/reports/:reportId/data - Get report data (calculations and aggregations)
   app.get("/api/company/reports/:reportId/data", authMiddleware, async (req: AuthRequest, res) => {
     try {
@@ -6681,62 +6642,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Helper function to normalize a value for filtering (consistent between extraction and filtering)
-      const normalizeFilterValue = (rawValue: any): string => {
-        if (rawValue === undefined || rawValue === null) return '';
-        
-        if (Array.isArray(rawValue)) {
-          // Arrays: join with comma for human-readable format
-          return rawValue.map(v => String(v).trim()).join(', ').trim();
-        } else if (typeof rawValue === 'object') {
-          // Objects: format as key=value pairs
-          return Object.entries(rawValue)
-            .map(([k, v]) => `${k}=${v}`)
-            .join(', ');
-        } else {
-          // Strings and primitives: trim
-          return String(rawValue).trim();
-        }
-      };
-      
-      // Apply column filters (from query params)
-      const columnFiltersStr = req.query.column_filters as string;
-      if (columnFiltersStr) {
-        try {
-          const columnFilters = JSON.parse(columnFiltersStr) as Record<string, string[]>;
-          
-          if (Object.keys(columnFilters).length > 0) {
-            filteredLeads = filteredLeads.filter(lead => {
-              // Check each column filter - all filters must match (AND logic)
-              for (const [columnKey, values] of Object.entries(columnFilters)) {
-                if (!Array.isArray(values) || values.length === 0) continue;
-                
-                // Get the lead's value for this column, normalized
-                let leadValue: string = '';
-                
-                // Check fixed fields first (including enriched fields like sheet_name, user_name)
-                if ((lead as any)[columnKey] !== undefined && (lead as any)[columnKey] !== null) {
-                  leadValue = normalizeFilterValue((lead as any)[columnKey]);
-                }
-                // Check custom fields
-                else if (lead.custom_fields && (lead.custom_fields as any)[columnKey] !== undefined && (lead.custom_fields as any)[columnKey] !== null) {
-                  leadValue = normalizeFilterValue((lead.custom_fields as any)[columnKey]);
-                }
-                
-                // At least one of the selected values must match (OR logic within a column)
-                // Empty string "" is treated as a valid value (for filtering empty fields)
-                if (!values.includes(leadValue)) return false;
-              }
-              
-              return true;
-            });
-          }
-        } catch (e) {
-          // Invalid JSON - ignore the filter
-          console.error("Invalid column_filters JSON:", e);
-        }
-      }
-
       // Generate data based on report type
       let data: any;
       switch (report.report_type) {
@@ -6771,72 +6676,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Unknown report type" });
       }
 
-      // Extract unique column values from allLeads (before filtering) for filter dropdowns
-      // This is done before date/column filters so users can see all possible values
-      // Reuse normalizeFilterValue helper defined above for consistent normalization
-      const configuredColumns: string[] = [];
-      if (report.config?.row_fields?.length) {
-        configuredColumns.push(...report.config.row_fields);
-      }
-      if (report.config?.column_field) {
-        configuredColumns.push(report.config.column_field);
-      }
-      if (report.config?.x_axis && !configuredColumns.includes(report.config.x_axis)) {
-        configuredColumns.push(report.config.x_axis);
-      }
-
-      const columnValueIndex: Record<string, string[]> = {};
-      const MAX_VALUES_PER_COLUMN = 200;
-      
-      for (const columnKey of configuredColumns) {
-        const uniqueValues = new Set<string>();
-        let hasEmptyValues = false;
-        
-        for (const lead of allLeads) {
-          if (uniqueValues.size >= MAX_VALUES_PER_COLUMN) break;
-          
-          let value: string = '';
-          let found = false;
-          
-          // Check enriched/fixed fields first
-          if ((lead as any)[columnKey] !== undefined && (lead as any)[columnKey] !== null) {
-            value = normalizeFilterValue((lead as any)[columnKey]);
-            found = true;
-          }
-          // Check custom fields
-          else if (lead.custom_fields && (lead.custom_fields as any)[columnKey] !== undefined && (lead.custom_fields as any)[columnKey] !== null) {
-            value = normalizeFilterValue((lead.custom_fields as any)[columnKey]);
-            found = true;
-          }
-          
-          if (found) {
-            if (value === '') {
-              hasEmptyValues = true;
-            } else {
-              uniqueValues.add(value);
-            }
-          }
-        }
-        
-        // Sort and convert to array, optionally include empty value option
-        const sortedValues = Array.from(uniqueValues).sort((a, b) => 
-          a.toLowerCase().localeCompare(b.toLowerCase())
-        );
-        
-        // Add empty string at the beginning if there are empty values (for filtering blanks)
-        if (hasEmptyValues) {
-          sortedValues.unshift('');
-        }
-        
-        columnValueIndex[columnKey] = sortedValues;
-      }
-
       res.json({
         report,
         data,
         total_leads: filteredLeads.length,
         generated_at: new Date().toISOString(),
-        column_value_index: columnValueIndex,
       });
     } catch (error: any) {
       console.error("Get report data error:", error);

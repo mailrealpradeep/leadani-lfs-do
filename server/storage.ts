@@ -3893,7 +3893,7 @@ export class PgStorage implements IStorage {
   }
 
   async getReportsByCompanyId(companyId: string): Promise<Report[]> {
-    const result = await db.select().from(dbSchema.reports).where(eq(dbSchema.reports.company_id, companyId)).orderBy(dbSchema.reports.display_order, desc(dbSchema.reports.created_at));
+    const result = await db.select().from(dbSchema.reports).where(eq(dbSchema.reports.company_id, companyId)).orderBy(desc(dbSchema.reports.created_at));
     return result.map(this.mapReport.bind(this));
   }
 
