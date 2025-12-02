@@ -34,6 +34,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -160,7 +170,7 @@ interface SortableRuleItemProps {
   rule: HighlightingRule;
   columns: CustomColumn[];
   onEdit: (rule: HighlightingRule) => void;
-  onDelete: (ruleId: string) => void;
+  onDelete: (rule: HighlightingRule) => void;
   onToggle: (ruleId: string, isActive: boolean) => void;
 }
 
@@ -259,7 +269,7 @@ function SortableRuleItem({ rule, columns, onEdit, onDelete, onToggle }: Sortabl
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onDelete(rule.id)}
+          onClick={() => onDelete(rule)}
           className="text-destructive hover:text-destructive"
           data-testid={`delete-rule-${rule.id}`}
         >
@@ -287,6 +297,10 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
   ]);
   const [logicalOperator, setLogicalOperator] = useState<"and" | "or">("and");
   const [rowColor, setRowColor] = useState<string>("yellow");
+  
+  // Delete confirmation state
+  const [ruleToDelete, setRuleToDelete] = useState<HighlightingRule | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -411,10 +425,17 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
     updateMutation.mutate({ ruleId, data: { is_active: isActive } });
   };
 
-  const handleDelete = (ruleId: string) => {
-    if (confirm("Are you sure you want to delete this highlighting rule?")) {
-      deleteMutation.mutate(ruleId);
+  const handleDelete = (rule: HighlightingRule) => {
+    setRuleToDelete(rule);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (ruleToDelete) {
+      deleteMutation.mutate(ruleToDelete.id);
     }
+    setDeleteDialogOpen(false);
+    setRuleToDelete(null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -750,6 +771,31 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Highlighting Rule</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the highlighting rule "{ruleToDelete?.name}"? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-highlighting-rule">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-highlighting-rule"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

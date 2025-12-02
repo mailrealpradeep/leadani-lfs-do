@@ -9,6 +9,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Trash2, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -28,6 +38,8 @@ interface CustomColumn {
 export function ColumnsDialog({ sheetId, open, onOpenChange }: ColumnsDialogProps) {
   const { toast } = useToast();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [columnToDelete, setColumnToDelete] = useState<CustomColumn | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { data: columns, isLoading } = useQuery<CustomColumn[]>({
     queryKey: ["/api/sheets", sheetId, "columns"],
@@ -46,6 +58,7 @@ export function ColumnsDialog({ sheetId, open, onOpenChange }: ColumnsDialogProp
         description: "Custom column has been removed",
       });
       setDeletingId(null);
+      setColumnToDelete(null);
     },
     onError: (error: any) => {
       toast({
@@ -54,12 +67,21 @@ export function ColumnsDialog({ sheetId, open, onOpenChange }: ColumnsDialogProp
         variant: "destructive",
       });
       setDeletingId(null);
+      setColumnToDelete(null);
     },
   });
 
-  const handleDelete = (columnId: string) => {
-    setDeletingId(columnId);
-    deleteMutation.mutate(columnId);
+  const handleDeleteClick = (column: CustomColumn) => {
+    setColumnToDelete(column);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (columnToDelete) {
+      setDeletingId(columnToDelete.id);
+      deleteMutation.mutate(columnToDelete.id);
+    }
+    setDeleteDialogOpen(false);
   };
 
   return (
@@ -110,7 +132,7 @@ export function ColumnsDialog({ sheetId, open, onOpenChange }: ColumnsDialogProp
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleDelete(column.id)}
+                      onClick={() => handleDeleteClick(column)}
                       disabled={deletingId === column.id}
                       data-testid={`button-delete-column-${column.id}`}
                       className="hover-elevate"
@@ -128,6 +150,32 @@ export function ColumnsDialog({ sheetId, open, onOpenChange }: ColumnsDialogProp
           )}
         </div>
       </DialogContent>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Column</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the column "{columnToDelete?.name}"? 
+              This will remove the column and all its data from all leads in this sheet. 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-column">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-column"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

@@ -17,6 +17,16 @@ import type { QuickFilter } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FilterConditionBuilder, type FilterCondition } from "@/components/filter-condition-builder";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // Icon options for quick filters
 const ICON_OPTIONS = [
@@ -87,6 +97,10 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
   const [editFilterColor, setEditFilterColor] = useState<string | null>(null);
   const [editFilterConditions, setEditFilterConditions] = useState<FilterCondition[]>([]);
   const [editFilterLogicalOperator, setEditFilterLogicalOperator] = useState<"and" | "or">("and");
+  
+  // Delete confirmation state
+  const [filterToDelete, setFilterToDelete] = useState<QuickFilter | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { data: quickFilters = [], isLoading } = useQuery<QuickFilter[]>({
     queryKey: ["/api/company/quick-filters"],
@@ -610,7 +624,10 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => deleteFilterMutation.mutate(filter.id)}
+                        onClick={() => {
+                          setFilterToDelete(filter);
+                          setDeleteDialogOpen(true);
+                        }}
                         disabled={deleteFilterMutation.isPending}
                         data-testid={`button-delete-filter-${filter.id}`}
                       >
@@ -626,21 +643,61 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
     </div>
   );
 
+  const deleteDialog = (
+    <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Quick Filter</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete the quick filter "{filterToDelete?.name}"? 
+            This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-delete-filter">
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              if (filterToDelete) {
+                deleteFilterMutation.mutate(filterToDelete.id);
+              }
+              setDeleteDialogOpen(false);
+              setFilterToDelete(null);
+            }}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            data-testid="button-confirm-delete-filter"
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (headless) {
-    return content;
+    return (
+      <>
+        {content}
+        {deleteDialog}
+      </>
+    );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Quick Filters</CardTitle>
-        <CardDescription>
-          Manage company-wide quick filters for all sheets
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {content}
-      </CardContent>
-    </Card>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Filters</CardTitle>
+          <CardDescription>
+            Manage company-wide quick filters for all sheets
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {content}
+        </CardContent>
+      </Card>
+      {deleteDialog}
+    </>
   );
 }

@@ -18,6 +18,16 @@ import { SYSTEM_COLUMN_KEYS } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DndContext,
   closestCenter,
   KeyboardSensor,
@@ -58,6 +68,10 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
   const [editDropdownOptions, setEditDropdownOptions] = useState<string[]>([]);
   const [editDropdownInput, setEditDropdownInput] = useState("");
   const [editColumnConfig, setEditColumnConfig] = useState<any>({}); // Store full config
+  
+  // Delete confirmation state
+  const [columnToDelete, setColumnToDelete] = useState<CustomColumn | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { data: companyColumns = [], isLoading } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
@@ -500,7 +514,10 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
                       handleRemoveEditDropdownOption={handleRemoveEditDropdownOption}
                       startEditingColumn={startEditingColumn}
                       cancelEditing={cancelEditing}
-                      deleteColumnMutation={deleteColumnMutation}
+                      onDeleteClick={(col) => {
+                        setColumnToDelete(col);
+                        setDeleteDialogOpen(true);
+                      }}
                       updateColumnMutation={updateColumnMutation}
                       typeLabels={typeLabels}
                     />
@@ -526,22 +543,63 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
     </div>
   );
 
+  const deleteDialog = (
+    <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Column</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete the column "{columnToDelete?.name}"? 
+            This will remove it from all sheets in your company. 
+            This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-delete-company-column">
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              if (columnToDelete) {
+                deleteColumnMutation.mutate(columnToDelete.id);
+              }
+              setDeleteDialogOpen(false);
+              setColumnToDelete(null);
+            }}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            data-testid="button-confirm-delete-company-column"
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (headless) {
-    return content;
+    return (
+      <>
+        {content}
+        {deleteDialog}
+      </>
+    );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Company Column Schema</CardTitle>
-        <CardDescription>
-          Define custom columns that will be available across all company sheets. Changes affect all sheets immediately.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {content}
-      </CardContent>
-    </Card>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Company Column Schema</CardTitle>
+          <CardDescription>
+            Define custom columns that will be available across all company sheets. Changes affect all sheets immediately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {content}
+        </CardContent>
+      </Card>
+      {deleteDialog}
+    </>
   );
 }
 
@@ -563,7 +621,7 @@ function SortableColumnItem({
   handleRemoveEditDropdownOption,
   startEditingColumn,
   cancelEditing,
-  deleteColumnMutation,
+  onDeleteClick,
   updateColumnMutation,
   typeLabels,
 }: {
@@ -583,7 +641,7 @@ function SortableColumnItem({
   handleRemoveEditDropdownOption: (option: string) => void;
   startEditingColumn: (column: CustomColumn) => void;
   cancelEditing: () => void;
-  deleteColumnMutation: any;
+  onDeleteClick: (column: CustomColumn) => void;
   updateColumnMutation: any;
   typeLabels: Record<string, string>;
 }) {
@@ -780,11 +838,7 @@ function SortableColumnItem({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  if (window.confirm(`Delete column "${column.name}"? This will remove it from all sheets.`)) {
-                    deleteColumnMutation.mutate(column.id);
-                  }
-                }}
+                onClick={() => onDeleteClick(column)}
                 data-testid={`button-delete-column-${column.id}`}
               >
                 <Trash2 className="h-4 w-4" />

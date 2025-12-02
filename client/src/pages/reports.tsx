@@ -42,6 +42,16 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Report } from "@shared/schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -172,6 +182,11 @@ export default function Reports() {
 
   // Tab state
   const [activeTab, setActiveTab] = useState("my-reports");
+  
+  // Track which report is being deleted and delete dialog state
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
+  const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Fetch all reports
   const { data: reports, isLoading: reportsLoading } = useQuery<Report[]>({
@@ -269,11 +284,14 @@ export default function Reports() {
   // Delete report mutation
   const deleteMutation = useMutation({
     mutationFn: async (reportId: string) => {
+      setDeletingReportId(reportId);
       return apiRequest("DELETE", `/api/company/reports/${reportId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
       toast({ title: "Report deleted successfully" });
+      setDeleteDialogOpen(false);
+      setReportToDelete(null);
     },
     onError: (error: any) => {
       toast({
@@ -281,6 +299,9 @@ export default function Reports() {
         description: error.message,
         variant: "destructive",
       });
+    },
+    onSettled: () => {
+      setDeletingReportId(null);
     },
   });
 
@@ -610,7 +631,10 @@ export default function Reports() {
                   key={report.id}
                   report={report}
                   onEdit={() => handleEditReport(report)}
-                  onDelete={() => deleteMutation.mutate(report.id)}
+                  onDeleteClick={() => {
+                    setReportToDelete(report);
+                    setDeleteDialogOpen(true);
+                  }}
                   canEdit={user?.role !== "user"}
                   canDelete={user?.role !== "user"}
                 />
@@ -997,6 +1021,53 @@ export default function Reports() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Report Confirmation Dialog */}
+      <Dialog 
+        open={deleteDialogOpen} 
+        onOpenChange={(open) => {
+          if (!deleteMutation.isPending) {
+            setDeleteDialogOpen(open);
+            if (!open) {
+              setReportToDelete(null);
+            }
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Report</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{reportToDelete?.name}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setReportToDelete(null);
+              }}
+              disabled={deleteMutation.isPending}
+              data-testid="button-cancel-delete-report"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (reportToDelete) {
+                  deleteMutation.mutate(reportToDelete.id);
+                }
+              }}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete-report"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1049,13 +1120,13 @@ function normalizeDate(dateStr: string): string {
 function ReportCard({
   report,
   onEdit,
-  onDelete,
+  onDeleteClick,
   canEdit,
   canDelete,
 }: {
   report: Report;
   onEdit: () => void;
-  onDelete: () => void;
+  onDeleteClick: () => void;
   canEdit: boolean;
   canDelete: boolean;
 }) {
@@ -1483,7 +1554,7 @@ function ReportCard({
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={onDelete}
+                onClick={onDeleteClick}
                 data-testid={`button-delete-report-${report.id}`}
                 className="h-8 w-8"
               >

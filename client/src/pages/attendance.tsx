@@ -25,6 +25,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -80,6 +90,8 @@ export default function Attendance() {
   const [selectedReviewEntry, setSelectedReviewEntry] = useState<AttendanceEntry | null>(null);
   const [reviewNotes, setReviewNotes] = useState("");
   const [addRuleDialogOpen, setAddRuleDialogOpen] = useState(false);
+  const [deleteEntryDialogOpen, setDeleteEntryDialogOpen] = useState(false);
+  const [entryToDelete, setEntryToDelete] = useState<AttendanceEntry | null>(null);
   const [newRule, setNewRule] = useState({
     rule_type: "min_leads",
     name: "",
@@ -607,9 +619,8 @@ export default function Attendance() {
                             size="sm"
                             variant="destructive"
                             onClick={() => {
-                              if (confirm(`Are you sure you want to delete the entire attendance entry for ${entry.user_name}?`)) {
-                                clearAttendanceMutation.mutate({ entryId: entry.id, action: "delete" });
-                              }
+                              setEntryToDelete(entry);
+                              setDeleteEntryDialogOpen(true);
                             }}
                             disabled={clearAttendanceMutation.isPending}
                             data-testid={`button-delete-entry-${entry.id}`}
@@ -1010,6 +1021,37 @@ export default function Attendance() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Entry Confirmation Dialog */}
+      <AlertDialog open={deleteEntryDialogOpen} onOpenChange={setDeleteEntryDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Attendance Entry</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the entire attendance entry for {entryToDelete?.user_name}? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-entry">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (entryToDelete) {
+                  clearAttendanceMutation.mutate({ entryId: entryToDelete.id, action: "delete" });
+                }
+                setDeleteEntryDialogOpen(false);
+                setEntryToDelete(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-entry"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       </div>
     </div>
   );

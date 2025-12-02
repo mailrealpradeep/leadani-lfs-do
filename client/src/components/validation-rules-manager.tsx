@@ -22,6 +22,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -44,6 +54,8 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
   const [requiredFields, setRequiredFields] = useState<string[]>([]);
   const [newRequiredField, setNewRequiredField] = useState("");
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
+  const [ruleToDelete, setRuleToDelete] = useState<ValidationRule | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { data: rules = [] } = useQuery<ValidationRule[]>({
     queryKey: ["/api/sheets", sheetId, "validation-rules"],
@@ -286,7 +298,10 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => deleteRuleMutation.mutate(rule.id)}
+                            onClick={() => {
+                              setRuleToDelete(rule);
+                              setDeleteDialogOpen(true);
+                            }}
                             data-testid={`button-delete-rule-${rule.id}`}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -382,6 +397,37 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
           </form>
         </div>
       </DialogContent>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Validation Rule</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the validation rule "{ruleToDelete?.name}"? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-validation-rule">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (ruleToDelete) {
+                  deleteRuleMutation.mutate(ruleToDelete.id);
+                }
+                setDeleteDialogOpen(false);
+                setRuleToDelete(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-validation-rule"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
