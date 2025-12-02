@@ -2773,3 +2773,92 @@ export const snapshot_restore_logs = pgTable('snapshot_restore_logs', {
 
 export type SnapshotRestoreLogRecord = typeof snapshot_restore_logs.$inferSelect;
 export type InsertSnapshotRestoreLog = typeof snapshot_restore_logs.$inferInsert;
+
+// ============================================================================
+// SAVED REPORTS (Fixed Reports / Report Library)
+// ============================================================================
+export interface SavedReportConfig {
+  // Report type determines how to execute
+  type: "column_based" | "sql_query" | "aggregation";
+  
+  // For column-based reports
+  columns?: string[]; // Column keys to include
+  filters?: {
+    column: string;
+    operator: "equals" | "not_equals" | "contains" | "starts_with" | "ends_with" | "greater_than" | "less_than" | "between" | "in" | "is_empty" | "is_not_empty";
+    value: any;
+  }[];
+  groupBy?: string; // Column key to group by
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
+  dateRange?: {
+    field: string; // Which date field to use (created_at, nfdt, etc.)
+    preset?: "today" | "yesterday" | "this_week" | "last_week" | "this_month" | "last_month" | "custom";
+    startDate?: string;
+    endDate?: string;
+  };
+  
+  // For aggregation reports
+  aggregations?: {
+    column: string;
+    function: "count" | "sum" | "avg" | "min" | "max";
+    alias: string;
+  }[];
+  
+  // For SQL query reports (advanced - Super Admin only)
+  sqlQuery?: string;
+  
+  // Display options
+  displayOptions?: {
+    showTotals?: boolean;
+    chartType?: "bar" | "pie" | "line" | "table";
+    pivotColumn?: string;
+  };
+}
+
+export interface SavedReport {
+  id: string;
+  company_id: string | null; // null = global template available to all
+  name: string;
+  description: string | null;
+  category: string | null; // e.g., "Daily", "Weekly", "Performance", "Compliance"
+  config: SavedReportConfig;
+  is_template: boolean; // true = can be duplicated by other companies
+  source_report_id: string | null; // if duplicated from another report
+  created_by_user_id: string;
+  is_active: boolean;
+  run_count: number; // track usage
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const saved_reports = pgTable('saved_reports', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  category: varchar('category', { length: 100 }),
+  config: jsonb('config').notNull(),
+  is_template: boolean('is_template').notNull().default(true),
+  source_report_id: varchar('source_report_id').references(() => saved_reports.id, { onDelete: 'set null' }),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  is_active: boolean('is_active').notNull().default(true),
+  run_count: integer('run_count').notNull().default(0),
+  last_run_at: timestamp('last_run_at'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SavedReportRecord = typeof saved_reports.$inferSelect;
+export type InsertSavedReport = typeof saved_reports.$inferInsert;
+
+export const insertSavedReportSchema = createInsertSchema(saved_reports).omit({
+  id: true,
+  run_count: true,
+  last_run_at: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertSavedReportData = z.infer<typeof insertSavedReportSchema>;
