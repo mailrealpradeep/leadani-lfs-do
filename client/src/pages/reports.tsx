@@ -37,6 +37,10 @@ import {
   FileText,
   CalendarDays,
   GripVertical,
+  Maximize2,
+  Minimize2,
+  ArrowLeftRight,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   BarChart as RechartsBarChart,
@@ -79,6 +83,17 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from "@/components/ui/dropdown-menu";
 import type { DrilldownFilters, SavedReportRecord } from "@shared/schema";
 
 interface ReportDataResponse {
@@ -427,6 +442,64 @@ export default function Reports() {
     },
   });
 
+  // Resize report card mutation
+  const resizeMutation = useMutation({
+    mutationFn: async ({ reportId, size, originalConfig }: { 
+      reportId: string; 
+      size: { cols?: 1 | 2; rows?: 'sm' | 'md' | 'lg' };
+      originalConfig: any; // Pre-mutation config for proper merge
+    }) => {
+      const currentSize = originalConfig?.size || { cols: 1, rows: 'md' };
+      const newSize = { ...currentSize, ...size };
+      
+      return apiRequest<Report>("PATCH", `/api/company/reports/${reportId}`, {
+        config: {
+          ...originalConfig,
+          size: newSize
+        }
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to resize report",
+        description: error.message,
+        variant: "destructive",
+      });
+      // Refetch to revert optimistic state
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+    },
+  });
+
+  // Handle resize
+  const handleResize = (reportId: string, size: { cols?: 1 | 2; rows?: 'sm' | 'md' | 'lg' }) => {
+    // Get original config before optimistic update
+    const currentReport = localReports.find(r => r.id === reportId);
+    const originalConfig = currentReport?.config ? { ...currentReport.config } : {};
+    
+    // Optimistic update
+    setLocalReports(prev => 
+      prev.map(r => {
+        if (r.id === reportId) {
+          const currentSize = r.config?.size || { cols: 1, rows: 'md' };
+          return {
+            ...r,
+            config: {
+              ...r.config,
+              size: { ...currentSize, ...size }
+            }
+          };
+        }
+        return r;
+      })
+    );
+    
+    // Save to server with original config for proper merge
+    resizeMutation.mutate({ reportId, size, originalConfig });
+  };
+
   // Drag and drop sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -724,6 +797,7 @@ export default function Reports() {
                         setReportToDelete(report);
                         setDeleteDialogOpen(true);
                       }}
+                      onResize={(size) => handleResize(report.id, size)}
                       canEdit={user?.role !== "user"}
                       canDelete={user?.role !== "user"}
                     />
@@ -1212,12 +1286,14 @@ function SortableReportCard({
   report,
   onEdit,
   onDeleteClick,
+  onResize,
   canEdit,
   canDelete,
 }: {
   report: Report;
   onEdit: () => void;
   onDeleteClick: () => void;
+  onResize?: (size: { cols?: 1 | 2; rows?: 'sm' | 'md' | 'lg' }) => void;
   canEdit: boolean;
   canDelete: boolean;
 }) {
@@ -1242,6 +1318,7 @@ function SortableReportCard({
         report={report}
         onEdit={onEdit}
         onDeleteClick={onDeleteClick}
+        onResize={onResize}
         canEdit={canEdit}
         canDelete={canDelete}
         dragHandleProps={{ ...attributes, ...listeners }}
@@ -1255,6 +1332,7 @@ function ReportCard({
   report,
   onEdit,
   onDeleteClick,
+  onResize,
   canEdit,
   canDelete,
   dragHandleProps,
@@ -1262,10 +1340,26 @@ function ReportCard({
   report: Report;
   onEdit: () => void;
   onDeleteClick: () => void;
+  onResize?: (size: { cols?: 1 | 2; rows?: 'sm' | 'md' | 'lg' }) => void;
   canEdit: boolean;
   canDelete: boolean;
   dragHandleProps?: Record<string, any>;
 }) {
+  // Get current size from config
+  const currentSize = report.config?.size || { cols: 1, rows: 'md' };
+  const cols = currentSize.cols || 1;
+  const rows = currentSize.rows || 'md';
+
+  // Compute width and height classes based on size
+  const widthClass = cols === 2 
+    ? "w-full lg:min-w-[920px] lg:max-w-[1200px]" 
+    : "w-full lg:w-auto lg:min-w-[450px] lg:max-w-[600px]";
+  
+  const heightClass = rows === 'sm' 
+    ? "min-h-[200px]" 
+    : rows === 'lg' 
+      ? "min-h-[500px]" 
+      : "min-h-[300px]";
   // Initialize date range from report config (normalize to ISO format)
   const initialDateRange = {
     start: normalizeDate(report.config?.date_range?.start || ""),
@@ -1697,7 +1791,7 @@ function ReportCard({
     <>
       <Card 
         data-testid={`card-report-${report.id}`}
-        className="w-full lg:w-auto lg:min-w-[450px] lg:max-w-[600px]"
+        className={`${widthClass} ${heightClass}`}
       >
         <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 space-y-0 pb-2">
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1724,6 +1818,77 @@ function ReportCard({
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {/* Resize Menu */}
+            {canEdit && onResize && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    data-testid={`button-resize-report-${report.id}`}
+                    className="h-8 w-8"
+                    aria-label="Resize report card"
+                  >
+                    <Maximize2 className="h-3 w-3 md:h-4 md:w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel className="text-xs">Card Size</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="text-xs">
+                      <ArrowLeftRight className="h-3.5 w-3.5 mr-2" />
+                      Width
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem 
+                        onClick={() => onResize({ cols: 1 })}
+                        data-testid={`resize-cols-1-${report.id}`}
+                      >
+                        <span className="flex-1 text-xs">Normal</span>
+                        {cols === 1 && <Check className="h-3.5 w-3.5" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={() => onResize({ cols: 2 })}
+                        data-testid={`resize-cols-2-${report.id}`}
+                      >
+                        <span className="flex-1 text-xs">Wide</span>
+                        {cols === 2 && <Check className="h-3.5 w-3.5" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="text-xs">
+                      <ArrowUpDown className="h-3.5 w-3.5 mr-2" />
+                      Height
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem 
+                        onClick={() => onResize({ rows: 'sm' })}
+                        data-testid={`resize-rows-sm-${report.id}`}
+                      >
+                        <span className="flex-1 text-xs">Compact</span>
+                        {rows === 'sm' && <Check className="h-3.5 w-3.5" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={() => onResize({ rows: 'md' })}
+                        data-testid={`resize-rows-md-${report.id}`}
+                      >
+                        <span className="flex-1 text-xs">Normal</span>
+                        {rows === 'md' && <Check className="h-3.5 w-3.5" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={() => onResize({ rows: 'lg' })}
+                        data-testid={`resize-rows-lg-${report.id}`}
+                      >
+                        <span className="flex-1 text-xs">Tall</span>
+                        {rows === 'lg' && <Check className="h-3.5 w-3.5" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             {canEdit && (
               <Button
                 variant="ghost"
