@@ -13008,11 +13008,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all KPIs for the user's company
   app.get("/api/kpis", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      if (!req.user?.companyId) {
+      if (!req.companyId) {
         return res.status(403).json({ error: "Company access required" });
       }
       
-      const kpis = await storage.getCompanyKpisByCompany(req.user.companyId);
+      const kpis = await storage.getCompanyKpisByCompany(req.companyId);
       res.json(kpis);
     } catch (error: any) {
       console.error("Get KPIs error:", error);
@@ -13029,7 +13029,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify company access
-      if (kpi.company_id !== req.user?.companyId) {
+      if (kpi.company_id !== req.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       
@@ -13043,7 +13043,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new KPI (admin only)
   app.post("/api/kpis", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      if (!req.user?.companyId) {
+      if (!req.companyId) {
         return res.status(403).json({ error: "Company access required" });
       }
       
@@ -13062,8 +13062,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         scope_sheet_ids: scope_sheet_ids || null,
         config: config || {},
         is_active: is_active !== false,
-        company_id: req.user.companyId,  // Always enforce from auth
-        created_by_user_id: req.user.id, // Always enforce from auth
+        company_id: req.companyId,  // Always enforce from auth
+        created_by_user_id: req.userId!, // Always enforce from auth
       };
       
       const kpi = await storage.createCompanyKpi(kpiData);
@@ -13083,7 +13083,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify company access
-      if (existingKpi.company_id !== req.user?.companyId) {
+      if (existingKpi.company_id !== req.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       
@@ -13116,7 +13116,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify company access
-      if (existingKpi.company_id !== req.user?.companyId) {
+      if (existingKpi.company_id !== req.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       
@@ -13144,11 +13144,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all simple targets for the user's company
   app.get("/api/simple-targets", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      if (!req.user?.companyId) {
+      if (!req.companyId) {
         return res.status(403).json({ error: "Company access required" });
       }
       
-      const targets = await storage.getSimpleTargetsByCompany(req.user.companyId);
+      const targets = await storage.getSimpleTargetsByCompany(req.companyId);
       
       // Enrich with KPI names
       const enrichedTargets = await Promise.all(targets.map(async (target) => {
@@ -13176,7 +13176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify company access
-      if (target.company_id !== req.user?.companyId) {
+      if (target.company_id !== req.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       
@@ -13197,7 +13197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new simple target (admin only)
   app.post("/api/simple-targets", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      if (!req.user?.companyId) {
+      if (!req.companyId) {
         return res.status(403).json({ error: "Company access required" });
       }
       
@@ -13213,7 +13213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!kpi) {
         return res.status(400).json({ error: "KPI not found" });
       }
-      if (kpi.company_id !== req.user.companyId) {
+      if (kpi.company_id !== req.companyId) {
         return res.status(403).json({ error: "KPI belongs to a different company" });
       }
       
@@ -13228,8 +13228,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assignment_type: assignment_type || "all_users",
         assigned_user_ids: assigned_user_ids || null,
         is_active: is_active !== false,
-        company_id: req.user.companyId,  // Always enforce from auth
-        created_by_user_id: req.user.id, // Always enforce from auth
+        company_id: req.companyId,  // Always enforce from auth
+        created_by_user_id: req.userId!, // Always enforce from auth
       };
       
       const target = await storage.createSimpleTarget(targetData);
@@ -13249,7 +13249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify company access
-      if (existingTarget.company_id !== req.user?.companyId) {
+      if (existingTarget.company_id !== req.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       
@@ -13259,7 +13259,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // If changing KPI, verify the new KPI exists and belongs to this company
       if (kpi_id && kpi_id !== existingTarget.kpi_id) {
         const kpi = await storage.getCompanyKpi(kpi_id);
-        if (!kpi || kpi.company_id !== req.user?.companyId) {
+        if (!kpi || kpi.company_id !== req.companyId) {
           return res.status(400).json({ error: "Invalid KPI" });
         }
       }
@@ -13293,7 +13293,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify company access
-      if (existingTarget.company_id !== req.user?.companyId) {
+      if (existingTarget.company_id !== req.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       
