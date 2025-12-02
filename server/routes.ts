@@ -13084,13 +13084,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const metricsRequiringColumn = ['status_transition', 'field_sum', 'field_average'];
       if (config?.column_id && metricsRequiringColumn.includes(metric_type)) {
         // Verify the column exists and belongs to this company
-        const column = await storage.getCustomColumn(config.column_id);
+        const column = await storage.getCustomColumnById(config.column_id);
         if (!column) {
           return res.status(400).json({ error: "Invalid column reference - column not found" });
         }
-        // Check if the column belongs to a sheet in this company
-        const sheet = await storage.getSheet(column.sheet_id);
-        if (!sheet || sheet.company_id !== req.companyId) {
+        // Column has direct company_id - use that for validation
+        if (column.company_id !== req.companyId) {
           return res.status(400).json({ error: "Column does not belong to your company" });
         }
       }
@@ -13136,13 +13135,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const metricsRequiringColumn = ['status_transition', 'field_sum', 'field_average'];
       if (config?.column_id && metricsRequiringColumn.includes(effectiveMetricType)) {
         // Verify the column exists and belongs to this company
-        const column = await storage.getCustomColumn(config.column_id);
+        const column = await storage.getCustomColumnById(config.column_id);
         if (!column) {
           return res.status(400).json({ error: "Invalid column reference - column not found" });
         }
-        // Check if the column belongs to a sheet in this company
-        const sheet = await storage.getSheet(column.sheet_id);
-        if (!sheet || sheet.company_id !== req.companyId) {
+        // Column has direct company_id - use that for validation
+        if (column.company_id !== req.companyId) {
           return res.status(400).json({ error: "Column does not belong to your company" });
         }
       }
