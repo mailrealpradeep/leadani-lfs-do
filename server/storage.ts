@@ -109,6 +109,11 @@ import type {
   InsertSheetSnapshot,
   SnapshotRestoreLogRecord,
   InsertSnapshotRestoreLog,
+  // Saved Reports
+  SavedReport,
+  SavedReportRecord,
+  InsertSavedReport,
+  SavedReportConfig,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -489,6 +494,19 @@ export interface IStorage {
   // Snapshot Restore Logs
   getSnapshotRestoreLogs(companyId: string, limit?: number): Promise<SnapshotRestoreLogRecord[]>;
   createSnapshotRestoreLog(log: InsertSnapshotRestoreLog): Promise<SnapshotRestoreLogRecord>;
+
+  // =========================================================================
+  // SAVED REPORTS (Fixed Reports / Report Library)
+  // =========================================================================
+  
+  getSavedReport(id: string): Promise<SavedReportRecord | undefined>;
+  getSavedReportsByCompany(companyId: string, includeGlobal?: boolean): Promise<SavedReportRecord[]>;
+  getGlobalSavedReports(): Promise<SavedReportRecord[]>;
+  createSavedReport(report: InsertSavedReport): Promise<SavedReportRecord>;
+  updateSavedReport(id: string, updates: Partial<SavedReportRecord>): Promise<SavedReportRecord | undefined>;
+  deleteSavedReport(id: string): Promise<boolean>;
+  duplicateSavedReport(id: string, targetCompanyId: string, userId: string): Promise<SavedReportRecord | undefined>;
+  incrementReportRunCount(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -2334,6 +2352,32 @@ export class MemStorage implements IStorage {
   }
   async createSnapshotRestoreLog(_log: InsertSnapshotRestoreLog): Promise<SnapshotRestoreLogRecord> {
     throw new Error("Snapshot restore logs not implemented in MemStorage");
+  }
+
+  // Saved Reports (not implemented in MemStorage - requires PostgreSQL)
+  async getSavedReport(_id: string): Promise<SavedReportRecord | undefined> {
+    return undefined;
+  }
+  async getSavedReportsByCompany(_companyId: string, _includeGlobal?: boolean): Promise<SavedReportRecord[]> {
+    return [];
+  }
+  async getGlobalSavedReports(): Promise<SavedReportRecord[]> {
+    return [];
+  }
+  async createSavedReport(_report: InsertSavedReport): Promise<SavedReportRecord> {
+    throw new Error("Saved reports not implemented in MemStorage");
+  }
+  async updateSavedReport(_id: string, _updates: Partial<SavedReportRecord>): Promise<SavedReportRecord | undefined> {
+    return undefined;
+  }
+  async deleteSavedReport(_id: string): Promise<boolean> {
+    return false;
+  }
+  async duplicateSavedReport(_id: string, _targetCompanyId: string, _userId: string): Promise<SavedReportRecord | undefined> {
+    return undefined;
+  }
+  async incrementReportRunCount(_id: string): Promise<boolean> {
+    return false;
   }
 }
 
@@ -5766,6 +5810,103 @@ export class PgStorage implements IStorage {
   async createSnapshotRestoreLog(log: InsertSnapshotRestoreLog): Promise<SnapshotRestoreLogRecord> {
     const rows = await db.insert(dbSchema.snapshot_restore_logs).values(log).returning();
     return rows[0];
+  }
+
+  // =========================================================================
+  // SAVED REPORTS (Fixed Reports / Report Library)
+  // =========================================================================
+
+  async getSavedReport(id: string): Promise<SavedReportRecord | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.saved_reports)
+      .where(eq(dbSchema.saved_reports.id, id));
+    return rows[0];
+  }
+
+  async getSavedReportsByCompany(companyId: string, includeGlobal: boolean = true): Promise<SavedReportRecord[]> {
+    if (includeGlobal) {
+      return await db.select()
+        .from(dbSchema.saved_reports)
+        .where(
+          and(
+            eq(dbSchema.saved_reports.is_active, true),
+            or(
+              eq(dbSchema.saved_reports.company_id, companyId),
+              isNull(dbSchema.saved_reports.company_id)
+            )
+          )
+        )
+        .orderBy(desc(dbSchema.saved_reports.created_at));
+    }
+    return await db.select()
+      .from(dbSchema.saved_reports)
+      .where(
+        and(
+          eq(dbSchema.saved_reports.is_active, true),
+          eq(dbSchema.saved_reports.company_id, companyId)
+        )
+      )
+      .orderBy(desc(dbSchema.saved_reports.created_at));
+  }
+
+  async getGlobalSavedReports(): Promise<SavedReportRecord[]> {
+    return await db.select()
+      .from(dbSchema.saved_reports)
+      .where(
+        and(
+          eq(dbSchema.saved_reports.is_active, true),
+          isNull(dbSchema.saved_reports.company_id)
+        )
+      )
+      .orderBy(desc(dbSchema.saved_reports.created_at));
+  }
+
+  async createSavedReport(report: InsertSavedReport): Promise<SavedReportRecord> {
+    const rows = await db.insert(dbSchema.saved_reports).values(report).returning();
+    return rows[0];
+  }
+
+  async updateSavedReport(id: string, updates: Partial<SavedReportRecord>): Promise<SavedReportRecord | undefined> {
+    const rows = await db.update(dbSchema.saved_reports)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.saved_reports.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteSavedReport(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.saved_reports).where(eq(dbSchema.saved_reports.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async duplicateSavedReport(id: string, targetCompanyId: string, userId: string): Promise<SavedReportRecord | undefined> {
+    const original = await this.getSavedReport(id);
+    if (!original) return undefined;
+
+    const newReport: InsertSavedReport = {
+      company_id: targetCompanyId,
+      name: original.name,
+      description: original.description,
+      category: original.category,
+      config: original.config,
+      is_template: false,
+      source_report_id: original.id,
+      created_by_user_id: userId,
+      is_active: true,
+    };
+
+    return await this.createSavedReport(newReport);
+  }
+
+  async incrementReportRunCount(id: string): Promise<boolean> {
+    const result = await db.update(dbSchema.saved_reports)
+      .set({ 
+        run_count: sql`${dbSchema.saved_reports.run_count} + 1`,
+        last_run_at: new Date(),
+        updated_at: new Date()
+      })
+      .where(eq(dbSchema.saved_reports.id, id));
+    return (result as any).rowCount > 0;
   }
 }
 
