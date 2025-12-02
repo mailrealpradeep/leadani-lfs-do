@@ -875,8 +875,9 @@ export default function Reports() {
       {/* User Reports Tab Content (Company Admin only - for managing user-visible reports) */}
       {activeTab === "user-reports" && user?.role === "company_admin" && (
         <div className="space-y-4">
-          <div className="text-sm text-muted-foreground mb-4">
-            Create reports here that will be visible to all users. Each user will see their own data (filtered by assigned leads).
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4" data-testid="text-user-reports-description">
+            <Users className="h-4 w-4" />
+            <span>Create reports here that will be visible to all users. Each user will see their own data (filtered by assigned leads).</span>
           </div>
           {userReportsLoading ? (
             <div className="flex flex-wrap gap-4 md:gap-6">
@@ -885,11 +886,11 @@ export default function Reports() {
               ))}
             </div>
           ) : !userReports || userReports.length === 0 ? (
-            <Card className="p-6 md:p-12">
+            <Card className="p-6 md:p-12" data-testid="card-empty-user-reports">
               <div className="flex flex-col items-center justify-center text-center">
                 <Users className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
-                <h3 className="text-base md:text-lg font-semibold mb-2">No user reports yet</h3>
-                <p className="text-xs md:text-sm text-muted-foreground mb-4">
+                <h3 className="text-base md:text-lg font-semibold mb-2" data-testid="text-empty-title">No user reports yet</h3>
+                <p className="text-xs md:text-sm text-muted-foreground mb-4" data-testid="text-empty-description">
                   Create reports that all users can see, filtered to their assigned leads
                 </p>
                 <Button 
