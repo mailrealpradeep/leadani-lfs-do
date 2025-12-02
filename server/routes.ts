@@ -819,11 +819,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Parse webhook's created_at timestamp for use as lead creation time
         // This captures when the form was actually submitted, not when we processed it
+        // Webhook timestamps are typically in IST (UTC+5:30) without timezone info
         let webhookCreatedAt: string | undefined = undefined;
         const webhookTimestamp = leadData.created_at || incomingData.created_at;
         if (webhookTimestamp) {
           try {
-            const parsed = new Date(webhookTimestamp);
+            let timestampStr = String(webhookTimestamp).trim();
+            
+            // Map of timezone abbreviations to their UTC offsets
+            const tzAbbreviations: Record<string, string> = {
+              'IST': '+05:30', // India Standard Time
+              'GMT': '+00:00', // Greenwich Mean Time
+              'UTC': '+00:00', // Coordinated Universal Time
+              'EST': '-05:00', // Eastern Standard Time
+              'EDT': '-04:00', // Eastern Daylight Time
+              'CST': '-06:00', // Central Standard Time
+              'CDT': '-05:00', // Central Daylight Time
+              'MST': '-07:00', // Mountain Standard Time
+              'MDT': '-06:00', // Mountain Daylight Time
+              'PST': '-08:00', // Pacific Standard Time
+              'PDT': '-07:00', // Pacific Daylight Time
+            };
+            
+            // Check for trailing timezone abbreviation and extract offset
+            let tzOffset = '+05:30'; // Default to IST for this India-based CRM
+            const abbrevMatch = timestampStr.match(/\s+(IST|GMT|UTC|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i);
+            if (abbrevMatch) {
+              const abbrev = abbrevMatch[1].toUpperCase();
+              if (tzAbbreviations[abbrev]) {
+                tzOffset = tzAbbreviations[abbrev];
+              }
+              // Strip the abbreviation from the timestamp
+              timestampStr = timestampStr.replace(/\s+(IST|GMT|UTC|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i, '');
+            }
+            
+            // Check if the timestamp has explicit timezone info (Z or +/- offset)
+            const hasExplicitTimezone = /[Z]$|[+-]\d{2}:?\d{2}$/i.test(timestampStr);
+            
+            if (!hasExplicitTimezone) {
+              // Timestamp is timezone-naive (e.g., "2025-12-02 06:27:31")
+              // Convert to valid ISO 8601 format: replace space with 'T' and append offset
+              // "2025-12-02 06:27:31" -> "2025-12-02T06:27:31+05:30"
+              timestampStr = timestampStr.replace(' ', 'T') + tzOffset;
+            }
+            
+            const parsed = new Date(timestampStr);
             if (!isNaN(parsed.getTime())) {
               webhookCreatedAt = parsed.toISOString();
             }
