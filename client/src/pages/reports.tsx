@@ -1411,6 +1411,40 @@ function ReportCard({
                 </tr>
               ))}
             </tbody>
+            {/* Footer row with column totals */}
+            <tfoot className="bg-muted font-medium border-t-2">
+              <tr>
+                {data.rowFields.map((_: string, i: number) => (
+                  <td 
+                    key={i} 
+                    className="px-2 md:px-3 py-2 sticky left-0 bg-muted whitespace-nowrap z-10"
+                  >
+                    {i === 0 ? "Total" : ""}
+                  </td>
+                ))}
+                {data.columns.map((col: string) => (
+                  <td key={col} className="px-2 md:px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      onClick={() => {
+                        if (data.columnField) {
+                          const filters: DrilldownFilters = { [data.columnField]: col };
+                          const colTotal = data.columnTotals?.[col] || 0;
+                          const title = `${col} - Total (${colTotal} leads)`;
+                          handleDrilldownClick(filters, title);
+                        }
+                      }}
+                      className="text-primary hover:underline cursor-pointer"
+                      data-testid={`drilldown-total-${col}`}
+                    >
+                      {data.columnTotals?.[col] || 0}
+                    </button>
+                  </td>
+                ))}
+                <td className="px-2 md:px-3 py-2 text-right font-bold whitespace-nowrap">
+                  {data.grandTotal || 0}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       );
