@@ -1,5 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   BarChart3,
   Plus,
@@ -19,6 +36,7 @@ import {
   Building2,
   FileText,
   CalendarDays,
+  GripVertical,
 } from "lucide-react";
 import {
   BarChart as RechartsBarChart,
@@ -390,6 +408,69 @@ export default function Reports() {
     },
   });
 
+  // Reorder reports mutation (for drag and drop)
+  const reorderMutation = useMutation({
+    mutationFn: async (reportIds: string[]) => {
+      return apiRequest("POST", "/api/company/reports/reorder", { reportIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to reorder reports",
+        description: error.message,
+        variant: "destructive",
+      });
+      // Refetch to restore original order
+      queryClient.invalidateQueries({ queryKey: ["/api/company/reports"] });
+    },
+  });
+
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement before drag starts
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Local state for optimistic reordering
+  const [localReports, setLocalReports] = useState<Report[]>([]);
+  
+  // Sync reports from query to local state
+  useEffect(() => {
+    if (reports) {
+      setLocalReports(reports);
+    }
+  }, [reports]);
+
+  // Report IDs for sortable context
+  const reportIds = useMemo(() => localReports.map((r) => r.id), [localReports]);
+
+  // Handle drag end
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = localReports.findIndex((r) => r.id === active.id);
+      const newIndex = localReports.findIndex((r) => r.id === over.id);
+
+      if (oldIndex !== -1 && newIndex !== -1) {
+        // Optimistic update
+        const newReports = arrayMove(localReports, oldIndex, newIndex);
+        setLocalReports(newReports);
+
+        // Persist to backend
+        reorderMutation.mutate(newReports.map((r) => r.id));
+      }
+    }
+  };
+
   const resetBuilder = () => {
     setReportName("");
     setVisualizationType("chart");
@@ -606,7 +687,7 @@ export default function Reports() {
       {/* My Reports Tab Content */}
       {(activeTab === "my-reports" || user?.role === "user") && (
         <>
-          {!reports || reports.length === 0 ? (
+          {!localReports || localReports.length === 0 ? (
             <Card className="p-6 md:p-12">
               <div className="flex flex-col items-center justify-center text-center">
                 <BarChart3 className="h-12 w-12 md:h-16 md:w-16 text-muted-foreground mb-4" />
@@ -627,21 +708,29 @@ export default function Reports() {
               </div>
             </Card>
           ) : (
-            <div className="flex flex-wrap gap-4 md:gap-6">
-              {reports.map((report) => (
-                <ReportCard
-                  key={report.id}
-                  report={report}
-                  onEdit={() => handleEditReport(report)}
-                  onDeleteClick={() => {
-                    setReportToDelete(report);
-                    setDeleteDialogOpen(true);
-                  }}
-                  canEdit={user?.role !== "user"}
-                  canDelete={user?.role !== "user"}
-                />
-              ))}
-            </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={reportIds} strategy={rectSortingStrategy}>
+                <div className="flex flex-wrap gap-4 md:gap-6">
+                  {localReports.map((report) => (
+                    <SortableReportCard
+                      key={report.id}
+                      report={report}
+                      onEdit={() => handleEditReport(report)}
+                      onDeleteClick={() => {
+                        setReportToDelete(report);
+                        setDeleteDialogOpen(true);
+                      }}
+                      canEdit={user?.role !== "user"}
+                      canDelete={user?.role !== "user"}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
         </>
       )}
@@ -1118,8 +1207,8 @@ function normalizeDate(dateStr: string): string {
   return ""; // Could not parse
 }
 
-// Report Card Component
-function ReportCard({
+// Sortable Report Card Wrapper
+function SortableReportCard({
   report,
   onEdit,
   onDeleteClick,
@@ -1131,6 +1220,51 @@ function ReportCard({
   onDeleteClick: () => void;
   canEdit: boolean;
   canDelete: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: report.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <ReportCard
+        report={report}
+        onEdit={onEdit}
+        onDeleteClick={onDeleteClick}
+        canEdit={canEdit}
+        canDelete={canDelete}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
+    </div>
+  );
+}
+
+// Report Card Component
+function ReportCard({
+  report,
+  onEdit,
+  onDeleteClick,
+  canEdit,
+  canDelete,
+  dragHandleProps,
+}: {
+  report: Report;
+  onEdit: () => void;
+  onDeleteClick: () => void;
+  canEdit: boolean;
+  canDelete: boolean;
+  dragHandleProps?: Record<string, any>;
 }) {
   // Initialize date range from report config (normalize to ISO format)
   const initialDateRange = {
@@ -1566,13 +1700,28 @@ function ReportCard({
         className="w-full lg:w-auto lg:min-w-[450px] lg:max-w-[600px]"
       >
         <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 space-y-0 pb-2">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-base md:text-lg truncate">{report.name}</CardTitle>
-            {reportData && (
-              <CardDescription className="text-xs mt-1">
-                {reportData.total_leads} total leads
-              </CardDescription>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {/* Drag Handle */}
+            {dragHandleProps && (
+              <button
+                type="button"
+                {...dragHandleProps}
+                className="cursor-grab active:cursor-grabbing p-1 -ml-1 rounded hover-elevate touch-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                aria-label={`Drag to reorder ${report.name}`}
+                aria-roledescription="sortable"
+                data-testid={`drag-handle-${report.id}`}
+              >
+                <GripVertical className="h-4 w-4 text-muted-foreground" />
+              </button>
             )}
+            <div className="flex-1 min-w-0">
+              <CardTitle className="text-base md:text-lg truncate">{report.name}</CardTitle>
+              {reportData && (
+                <CardDescription className="text-xs mt-1">
+                  {reportData.total_leads} total leads
+                </CardDescription>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             {canEdit && (

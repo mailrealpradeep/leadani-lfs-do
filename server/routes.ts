@@ -6482,6 +6482,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/company/reports/reorder - Reorder reports (drag and drop)
+  app.post("/api/company/reports/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { reportIds } = req.body;
+      
+      if (!Array.isArray(reportIds) || reportIds.length === 0) {
+        return res.status(400).json({ error: "reportIds array is required" });
+      }
+
+      // Verify all reports belong to the user's company
+      const companyId = req.companyId;
+      if (!companyId) {
+        return res.status(403).json({ error: "Company ID required" });
+      }
+
+      // Update display_order for each report
+      for (let i = 0; i < reportIds.length; i++) {
+        const reportId = reportIds[i];
+        const report = await storage.getReport(reportId);
+        
+        if (!report) {
+          continue; // Skip non-existent reports
+        }
+        
+        // Verify company ownership
+        if (report.company_id !== companyId) {
+          return res.status(403).json({ error: "Cannot reorder reports from other companies" });
+        }
+
+        await storage.updateReport(reportId, { display_order: i });
+      }
+
+      res.json({ success: true, message: "Reports reordered" });
+    } catch (error: any) {
+      console.error("Reorder reports error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // GET /api/company/reports/:reportId/data - Get report data (calculations and aggregations)
   app.get("/api/company/reports/:reportId/data", authMiddleware, async (req: AuthRequest, res) => {
     try {
