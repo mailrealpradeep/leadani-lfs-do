@@ -3153,6 +3153,7 @@ export interface WorkingTarget {
   target_type: 'fixed' | 'single_column' | 'compare_columns';
   period_type: 'daily' | 'weekly' | 'monthly';
   config: WorkingTargetConfig;
+  sheet_ids: string[] | null; // Restrict to specific sheets, null = all sheets
   is_active: boolean;
   created_by_user_id: string;
   created_at: string;
@@ -3168,6 +3169,7 @@ export const working_targets = pgTable('working_targets', {
   target_type: varchar('target_type', { length: 50 }).notNull(), // 'fixed' | 'single_column' | 'compare_columns'
   period_type: varchar('period_type', { length: 50 }).notNull().default('daily'), // 'daily' | 'weekly' | 'monthly'
   config: jsonb('config').notNull().$type<WorkingTargetConfig>(),
+  sheet_ids: text('sheet_ids').array(), // Optional: restrict to specific sheets, null = all sheets
   is_active: boolean('is_active').notNull().default(true),
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),

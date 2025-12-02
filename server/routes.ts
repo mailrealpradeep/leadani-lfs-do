@@ -13361,6 +13361,194 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // WORKING TARGETS API
+  // ============================================================================
+
+  // Get all working targets for company
+  app.get("/api/working-targets", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(400).json({ error: "Company ID required" });
+      }
+      const targets = await storage.getWorkingTargetsByCompany(req.companyId);
+      res.json(targets);
+    } catch (error: any) {
+      console.error("Get working targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get a specific working target
+  app.get("/api/working-targets/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getWorkingTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Working target not found" });
+      }
+      
+      // Verify company access
+      if (target.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(target);
+    } catch (error: any) {
+      console.error("Get working target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a working target (admin only)
+  app.post("/api/working-targets", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, description, target_type, period_type, config, sheet_ids, is_active } = req.body;
+      
+      if (!name || !target_type || !period_type || !config) {
+        return res.status(400).json({ error: "Missing required fields: name, target_type, period_type, config" });
+      }
+      
+      // Validate target_type
+      const validTypes = ['fixed', 'single_column', 'compare_columns'];
+      if (!validTypes.includes(target_type)) {
+        return res.status(400).json({ error: "Invalid target_type. Must be: fixed, single_column, or compare_columns" });
+      }
+      
+      // Validate period_type
+      const validPeriods = ['daily', 'weekly', 'monthly'];
+      if (!validPeriods.includes(period_type)) {
+        return res.status(400).json({ error: "Invalid period_type. Must be: daily, weekly, or monthly" });
+      }
+      
+      // Validate config based on target_type
+      if (target_type === 'fixed') {
+        if (!config.metric || !config.target_value) {
+          return res.status(400).json({ error: "Fixed target requires: metric, target_value" });
+        }
+      } else if (target_type === 'single_column') {
+        if (!config.column_id || !config.operator || !config.value) {
+          return res.status(400).json({ error: "Single column target requires: column_id, operator, value" });
+        }
+      } else if (target_type === 'compare_columns') {
+        if (!config.column_id || !config.from_value || !config.to_value) {
+          return res.status(400).json({ error: "Compare columns target requires: column_id, from_value, to_value" });
+        }
+      }
+      
+      const target = await storage.createWorkingTarget({
+        company_id: req.companyId!,
+        name,
+        description: description || null,
+        target_type,
+        period_type,
+        config,
+        sheet_ids: sheet_ids || null,
+        is_active: is_active !== undefined ? is_active : true,
+        created_by_user_id: req.userId!,
+      });
+      
+      res.status(201).json(target);
+    } catch (error: any) {
+      console.error("Create working target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a working target (admin only)
+  app.patch("/api/working-targets/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const existingTarget = await storage.getWorkingTarget(req.params.id);
+      if (!existingTarget) {
+        return res.status(404).json({ error: "Working target not found" });
+      }
+      
+      // Verify company access
+      if (existingTarget.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const { name, description, config, sheet_ids, is_active } = req.body;
+      
+      const updatePayload: Record<string, any> = {};
+      if (name !== undefined) updatePayload.name = name;
+      if (description !== undefined) updatePayload.description = description;
+      if (config !== undefined) updatePayload.config = config;
+      if (sheet_ids !== undefined) updatePayload.sheet_ids = sheet_ids;
+      if (is_active !== undefined) updatePayload.is_active = is_active;
+      
+      const updatedTarget = await storage.updateWorkingTarget(req.params.id, updatePayload);
+      res.json(updatedTarget);
+    } catch (error: any) {
+      console.error("Update working target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a working target (admin only)
+  app.delete("/api/working-targets/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const existingTarget = await storage.getWorkingTarget(req.params.id);
+      if (!existingTarget) {
+        return res.status(404).json({ error: "Working target not found" });
+      }
+      
+      // Verify company access
+      if (existingTarget.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      await storage.deleteWorkingTarget(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete working target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get working target results for current user
+  app.get("/api/working-targets/results/me", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(400).json({ error: "User ID required" });
+      }
+      
+      const { period_start, period_end } = req.query;
+      const periodStartDate = period_start ? new Date(period_start as string) : undefined;
+      const periodEndDate = period_end ? new Date(period_end as string) : undefined;
+      
+      const results = await storage.getWorkingTargetResultsByUser(
+        req.userId,
+        periodStartDate,
+        periodEndDate
+      );
+      res.json(results);
+    } catch (error: any) {
+      console.error("Get working target results error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get working target results for a specific target (admin only)
+  app.get("/api/working-targets/:id/results", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getWorkingTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Working target not found" });
+      }
+      
+      // Verify company access
+      if (target.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const results = await storage.getWorkingTargetResultsByTarget(req.params.id);
+      res.json(results);
+    } catch (error: any) {
+      console.error("Get working target results error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
