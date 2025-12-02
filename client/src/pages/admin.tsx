@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,9 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { useForm } from "react-hook-form";
@@ -254,6 +257,7 @@ function GeneralCompanySettings() {
   const { toast } = useToast();
   const [selectedTimezone, setSelectedTimezone] = useState<string>('');
   const [hasError, setHasError] = useState(false);
+  const [timezoneOpen, setTimezoneOpen] = useState(false);
 
   // Comprehensive IANA timezone list for fallback (covers all major regions worldwide)
   const fallbackTimezones = [
@@ -458,22 +462,52 @@ function GeneralCompanySettings() {
                 Used for webhook timestamps and date/time display across the system
               </p>
             </div>
-            <Select
-              value={displayedTimezone}
-              onValueChange={handleTimezoneChange}
-              disabled={updateMutation.isPending}
-            >
-              <SelectTrigger className="w-full max-w-md" data-testid="select-timezone">
-                <SelectValue placeholder="Not configured - Select timezone" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                {allTimezones.map((tz) => (
-                  <SelectItem key={tz.value} value={tz.value}>
-                    {tz.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={timezoneOpen} onOpenChange={setTimezoneOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={timezoneOpen}
+                  className="w-full max-w-md justify-between font-normal"
+                  disabled={updateMutation.isPending}
+                  data-testid="select-timezone"
+                >
+                  {displayedTimezone
+                    ? allTimezones.find((tz) => tz.value === displayedTimezone)?.label || displayedTimezone.replace(/_/g, ' ')
+                    : "Not configured - Select timezone"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[400px] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search timezone..." data-testid="input-search-timezone" />
+                  <CommandList>
+                    <CommandEmpty>No timezone found.</CommandEmpty>
+                    <CommandGroup className="max-h-[300px] overflow-auto">
+                      {allTimezones.map((tz) => (
+                        <CommandItem
+                          key={tz.value}
+                          value={tz.label}
+                          onSelect={() => {
+                            handleTimezoneChange(tz.value);
+                            setTimezoneOpen(false);
+                          }}
+                          data-testid={`timezone-option-${tz.value}`}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              displayedTimezone === tz.value ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          {tz.label}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             {updateMutation.isPending && (
               <p className="text-xs text-muted-foreground">Saving...</p>
             )}
