@@ -816,13 +816,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!targetSheetId) {
           throw new Error("Cannot create lead without a target sheet");
         }
+        
+        // Parse webhook's created_at timestamp for use as lead creation time
+        // This captures when the form was actually submitted, not when we processed it
+        let webhookCreatedAt: string | undefined = undefined;
+        const webhookTimestamp = leadData.created_at || incomingData.created_at;
+        if (webhookTimestamp) {
+          try {
+            const parsed = new Date(webhookTimestamp);
+            if (!isNaN(parsed.getTime())) {
+              webhookCreatedAt = parsed.toISOString();
+            }
+          } catch (e) {
+            console.log('Failed to parse webhook created_at, using system time:', webhookTimestamp);
+          }
+        }
+        
         return await storage.createLead({
           sheet_id: targetSheetId,
           owner_user_id: webhook.created_by_user_id,
           custom_fields: {
             name: leadData.name || "",
             mobile_no: leadData.mobile_no || "",
-            whatsapp: leadData.whatsapp || leadData.mobile_no || "",
+            whatsapp_no: leadData.whatsapp_no || leadData.mobile_no || "",
             lang: leadData.lang || "",
             occupation: leadData.occupation || "",
             qualification: leadData.qualification || "",
@@ -833,6 +849,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ...leadData,
           },
           meta: leadData.meta || {},
+          // Use webhook timestamp as lead creation time (fallback to system time if invalid)
+          created_at: webhookCreatedAt,
         });
       };
 

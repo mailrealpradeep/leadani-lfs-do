@@ -991,6 +991,8 @@ export class MemStorage implements IStorage {
   async createLead(insertLead: InsertLead): Promise<Lead> {
     const id = randomUUID();
     const now = new Date().toISOString();
+    // Use provided created_at (e.g., from webhook form submission time) or fall back to system time
+    const createdAt = insertLead.created_at || now;
     const lead: Lead = {
       id,
       sheet_id: insertLead.sheet_id,
@@ -999,7 +1001,7 @@ export class MemStorage implements IStorage {
       meta: insertLead.meta || {},
       deleted_at: null,
       deleted_by_user_id: null,
-      created_at: now,
+      created_at: createdAt,
       updated_at: now,
     };
     this.leads.set(id, lead);
@@ -2891,13 +2893,26 @@ export class PgStorage implements IStorage {
   async createLead(lead: InsertLead): Promise<Lead> {
     const id = randomUUID();
     const now = new Date();
+    // Use provided created_at (e.g., from webhook form submission time) or fall back to system time
+    let createdAt = now;
+    if (lead.created_at) {
+      try {
+        const parsedDate = new Date(lead.created_at);
+        if (!isNaN(parsedDate.getTime())) {
+          createdAt = parsedDate;
+        }
+      } catch (e) {
+        // If parsing fails, use system time as fallback
+        console.log('Failed to parse provided created_at, using system time:', lead.created_at);
+      }
+    }
     const newLead = {
       id,
       sheet_id: lead.sheet_id,
       owner_user_id: lead.owner_user_id || '',
       custom_fields: lead.custom_fields || {},
       meta: lead.meta || {},
-      created_at: now,
+      created_at: createdAt,
       updated_at: now,
     };
     await db.insert(dbSchema.leads).values(newLead);

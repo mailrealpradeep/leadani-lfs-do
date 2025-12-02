@@ -206,6 +206,8 @@ export const insertLeadSchema = z.object({
   // All business data goes into custom_fields - validated dynamically based on company's columns
   custom_fields: z.record(z.any()).default({}),
   meta: z.record(z.any()).default({}),
+  // Optional: allows overriding the created_at timestamp (e.g., from webhook form submission time)
+  created_at: z.string().optional(),
 });
 
 export type InsertLead = z.infer<typeof insertLeadSchema>;
