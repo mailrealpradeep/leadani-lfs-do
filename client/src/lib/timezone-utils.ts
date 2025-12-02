@@ -1,6 +1,8 @@
+import { format as dateFnsFormat, parseISO } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import type { Company } from "@shared/schema";
 
-const DEFAULT_TIMEZONE = "Asia/Kolkata";
+export const DEFAULT_TIMEZONE = "Asia/Kolkata";
 
 export function getCompanyTimezone(company: Company | null | undefined): string {
   return company?.settings?.timezone || DEFAULT_TIMEZONE;
@@ -175,4 +177,32 @@ export function isWithinThisMonthInTimezone(date: Date, timezone: string): boole
 
 export function formatDateISO(date: Date, timezone: string): string {
   return date.toLocaleDateString("en-CA", { timeZone: timezone });
+}
+
+/**
+ * Format a date using date-fns format patterns in a specific timezone.
+ * This allows using patterns like "h:mm a", "EEEE, MMM d", "MMM d, yyyy h:mm a", etc.
+ * @param date - The date to format (Date object or ISO string)
+ * @param timezone - The IANA timezone string
+ * @param formatPattern - date-fns format pattern (e.g., "h:mm a", "EEEE, MMM d, yyyy")
+ * @returns Formatted date string
+ */
+export function formatWithPatternInTimezone(
+  date: Date | string | null | undefined,
+  timezone: string,
+  formatPattern: string
+): string {
+  if (!date) return "";
+  
+  try {
+    const d = typeof date === "string" ? new Date(date) : date;
+    if (isNaN(d.getTime())) return "";
+    
+    // Convert to the target timezone
+    const zonedDate = toZonedTime(d, timezone);
+    return dateFnsFormat(zonedDate, formatPattern);
+  } catch (error) {
+    console.error("Error formatting date in timezone:", error);
+    return "";
+  }
 }
