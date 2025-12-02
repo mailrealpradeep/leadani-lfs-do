@@ -2728,7 +2728,7 @@ export class PgStorage implements IStorage {
         eq(dbSchema.leads.sheet_id, sheetId),
         isNull(dbSchema.leads.deleted_at)
       )
-    );
+    ).orderBy(desc(dbSchema.leads.created_at));
     return result.map(this.mapLead);
   }
 
