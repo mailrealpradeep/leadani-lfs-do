@@ -6865,13 +6865,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let filteredLeads = allLeads.filter(lead => {
         for (const [key, value] of Object.entries(filters)) {
           // Check direct properties (including enriched sheet_name, user_name), or custom_fields
-          const leadValue = lead[key as keyof typeof lead] || lead.custom_fields?.[key];
+          const leadValue = lead[key as keyof typeof lead] ?? lead.custom_fields?.[key];
           
-          // Handle null/undefined comparisons
-          if (value === null || value === "null") {
-            if (leadValue !== null && leadValue !== undefined && leadValue !== "") {
+          // Handle null/undefined comparisons - also treat "Unknown" as matching null/empty values
+          const isNullFilter = value === null || value === "null" || value === "Unknown";
+          const isNullValue = leadValue === null || leadValue === undefined || leadValue === "";
+          
+          if (isNullFilter) {
+            // Filter wants null/Unknown values - only include leads with null/empty values
+            if (!isNullValue) {
               return false;
             }
+          } else if (isNullValue) {
+            // Filter wants a specific value but lead has null - doesn't match
+            return false;
           } else if (leadValue !== value) {
             return false;
           }
