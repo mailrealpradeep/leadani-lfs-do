@@ -13064,6 +13064,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Name and metric_type are required" });
       }
       
+      // Validate column_id if present in config
+      const metricsRequiringColumn = ['status_transition', 'field_sum', 'field_average'];
+      if (config?.column_id && metricsRequiringColumn.includes(metric_type)) {
+        // Verify the column exists and belongs to this company
+        const column = await storage.getCustomColumn(config.column_id);
+        if (!column) {
+          return res.status(400).json({ error: "Invalid column reference - column not found" });
+        }
+        // Check if the column belongs to a sheet in this company
+        const sheet = await storage.getSheet(column.sheet_id);
+        if (!sheet || sheet.company_id !== req.companyId) {
+          return res.status(400).json({ error: "Column does not belong to your company" });
+        }
+      }
+      
       const kpiData = {
         name,
         description: description || null,
@@ -13099,6 +13114,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Extract only allowed updatable fields (never allow changing company_id or created_by_user_id)
       const { name, description, metric_type, scope_type, scope_sheet_ids, config, is_active } = req.body;
+      
+      // Validate column_id if present in config
+      const effectiveMetricType = metric_type || existingKpi.metric_type;
+      const metricsRequiringColumn = ['status_transition', 'field_sum', 'field_average'];
+      if (config?.column_id && metricsRequiringColumn.includes(effectiveMetricType)) {
+        // Verify the column exists and belongs to this company
+        const column = await storage.getCustomColumn(config.column_id);
+        if (!column) {
+          return res.status(400).json({ error: "Invalid column reference - column not found" });
+        }
+        // Check if the column belongs to a sheet in this company
+        const sheet = await storage.getSheet(column.sheet_id);
+        if (!sheet || sheet.company_id !== req.companyId) {
+          return res.status(400).json({ error: "Column does not belong to your company" });
+        }
+      }
       
       const updatePayload: Record<string, any> = {};
       if (name !== undefined) updatePayload.name = name;
