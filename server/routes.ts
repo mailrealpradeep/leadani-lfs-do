@@ -13002,6 +13002,310 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // COMPANY KPIs (New Simplified Target System)
+  // ============================================================================
+
+  // Get all KPIs for the user's company
+  app.get("/api/kpis", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.companyId) {
+        return res.status(403).json({ error: "Company access required" });
+      }
+      
+      const kpis = await storage.getCompanyKpisByCompany(req.user.companyId);
+      res.json(kpis);
+    } catch (error: any) {
+      console.error("Get KPIs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get a single KPI
+  app.get("/api/kpis/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const kpi = await storage.getCompanyKpi(req.params.id);
+      if (!kpi) {
+        return res.status(404).json({ error: "KPI not found" });
+      }
+      
+      // Verify company access
+      if (kpi.company_id !== req.user?.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(kpi);
+    } catch (error: any) {
+      console.error("Get KPI error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new KPI (admin only)
+  app.post("/api/kpis", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.companyId) {
+        return res.status(403).json({ error: "Company access required" });
+      }
+      
+      // Extract only allowed fields and enforce tenant ownership
+      const { name, description, metric_type, scope_type, scope_sheet_ids, config, is_active } = req.body;
+      
+      if (!name || !metric_type) {
+        return res.status(400).json({ error: "Name and metric_type are required" });
+      }
+      
+      const kpiData = {
+        name,
+        description: description || null,
+        metric_type,
+        scope_type: scope_type || "company_wide",
+        scope_sheet_ids: scope_sheet_ids || null,
+        config: config || {},
+        is_active: is_active !== false,
+        company_id: req.user.companyId,  // Always enforce from auth
+        created_by_user_id: req.user.id, // Always enforce from auth
+      };
+      
+      const kpi = await storage.createCompanyKpi(kpiData);
+      res.status(201).json(kpi);
+    } catch (error: any) {
+      console.error("Create KPI error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a KPI (admin only)
+  app.patch("/api/kpis/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const existingKpi = await storage.getCompanyKpi(req.params.id);
+      if (!existingKpi) {
+        return res.status(404).json({ error: "KPI not found" });
+      }
+      
+      // Verify company access
+      if (existingKpi.company_id !== req.user?.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Extract only allowed updatable fields (never allow changing company_id or created_by_user_id)
+      const { name, description, metric_type, scope_type, scope_sheet_ids, config, is_active } = req.body;
+      
+      const updatePayload: Record<string, any> = {};
+      if (name !== undefined) updatePayload.name = name;
+      if (description !== undefined) updatePayload.description = description;
+      if (metric_type !== undefined) updatePayload.metric_type = metric_type;
+      if (scope_type !== undefined) updatePayload.scope_type = scope_type;
+      if (scope_sheet_ids !== undefined) updatePayload.scope_sheet_ids = scope_sheet_ids;
+      if (config !== undefined) updatePayload.config = config;
+      if (is_active !== undefined) updatePayload.is_active = is_active;
+      
+      const updatedKpi = await storage.updateCompanyKpi(req.params.id, updatePayload);
+      res.json(updatedKpi);
+    } catch (error: any) {
+      console.error("Update KPI error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a KPI (admin only)
+  app.delete("/api/kpis/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const existingKpi = await storage.getCompanyKpi(req.params.id);
+      if (!existingKpi) {
+        return res.status(404).json({ error: "KPI not found" });
+      }
+      
+      // Verify company access
+      if (existingKpi.company_id !== req.user?.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Check if any targets are using this KPI
+      const targetsUsingKpi = await storage.getSimpleTargetsByKpi(req.params.id);
+      if (targetsUsingKpi.length > 0) {
+        return res.status(400).json({ 
+          error: "Cannot delete KPI that is being used by targets",
+          targets_count: targetsUsingKpi.length
+        });
+      }
+      
+      await storage.deleteCompanyKpi(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete KPI error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // SIMPLE TARGETS (References KPIs)
+  // ============================================================================
+
+  // Get all simple targets for the user's company
+  app.get("/api/simple-targets", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.companyId) {
+        return res.status(403).json({ error: "Company access required" });
+      }
+      
+      const targets = await storage.getSimpleTargetsByCompany(req.user.companyId);
+      
+      // Enrich with KPI names
+      const enrichedTargets = await Promise.all(targets.map(async (target) => {
+        const kpi = await storage.getCompanyKpi(target.kpi_id);
+        return {
+          ...target,
+          kpi_name: kpi?.name || 'Unknown KPI',
+          kpi_metric_type: kpi?.metric_type,
+        };
+      }));
+      
+      res.json(enrichedTargets);
+    } catch (error: any) {
+      console.error("Get simple targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get a single simple target
+  app.get("/api/simple-targets/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getSimpleTarget(req.params.id);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      
+      // Verify company access
+      if (target.company_id !== req.user?.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Enrich with KPI details
+      const kpi = await storage.getCompanyKpi(target.kpi_id);
+      res.json({
+        ...target,
+        kpi_name: kpi?.name || 'Unknown KPI',
+        kpi_metric_type: kpi?.metric_type,
+        kpi_config: kpi?.config,
+      });
+    } catch (error: any) {
+      console.error("Get simple target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new simple target (admin only)
+  app.post("/api/simple-targets", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.companyId) {
+        return res.status(403).json({ error: "Company access required" });
+      }
+      
+      // Extract only allowed fields
+      const { name, description, kpi_id, target_value, period_type, start_date, end_date, assignment_type, assigned_user_ids, is_active } = req.body;
+      
+      if (!name || !kpi_id || target_value === undefined) {
+        return res.status(400).json({ error: "Name, kpi_id, and target_value are required" });
+      }
+      
+      // Verify the KPI exists and belongs to this company
+      const kpi = await storage.getCompanyKpi(kpi_id);
+      if (!kpi) {
+        return res.status(400).json({ error: "KPI not found" });
+      }
+      if (kpi.company_id !== req.user.companyId) {
+        return res.status(403).json({ error: "KPI belongs to a different company" });
+      }
+      
+      const targetData = {
+        name,
+        description: description || null,
+        kpi_id,
+        target_value,
+        period_type: period_type || "daily",
+        start_date: start_date ? new Date(start_date) : new Date(),
+        end_date: end_date ? new Date(end_date) : null,
+        assignment_type: assignment_type || "all_users",
+        assigned_user_ids: assigned_user_ids || null,
+        is_active: is_active !== false,
+        company_id: req.user.companyId,  // Always enforce from auth
+        created_by_user_id: req.user.id, // Always enforce from auth
+      };
+      
+      const target = await storage.createSimpleTarget(targetData);
+      res.status(201).json(target);
+    } catch (error: any) {
+      console.error("Create simple target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a simple target (admin only)
+  app.patch("/api/simple-targets/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const existingTarget = await storage.getSimpleTarget(req.params.id);
+      if (!existingTarget) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      
+      // Verify company access
+      if (existingTarget.company_id !== req.user?.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Extract only allowed updatable fields (never allow changing company_id or created_by_user_id)
+      const { name, description, kpi_id, target_value, period_type, start_date, end_date, assignment_type, assigned_user_ids, is_active } = req.body;
+      
+      // If changing KPI, verify the new KPI exists and belongs to this company
+      if (kpi_id && kpi_id !== existingTarget.kpi_id) {
+        const kpi = await storage.getCompanyKpi(kpi_id);
+        if (!kpi || kpi.company_id !== req.user?.companyId) {
+          return res.status(400).json({ error: "Invalid KPI" });
+        }
+      }
+      
+      const updatePayload: Record<string, any> = {};
+      if (name !== undefined) updatePayload.name = name;
+      if (description !== undefined) updatePayload.description = description;
+      if (kpi_id !== undefined) updatePayload.kpi_id = kpi_id;
+      if (target_value !== undefined) updatePayload.target_value = target_value;
+      if (period_type !== undefined) updatePayload.period_type = period_type;
+      if (start_date !== undefined) updatePayload.start_date = start_date ? new Date(start_date) : null;
+      if (end_date !== undefined) updatePayload.end_date = end_date ? new Date(end_date) : null;
+      if (assignment_type !== undefined) updatePayload.assignment_type = assignment_type;
+      if (assigned_user_ids !== undefined) updatePayload.assigned_user_ids = assigned_user_ids;
+      if (is_active !== undefined) updatePayload.is_active = is_active;
+      
+      const updatedTarget = await storage.updateSimpleTarget(req.params.id, updatePayload);
+      res.json(updatedTarget);
+    } catch (error: any) {
+      console.error("Update simple target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a simple target (admin only)
+  app.delete("/api/simple-targets/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const existingTarget = await storage.getSimpleTarget(req.params.id);
+      if (!existingTarget) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      
+      // Verify company access
+      if (existingTarget.company_id !== req.user?.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      await storage.deleteSimpleTarget(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete simple target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup

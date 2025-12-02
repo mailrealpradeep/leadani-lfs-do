@@ -114,6 +114,20 @@ import type {
   SavedReportRecord,
   InsertSavedReport,
   SavedReportConfig,
+  // Company KPIs (New Simplified Target System)
+  CompanyKpi,
+  CompanyKpiRecord,
+  InsertCompanyKpi,
+  KpiConfig,
+  KpiMetricType,
+  // Simple Targets
+  SimpleTarget,
+  SimpleTargetRecord,
+  InsertSimpleTarget,
+  SimpleTargetPeriodType,
+  SimpleTargetProgress,
+  SimpleTargetProgressRecord,
+  InsertSimpleTargetProgress,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -507,6 +521,33 @@ export interface IStorage {
   deleteSavedReport(id: string): Promise<boolean>;
   duplicateSavedReport(id: string, targetCompanyId: string, userId: string): Promise<SavedReportRecord | undefined>;
   incrementReportRunCount(id: string): Promise<boolean>;
+
+  // =========================================================================
+  // COMPANY KPIs (New Simplified Target System)
+  // =========================================================================
+  
+  getCompanyKpi(id: string): Promise<CompanyKpiRecord | undefined>;
+  getCompanyKpisByCompany(companyId: string): Promise<CompanyKpiRecord[]>;
+  createCompanyKpi(kpi: InsertCompanyKpi): Promise<CompanyKpiRecord>;
+  updateCompanyKpi(id: string, updates: Partial<CompanyKpiRecord>): Promise<CompanyKpiRecord | undefined>;
+  deleteCompanyKpi(id: string): Promise<boolean>;
+
+  // =========================================================================
+  // SIMPLE TARGETS (References KPIs)
+  // =========================================================================
+  
+  getSimpleTarget(id: string): Promise<SimpleTargetRecord | undefined>;
+  getSimpleTargetsByCompany(companyId: string): Promise<SimpleTargetRecord[]>;
+  getSimpleTargetsByKpi(kpiId: string): Promise<SimpleTargetRecord[]>;
+  createSimpleTarget(target: InsertSimpleTarget): Promise<SimpleTargetRecord>;
+  updateSimpleTarget(id: string, updates: Partial<SimpleTargetRecord>): Promise<SimpleTargetRecord | undefined>;
+  deleteSimpleTarget(id: string): Promise<boolean>;
+
+  // Simple Target Progress
+  getSimpleTargetProgress(targetId: string, userId: string, periodStart: Date): Promise<SimpleTargetProgressRecord | undefined>;
+  getSimpleTargetProgressByUser(userId: string): Promise<SimpleTargetProgressRecord[]>;
+  getSimpleTargetProgressByTarget(targetId: string): Promise<SimpleTargetProgressRecord[]>;
+  createOrUpdateSimpleTargetProgress(progress: InsertSimpleTargetProgress): Promise<SimpleTargetProgressRecord>;
 }
 
 export class MemStorage implements IStorage {
@@ -2378,6 +2419,57 @@ export class MemStorage implements IStorage {
   }
   async incrementReportRunCount(_id: string): Promise<boolean> {
     return false;
+  }
+
+  // Company KPIs (not implemented in MemStorage - requires PostgreSQL)
+  async getCompanyKpi(_id: string): Promise<CompanyKpiRecord | undefined> {
+    return undefined;
+  }
+  async getCompanyKpisByCompany(_companyId: string): Promise<CompanyKpiRecord[]> {
+    return [];
+  }
+  async createCompanyKpi(_kpi: InsertCompanyKpi): Promise<CompanyKpiRecord> {
+    throw new Error("Company KPIs not implemented in MemStorage");
+  }
+  async updateCompanyKpi(_id: string, _updates: Partial<CompanyKpiRecord>): Promise<CompanyKpiRecord | undefined> {
+    return undefined;
+  }
+  async deleteCompanyKpi(_id: string): Promise<boolean> {
+    return false;
+  }
+
+  // Simple Targets (not implemented in MemStorage - requires PostgreSQL)
+  async getSimpleTarget(_id: string): Promise<SimpleTargetRecord | undefined> {
+    return undefined;
+  }
+  async getSimpleTargetsByCompany(_companyId: string): Promise<SimpleTargetRecord[]> {
+    return [];
+  }
+  async getSimpleTargetsByKpi(_kpiId: string): Promise<SimpleTargetRecord[]> {
+    return [];
+  }
+  async createSimpleTarget(_target: InsertSimpleTarget): Promise<SimpleTargetRecord> {
+    throw new Error("Simple Targets not implemented in MemStorage");
+  }
+  async updateSimpleTarget(_id: string, _updates: Partial<SimpleTargetRecord>): Promise<SimpleTargetRecord | undefined> {
+    return undefined;
+  }
+  async deleteSimpleTarget(_id: string): Promise<boolean> {
+    return false;
+  }
+
+  // Simple Target Progress (not implemented in MemStorage - requires PostgreSQL)
+  async getSimpleTargetProgress(_targetId: string, _userId: string, _periodStart: Date): Promise<SimpleTargetProgressRecord | undefined> {
+    return undefined;
+  }
+  async getSimpleTargetProgressByUser(_userId: string): Promise<SimpleTargetProgressRecord[]> {
+    return [];
+  }
+  async getSimpleTargetProgressByTarget(_targetId: string): Promise<SimpleTargetProgressRecord[]> {
+    return [];
+  }
+  async createOrUpdateSimpleTargetProgress(_progress: InsertSimpleTargetProgress): Promise<SimpleTargetProgressRecord> {
+    throw new Error("Simple Target Progress not implemented in MemStorage");
   }
 }
 
@@ -5907,6 +5999,144 @@ export class PgStorage implements IStorage {
       })
       .where(eq(dbSchema.saved_reports.id, id));
     return (result as any).rowCount > 0;
+  }
+
+  // =========================================================================
+  // COMPANY KPIs (New Simplified Target System)
+  // =========================================================================
+
+  async getCompanyKpi(id: string): Promise<CompanyKpiRecord | undefined> {
+    const rows = await db.select().from(dbSchema.company_kpis).where(eq(dbSchema.company_kpis.id, id));
+    return rows[0];
+  }
+
+  async getCompanyKpisByCompany(companyId: string): Promise<CompanyKpiRecord[]> {
+    return await db.select()
+      .from(dbSchema.company_kpis)
+      .where(eq(dbSchema.company_kpis.company_id, companyId))
+      .orderBy(desc(dbSchema.company_kpis.created_at));
+  }
+
+  async createCompanyKpi(kpi: InsertCompanyKpi): Promise<CompanyKpiRecord> {
+    const rows = await db.insert(dbSchema.company_kpis).values(kpi).returning();
+    return rows[0];
+  }
+
+  async updateCompanyKpi(id: string, updates: Partial<CompanyKpiRecord>): Promise<CompanyKpiRecord | undefined> {
+    const rows = await db.update(dbSchema.company_kpis)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.company_kpis.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteCompanyKpi(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.company_kpis).where(eq(dbSchema.company_kpis.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  // =========================================================================
+  // SIMPLE TARGETS (References KPIs)
+  // =========================================================================
+
+  async getSimpleTarget(id: string): Promise<SimpleTargetRecord | undefined> {
+    const rows = await db.select().from(dbSchema.simple_targets).where(eq(dbSchema.simple_targets.id, id));
+    return rows[0];
+  }
+
+  async getSimpleTargetsByCompany(companyId: string): Promise<SimpleTargetRecord[]> {
+    return await db.select()
+      .from(dbSchema.simple_targets)
+      .where(eq(dbSchema.simple_targets.company_id, companyId))
+      .orderBy(desc(dbSchema.simple_targets.created_at));
+  }
+
+  async getSimpleTargetsByKpi(kpiId: string): Promise<SimpleTargetRecord[]> {
+    return await db.select()
+      .from(dbSchema.simple_targets)
+      .where(eq(dbSchema.simple_targets.kpi_id, kpiId))
+      .orderBy(desc(dbSchema.simple_targets.created_at));
+  }
+
+  async createSimpleTarget(target: InsertSimpleTarget): Promise<SimpleTargetRecord> {
+    const rows = await db.insert(dbSchema.simple_targets).values(target).returning();
+    return rows[0];
+  }
+
+  async updateSimpleTarget(id: string, updates: Partial<SimpleTargetRecord>): Promise<SimpleTargetRecord | undefined> {
+    const rows = await db.update(dbSchema.simple_targets)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.simple_targets.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteSimpleTarget(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.simple_targets).where(eq(dbSchema.simple_targets.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  // =========================================================================
+  // SIMPLE TARGET PROGRESS
+  // =========================================================================
+
+  async getSimpleTargetProgress(targetId: string, userId: string, periodStart: Date): Promise<SimpleTargetProgressRecord | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.simple_target_progress)
+      .where(
+        and(
+          eq(dbSchema.simple_target_progress.target_id, targetId),
+          eq(dbSchema.simple_target_progress.user_id, userId),
+          eq(dbSchema.simple_target_progress.period_start, periodStart)
+        )
+      );
+    return rows[0];
+  }
+
+  async getSimpleTargetProgressByUser(userId: string): Promise<SimpleTargetProgressRecord[]> {
+    return await db.select()
+      .from(dbSchema.simple_target_progress)
+      .where(eq(dbSchema.simple_target_progress.user_id, userId))
+      .orderBy(desc(dbSchema.simple_target_progress.period_start));
+  }
+
+  async getSimpleTargetProgressByTarget(targetId: string): Promise<SimpleTargetProgressRecord[]> {
+    return await db.select()
+      .from(dbSchema.simple_target_progress)
+      .where(eq(dbSchema.simple_target_progress.target_id, targetId))
+      .orderBy(desc(dbSchema.simple_target_progress.period_start));
+  }
+
+  async createOrUpdateSimpleTargetProgress(progress: InsertSimpleTargetProgress): Promise<SimpleTargetProgressRecord> {
+    // Try to find existing progress record
+    const existing = await db.select()
+      .from(dbSchema.simple_target_progress)
+      .where(
+        and(
+          eq(dbSchema.simple_target_progress.target_id, progress.target_id),
+          eq(dbSchema.simple_target_progress.user_id, progress.user_id),
+          eq(dbSchema.simple_target_progress.period_start, progress.period_start)
+        )
+      );
+
+    if (existing.length > 0) {
+      // Update existing record
+      const rows = await db.update(dbSchema.simple_target_progress)
+        .set({
+          current_value: progress.current_value,
+          is_achieved: progress.is_achieved,
+          achieved_at: progress.achieved_at,
+          last_calculated_at: new Date(),
+          updated_at: new Date(),
+        })
+        .where(eq(dbSchema.simple_target_progress.id, existing[0].id))
+        .returning();
+      return rows[0];
+    } else {
+      // Create new record
+      const rows = await db.insert(dbSchema.simple_target_progress).values(progress).returning();
+      return rows[0];
+    }
   }
 }
 

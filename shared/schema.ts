@@ -1127,6 +1127,7 @@ export const reports = pgTable('reports', {
     value_field?: string; // Field to aggregate (for pivot tables)
     aggregation?: string; // Aggregation type for pivot tables
   }>().default({}).notNull(),
+  display_order: integer('display_order').default(0), // For ordering reports in the list
   is_user_report: boolean('is_user_report').default(false).notNull(), // true = visible to all users (filtered by their data), false = admin-only
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
@@ -2863,3 +2864,225 @@ export const insertSavedReportSchema = createInsertSchema(saved_reports).omit({
 });
 
 export type InsertSavedReportData = z.infer<typeof insertSavedReportSchema>;
+
+// ============================================================================
+// COMPANY KPIs (New Simplified Target System)
+// ============================================================================
+
+// KPI Metric Types
+export const kpiMetricTypes = [
+  "lead_count",           // Count leads matching criteria
+  "field_sum",            // Sum of a numeric column
+  "field_average",        // Average of a numeric column
+  "status_transition",    // Count leads that changed TO a specific status on a date
+  "lead_updates",         // Count of lead updates made
+  "hours_worked",         // Hours from attendance tracking
+  "conversion_rate",      // Ratio of two lead counts (e.g., Admission/Total)
+] as const;
+
+export type KpiMetricType = typeof kpiMetricTypes[number];
+
+// KPI filter condition for lead-based metrics
+export interface KpiFilterCondition {
+  column_key: string;                // Which column to filter on
+  operator: "equals" | "not_equals" | "contains" | "greater_than" | "less_than" | "is_empty" | "is_not_empty";
+  value: string | number | null;     // The value to compare against (stores option_id for dropdowns)
+}
+
+// KPI Configuration based on metric type
+export interface KpiConfig {
+  // For lead_count, status_transition metrics
+  column_key?: string;               // The column to measure (e.g., "lead_status")
+  target_value?: string;             // The value to match (e.g., option_id for "Admission")
+  
+  // For field_sum, field_average metrics
+  numeric_column_key?: string;       // The numeric column to aggregate
+  
+  // For conversion_rate metric
+  numerator_column_key?: string;     // Column for numerator count
+  numerator_value?: string;          // Value to count for numerator
+  denominator_column_key?: string;   // Column for denominator count (optional, defaults to all leads)
+  denominator_value?: string;        // Value to count for denominator
+  
+  // Optional filters applied to all metrics
+  filters?: KpiFilterCondition[];
+  logical_operator?: "and" | "or";   // How filters are combined
+}
+
+// Company KPI definition
+export interface CompanyKpi {
+  id: string;
+  company_id: string;
+  name: string;                      // e.g., "Admissions", "Revenue", "Lead Updates"
+  description: string | null;
+  metric_type: KpiMetricType;
+  config: KpiConfig;
+  
+  // Scope
+  scope_type: "company_wide" | "specific_sheets";
+  scope_sheet_ids: string[] | null;  // Only if scope_type = "specific_sheets"
+  
+  // Display settings
+  display_format?: string;           // e.g., "number", "currency", "percentage"
+  display_prefix?: string;           // e.g., "₹" for currency
+  display_suffix?: string;           // e.g., "%" for percentage
+  
+  // Metadata
+  is_active: boolean;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Database table for Company KPIs
+export const company_kpis = pgTable('company_kpis', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  metric_type: varchar('metric_type', { length: 50 }).notNull(),
+  config: jsonb('config').notNull().$type<KpiConfig>(),
+  
+  // Scope
+  scope_type: varchar('scope_type', { length: 50 }).notNull().default('company_wide'),
+  scope_sheet_ids: jsonb('scope_sheet_ids').$type<string[]>(),
+  
+  // Display settings
+  display_format: varchar('display_format', { length: 50 }),
+  display_prefix: varchar('display_prefix', { length: 20 }),
+  display_suffix: varchar('display_suffix', { length: 20 }),
+  
+  // Metadata
+  is_active: boolean('is_active').notNull().default(true),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type CompanyKpiRecord = typeof company_kpis.$inferSelect;
+export type InsertCompanyKpi = typeof company_kpis.$inferInsert;
+
+export const insertCompanyKpiSchema = createInsertSchema(company_kpis).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertCompanyKpiData = z.infer<typeof insertCompanyKpiSchema>;
+
+// ============================================================================
+// SIMPLIFIED TARGETS (References KPIs)
+// ============================================================================
+
+// Target period types
+export const simpleTargetPeriodTypes = [
+  "daily",
+  "weekly", 
+  "monthly",
+  "custom",      // Custom date range
+] as const;
+
+export type SimpleTargetPeriodType = typeof simpleTargetPeriodTypes[number];
+
+// Simple Target definition
+export interface SimpleTarget {
+  id: string;
+  company_id: string;
+  kpi_id: string;                    // References the KPI to measure
+  name: string;                      // e.g., "Daily Admissions Target"
+  description: string | null;
+  
+  // Target value
+  target_value: number;              // The value to achieve
+  
+  // Time period
+  period_type: SimpleTargetPeriodType;
+  start_date: string;                // ISO date - when target starts
+  end_date: string | null;           // ISO date - null for recurring
+  
+  // Assignment
+  assignment_type: "all_users" | "specific_users";
+  assigned_user_ids: string[] | null; // Only if assignment_type = "specific_users"
+  
+  // Status
+  is_active: boolean;
+  
+  // Metadata
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Database table for Simple Targets
+export const simple_targets = pgTable('simple_targets', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  kpi_id: varchar('kpi_id').notNull().references(() => company_kpis.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  
+  // Target value
+  target_value: doublePrecision('target_value').notNull(),
+  
+  // Time period
+  period_type: varchar('period_type', { length: 50 }).notNull().default('daily'),
+  start_date: timestamp('start_date').notNull(),
+  end_date: timestamp('end_date'),
+  
+  // Assignment
+  assignment_type: varchar('assignment_type', { length: 50 }).notNull().default('all_users'),
+  assigned_user_ids: jsonb('assigned_user_ids').$type<string[]>(),
+  
+  // Status
+  is_active: boolean('is_active').notNull().default(true),
+  
+  // Metadata
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SimpleTargetRecord = typeof simple_targets.$inferSelect;
+export type InsertSimpleTarget = typeof simple_targets.$inferInsert;
+
+export const insertSimpleTargetSchema = createInsertSchema(simple_targets).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertSimpleTargetData = z.infer<typeof insertSimpleTargetSchema>;
+
+// Simple Target Progress (tracking per user per period)
+export interface SimpleTargetProgress {
+  id: string;
+  target_id: string;
+  user_id: string;
+  period_start: string;              // ISO date - start of the period
+  period_end: string;                // ISO date - end of the period
+  current_value: number;             // Current progress
+  target_value: number;              // Target to achieve
+  is_achieved: boolean;
+  achieved_at: string | null;
+  last_calculated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const simple_target_progress = pgTable('simple_target_progress', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  target_id: varchar('target_id').notNull().references(() => simple_targets.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  period_start: timestamp('period_start').notNull(),
+  period_end: timestamp('period_end').notNull(),
+  current_value: doublePrecision('current_value').notNull().default(0),
+  target_value: doublePrecision('target_value').notNull(),
+  is_achieved: boolean('is_achieved').notNull().default(false),
+  achieved_at: timestamp('achieved_at'),
+  last_calculated_at: timestamp('last_calculated_at').defaultNow().notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SimpleTargetProgressRecord = typeof simple_target_progress.$inferSelect;
+export type InsertSimpleTargetProgress = typeof simple_target_progress.$inferInsert;

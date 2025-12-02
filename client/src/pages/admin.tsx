@@ -30,7 +30,7 @@ import { QuickFilterManager } from "@/components/quick-filter-manager";
 import { MobileCardSettings } from "@/components/mobile-card-settings";
 import { NotificationSettings } from "@/components/notification-settings";
 import { HighlightingRulesManager } from "@/components/highlighting-rules-manager";
-import { TargetManagement } from "@/components/target-management";
+import { KpiManagement } from "@/components/kpi-management";
 import { BackupManager } from "@/components/backup-manager";
 import type { Sheet } from "@shared/schema";
 
@@ -905,7 +905,7 @@ function CompanyAdminView() {
             </AccordionTrigger>
             <AccordionContent>
               <div className="pt-2">
-                <TargetManagement />
+                <KpiManagement />
               </div>
             </AccordionContent>
           </AccordionItem>
