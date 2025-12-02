@@ -3889,10 +3889,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.get("/api/sheets/:id/leads", authMiddleware, requireSheetAccess, async (req: AuthRequest, res) => {
     try {
-      const leads = await storage.getLeadsBySheetId(req.params.id);
-      // Inject created_at into custom_fields for each lead
-      const enrichedLeads = leads.map(injectCreatedAtToCustomFields);
-      res.json(enrichedLeads);
+      const sheetId = req.params.id;
+      
+      // Check if pagination is requested via query params
+      const page = req.query.page ? Math.max(1, parseInt(req.query.page as string) || 1) : undefined;
+      const limit = req.query.limit ? Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50)) : undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortOrder = (req.query.sortOrder as string) === 'asc' ? 'asc' : 'desc';
+      
+      // Parse filters from query string (JSON encoded)
+      let filters: Record<string, any> = {};
+      if (req.query.filters) {
+        try {
+          filters = JSON.parse(req.query.filters as string);
+        } catch {
+          // Invalid filters, ignore
+        }
+      }
+      
+      // If pagination params are provided, use paginated query
+      if (page !== undefined || limit !== undefined || sortBy || Object.keys(filters).length > 0) {
+        const result = await storage.getLeadsBySheetIds({
+          sheetIds: [sheetId],
+          page: page || 1,
+          limit: limit || 50,
+          sortBy: sortBy || 'created_at',
+          sortOrder,
+          filters,
+        });
+        
+        // Inject created_at into custom_fields for each lead
+        const enrichedLeads = result.leads.map(injectCreatedAtToCustomFields);
+        
+        res.json({
+          leads: enrichedLeads,
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          totalPages: result.totalPages,
+        });
+      } else {
+        // Legacy behavior: return all leads (for backwards compatibility)
+        const leads = await storage.getLeadsBySheetId(sheetId);
+        // Inject created_at into custom_fields for each lead
+        const enrichedLeads = leads.map(injectCreatedAtToCustomFields);
+        res.json(enrichedLeads);
+      }
     } catch (error: any) {
       console.error("Get leads error:", error);
       res.status(500).json({ error: error.message });

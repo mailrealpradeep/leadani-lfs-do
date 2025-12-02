@@ -270,18 +270,13 @@ export function SpreadsheetGrid({
   const resizeStartWidth = useRef<number>(0);
   const hasMovedRef = useRef<boolean>(false);
 
-  // Single-sheet mode data fetching
-  const { data: singleSheetLeads = [], isLoading: isLoadingSingleLeads } = useQuery<Lead[]>({
-    queryKey: ["/api/sheets", activeSheetId, "leads"],
-    enabled: !!activeSheetId && !isMultiMode,
-  });
-
+  // Column data fetching - needed first for buildBackendFilters
   const { data: singleSheetColumns = [], isLoading: isLoadingSingleColumns } = useQuery<CustomColumn[]>({
     queryKey: ["/api/sheets", activeSheetId, "columns"],
     enabled: !!activeSheetId && !isMultiMode,
   });
 
-  // Company-level columns for multi-sheet mode - fetch first so buildBackendFilters can use it
+  // Company-level columns for multi-sheet mode
   const { data: companyColumns = [], isLoading: isLoadingCompanyColumns, error: companyColumnsError } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
     enabled: isMultiMode,
@@ -289,7 +284,9 @@ export function SpreadsheetGrid({
     retry: 2,
   });
 
-  // Multi-sheet mode data fetching - server-side filtering, sorting, and pagination
+  // Use appropriate columns based on mode
+  const activeColumns = isMultiMode ? companyColumns : singleSheetColumns;
+
   // Build filters object for backend - convert frontend filter format to backend format
   const buildBackendFilters = () => {
     const filters: Record<string, any> = {};
@@ -305,8 +302,8 @@ export function SpreadsheetGrid({
       } 
       // Handle dropdown exact match filters
       else if (typeof value === 'string') {
-        // Check if this column is a dropdown type - use companyColumns directly
-        const col = companyColumns.find(c => c.column_key === key);
+        // Check if this column is a dropdown type
+        const col = activeColumns.find(c => c.column_key === key);
         if (col?.type === 'dropdown') {
           filters[key] = { value: value, exactMatch: true };
         } else {
@@ -323,7 +320,42 @@ export function SpreadsheetGrid({
     }
     return filters;
   };
-  
+
+  // Single-sheet mode data fetching - now with server-side pagination
+  interface SingleSheetPaginatedResponse {
+    leads: Lead[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }
+
+  const { 
+    data: singleSheetData, 
+    isLoading: isLoadingSingleLeads,
+    isFetching: isFetchingSingleLeads,
+  } = useQuery<SingleSheetPaginatedResponse>({
+    queryKey: ["/api/sheets", activeSheetId, "leads", pagination.page, pagination.limit, sortColumn, sortDirection, columnFilters, searchQuery, thoughtFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(pagination.page),
+        limit: String(pagination.limit),
+        sortBy: sortColumn || "created_at",
+        sortOrder: sortColumn ? sortDirection : "desc",
+        filters: JSON.stringify(buildBackendFilters()),
+      });
+      const response = await fetch(`/api/sheets/${activeSheetId}/leads?${params}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch leads');
+      }
+      return response.json();
+    },
+    enabled: !!activeSheetId && !isMultiMode && singleSheetColumns.length > 0,
+  });
+
+  // Multi-sheet mode data fetching - server-side filtering, sorting, and pagination
   const { 
     data: multiSheetData, 
     isLoading: isLoadingMultiLeads,
@@ -341,37 +373,67 @@ export function SpreadsheetGrid({
       });
       return response;
     },
-    enabled: isMultiMode && activeSheetIds.length > 0,
+    enabled: isMultiMode && activeSheetIds.length > 0 && companyColumns.length > 0,
   });
 
-  // Update pagination state when multi-sheet data changes
+  // Update pagination state when data changes (both single and multi-sheet mode)
   useEffect(() => {
-    if (multiSheetData && isMultiMode) {
+    if (isMultiMode && multiSheetData) {
       setPagination({
         page: multiSheetData.page,
         limit: multiSheetData.limit,
         total: multiSheetData.total,
         totalPages: multiSheetData.totalPages,
       });
-    }
-  }, [multiSheetData, isMultiMode, setPagination]);
-
-  // Reset to page 1 when sheet selection, search, filters, or sort changes in multi-mode
-  // Use JSON.stringify for stable dependency reference of columnFilters
-  const columnFiltersKey = JSON.stringify(columnFilters);
-  useEffect(() => {
-    if (isMultiMode) {
+    } else if (!isMultiMode && singleSheetData) {
       setPagination({
-        page: 1,
-        limit: pagination.limit,
-        total: pagination.total,
-        totalPages: pagination.totalPages,
+        page: singleSheetData.page,
+        limit: singleSheetData.limit,
+        total: singleSheetData.total,
+        totalPages: singleSheetData.totalPages,
       });
     }
-  }, [activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, isMultiMode, thoughtFilter]);
+  }, [multiSheetData, singleSheetData, isMultiMode, setPagination]);
+
+  // Reset to page 1 when sheet selection, search, filters, or sort changes
+  // Use JSON.stringify for stable dependency reference of columnFilters
+  const columnFiltersKey = JSON.stringify(columnFilters);
+  const prevDepsRef = useRef({ activeSheetId: "", activeSheetIdsLength: 0, searchQuery: "", columnFiltersKey: "", sortColumn: "", sortDirection: "", thoughtFilter: "" });
+  useEffect(() => {
+    const prevDeps = prevDepsRef.current;
+    // Only reset page if dependencies actually changed (not on mount)
+    const depsChanged = 
+      prevDeps.activeSheetId !== activeSheetId ||
+      prevDeps.activeSheetIdsLength !== activeSheetIds.length ||
+      prevDeps.searchQuery !== searchQuery ||
+      prevDeps.columnFiltersKey !== columnFiltersKey ||
+      prevDeps.sortColumn !== (sortColumn || "") ||
+      prevDeps.sortDirection !== sortDirection ||
+      prevDeps.thoughtFilter !== (thoughtFilter || "");
+    
+    if (depsChanged && pagination.page !== 1) {
+      // Use a stable default limit from context
+      setPagination({
+        page: 1,
+        limit: pagination.limit || 50,
+        total: 0,
+        totalPages: 1,
+      });
+    }
+    
+    prevDepsRef.current = {
+      activeSheetId: activeSheetId || "",
+      activeSheetIdsLength: activeSheetIds.length,
+      searchQuery: searchQuery || "",
+      columnFiltersKey,
+      sortColumn: sortColumn || "",
+      sortDirection,
+      thoughtFilter: thoughtFilter || "",
+    };
+  }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
 
   // Unified data access
-  const leads = isMultiMode ? (multiSheetData?.leads || []) : singleSheetLeads;
+  const leads = isMultiMode ? (multiSheetData?.leads || []) : (singleSheetData?.leads || []);
   const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
   const sheetNamesMap = multiSheetData?.sheetNames || {};
 
@@ -1195,136 +1257,15 @@ export function SpreadsheetGrid({
     }
   };
 
-  // In multi-mode, server handles filtering/sorting; in single-mode, do it client-side
-  const filteredAndSortedLeads = isMultiMode
-    ? leads // Server handles thought filter now
-    : leads
-        .filter((lead) => {
-          // User row filters - hide rows that match any active filter
-          if (!evaluateRowFilters(lead)) {
-            return false;
-          }
-          
-          // Thought filter - filter by Sure/May Be status
-          if (thoughtFilter) {
-            const leadThought = (lead.meta as any)?.thought;
-            if (leadThought !== thoughtFilter) return false;
-          }
-          
-          // Search query filter - search across all custom fields
-          if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            const matchesSearch = Object.values(lead.custom_fields).some(value => 
-              String(value || "").toLowerCase().includes(query)
-            );
-            if (!matchesSearch) return false;
-          }
-          
-          // Column filters
-          for (const [columnKey, filterValue] of Object.entries(columnFilters)) {
-            if (!filterValue) continue;
-            
-            const cellValue = getLeadValue(lead, columnKey);
-            const column = columns.find(c => c.key === columnKey);
-            
-            // Date range filter
-            if (typeof filterValue === "object" && "type" in filterValue && filterValue.from && filterValue.to) {
-              if (!cellValue) return false;
-              
-              try {
-                // Parse the cell value as a date (supports dd/MM/yyyy, ISO strings, etc.)
-                let cellDate: Date;
-                if (typeof cellValue === "string") {
-                  // Try to parse as dd/MM/yyyy first
-                  const parts = cellValue.split("/");
-                  if (parts.length === 3) {
-                    const [day, month, year] = parts;
-                    cellDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-                  } else {
-                    cellDate = parseISO(cellValue);
-                  }
-                } else {
-                  cellDate = new Date(cellValue);
-                }
-                
-                if (!isWithinInterval(cellDate, { start: filterValue.from, end: filterValue.to })) {
-                  return false;
-                }
-              } catch (e) {
-                return false;
-              }
-            }
-            // Dropdown filter (string) - exact match
-            else if (typeof filterValue === "string" && column?.type === "dropdown") {
-              const cellValueStr = String(cellValue || "");
-              if (cellValueStr !== filterValue) {
-                return false;
-              }
-            }
-            // Text filter (string) - substring match
-            else if (typeof filterValue === "string") {
-              const cellValueStr = String(cellValue || "").toLowerCase();
-              const filter = filterValue.toLowerCase();
-              if (!cellValueStr.includes(filter)) {
-                return false;
-              }
-            }
-          }
-          
-          return true;
-        })
-        .sort((a, b) => {
-          // Default to created_at descending if no sort column specified
-          const effectiveSortColumn = sortColumn || "created_at";
-          const effectiveSortDirection = sortColumn ? sortDirection : "desc";
-          
-          const aVal = getLeadValue(a, effectiveSortColumn);
-          const bVal = getLeadValue(b, effectiveSortColumn);
-          
-          // Get the column to check its type
-          const column = customColumns.find(col => col.column_key === effectiveSortColumn);
-          const columnType = column?.type;
-          
-          // Handle created_at as a date type
-          if (effectiveSortColumn === "created_at") {
-            // Parse dates robustly - handle both ISO and PostgreSQL formats
-            const parseCreatedAt = (dateStr: string | Date | undefined): number => {
-              if (!dateStr) return -Infinity;
-              // If it's already a Date object
-              if (dateStr instanceof Date) return dateStr.getTime();
-              // Convert PostgreSQL format (space) to ISO format (T) for consistent parsing
-              const isoStr = String(dateStr).replace(' ', 'T');
-              const timestamp = new Date(isoStr).getTime();
-              return isNaN(timestamp) ? -Infinity : timestamp;
-            };
-            const aDate = parseCreatedAt(a.created_at);
-            const bDate = parseCreatedAt(b.created_at);
-            const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
-            return effectiveSortDirection === "asc" ? comparison : -comparison;
-          }
-          
-          // Handle numeric types (number and percentage)
-          if (columnType === "number" || columnType === "percentage") {
-            const aNum = aVal != null && aVal !== "" ? parseFloat(String(aVal)) : -Infinity;
-            const bNum = bVal != null && bVal !== "" ? parseFloat(String(bVal)) : -Infinity;
-            const comparison = aNum > bNum ? 1 : aNum < bNum ? -1 : 0;
-            return effectiveSortDirection === "asc" ? comparison : -comparison;
-          }
-          
-          // Handle date and datetime types
-          if (columnType === "date" || columnType === "datetime") {
-            const aDate = aVal ? new Date(aVal).getTime() : -Infinity;
-            const bDate = bVal ? new Date(bVal).getTime() : -Infinity;
-            const comparison = aDate > bDate ? 1 : aDate < bDate ? -1 : 0;
-            return effectiveSortDirection === "asc" ? comparison : -comparison;
-          }
-          
-          // Handle other types as strings
-          const aStr = String(aVal || "");
-          const bStr = String(bVal || "");
-          const comparison = aStr > bStr ? 1 : aStr < bStr ? -1 : 0;
-          return effectiveSortDirection === "asc" ? comparison : -comparison;
-        });
+  // Server handles filtering/sorting for both modes now
+  // Only apply user row filters (Hide/Show Rows) client-side as they're per-user settings
+  const filteredAndSortedLeads = leads.filter((lead) => {
+    // User row filters - hide rows that match any active filter (client-side only)
+    if (!evaluateRowFilters(lead)) {
+      return false;
+    }
+    return true;
+  });
 
   // Use ordered columns for visible columns (respecting user's custom order)
   const visibleColumns = orderedColumns.filter((col) => !hiddenColumns.has(col.key));
@@ -2609,8 +2550,8 @@ export function SpreadsheetGrid({
             </div>
           </div>
           
-          {/* Pagination for multi-sheet mode */}
-          {isMultiMode && pagination.totalPages > 1 && (
+          {/* Pagination controls - show for both single and multi-sheet modes */}
+          {pagination.total > 0 && (
             <div className="flex items-center justify-between border-t bg-background px-4 py-3">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Rows per page:</span>
@@ -2620,54 +2561,61 @@ export function SpreadsheetGrid({
                   onChange={(e) => handleLimitChange(Number(e.target.value))}
                   data-testid="select-page-size"
                 >
-                  <option value={25}>25</option>
                   <option value={50}>50</option>
                   <option value={100}>100</option>
+                  <option value={200}>200</option>
                 </select>
+                <span className="text-sm text-muted-foreground ml-2">
+                  Showing {((pagination.page - 1) * pagination.limit) + 1}-{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total.toLocaleString()} leads
+                </span>
               </div>
               
               <div className="flex items-center gap-4">
-                <span className="text-sm text-muted-foreground">
-                  Page {pagination.page} of {pagination.totalPages}
-                </span>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handlePageChange(1)}
-                    disabled={pagination.page === 1}
-                    data-testid="button-first-page"
-                  >
-                    First
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handlePageChange(pagination.page - 1)}
-                    disabled={pagination.page === 1}
-                    data-testid="button-prev-page"
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handlePageChange(pagination.page + 1)}
-                    disabled={pagination.page === pagination.totalPages}
-                    data-testid="button-next-page"
-                  >
-                    Next
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handlePageChange(pagination.totalPages)}
-                    disabled={pagination.page === pagination.totalPages}
-                    data-testid="button-last-page"
-                  >
-                    Last
-                  </Button>
-                </div>
+                {pagination.totalPages > 1 && (
+                  <>
+                    <span className="text-sm text-muted-foreground">
+                      Page {pagination.page} of {pagination.totalPages}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(1)}
+                        disabled={pagination.page === 1}
+                        data-testid="button-first-page"
+                      >
+                        First
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(pagination.page - 1)}
+                        disabled={pagination.page === 1}
+                        data-testid="button-prev-page"
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(pagination.page + 1)}
+                        disabled={pagination.page === pagination.totalPages}
+                        data-testid="button-next-page"
+                      >
+                        Next
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(pagination.totalPages)}
+                        disabled={pagination.page === pagination.totalPages}
+                        data-testid="button-last-page"
+                      >
+                        Last
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
