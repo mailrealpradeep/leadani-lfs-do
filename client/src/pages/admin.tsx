@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
 import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown } from "lucide-react";
+import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -259,131 +260,37 @@ function GeneralCompanySettings() {
   const [hasError, setHasError] = useState(false);
   const [timezoneOpen, setTimezoneOpen] = useState(false);
 
-  // Comprehensive IANA timezone list for fallback (covers all major regions worldwide)
-  const fallbackTimezones = [
-    // Africa
-    { value: 'Africa/Abidjan', label: 'Africa/Abidjan' },
-    { value: 'Africa/Accra', label: 'Africa/Accra' },
-    { value: 'Africa/Addis_Ababa', label: 'Africa/Addis Ababa' },
-    { value: 'Africa/Algiers', label: 'Africa/Algiers' },
-    { value: 'Africa/Cairo', label: 'Africa/Cairo' },
-    { value: 'Africa/Casablanca', label: 'Africa/Casablanca' },
-    { value: 'Africa/Johannesburg', label: 'Africa/Johannesburg' },
-    { value: 'Africa/Lagos', label: 'Africa/Lagos' },
-    { value: 'Africa/Nairobi', label: 'Africa/Nairobi' },
-    { value: 'Africa/Tunis', label: 'Africa/Tunis' },
-    // Americas - North
-    { value: 'America/Anchorage', label: 'America/Anchorage' },
-    { value: 'America/Chicago', label: 'America/Chicago' },
-    { value: 'America/Denver', label: 'America/Denver' },
-    { value: 'America/Edmonton', label: 'America/Edmonton' },
-    { value: 'America/Halifax', label: 'America/Halifax' },
-    { value: 'America/Los_Angeles', label: 'America/Los Angeles' },
-    { value: 'America/Mexico_City', label: 'America/Mexico City' },
-    { value: 'America/New_York', label: 'America/New York' },
-    { value: 'America/Phoenix', label: 'America/Phoenix' },
-    { value: 'America/Toronto', label: 'America/Toronto' },
-    { value: 'America/Vancouver', label: 'America/Vancouver' },
-    { value: 'America/Winnipeg', label: 'America/Winnipeg' },
-    // Americas - South
-    { value: 'America/Argentina/Buenos_Aires', label: 'America/Argentina/Buenos Aires' },
-    { value: 'America/Bogota', label: 'America/Bogota' },
-    { value: 'America/Caracas', label: 'America/Caracas' },
-    { value: 'America/Lima', label: 'America/Lima' },
-    { value: 'America/Santiago', label: 'America/Santiago' },
-    { value: 'America/Sao_Paulo', label: 'America/Sao Paulo' },
-    // Americas - Central & Caribbean
-    { value: 'America/Guatemala', label: 'America/Guatemala' },
-    { value: 'America/Havana', label: 'America/Havana' },
-    { value: 'America/Jamaica', label: 'America/Jamaica' },
-    { value: 'America/Panama', label: 'America/Panama' },
-    // Asia - East
-    { value: 'Asia/Hong_Kong', label: 'Asia/Hong Kong' },
-    { value: 'Asia/Seoul', label: 'Asia/Seoul' },
-    { value: 'Asia/Shanghai', label: 'Asia/Shanghai' },
-    { value: 'Asia/Taipei', label: 'Asia/Taipei' },
-    { value: 'Asia/Tokyo', label: 'Asia/Tokyo' },
-    // Asia - Southeast
-    { value: 'Asia/Bangkok', label: 'Asia/Bangkok' },
-    { value: 'Asia/Ho_Chi_Minh', label: 'Asia/Ho Chi Minh' },
-    { value: 'Asia/Jakarta', label: 'Asia/Jakarta' },
-    { value: 'Asia/Kuala_Lumpur', label: 'Asia/Kuala Lumpur' },
-    { value: 'Asia/Manila', label: 'Asia/Manila' },
-    { value: 'Asia/Singapore', label: 'Asia/Singapore' },
-    // Asia - South
-    { value: 'Asia/Colombo', label: 'Asia/Colombo' },
-    { value: 'Asia/Dhaka', label: 'Asia/Dhaka' },
-    { value: 'Asia/Karachi', label: 'Asia/Karachi' },
-    { value: 'Asia/Kathmandu', label: 'Asia/Kathmandu' },
-    { value: 'Asia/Kolkata', label: 'Asia/Kolkata' },
-    // Asia - West & Middle East
-    { value: 'Asia/Baghdad', label: 'Asia/Baghdad' },
-    { value: 'Asia/Beirut', label: 'Asia/Beirut' },
-    { value: 'Asia/Dubai', label: 'Asia/Dubai' },
-    { value: 'Asia/Jerusalem', label: 'Asia/Jerusalem' },
-    { value: 'Asia/Kuwait', label: 'Asia/Kuwait' },
-    { value: 'Asia/Qatar', label: 'Asia/Qatar' },
-    { value: 'Asia/Riyadh', label: 'Asia/Riyadh' },
-    { value: 'Asia/Tehran', label: 'Asia/Tehran' },
-    // Asia - Central
-    { value: 'Asia/Almaty', label: 'Asia/Almaty' },
-    { value: 'Asia/Tashkent', label: 'Asia/Tashkent' },
-    { value: 'Asia/Yekaterinburg', label: 'Asia/Yekaterinburg' },
-    // Australia & Pacific
-    { value: 'Australia/Adelaide', label: 'Australia/Adelaide' },
-    { value: 'Australia/Brisbane', label: 'Australia/Brisbane' },
-    { value: 'Australia/Darwin', label: 'Australia/Darwin' },
-    { value: 'Australia/Hobart', label: 'Australia/Hobart' },
-    { value: 'Australia/Melbourne', label: 'Australia/Melbourne' },
-    { value: 'Australia/Perth', label: 'Australia/Perth' },
-    { value: 'Australia/Sydney', label: 'Australia/Sydney' },
-    { value: 'Pacific/Auckland', label: 'Pacific/Auckland' },
-    { value: 'Pacific/Chatham', label: 'Pacific/Chatham' },
-    { value: 'Pacific/Fiji', label: 'Pacific/Fiji' },
-    { value: 'Pacific/Guam', label: 'Pacific/Guam' },
-    { value: 'Pacific/Honolulu', label: 'Pacific/Honolulu' },
-    // Europe - Western
-    { value: 'Europe/Dublin', label: 'Europe/Dublin' },
-    { value: 'Europe/Lisbon', label: 'Europe/Lisbon' },
-    { value: 'Europe/London', label: 'Europe/London' },
-    // Europe - Central
-    { value: 'Europe/Amsterdam', label: 'Europe/Amsterdam' },
-    { value: 'Europe/Berlin', label: 'Europe/Berlin' },
-    { value: 'Europe/Brussels', label: 'Europe/Brussels' },
-    { value: 'Europe/Copenhagen', label: 'Europe/Copenhagen' },
-    { value: 'Europe/Madrid', label: 'Europe/Madrid' },
-    { value: 'Europe/Oslo', label: 'Europe/Oslo' },
-    { value: 'Europe/Paris', label: 'Europe/Paris' },
-    { value: 'Europe/Rome', label: 'Europe/Rome' },
-    { value: 'Europe/Stockholm', label: 'Europe/Stockholm' },
-    { value: 'Europe/Vienna', label: 'Europe/Vienna' },
-    { value: 'Europe/Warsaw', label: 'Europe/Warsaw' },
-    { value: 'Europe/Zurich', label: 'Europe/Zurich' },
-    // Europe - Eastern
-    { value: 'Europe/Athens', label: 'Europe/Athens' },
-    { value: 'Europe/Bucharest', label: 'Europe/Bucharest' },
-    { value: 'Europe/Helsinki', label: 'Europe/Helsinki' },
-    { value: 'Europe/Istanbul', label: 'Europe/Istanbul' },
-    { value: 'Europe/Kiev', label: 'Europe/Kiev' },
-    { value: 'Europe/Moscow', label: 'Europe/Moscow' },
-    { value: 'Europe/Prague', label: 'Europe/Prague' },
-  ];
-
-  // Get all supported IANA timezones from browser with fallback
+  // Get all timezones with country names using countries-and-timezones library
   const allTimezones = useMemo(() => {
-    // Feature detection for Intl.supportedValuesOf
-    if (typeof Intl !== 'undefined' && typeof (Intl as any).supportedValuesOf === 'function') {
-      try {
-        const zones = (Intl as any).supportedValuesOf('timeZone') as string[];
-        return zones.map(tz => ({
-          value: tz,
-          label: tz.replace(/_/g, ' ')
-        }));
-      } catch {
-        return fallbackTimezones;
-      }
-    }
-    return fallbackTimezones;
+    const timezones = ct.getAllTimezones();
+    const countries = ct.getAllCountries();
+    
+    // Build timezone list with country names and UTC offsets
+    const tzList = Object.values(timezones)
+      .filter((tz: any) => !tz.aliasOf) // Skip aliases
+      .map((tz: any) => {
+        // Get country names for this timezone
+        const countryNames = (tz.countries || [])
+          .map((code: string) => countries[code]?.name || code)
+          .filter(Boolean)
+          .slice(0, 2) // Show max 2 countries
+          .join(', ');
+        
+        const cityName = tz.name.split('/').pop()?.replace(/_/g, ' ') || tz.name;
+        const label = countryNames 
+          ? `(UTC${tz.utcOffsetStr}) ${countryNames} - ${cityName}`
+          : `(UTC${tz.utcOffsetStr}) ${tz.name.replace(/_/g, ' ')}`;
+        
+        return {
+          value: tz.name,
+          label,
+          searchLabel: `${countryNames} ${tz.name.replace(/_/g, ' ')} ${tz.utcOffsetStr}`.toLowerCase(),
+          offset: tz.utcOffset
+        };
+      })
+      .sort((a: any, b: any) => a.offset - b.offset); // Sort by UTC offset
+    
+    return tzList;
   }, []);
 
   // Fetch current company settings
@@ -478,16 +385,16 @@ function GeneralCompanySettings() {
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-[400px] p-0" align="start">
+              <PopoverContent className="w-[450px] p-0" align="start">
                 <Command>
-                  <CommandInput placeholder="Search timezone..." data-testid="input-search-timezone" />
+                  <CommandInput placeholder="Search by country, city, or timezone..." data-testid="input-search-timezone" />
                   <CommandList>
                     <CommandEmpty>No timezone found.</CommandEmpty>
                     <CommandGroup className="max-h-[300px] overflow-auto">
-                      {allTimezones.map((tz) => (
+                      {allTimezones.map((tz: any) => (
                         <CommandItem
                           key={tz.value}
-                          value={tz.label}
+                          value={`${tz.label} ${tz.searchLabel}`}
                           onSelect={() => {
                             handleTimezoneChange(tz.value);
                             setTimezoneOpen(false);
@@ -496,11 +403,11 @@ function GeneralCompanySettings() {
                         >
                           <Check
                             className={cn(
-                              "mr-2 h-4 w-4",
+                              "mr-2 h-4 w-4 shrink-0",
                               displayedTimezone === tz.value ? "opacity-100" : "opacity-0"
                             )}
                           />
-                          {tz.label}
+                          <span className="truncate">{tz.label}</span>
                         </CommandItem>
                       ))}
                     </CommandGroup>
