@@ -36,6 +36,7 @@ import Impersonate from "@/pages/impersonate";
 import ActivityLogs from "@/pages/activity-logs";
 import Leaderboard from "@/pages/leaderboard";
 import MyTargets from "@/pages/my-targets";
+import WorkingTarget from "@/pages/working-target";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -135,6 +136,9 @@ function Router() {
       </Route>
       <Route path="/my-targets">
         {() => <ProtectedRoute component={MyTargets} />}
+      </Route>
+      <Route path="/working-target">
+        {() => <ProtectedRoute component={WorkingTarget} />}
       </Route>
       <Route path="/super-admin">
         {() => <ProtectedRoute component={SuperAdmin} />}

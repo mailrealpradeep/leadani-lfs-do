@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -169,6 +169,12 @@ export function AppSidebar() {
       url: "/my-targets",
       icon: Target,
       testId: "link-my-targets",
+    },
+    {
+      title: "Working Target",
+      url: "/working-target",
+      icon: Crosshair,
+      testId: "link-working-target",
     },
     {
       title: "Activity Log",
