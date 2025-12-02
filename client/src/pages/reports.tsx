@@ -101,6 +101,7 @@ interface ReportDataResponse {
   data: any;
   total_leads: number;
   generated_at: string;
+  column_value_index?: Record<string, string[]>; // Unique values per configured column for filtering
 }
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
@@ -1370,6 +1371,32 @@ function ReportCard({
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>(initialDateRange);
   const [datePreset, setDatePreset] = useState<string>("all");
   
+  // Dynamic column filters - maps column key to selected values
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+
+  // Get configured column fields from report (for filtering)
+  const getConfiguredColumns = (): string[] => {
+    const columns: string[] = [];
+    const config = report.config;
+    
+    // For pivot tables
+    if (config?.row_fields?.length) {
+      columns.push(...config.row_fields);
+    }
+    if (config?.column_field) {
+      columns.push(config.column_field);
+    }
+    
+    // For charts
+    if (config?.x_axis && !columns.includes(config.x_axis)) {
+      columns.push(config.x_axis);
+    }
+    
+    return columns;
+  };
+  
+  const configuredColumns = getConfiguredColumns();
+  
   // Handle date preset change
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
@@ -1407,6 +1434,30 @@ function ReportCard({
         ? prev.filter((id) => id !== sheetId)
         : [...prev, sheetId]
     );
+  };
+  
+  // Handle column filter toggle
+  const handleColumnFilterToggle = (columnKey: string, value: string) => {
+    setColumnFilters((prev) => {
+      const current = prev[columnKey] || [];
+      const newValues = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      
+      if (newValues.length === 0) {
+        const { [columnKey]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [columnKey]: newValues };
+    });
+  };
+  
+  // Clear column filter
+  const handleClearColumnFilter = (columnKey: string) => {
+    setColumnFilters((prev) => {
+      const { [columnKey]: _, ...rest } = prev;
+      return rest;
+    });
   };
   
   // Handle drilldown click
@@ -1451,9 +1502,11 @@ function ReportCard({
   const dateRangeKey = `${dateRange.start || ''}|${dateRange.end || ''}`;
   // Serialize filteredSheetIds to prevent array reference changes (clone before sorting to avoid mutation)
   const sheetIdsKey = filteredSheetIds ? [...filteredSheetIds].sort().join(',') : 'all';
+  // Serialize column filters for stable query key
+  const columnFiltersKey = JSON.stringify(Object.entries(columnFilters).sort());
   
   const { data: reportData, isLoading, error } = useQuery<ReportDataResponse>({
-    queryKey: ["/api/company/reports", report.id, "data", sheetIdsKey, dateRangeKey],
+    queryKey: ["/api/company/reports", report.id, "data", sheetIdsKey, dateRangeKey, columnFiltersKey],
     enabled: !dateValidationError, // Don't run query if validation fails
     queryFn: async () => {
       const token = localStorage.getItem("auth_token");
@@ -1472,6 +1525,11 @@ function ReportCard({
         params.append("end_date", dateRange.end);
       }
       
+      // Add column filters
+      if (Object.keys(columnFilters).length > 0) {
+        params.append("column_filters", JSON.stringify(columnFilters));
+      }
+      
       const url = `/api/company/reports/${report.id}/data${params.toString() ? `?${params.toString()}` : ''}`;
       
       const response = await fetch(url, {
@@ -1487,6 +1545,60 @@ function ReportCard({
       return response.json();
     },
   });
+  
+  // Get unique values for a column from the API's column_value_index (preferred) or fall back to data extraction
+  const getUniqueColumnValues = (columnKey: string): string[] => {
+    // Prefer the pre-computed column_value_index from the API (extracted from allLeads before filtering)
+    if (reportData?.column_value_index?.[columnKey]) {
+      return reportData.column_value_index[columnKey];
+    }
+    
+    // Fallback: extract from aggregated data (less reliable)
+    if (!reportData?.data) return [];
+    
+    const uniqueValues = new Set<string>();
+    const data = reportData.data;
+    
+    // For pivot table data with rows
+    if (data.rows && Array.isArray(data.rows)) {
+      data.rows.forEach((row: any) => {
+        // Check rowValues object (used in pivot tables)
+        if (row.rowValues && row.rowValues[columnKey] !== undefined && row.rowValues[columnKey] !== null) {
+          const val = String(row.rowValues[columnKey]);
+          uniqueValues.add(val);
+        }
+        // Check if the key exists directly on the row (simple tables)
+        else if (row[columnKey] !== undefined && row[columnKey] !== null) {
+          const val = String(row[columnKey]);
+          uniqueValues.add(val);
+        }
+      });
+    }
+    
+    // For chart data (array of {name, value} objects)
+    if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
+      if (columnKey === report.config?.x_axis) {
+        data.forEach((item: any) => {
+          if (item.name !== undefined && item.name !== null) {
+            uniqueValues.add(String(item.name));
+          }
+        });
+      }
+    }
+    
+    // Check columnValues if it's a pivot with column field (matrix pivot tables)
+    if (data.columnValues && Array.isArray(data.columnValues) && columnKey === report.config?.column_field) {
+      data.columnValues.forEach((val: any) => {
+        if (val !== undefined && val !== null) {
+          uniqueValues.add(String(val));
+        }
+      });
+    }
+    
+    return Array.from(uniqueValues).sort((a, b) => 
+      a.toLowerCase().localeCompare(b.toLowerCase())
+    );
+  };
 
   const renderVisualization = () => {
     if (dateValidationError) {
@@ -2046,6 +2158,85 @@ function ReportCard({
                     ? dateRange.start 
                     : `${dateRange.start} - ${dateRange.end}`}
                 </Badge>
+              )}
+              
+              {/* Dynamic Column Filters */}
+              {configuredColumns.length > 0 && (
+                <>
+                  {configuredColumns.map((columnKey) => {
+                    const uniqueValues = getUniqueColumnValues(columnKey);
+                    const selectedValues = columnFilters[columnKey] || [];
+                    const columnLabel = columnKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+                    
+                    if (uniqueValues.length === 0) return null;
+                    
+                    return (
+                      <Popover key={columnKey}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`text-xs ${selectedValues.length > 0 ? 'bg-primary/10 border-primary/50' : ''}`}
+                            aria-label={`Filter by ${columnLabel}`}
+                            data-testid={`button-column-filter-${report.id}-${columnKey}`}
+                          >
+                            <Filter className="h-3.5 w-3.5 mr-1.5" />
+                            {selectedValues.length === 0 ? (
+                              columnLabel
+                            ) : (
+                              `${columnLabel}: ${selectedValues.length}`
+                            )}
+                            <ChevronDown className="h-3 w-3 ml-1 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-60 p-0" align="start">
+                          <div className="p-2.5 space-y-2">
+                            <div className="flex items-center justify-between pb-2 border-b">
+                              <span className="text-xs font-semibold">{columnLabel}</span>
+                              {selectedValues.length > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs px-2"
+                                  onClick={() => handleClearColumnFilter(columnKey)}
+                                  data-testid={`button-clear-column-filter-${report.id}-${columnKey}`}
+                                >
+                                  Clear
+                                </Button>
+                              )}
+                            </div>
+                            <div className="max-h-52 overflow-y-auto space-y-1">
+                              {uniqueValues.map((value, idx) => (
+                                <div
+                                  key={value || `__empty_${idx}`}
+                                  className="flex items-center space-x-2 px-2 py-1.5 rounded-md hover-elevate cursor-pointer"
+                                  onClick={() => handleColumnFilterToggle(columnKey, value)}
+                                  data-testid={`column-filter-option-${report.id}-${columnKey}-${value || 'empty'}`}
+                                >
+                                  <Checkbox
+                                    id={`col-${report.id}-${columnKey}-${value || 'empty'}`}
+                                    checked={selectedValues.includes(value)}
+                                    onCheckedChange={() => handleColumnFilterToggle(columnKey, value)}
+                                    data-testid={`checkbox-column-filter-${report.id}-${columnKey}-${value || 'empty'}`}
+                                  />
+                                  <label
+                                    htmlFor={`col-${report.id}-${columnKey}-${value || 'empty'}`}
+                                    className="text-xs font-medium leading-none flex-1 cursor-pointer truncate"
+                                  >
+                                    {value || "(empty)"}
+                                  </label>
+                                  {selectedValues.includes(value) && (
+                                    <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    );
+                  })}
+                </>
               )}
             </div>
           )}
