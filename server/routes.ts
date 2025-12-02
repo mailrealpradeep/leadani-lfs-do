@@ -590,10 +590,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const leadData: any = {};
 
       // Map webhook fields to sheet column keys (supports dot notation for nested fields)
+      // Also handles default values when configured
       for (const mapping of fieldMappings) {
-        const value = getNestedValue(incomingData, mapping.webhook_field);
-        if (value !== undefined && value !== null) {
-          leadData[mapping.sheet_column_key] = value;
+        // Check for default value first (if configured)
+        if ((mapping as any).use_default_value && (mapping as any).default_value !== undefined) {
+          leadData[mapping.sheet_column_key] = (mapping as any).default_value;
+        } else if (mapping.webhook_field) {
+          const value = getNestedValue(incomingData, mapping.webhook_field);
+          if (value !== undefined && value !== null) {
+            leadData[mapping.sheet_column_key] = value;
+          }
         }
       }
 
