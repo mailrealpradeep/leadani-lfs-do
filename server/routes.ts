@@ -1481,17 +1481,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (typeof incomingSettings.timezone !== 'string') {
           return res.status(400).json({ error: "timezone must be a string" });
         }
-        // Validate that it's a known IANA timezone
-        const validTimezones = [
-          'Asia/Kolkata', 'Asia/Calcutta', 'UTC', 'GMT',
-          'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-          'Europe/London', 'Europe/Paris', 'Europe/Berlin',
-          'Asia/Dubai', 'Asia/Singapore', 'Asia/Tokyo',
-          'Australia/Sydney', 'Pacific/Auckland',
-        ];
-        if (!validTimezones.includes(incomingSettings.timezone)) {
-          return res.status(400).json({ error: `Invalid timezone. Allowed: ${validTimezones.join(', ')}` });
+        // Validate and canonicalize timezone - only accept canonical IANA IDs
+        // This ensures we don't store aliases like US/Eastern, Asia/Calcutta, etc.
+        let canonicalTimezone: string;
+        try {
+          // Get canonical form using Intl.DateTimeFormat
+          const formatter = new Intl.DateTimeFormat(undefined, { timeZone: incomingSettings.timezone });
+          canonicalTimezone = formatter.resolvedOptions().timeZone;
+        } catch {
+          return res.status(400).json({ error: `Invalid timezone: ${incomingSettings.timezone}` });
         }
+        
+        // Explicitly reject GMT - it should be UTC
+        if (canonicalTimezone === 'GMT' || incomingSettings.timezone.toUpperCase() === 'GMT') {
+          return res.status(400).json({ 
+            error: `Please use "UTC" instead of "GMT"` 
+          });
+        }
+        
+        // Known legacy aliases that should be rejected with their canonical alternatives
+        const legacyAliasMap: Record<string, string> = {
+          'Asia/Calcutta': 'Asia/Kolkata',
+          'Asia/Katmandu': 'Asia/Kathmandu',
+          'Europe/Kiev': 'Europe/Kyiv',
+          'US/Eastern': 'America/New_York',
+          'US/Central': 'America/Chicago',
+          'US/Mountain': 'America/Denver',
+          'US/Pacific': 'America/Los_Angeles',
+          'US/Alaska': 'America/Anchorage',
+          'US/Hawaii': 'Pacific/Honolulu',
+          'Canada/Eastern': 'America/Toronto',
+          'Canada/Central': 'America/Winnipeg',
+          'Canada/Pacific': 'America/Vancouver',
+          'Australia/ACT': 'Australia/Sydney',
+          'Australia/NSW': 'Australia/Sydney',
+          'Australia/Victoria': 'Australia/Melbourne',
+          'Australia/Queensland': 'Australia/Brisbane',
+          'Australia/West': 'Australia/Perth',
+          'Pacific/Samoa': 'Pacific/Pago_Pago',
+          'Etc/UTC': 'UTC',
+        };
+        
+        // Check if input is a known legacy alias
+        if (legacyAliasMap[incomingSettings.timezone]) {
+          return res.status(400).json({ 
+            error: `Please use "${legacyAliasMap[incomingSettings.timezone]}" instead of legacy alias "${incomingSettings.timezone}"` 
+          });
+        }
+        
+        // Store the canonical form (handles case variations like "asia/kolkata" -> "Asia/Kolkata")
+        incomingSettings.timezone = canonicalTimezone;
       }
 
       // Merge new settings with existing settings (only allow known fields)

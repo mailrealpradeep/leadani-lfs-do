@@ -255,40 +255,150 @@ function GeneralCompanySettings() {
   const [selectedTimezone, setSelectedTimezone] = useState<string>('');
   const [hasError, setHasError] = useState(false);
 
-  // Define available timezones with display labels
-  const timezones = [
-    { value: 'Asia/Kolkata', label: 'India Standard Time (IST)' },
-    { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
-    { value: 'America/New_York', label: 'Eastern Time (US & Canada)' },
-    { value: 'America/Chicago', label: 'Central Time (US & Canada)' },
-    { value: 'America/Denver', label: 'Mountain Time (US & Canada)' },
-    { value: 'America/Los_Angeles', label: 'Pacific Time (US & Canada)' },
-    { value: 'Europe/London', label: 'London (GMT/BST)' },
-    { value: 'Europe/Paris', label: 'Paris, Berlin (CET)' },
-    { value: 'Asia/Dubai', label: 'Dubai (GST)' },
-    { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
-    { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
-    { value: 'Australia/Sydney', label: 'Sydney (AEST)' },
-    { value: 'Pacific/Auckland', label: 'Auckland (NZST)' },
+  // Comprehensive IANA timezone list for fallback (covers all major regions worldwide)
+  const fallbackTimezones = [
+    // Africa
+    { value: 'Africa/Abidjan', label: 'Africa/Abidjan' },
+    { value: 'Africa/Accra', label: 'Africa/Accra' },
+    { value: 'Africa/Addis_Ababa', label: 'Africa/Addis Ababa' },
+    { value: 'Africa/Algiers', label: 'Africa/Algiers' },
+    { value: 'Africa/Cairo', label: 'Africa/Cairo' },
+    { value: 'Africa/Casablanca', label: 'Africa/Casablanca' },
+    { value: 'Africa/Johannesburg', label: 'Africa/Johannesburg' },
+    { value: 'Africa/Lagos', label: 'Africa/Lagos' },
+    { value: 'Africa/Nairobi', label: 'Africa/Nairobi' },
+    { value: 'Africa/Tunis', label: 'Africa/Tunis' },
+    // Americas - North
+    { value: 'America/Anchorage', label: 'America/Anchorage' },
+    { value: 'America/Chicago', label: 'America/Chicago' },
+    { value: 'America/Denver', label: 'America/Denver' },
+    { value: 'America/Edmonton', label: 'America/Edmonton' },
+    { value: 'America/Halifax', label: 'America/Halifax' },
+    { value: 'America/Los_Angeles', label: 'America/Los Angeles' },
+    { value: 'America/Mexico_City', label: 'America/Mexico City' },
+    { value: 'America/New_York', label: 'America/New York' },
+    { value: 'America/Phoenix', label: 'America/Phoenix' },
+    { value: 'America/Toronto', label: 'America/Toronto' },
+    { value: 'America/Vancouver', label: 'America/Vancouver' },
+    { value: 'America/Winnipeg', label: 'America/Winnipeg' },
+    // Americas - South
+    { value: 'America/Argentina/Buenos_Aires', label: 'America/Argentina/Buenos Aires' },
+    { value: 'America/Bogota', label: 'America/Bogota' },
+    { value: 'America/Caracas', label: 'America/Caracas' },
+    { value: 'America/Lima', label: 'America/Lima' },
+    { value: 'America/Santiago', label: 'America/Santiago' },
+    { value: 'America/Sao_Paulo', label: 'America/Sao Paulo' },
+    // Americas - Central & Caribbean
+    { value: 'America/Guatemala', label: 'America/Guatemala' },
+    { value: 'America/Havana', label: 'America/Havana' },
+    { value: 'America/Jamaica', label: 'America/Jamaica' },
+    { value: 'America/Panama', label: 'America/Panama' },
+    // Asia - East
+    { value: 'Asia/Hong_Kong', label: 'Asia/Hong Kong' },
+    { value: 'Asia/Seoul', label: 'Asia/Seoul' },
+    { value: 'Asia/Shanghai', label: 'Asia/Shanghai' },
+    { value: 'Asia/Taipei', label: 'Asia/Taipei' },
+    { value: 'Asia/Tokyo', label: 'Asia/Tokyo' },
+    // Asia - Southeast
+    { value: 'Asia/Bangkok', label: 'Asia/Bangkok' },
+    { value: 'Asia/Ho_Chi_Minh', label: 'Asia/Ho Chi Minh' },
+    { value: 'Asia/Jakarta', label: 'Asia/Jakarta' },
+    { value: 'Asia/Kuala_Lumpur', label: 'Asia/Kuala Lumpur' },
+    { value: 'Asia/Manila', label: 'Asia/Manila' },
+    { value: 'Asia/Singapore', label: 'Asia/Singapore' },
+    // Asia - South
+    { value: 'Asia/Colombo', label: 'Asia/Colombo' },
+    { value: 'Asia/Dhaka', label: 'Asia/Dhaka' },
+    { value: 'Asia/Karachi', label: 'Asia/Karachi' },
+    { value: 'Asia/Kathmandu', label: 'Asia/Kathmandu' },
+    { value: 'Asia/Kolkata', label: 'Asia/Kolkata' },
+    // Asia - West & Middle East
+    { value: 'Asia/Baghdad', label: 'Asia/Baghdad' },
+    { value: 'Asia/Beirut', label: 'Asia/Beirut' },
+    { value: 'Asia/Dubai', label: 'Asia/Dubai' },
+    { value: 'Asia/Jerusalem', label: 'Asia/Jerusalem' },
+    { value: 'Asia/Kuwait', label: 'Asia/Kuwait' },
+    { value: 'Asia/Qatar', label: 'Asia/Qatar' },
+    { value: 'Asia/Riyadh', label: 'Asia/Riyadh' },
+    { value: 'Asia/Tehran', label: 'Asia/Tehran' },
+    // Asia - Central
+    { value: 'Asia/Almaty', label: 'Asia/Almaty' },
+    { value: 'Asia/Tashkent', label: 'Asia/Tashkent' },
+    { value: 'Asia/Yekaterinburg', label: 'Asia/Yekaterinburg' },
+    // Australia & Pacific
+    { value: 'Australia/Adelaide', label: 'Australia/Adelaide' },
+    { value: 'Australia/Brisbane', label: 'Australia/Brisbane' },
+    { value: 'Australia/Darwin', label: 'Australia/Darwin' },
+    { value: 'Australia/Hobart', label: 'Australia/Hobart' },
+    { value: 'Australia/Melbourne', label: 'Australia/Melbourne' },
+    { value: 'Australia/Perth', label: 'Australia/Perth' },
+    { value: 'Australia/Sydney', label: 'Australia/Sydney' },
+    { value: 'Pacific/Auckland', label: 'Pacific/Auckland' },
+    { value: 'Pacific/Chatham', label: 'Pacific/Chatham' },
+    { value: 'Pacific/Fiji', label: 'Pacific/Fiji' },
+    { value: 'Pacific/Guam', label: 'Pacific/Guam' },
+    { value: 'Pacific/Honolulu', label: 'Pacific/Honolulu' },
+    // Europe - Western
+    { value: 'Europe/Dublin', label: 'Europe/Dublin' },
+    { value: 'Europe/Lisbon', label: 'Europe/Lisbon' },
+    { value: 'Europe/London', label: 'Europe/London' },
+    // Europe - Central
+    { value: 'Europe/Amsterdam', label: 'Europe/Amsterdam' },
+    { value: 'Europe/Berlin', label: 'Europe/Berlin' },
+    { value: 'Europe/Brussels', label: 'Europe/Brussels' },
+    { value: 'Europe/Copenhagen', label: 'Europe/Copenhagen' },
+    { value: 'Europe/Madrid', label: 'Europe/Madrid' },
+    { value: 'Europe/Oslo', label: 'Europe/Oslo' },
+    { value: 'Europe/Paris', label: 'Europe/Paris' },
+    { value: 'Europe/Rome', label: 'Europe/Rome' },
+    { value: 'Europe/Stockholm', label: 'Europe/Stockholm' },
+    { value: 'Europe/Vienna', label: 'Europe/Vienna' },
+    { value: 'Europe/Warsaw', label: 'Europe/Warsaw' },
+    { value: 'Europe/Zurich', label: 'Europe/Zurich' },
+    // Europe - Eastern
+    { value: 'Europe/Athens', label: 'Europe/Athens' },
+    { value: 'Europe/Bucharest', label: 'Europe/Bucharest' },
+    { value: 'Europe/Helsinki', label: 'Europe/Helsinki' },
+    { value: 'Europe/Istanbul', label: 'Europe/Istanbul' },
+    { value: 'Europe/Kiev', label: 'Europe/Kiev' },
+    { value: 'Europe/Moscow', label: 'Europe/Moscow' },
+    { value: 'Europe/Prague', label: 'Europe/Prague' },
   ];
+
+  // Get all supported IANA timezones from browser with fallback
+  const allTimezones = useMemo(() => {
+    // Feature detection for Intl.supportedValuesOf
+    if (typeof Intl !== 'undefined' && typeof (Intl as any).supportedValuesOf === 'function') {
+      try {
+        const zones = (Intl as any).supportedValuesOf('timeZone') as string[];
+        return zones.map(tz => ({
+          value: tz,
+          label: tz.replace(/_/g, ' ')
+        }));
+      } catch {
+        return fallbackTimezones;
+      }
+    }
+    return fallbackTimezones;
+  }, []);
 
   // Fetch current company settings
   const { data: settingsData, isLoading } = useQuery<{ settings: { timezone?: string } }>({
     queryKey: ["/api/admin/company/settings"],
   });
 
-  // Initialize local state from server data
-  const serverTimezone = settingsData?.settings?.timezone || 'Asia/Kolkata';
+  // Get server timezone value (empty string if not configured)
+  const serverTimezone = settingsData?.settings?.timezone || '';
   
-  // Sync local state with server data when it changes (e.g., after refetch)
+  // Sync local state with server data when query refetches
+  // This ensures UI always reflects canonical server value, including when backend normalizes input
   useEffect(() => {
-    // Only reset if we have server data and local state differs
-    if (settingsData?.settings?.timezone && selectedTimezone && 
-        selectedTimezone !== settingsData.settings.timezone) {
-      // Server value takes precedence - reset local state
+    // When server data is available, always sync local state to match
+    // This handles both initial load and post-mutation refetch
+    if (settingsData !== undefined) {
       setSelectedTimezone('');
     }
-  }, [settingsData?.settings?.timezone, selectedTimezone]);
+  }, [settingsData]);
   
   // Use local state if set, otherwise use server value
   const displayedTimezone = selectedTimezone || serverTimezone;
@@ -302,6 +412,8 @@ function GeneralCompanySettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/company/settings"] });
+      // Clear local state so UI reflects server value after refetch
+      setSelectedTimezone('');
       setHasError(false);
       toast({
         title: "Settings updated",
@@ -352,10 +464,10 @@ function GeneralCompanySettings() {
               disabled={updateMutation.isPending}
             >
               <SelectTrigger className="w-full max-w-md" data-testid="select-timezone">
-                <SelectValue placeholder="Select timezone" />
+                <SelectValue placeholder="Not configured - Select timezone" />
               </SelectTrigger>
-              <SelectContent>
-                {timezones.map((tz) => (
+              <SelectContent className="max-h-[300px]">
+                {allTimezones.map((tz) => (
                   <SelectItem key={tz.value} value={tz.value}>
                     {tz.label}
                   </SelectItem>
@@ -367,6 +479,11 @@ function GeneralCompanySettings() {
             )}
             {hasError && !updateMutation.isPending && (
               <p className="text-xs text-destructive">Failed to save. Please try again.</p>
+            )}
+            {!updateMutation.isPending && !hasError && serverTimezone && (
+              <p className="text-xs text-green-600 dark:text-green-400">
+                Saved: {serverTimezone}
+              </p>
             )}
           </div>
         </div>
