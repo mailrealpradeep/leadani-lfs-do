@@ -811,6 +811,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let previousOwnerName = "";
       let oldSheetId: string | null = null;
 
+      // Helper function to parse webhook timestamp with proper timezone handling
+      // Respects company timezone settings for naive timestamps
+      const parseWebhookTimestamp = async (timestamp: string | number | undefined | null): Promise<string | undefined> => {
+        if (!timestamp) return undefined;
+        
+        try {
+          let timestampStr = String(timestamp).trim();
+          
+          // Map of timezone abbreviations to their UTC offsets
+          const tzAbbreviations: Record<string, string> = {
+            'IST': '+05:30', // India Standard Time
+            'GMT': '+00:00', // Greenwich Mean Time  
+            'UTC': '+00:00', // Coordinated Universal Time
+            'EST': '-05:00', // Eastern Standard Time
+            'EDT': '-04:00', // Eastern Daylight Time
+            'CST': '-06:00', // Central Standard Time
+            'CDT': '-05:00', // Central Daylight Time
+            'MST': '-07:00', // Mountain Standard Time
+            'MDT': '-06:00', // Mountain Daylight Time
+            'PST': '-08:00', // Pacific Standard Time
+            'PDT': '-07:00', // Pacific Daylight Time
+          };
+          
+          // Map of IANA timezone names to their typical UTC offsets
+          // Note: These are approximate and don't account for DST transitions
+          const ianaToOffset: Record<string, string> = {
+            'Asia/Kolkata': '+05:30',
+            'Asia/Calcutta': '+05:30', // Legacy name
+            'UTC': '+00:00',
+            'GMT': '+00:00',
+            'America/New_York': '-05:00',
+            'America/Chicago': '-06:00',
+            'America/Denver': '-07:00',
+            'America/Los_Angeles': '-08:00',
+            'Europe/London': '+00:00',
+            'Europe/Paris': '+01:00',
+            'Europe/Berlin': '+01:00',
+            'Asia/Dubai': '+04:00',
+            'Asia/Singapore': '+08:00',
+            'Asia/Tokyo': '+09:00',
+            'Australia/Sydney': '+11:00',
+          };
+          
+          // Determine the default timezone offset from company settings
+          let defaultOffset = '+05:30'; // Fallback to IST for this India-based CRM
+          const company = await storage.getCompany(webhook.company_id);
+          if (company?.settings?.timezone) {
+            const companyTz = company.settings.timezone;
+            if (ianaToOffset[companyTz]) {
+              defaultOffset = ianaToOffset[companyTz];
+            }
+          }
+          
+          // Check for trailing timezone abbreviation and extract offset
+          let tzOffset = defaultOffset;
+          const abbrevMatch = timestampStr.match(/\s+(IST|GMT|UTC|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i);
+          if (abbrevMatch) {
+            const abbrev = abbrevMatch[1].toUpperCase();
+            if (tzAbbreviations[abbrev]) {
+              tzOffset = tzAbbreviations[abbrev];
+            }
+            // Strip the abbreviation from the timestamp
+            timestampStr = timestampStr.replace(/\s+(IST|GMT|UTC|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i, '');
+          }
+          
+          // Handle numeric offsets without colon (e.g., "+0530" -> "+05:30")
+          const numericOffsetMatch = timestampStr.match(/([+-])(\d{2})(\d{2})$/);
+          if (numericOffsetMatch) {
+            timestampStr = timestampStr.replace(/([+-])(\d{2})(\d{2})$/, '$1$2:$3');
+          }
+          
+          // Check if the timestamp has explicit timezone info (Z or +/- offset)
+          const hasExplicitTimezone = /[Z]$|[+-]\d{2}:?\d{2}$/i.test(timestampStr);
+          
+          if (!hasExplicitTimezone) {
+            // Timestamp is timezone-naive (e.g., "2025-12-02 06:27:31")
+            // Use company timezone or fallback to IST
+            // Convert to valid ISO 8601 format: replace space with 'T' and append offset
+            timestampStr = timestampStr.replace(' ', 'T') + tzOffset;
+          }
+          
+          const parsed = new Date(timestampStr);
+          if (!isNaN(parsed.getTime())) {
+            return parsed.toISOString();
+          }
+        } catch (e) {
+          console.log('Failed to parse webhook timestamp:', timestamp, e);
+        }
+        return undefined;
+      };
+
       // Helper function to create a new lead (only called when targetSheetId is set)
       const createNewLead = async () => {
         if (!targetSheetId) {
@@ -819,58 +910,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Parse webhook's created_at timestamp for use as lead creation time
         // This captures when the form was actually submitted, not when we processed it
-        // Webhook timestamps are typically in IST (UTC+5:30) without timezone info
-        let webhookCreatedAt: string | undefined = undefined;
         const webhookTimestamp = leadData.created_at || incomingData.created_at;
-        if (webhookTimestamp) {
-          try {
-            let timestampStr = String(webhookTimestamp).trim();
-            
-            // Map of timezone abbreviations to their UTC offsets
-            const tzAbbreviations: Record<string, string> = {
-              'IST': '+05:30', // India Standard Time
-              'GMT': '+00:00', // Greenwich Mean Time
-              'UTC': '+00:00', // Coordinated Universal Time
-              'EST': '-05:00', // Eastern Standard Time
-              'EDT': '-04:00', // Eastern Daylight Time
-              'CST': '-06:00', // Central Standard Time
-              'CDT': '-05:00', // Central Daylight Time
-              'MST': '-07:00', // Mountain Standard Time
-              'MDT': '-06:00', // Mountain Daylight Time
-              'PST': '-08:00', // Pacific Standard Time
-              'PDT': '-07:00', // Pacific Daylight Time
-            };
-            
-            // Check for trailing timezone abbreviation and extract offset
-            let tzOffset = '+05:30'; // Default to IST for this India-based CRM
-            const abbrevMatch = timestampStr.match(/\s+(IST|GMT|UTC|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i);
-            if (abbrevMatch) {
-              const abbrev = abbrevMatch[1].toUpperCase();
-              if (tzAbbreviations[abbrev]) {
-                tzOffset = tzAbbreviations[abbrev];
-              }
-              // Strip the abbreviation from the timestamp
-              timestampStr = timestampStr.replace(/\s+(IST|GMT|UTC|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$/i, '');
-            }
-            
-            // Check if the timestamp has explicit timezone info (Z or +/- offset)
-            const hasExplicitTimezone = /[Z]$|[+-]\d{2}:?\d{2}$/i.test(timestampStr);
-            
-            if (!hasExplicitTimezone) {
-              // Timestamp is timezone-naive (e.g., "2025-12-02 06:27:31")
-              // Convert to valid ISO 8601 format: replace space with 'T' and append offset
-              // "2025-12-02 06:27:31" -> "2025-12-02T06:27:31+05:30"
-              timestampStr = timestampStr.replace(' ', 'T') + tzOffset;
-            }
-            
-            const parsed = new Date(timestampStr);
-            if (!isNaN(parsed.getTime())) {
-              webhookCreatedAt = parsed.toISOString();
-            }
-          } catch (e) {
-            console.log('Failed to parse webhook created_at, using system time:', webhookTimestamp);
-          }
-        }
+        const webhookCreatedAt = await parseWebhookTimestamp(webhookTimestamp);
         
         return await storage.createLead({
           sheet_id: targetSheetId,
