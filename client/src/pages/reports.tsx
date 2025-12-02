@@ -174,6 +174,32 @@ export default function Reports() {
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   
+  // Helper function to format column names for display
+  const formatColumnName = (col: string): string => {
+    // Date-based grouping columns with friendly names
+    const dateColumnLabels: Record<string, string> = {
+      "created_at_day": "Created Date (by Day)",
+      "created_at_week": "Created Date (by Week)",
+      "created_at_month": "Created Date (by Month)",
+      "created_at_quarter": "Created Date (by Quarter)",
+      "created_at_year": "Created Date (by Year)",
+      "nfdt_day": "Follow-up Date (by Day)",
+      "nfdt_week": "Follow-up Date (by Week)",
+      "nfdt_month": "Follow-up Date (by Month)",
+      "nfdt_quarter": "Follow-up Date (by Quarter)",
+      "nfdt_year": "Follow-up Date (by Year)",
+      "sheet_name": "Sheet Name",
+      "user_name": "Assigned User",
+    };
+    
+    if (dateColumnLabels[col]) {
+      return dateColumnLabels[col];
+    }
+    
+    // Default: Convert snake_case to Title Case
+    return col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  };
+  
   // Drilldown modal state
   const [drilldownOpen, setDrilldownOpen] = useState(false);
   const [drilldownFilters, setDrilldownFilters] = useState<DrilldownFilters>({});
@@ -247,10 +273,24 @@ export default function Reports() {
       "sheet_name", // Sheet name (derived from sheet_id) - preferred
       "user_name", // Assigned user name (derived from assigned_to user ID)
     ];
+    
+    // Date-based grouping columns for time-series reports
+    const dateColumns = [
+      "created_at_day",     // Group by day (e.g., "2024-01-15")
+      "created_at_week",    // Group by week (e.g., "2024-W03")
+      "created_at_month",   // Group by month (e.g., "Jan 2024")
+      "created_at_quarter", // Group by quarter (e.g., "Q1 2024")
+      "created_at_year",    // Group by year (e.g., "2024")
+      "nfdt_day",           // Next Follow-up Date by day
+      "nfdt_week",          // Next Follow-up Date by week
+      "nfdt_month",         // Next Follow-up Date by month
+      "nfdt_quarter",       // Next Follow-up Date by quarter
+      "nfdt_year",          // Next Follow-up Date by year
+    ];
 
     const customColumnKeys = companyColumns?.map((col: any) => col.column_key) || [];
     // Deduplicate columns to avoid React key warnings
-    const allColumns = [...fixedColumns, ...specialColumns, ...customColumnKeys];
+    const allColumns = [...fixedColumns, ...specialColumns, ...dateColumns, ...customColumnKeys];
     const uniqueColumns = Array.from(new Set(allColumns));
     setAvailableColumns(uniqueColumns);
   }, [companyColumns]);
@@ -1101,7 +1141,7 @@ export default function Reports() {
                     <SelectContent>
                       {availableColumns.map((col) => (
                         <SelectItem key={col} value={col}>
-                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          {formatColumnName(col)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1136,7 +1176,7 @@ export default function Reports() {
                       <SelectContent>
                         {availableColumns.map((col) => (
                           <SelectItem key={col} value={col}>
-                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                            {formatColumnName(col)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1169,7 +1209,7 @@ export default function Reports() {
                             data-testid={`checkbox-row-${col}`}
                           />
                           <label htmlFor={`row-${col}`} className="text-sm cursor-pointer">
-                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                            {formatColumnName(col)}
                           </label>
                         </div>
                       ))
@@ -1179,7 +1219,7 @@ export default function Reports() {
                   </div>
                   {rowFields.length > 0 && (
                     <p className="text-xs text-muted-foreground">
-                      Selected: {rowFields.map((f) => f.replace(/_/g, " ")).join(", ")}
+                      Selected: {rowFields.map((f) => formatColumnName(f)).join(", ")}
                     </p>
                   )}
                 </div>
@@ -1194,7 +1234,7 @@ export default function Reports() {
                     <SelectContent>
                       {availableColumns.map((col) => (
                         <SelectItem key={col} value={col}>
-                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          {formatColumnName(col)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1239,7 +1279,7 @@ export default function Reports() {
                       <SelectContent>
                         {availableColumns.map((col) => (
                           <SelectItem key={col} value={col}>
-                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                            {formatColumnName(col)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1432,7 +1472,7 @@ export default function Reports() {
                     <SelectContent>
                       {availableColumns.map((col) => (
                         <SelectItem key={col} value={col}>
-                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          {formatColumnName(col)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1465,7 +1505,7 @@ export default function Reports() {
                       <SelectContent>
                         {availableColumns.map((col) => (
                           <SelectItem key={col} value={col}>
-                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                            {formatColumnName(col)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1495,14 +1535,14 @@ export default function Reports() {
                           }}
                         />
                         <label htmlFor={`user-row-${col}`} className="text-sm cursor-pointer">
-                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          {formatColumnName(col)}
                         </label>
                       </div>
                     ))}
                   </div>
                   {rowFields.length > 0 && (
                     <div className="text-xs text-muted-foreground">
-                      Selected: {rowFields.map(f => f.replace(/_/g, " ")).join(", ")}
+                      Selected: {rowFields.map(f => formatColumnName(f)).join(", ")}
                     </div>
                   )}
                 </div>
@@ -1517,7 +1557,7 @@ export default function Reports() {
                       <SelectItem value="__none__">None</SelectItem>
                       {availableColumns.map((col) => (
                         <SelectItem key={col} value={col}>
-                          {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                          {formatColumnName(col)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1550,7 +1590,7 @@ export default function Reports() {
                       <SelectContent>
                         {availableColumns.map((col) => (
                           <SelectItem key={col} value={col}>
-                            {col.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                            {formatColumnName(col)}
                           </SelectItem>
                         ))}
                       </SelectContent>

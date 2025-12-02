@@ -8,6 +8,7 @@ import { authMiddleware, adminMiddleware, generateToken, type AuthRequest, requi
 import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
+import { formatInTimeZone } from "date-fns-tz";
 import { seedData } from "./seed";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters } from "@shared/schema";
@@ -6534,6 +6535,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.userRole === "company_admin" && report.company_id !== req.companyId) {
         return res.status(403).json({ error: "Cannot access reports from other companies" });
       }
+      
+      // Get company timezone for date-based groupings
+      const company = await storage.getCompany(report.company_id);
+      const companyTimezone = getCompanyTimezone(company);
 
       // Get filter sheet IDs from query parameters (if provided)
       let filterSheetIds: string[] | null = null;
@@ -6716,10 +6721,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           data = generateCustomFieldAnalysis(filteredLeads, report.config);
           break;
         case "custom":
-          data = generateDynamicReport(filteredLeads, report.config);
+          data = generateDynamicReport(filteredLeads, report.config, companyTimezone);
           break;
         case "pivot_table":
-          data = generatePivotTable(filteredLeads, report.config);
+          data = generatePivotTable(filteredLeads, report.config, companyTimezone);
           break;
         default:
           return res.status(400).json({ error: "Unknown report type" });
@@ -7270,21 +7275,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .map(([name, value]) => ({ name, value }));
   }
 
+  // Helper function to format dates for grouping (respects company timezone)
+  function formatDateForGrouping(dateValue: Date | string | null, groupType: string, timezone: string = "Asia/Kolkata"): string {
+    if (!dateValue) return "No Date";
+    
+    const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
+    if (isNaN(date.getTime())) return "Invalid Date";
+    
+    // Use Intl.DateTimeFormat to get date parts in the company timezone
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    });
+    
+    const parts = formatter.formatToParts(date);
+    const year = parseInt(parts.find(p => p.type === "year")?.value || "2024");
+    const month = parseInt(parts.find(p => p.type === "month")?.value || "1") - 1; // 0-indexed
+    const day = parseInt(parts.find(p => p.type === "day")?.value || "1");
+    
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    
+    switch (groupType) {
+      case "day":
+        // Format: "Jan 15, 2024"
+        return `${monthNames[month]} ${day}, ${year}`;
+      case "week": {
+        // Use date-fns-tz formatInTimeZone for proper ISO 8601 week in company timezone
+        // 'I' gives ISO week number, 'R' gives ISO week year
+        const isoWeek = formatInTimeZone(date, timezone, "I");
+        const isoYear = formatInTimeZone(date, timezone, "RRRR");
+        
+        return `Week ${isoWeek}, ${isoYear}`;
+      }
+      case "month":
+        // Format: "Jan 2024"
+        return `${monthNames[month]} ${year}`;
+      case "quarter": {
+        // Format: "Q1 2024"
+        const quarter = Math.floor(month / 3) + 1;
+        return `Q${quarter} ${year}`;
+      }
+      case "year":
+        // Format: "2024"
+        return `${year}`;
+      default:
+        return date.toISOString().split('T')[0];
+    }
+  }
+  
+  // Shared helper to extract sortable date key from formatted string
+  // Used for sorting date-based groupings chronologically in both dynamic reports and pivot tables
+  function getDateSortKey(name: string, groupType: string): number {
+    if (name === "No Date" || name === "Invalid Date") return Infinity;
+    
+    const monthMap: Record<string, number> = {
+      "Jan": 0, "Feb": 1, "Mar": 2, "Apr": 3, "May": 4, "Jun": 5,
+      "Jul": 6, "Aug": 7, "Sep": 8, "Oct": 9, "Nov": 10, "Dec": 11
+    };
+    
+    switch (groupType) {
+      case "day": {
+        // Format: "Jan 15, 2024"
+        const match = name.match(/^(\w+)\s+(\d+),\s+(\d+)$/);
+        if (match) {
+          const [, mon, day, year] = match;
+          return new Date(parseInt(year), monthMap[mon] || 0, parseInt(day)).getTime();
+        }
+        return 0;
+      }
+      case "week": {
+        // Format: "Week 3, 2024"
+        const match = name.match(/^Week\s+(\d+),\s+(\d+)$/);
+        if (match) {
+          const [, week, year] = match;
+          return parseInt(year) * 100 + parseInt(week);
+        }
+        return 0;
+      }
+      case "month": {
+        // Format: "Jan 2024"
+        const match = name.match(/^(\w+)\s+(\d+)$/);
+        if (match) {
+          const [, mon, year] = match;
+          return parseInt(year) * 12 + (monthMap[mon] || 0);
+        }
+        return 0;
+      }
+      case "quarter": {
+        // Format: "Q1 2024"
+        const match = name.match(/^Q(\d)\s+(\d+)$/);
+        if (match) {
+          const [, q, year] = match;
+          return parseInt(year) * 4 + parseInt(q);
+        }
+        return 0;
+      }
+      case "year": {
+        // Format: "2024"
+        return parseInt(name) || 0;
+      }
+      default:
+        return 0;
+    }
+  }
+  
+  // Helper to sort an array of strings by date grouping
+  function sortDateStrings(strings: string[], groupType: string): string[] {
+    return [...strings].sort((a, b) => getDateSortKey(a, groupType) - getDateSortKey(b, groupType));
+  }
+  
   // Dynamic report generation based on X and Y axis configuration
-  function generateDynamicReport(leads: any[], config: any) {
+  function generateDynamicReport(leads: any[], config: any, timezone: string = "Asia/Kolkata") {
     const xAxis = config?.x_axis || "lead_status"; // Column to group by
     const yAxis = config?.y_axis || "count"; // Aggregation type: count, sum, avg
     const yAxisField = config?.y_axis_field; // Field to aggregate (for sum/avg)
     
     const grouped: Record<string, any[]> = {};
     
+    // Check if x_axis is a date-based grouping
+    const dateGroupingMatch = xAxis.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+    
     // Group leads by X-axis value
     leads.forEach(lead => {
-      let xValue = lead[xAxis] || lead.custom_fields?.[xAxis] || "Unknown";
+      let xValue: string;
       
-      // Handle date fields
-      if (xValue && typeof xValue === 'string' && xValue.match(/^\d{4}-\d{2}-\d{2}/)) {
-        xValue = xValue.split('T')[0]; // Format dates consistently
+      if (dateGroupingMatch) {
+        // Handle date-based grouping
+        const [, dateField, groupType] = dateGroupingMatch;
+        let dateValue: Date | string | null = null;
+        
+        if (dateField === "created_at") {
+          dateValue = lead.created_at;
+        } else if (dateField === "nfdt") {
+          // NFDT can be in custom_fields or as a direct field
+          dateValue = lead.custom_fields?.nfdt || lead.nfdt || null;
+        }
+        
+        xValue = formatDateForGrouping(dateValue, groupType, timezone);
+      } else {
+        // Regular column grouping
+        xValue = lead[xAxis] || lead.custom_fields?.[xAxis] || "Unknown";
+        
+        // Handle date fields for display
+        if (xValue && typeof xValue === 'string' && xValue.match(/^\d{4}-\d{2}-\d{2}/)) {
+          xValue = xValue.split('T')[0]; // Format dates consistently
+        }
       }
       
       if (!grouped[xValue]) {
@@ -7329,11 +7466,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return { name, value: Math.round(value * 100) / 100 }; // Round to 2 decimals
     });
     
+    // For date-based groupings, sort chronologically instead of by value
+    if (dateGroupingMatch) {
+      const [, , groupType] = dateGroupingMatch;
+      return result.sort((a, b) => getDateSortKey(a.name, groupType) - getDateSortKey(b.name, groupType));
+    }
+    
     return result.sort((a, b) => b.value - a.value);
   }
 
   // Generate pivot table with multi-dimensional grouping
-  function generatePivotTable(leads: any[], config: any) {
+  function generatePivotTable(leads: any[], config: any, timezone: string = "Asia/Kolkata") {
     const rowFields = config?.row_fields || []; // Array of columns for row grouping
     const columnField = config?.column_field; // Optional column pivot field
     const valueField = config?.value_field; // Field to aggregate
@@ -7343,8 +7486,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return { rows: [], columns: [], data: [] };
     }
 
-    // Helper function to get field value from lead
+    // Helper function to get field value from lead (with date-based grouping support)
     const getFieldValue = (lead: any, field: string) => {
+      // Check if field is a date-based grouping
+      const dateGroupingMatch = field.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+      
+      if (dateGroupingMatch) {
+        const [, dateField, groupType] = dateGroupingMatch;
+        let dateValue: Date | string | null = null;
+        
+        if (dateField === "created_at") {
+          dateValue = lead.created_at;
+        } else if (dateField === "nfdt") {
+          dateValue = lead.custom_fields?.nfdt || lead.nfdt || null;
+        }
+        
+        return formatDateForGrouping(dateValue, groupType, timezone);
+      }
+      
       return lead[field] || lead.custom_fields?.[field] || "Unknown";
     };
 
@@ -7396,7 +7555,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!columnField) {
       const hierarchy = buildRowHierarchy(leads, 0);
       
-      const flattenRows = (node: any, parentKeys: string[] = []): any[] => {
+      const flattenRows = (node: any, parentKeys: string[] = [], fieldIndex: number = 0): any[] => {
         if (Array.isArray(node)) {
           return [{
             keys: parentKeys,
@@ -7405,14 +7564,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }];
         }
 
+        const currentField = rowFields[fieldIndex];
+        const dateMatch = currentField?.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+        let entries = Object.entries(node);
+        
+        // Sort entries based on whether current row field is a date grouping
+        if (dateMatch) {
+          const [, , groupType] = dateMatch;
+          entries = entries.sort((a, b) => getDateSortKey(a[0], groupType) - getDateSortKey(b[0], groupType));
+        } else {
+          entries = entries.sort((a, b) => a[0].localeCompare(b[0]));
+        }
+
         const rows: any[] = [];
-        Object.entries(node).forEach(([key, child]) => {
-          rows.push(...flattenRows(child, [...parentKeys, key]));
+        entries.forEach(([key, child]) => {
+          rows.push(...flattenRows(child, [...parentKeys, key], fieldIndex + 1));
         });
         return rows;
       };
 
-      const flatRows = flattenRows(hierarchy);
+      const flatRows = flattenRows(hierarchy, [], 0);
       
       return {
         type: "simple",
@@ -7429,10 +7600,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       columnValues.add(getFieldValue(lead, columnField));
     });
 
-    const columns = Array.from(columnValues).sort();
+    // Check if column field is a date-based grouping and apply appropriate sorting
+    const columnDateMatch = columnField.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+    let columns: string[];
+    if (columnDateMatch) {
+      const [, , groupType] = columnDateMatch;
+      columns = sortDateStrings(Array.from(columnValues), groupType);
+    } else {
+      columns = Array.from(columnValues).sort();
+    }
+    
     const hierarchy = buildRowHierarchy(leads, 0);
 
-    const flattenRowsWithColumns = (node: any, parentKeys: string[] = []): any[] => {
+    const flattenRowsWithColumns = (node: any, parentKeys: string[] = [], fieldIndex: number = 0): any[] => {
       if (Array.isArray(node)) {
         const row: any = { keys: parentKeys };
         
@@ -7445,14 +7625,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return [row];
       }
 
+      const currentField = rowFields[fieldIndex];
+      const dateMatch = currentField?.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+      let entries = Object.entries(node);
+      
+      // Sort entries based on whether current row field is a date grouping
+      if (dateMatch) {
+        const [, , groupType] = dateMatch;
+        entries = entries.sort((a, b) => getDateSortKey(a[0], groupType) - getDateSortKey(b[0], groupType));
+      } else {
+        entries = entries.sort((a, b) => a[0].localeCompare(b[0]));
+      }
+
       const rows: any[] = [];
-      Object.entries(node).forEach(([key, child]) => {
-        rows.push(...flattenRowsWithColumns(child, [...parentKeys, key]));
+      entries.forEach(([key, child]) => {
+        rows.push(...flattenRowsWithColumns(child, [...parentKeys, key], fieldIndex + 1));
       });
       return rows;
     };
 
-    const dataRows = flattenRowsWithColumns(hierarchy);
+    const dataRows = flattenRowsWithColumns(hierarchy, [], 0);
 
     return {
       type: "pivot",
