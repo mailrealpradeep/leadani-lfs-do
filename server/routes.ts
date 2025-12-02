@@ -7910,6 +7910,197 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // SAVED REPORTS (Fixed Reports / Report Library)
+  // ============================================================================
+  
+  // Get saved reports for current company (+ global templates)
+  app.get("/api/reports/saved", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      let reports;
+      if (req.userRole === "super_admin") {
+        // Super admin sees all reports
+        const globalReports = await storage.getGlobalSavedReports();
+        const allCompanies = await storage.getAllCompanies();
+        const companyReports: any[] = [];
+        for (const company of allCompanies) {
+          const cReports = await storage.getSavedReportsByCompany(company.id, false);
+          companyReports.push(...cReports);
+        }
+        reports = [...globalReports, ...companyReports];
+      } else if (req.companyId) {
+        reports = await storage.getSavedReportsByCompany(req.companyId, true);
+      } else {
+        reports = [];
+      }
+      res.json(reports);
+    } catch (error: any) {
+      console.error("Get saved reports error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get a specific saved report
+  app.get("/api/reports/saved/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const report = await storage.getSavedReport(req.params.id);
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+      
+      // Check access: super admin or same company or global report
+      if (req.userRole !== "super_admin" && 
+          report.company_id !== null && 
+          report.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(report);
+    } catch (error: any) {
+      console.error("Get saved report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new saved report (Super Admin only)
+  app.post("/api/reports/saved", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, description, category, config, company_id, is_template } = req.body;
+      
+      if (!name || !config) {
+        return res.status(400).json({ error: "Name and config are required" });
+      }
+
+      const report = await storage.createSavedReport({
+        company_id: company_id || null,
+        name,
+        description: description || null,
+        category: category || null,
+        config,
+        is_template: is_template !== false,
+        source_report_id: null,
+        created_by_user_id: req.userId!,
+        is_active: true,
+      });
+
+      res.status(201).json(report);
+    } catch (error: any) {
+      console.error("Create saved report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a saved report (Super Admin only)
+  app.patch("/api/reports/saved/:id", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const report = await storage.getSavedReport(req.params.id);
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+
+      const { name, description, category, config, is_active, is_template, company_id } = req.body;
+      
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (category !== undefined) updates.category = category;
+      if (config !== undefined) updates.config = config;
+      if (is_active !== undefined) updates.is_active = is_active;
+      if (is_template !== undefined) updates.is_template = is_template;
+      if (company_id !== undefined) updates.company_id = company_id;
+
+      const updated = await storage.updateSavedReport(req.params.id, updates);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update saved report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a saved report (Super Admin only)
+  app.delete("/api/reports/saved/:id", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const deleted = await storage.deleteSavedReport(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete saved report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Duplicate a report to another company (Company Admin)
+  app.post("/api/reports/saved/:id/duplicate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const sourceReport = await storage.getSavedReport(req.params.id);
+      if (!sourceReport) {
+        return res.status(404).json({ error: "Source report not found" });
+      }
+
+      // Get target company - either specified or current company
+      const targetCompanyId = req.body.company_id || req.companyId;
+      
+      if (!targetCompanyId) {
+        return res.status(400).json({ error: "Target company required" });
+      }
+
+      // Non-super admins can only duplicate to their own company
+      if (req.userRole !== "super_admin" && targetCompanyId !== req.companyId) {
+        return res.status(403).json({ error: "Can only duplicate to your own company" });
+      }
+
+      const duplicated = await storage.duplicateSavedReport(req.params.id, targetCompanyId, req.userId!);
+      if (!duplicated) {
+        return res.status(500).json({ error: "Failed to duplicate report" });
+      }
+
+      res.status(201).json(duplicated);
+    } catch (error: any) {
+      console.error("Duplicate saved report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Run a saved report (returns data based on report config)
+  app.post("/api/reports/saved/:id/run", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const report = await storage.getSavedReport(req.params.id);
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+
+      // Increment run count
+      await storage.incrementReportRunCount(req.params.id);
+
+      const config = report.config as any;
+      
+      // For now, we return the config for client-side execution
+      // The frontend will use the report builder to execute with this config
+      // This allows flexibility for different report types
+      
+      // Get sheets the user can access
+      let accessibleSheets;
+      if (req.userRole === "super_admin" && report.company_id) {
+        accessibleSheets = await storage.getSheetsByCompanyId(report.company_id);
+      } else if (req.companyId) {
+        accessibleSheets = await storage.getSheetsByCompanyId(req.companyId);
+      } else {
+        accessibleSheets = [];
+      }
+
+      res.json({
+        report,
+        accessible_sheets: accessibleSheets.map(s => ({ id: s.id, name: s.name })),
+        config: report.config,
+      });
+    } catch (error: any) {
+      console.error("Run saved report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // AUDIT LOGS
   // ============================================================================
   app.get("/api/audit", authMiddleware, async (req: AuthRequest, res) => {
