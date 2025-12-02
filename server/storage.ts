@@ -128,6 +128,14 @@ import type {
   SimpleTargetProgress,
   SimpleTargetProgressRecord,
   InsertSimpleTargetProgress,
+  // Working Targets
+  WorkingTarget,
+  WorkingTargetRecord,
+  InsertWorkingTarget,
+  WorkingTargetConfig,
+  WorkingTargetResult,
+  WorkingTargetResultRecord,
+  InsertWorkingTargetResult,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -548,6 +556,22 @@ export interface IStorage {
   getSimpleTargetProgressByUser(userId: string): Promise<SimpleTargetProgressRecord[]>;
   getSimpleTargetProgressByTarget(targetId: string): Promise<SimpleTargetProgressRecord[]>;
   createOrUpdateSimpleTargetProgress(progress: InsertSimpleTargetProgress): Promise<SimpleTargetProgressRecord>;
+
+  // =========================================================================
+  // WORKING TARGETS (Temporary Target System)
+  // =========================================================================
+  
+  getWorkingTarget(id: string): Promise<WorkingTargetRecord | undefined>;
+  getWorkingTargetsByCompany(companyId: string): Promise<WorkingTargetRecord[]>;
+  createWorkingTarget(target: InsertWorkingTarget): Promise<WorkingTargetRecord>;
+  updateWorkingTarget(id: string, updates: Partial<WorkingTargetRecord>): Promise<WorkingTargetRecord | undefined>;
+  deleteWorkingTarget(id: string): Promise<boolean>;
+
+  // Working Target Results
+  getWorkingTargetResult(targetId: string, userId: string, periodStart: Date): Promise<WorkingTargetResultRecord | undefined>;
+  getWorkingTargetResultsByUser(userId: string, periodStart?: Date, periodEnd?: Date): Promise<WorkingTargetResultRecord[]>;
+  getWorkingTargetResultsByTarget(targetId: string): Promise<WorkingTargetResultRecord[]>;
+  createOrUpdateWorkingTargetResult(result: InsertWorkingTargetResult): Promise<WorkingTargetResultRecord>;
 }
 
 export class MemStorage implements IStorage {
@@ -2470,6 +2494,37 @@ export class MemStorage implements IStorage {
   }
   async createOrUpdateSimpleTargetProgress(_progress: InsertSimpleTargetProgress): Promise<SimpleTargetProgressRecord> {
     throw new Error("Simple Target Progress not implemented in MemStorage");
+  }
+
+  // Working Targets (not implemented in MemStorage - requires PostgreSQL)
+  async getWorkingTarget(_id: string): Promise<WorkingTargetRecord | undefined> {
+    return undefined;
+  }
+  async getWorkingTargetsByCompany(_companyId: string): Promise<WorkingTargetRecord[]> {
+    return [];
+  }
+  async createWorkingTarget(_target: InsertWorkingTarget): Promise<WorkingTargetRecord> {
+    throw new Error("Working Targets not implemented in MemStorage");
+  }
+  async updateWorkingTarget(_id: string, _updates: Partial<WorkingTargetRecord>): Promise<WorkingTargetRecord | undefined> {
+    return undefined;
+  }
+  async deleteWorkingTarget(_id: string): Promise<boolean> {
+    return false;
+  }
+
+  // Working Target Results (not implemented in MemStorage - requires PostgreSQL)
+  async getWorkingTargetResult(_targetId: string, _userId: string, _periodStart: Date): Promise<WorkingTargetResultRecord | undefined> {
+    return undefined;
+  }
+  async getWorkingTargetResultsByUser(_userId: string, _periodStart?: Date, _periodEnd?: Date): Promise<WorkingTargetResultRecord[]> {
+    return [];
+  }
+  async getWorkingTargetResultsByTarget(_targetId: string): Promise<WorkingTargetResultRecord[]> {
+    return [];
+  }
+  async createOrUpdateWorkingTargetResult(_result: InsertWorkingTargetResult): Promise<WorkingTargetResultRecord> {
+    throw new Error("Working Target Results not implemented in MemStorage");
   }
 }
 
@@ -6135,6 +6190,120 @@ export class PgStorage implements IStorage {
     } else {
       // Create new record
       const rows = await db.insert(dbSchema.simple_target_progress).values(progress).returning();
+      return rows[0];
+    }
+  }
+
+  // =========================================================================
+  // WORKING TARGETS
+  // =========================================================================
+
+  async getWorkingTarget(id: string): Promise<WorkingTargetRecord | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.working_targets)
+      .where(eq(dbSchema.working_targets.id, id));
+    return rows[0];
+  }
+
+  async getWorkingTargetsByCompany(companyId: string): Promise<WorkingTargetRecord[]> {
+    return await db.select()
+      .from(dbSchema.working_targets)
+      .where(eq(dbSchema.working_targets.company_id, companyId))
+      .orderBy(desc(dbSchema.working_targets.created_at));
+  }
+
+  async createWorkingTarget(target: InsertWorkingTarget): Promise<WorkingTargetRecord> {
+    const rows = await db.insert(dbSchema.working_targets).values(target).returning();
+    return rows[0];
+  }
+
+  async updateWorkingTarget(id: string, updates: Partial<WorkingTargetRecord>): Promise<WorkingTargetRecord | undefined> {
+    const rows = await db.update(dbSchema.working_targets)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.working_targets.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteWorkingTarget(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.working_targets).where(eq(dbSchema.working_targets.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  // =========================================================================
+  // WORKING TARGET RESULTS
+  // =========================================================================
+
+  async getWorkingTargetResult(targetId: string, userId: string, periodStart: Date): Promise<WorkingTargetResultRecord | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.working_target_results)
+      .where(
+        and(
+          eq(dbSchema.working_target_results.working_target_id, targetId),
+          eq(dbSchema.working_target_results.user_id, userId),
+          eq(dbSchema.working_target_results.period_start, periodStart)
+        )
+      );
+    return rows[0];
+  }
+
+  async getWorkingTargetResultsByUser(userId: string, periodStart?: Date, periodEnd?: Date): Promise<WorkingTargetResultRecord[]> {
+    let query = db.select()
+      .from(dbSchema.working_target_results)
+      .where(eq(dbSchema.working_target_results.user_id, userId));
+    
+    if (periodStart && periodEnd) {
+      query = db.select()
+        .from(dbSchema.working_target_results)
+        .where(
+          and(
+            eq(dbSchema.working_target_results.user_id, userId),
+            gte(dbSchema.working_target_results.period_start, periodStart),
+            lte(dbSchema.working_target_results.period_end, periodEnd)
+          )
+        );
+    }
+    
+    return await query.orderBy(desc(dbSchema.working_target_results.period_start));
+  }
+
+  async getWorkingTargetResultsByTarget(targetId: string): Promise<WorkingTargetResultRecord[]> {
+    return await db.select()
+      .from(dbSchema.working_target_results)
+      .where(eq(dbSchema.working_target_results.working_target_id, targetId))
+      .orderBy(desc(dbSchema.working_target_results.period_start));
+  }
+
+  async createOrUpdateWorkingTargetResult(result: InsertWorkingTargetResult): Promise<WorkingTargetResultRecord> {
+    // Try to find existing result record
+    const existing = await db.select()
+      .from(dbSchema.working_target_results)
+      .where(
+        and(
+          eq(dbSchema.working_target_results.working_target_id, result.working_target_id),
+          eq(dbSchema.working_target_results.user_id, result.user_id),
+          eq(dbSchema.working_target_results.period_start, result.period_start)
+        )
+      );
+
+    if (existing.length > 0) {
+      // Update existing record
+      const rows = await db.update(dbSchema.working_target_results)
+        .set({
+          current_value: result.current_value,
+          target_value: result.target_value,
+          compliance_percentage: result.compliance_percentage,
+          is_achieved: result.is_achieved,
+          details: result.details,
+          last_calculated_at: new Date(),
+          updated_at: new Date(),
+        })
+        .where(eq(dbSchema.working_target_results.id, existing[0].id))
+        .returning();
+      return rows[0];
+    } else {
+      // Create new record
+      const rows = await db.insert(dbSchema.working_target_results).values(result).returning();
       return rows[0];
     }
   }
