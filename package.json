@@ -52,6 +52,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "connect-pg-simple": "^10.0.0",
+    "countries-and-timezones": "^3.8.0",
     "date-fns": "^3.6.0",
     "date-fns-tz": "^3.2.0",
     "drizzle-orm": "^0.39.1",
