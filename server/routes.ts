@@ -6545,8 +6545,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Fetch all leads from accessible sheets (excluding soft-deleted)
+      // Build sheet ID to name map for pivot table column fields using "sheet" as special field
+      const sheetNameMap: Record<string, string> = {};
+      if (report.report_type === "pivot_table" && report.config?.column_field === "sheet") {
+        const companyId = req.companyId || report.company_id;
+        const sheets = await storage.getSheetsByCompanyId(companyId);
+        sheets.forEach(s => { sheetNameMap[s.id] = s.name; });
+      }
+      
       const allLeads = (await Promise.all(
-        accessibleSheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
+        accessibleSheetIds.map(async (sheetId) => {
+          const leads = await storage.getLeadsBySheetId(sheetId);
+          // Add sheet name to each lead if using "sheet" as column field
+          if (Object.keys(sheetNameMap).length > 0 && sheetNameMap[sheetId]) {
+            return leads.map(l => ({ ...l, sheet: sheetNameMap[sheetId] }));
+          }
+          return leads;
+        })
       )).flat().filter(lead => !lead.deleted_at);
 
       // Apply date range filter (from query params or report config)
@@ -6585,6 +6600,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Filter leads by date range
+        // For end date, include the entire day by setting time to end of day
+        if (endDate) {
+          endDate.setHours(23, 59, 59, 999);
+        }
+        
         filteredLeads = allLeads.filter(lead => {
           const leadDate = new Date(lead.created_at);
           if (startDate && leadDate < startDate) return false;

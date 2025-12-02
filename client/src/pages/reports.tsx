@@ -18,6 +18,7 @@ import {
   Globe,
   Building2,
   FileText,
+  CalendarDays,
 } from "lucide-react";
 import {
   BarChart as RechartsBarChart,
@@ -78,6 +79,72 @@ const Y_AXIS_TYPES = [
   { value: "avg", label: "Average" },
 ];
 
+// Date filter presets
+const DATE_FILTER_PRESETS = [
+  { value: "all", label: "All Time" },
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "last_7_days", label: "Last 7 Days" },
+  { value: "this_week", label: "This Week" },
+  { value: "this_month", label: "This Month" },
+  { value: "last_30_days", label: "Last 30 Days" },
+  { value: "custom", label: "Custom Range" },
+];
+
+// Helper to get date range from preset
+function getDateRangeFromPreset(preset: string): { start: string; end: string } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const formatDate = (d: Date) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  
+  switch (preset) {
+    case "today":
+      return { start: formatDate(today), end: formatDate(today) };
+    
+    case "yesterday": {
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { start: formatDate(yesterday), end: formatDate(yesterday) };
+    }
+    
+    case "last_7_days": {
+      const start = new Date(today);
+      start.setDate(start.getDate() - 6); // 7 days including today
+      return { start: formatDate(start), end: formatDate(today) };
+    }
+    
+    case "this_week": {
+      const dayOfWeek = today.getDay();
+      const start = new Date(today);
+      // Assuming week starts on Monday (adjust for Sunday start if needed)
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      start.setDate(today.getDate() - daysFromMonday);
+      return { start: formatDate(start), end: formatDate(today) };
+    }
+    
+    case "this_month": {
+      const start = new Date(today.getFullYear(), today.getMonth(), 1);
+      return { start: formatDate(start), end: formatDate(today) };
+    }
+    
+    case "last_30_days": {
+      const start = new Date(today);
+      start.setDate(start.getDate() - 29); // 30 days including today
+      return { start: formatDate(start), end: formatDate(today) };
+    }
+    
+    case "all":
+    default:
+      return { start: "", end: "" };
+  }
+}
+
 export default function Reports() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -127,7 +194,7 @@ export default function Reports() {
     queryKey: ["/api/company/columns"],
   });
 
-  // Build list of available columns (fixed + custom)
+  // Build list of available columns (fixed + custom + special)
   useEffect(() => {
     const fixedColumns = [
       "full_name",
@@ -145,10 +212,15 @@ export default function Reports() {
       "country",
       "pincode",
     ];
+    
+    // Special columns for pivot tables (not actual fields but derived)
+    const specialColumns = [
+      "sheet", // Sheet name (derived from sheet_id, useful for Executive columns)
+    ];
 
     const customColumnKeys = companyColumns?.map((col: any) => col.column_key) || [];
     // Deduplicate columns to avoid React key warnings
-    const allColumns = [...fixedColumns, ...customColumnKeys];
+    const allColumns = [...fixedColumns, ...specialColumns, ...customColumnKeys];
     const uniqueColumns = Array.from(new Set(allColumns));
     setAvailableColumns(uniqueColumns);
   }, [companyColumns]);
@@ -995,6 +1067,17 @@ function ReportCard({
   
   const [selectedSheetFilters, setSelectedSheetFilters] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>(initialDateRange);
+  const [datePreset, setDatePreset] = useState<string>("all");
+  
+  // Handle date preset change
+  const handleDatePresetChange = (preset: string) => {
+    setDatePreset(preset);
+    if (preset !== "custom") {
+      const range = getDateRangeFromPreset(preset);
+      setDateRange(range);
+    }
+    // For "custom", keep the existing dateRange and let user modify manually
+  };
   
   // Drilldown modal state
   const [drilldownOpen, setDrilldownOpen] = useState(false);
@@ -1039,6 +1122,10 @@ function ReportCard({
       ...prev,
       [field]: normalized
     }));
+    // If user manually changes dates, auto-switch to custom mode
+    if (datePreset !== "custom") {
+      setDatePreset("custom");
+    }
   };
   
   // Validate date range (trusts normalized ISO dates from normalizeDate())
@@ -1493,40 +1580,59 @@ function ReportCard({
               {/* Date Range Filter */}
               <div className="space-y-2">
                 <Label className="text-xs font-semibold">Filter by Date Range:</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label htmlFor={`date-start-${report.id}`} className="text-xs text-muted-foreground">From:</Label>
-                    <input
-                      id={`date-start-${report.id}`}
-                      type="date"
-                      value={dateRange.start}
-                      onChange={(e) => handleDateChange('start', e.target.value)}
-                      className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      data-testid={`input-date-start-${report.id}`}
-                    />
+                
+                {/* Date Preset Dropdown */}
+                <Select value={datePreset} onValueChange={handleDatePresetChange}>
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-date-preset-${report.id}`}>
+                    <div className="flex items-center gap-2">
+                      <CalendarDays className="h-3 w-3" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DATE_FILTER_PRESETS.map((preset) => (
+                      <SelectItem key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                {/* Custom Date Picker - only shown when "custom" is selected */}
+                {datePreset === "custom" && (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="space-y-1">
+                      <Label htmlFor={`date-start-${report.id}`} className="text-xs text-muted-foreground">From:</Label>
+                      <input
+                        id={`date-start-${report.id}`}
+                        type="date"
+                        value={dateRange.start}
+                        onChange={(e) => handleDateChange('start', e.target.value)}
+                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        data-testid={`input-date-start-${report.id}`}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor={`date-end-${report.id}`} className="text-xs text-muted-foreground">To:</Label>
+                      <input
+                        id={`date-end-${report.id}`}
+                        type="date"
+                        value={dateRange.end}
+                        onChange={(e) => handleDateChange('end', e.target.value)}
+                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        data-testid={`input-date-end-${report.id}`}
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor={`date-end-${report.id}`} className="text-xs text-muted-foreground">To:</Label>
-                    <input
-                      id={`date-end-${report.id}`}
-                      type="date"
-                      value={dateRange.end}
-                      onChange={(e) => handleDateChange('end', e.target.value)}
-                      className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      data-testid={`input-date-end-${report.id}`}
-                    />
-                  </div>
-                </div>
-                {(dateRange.start || dateRange.end) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDateRange({ start: "", end: "" })}
-                    className="h-7 text-xs"
-                    data-testid={`button-clear-dates-${report.id}`}
-                  >
-                    Clear dates
-                  </Button>
+                )}
+                
+                {/* Show current date range when not "all" */}
+                {datePreset !== "all" && datePreset !== "custom" && dateRange.start && (
+                  <p className="text-xs text-muted-foreground">
+                    {dateRange.start === dateRange.end 
+                      ? dateRange.start 
+                      : `${dateRange.start} to ${dateRange.end}`}
+                  </p>
                 )}
               </div>
             </div>
