@@ -6635,10 +6635,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Exclude soft-deleted leads
         if (lead.deleted_at) return false;
         
-        // For user reports viewed by regular users, filter to their own assigned leads only
-        if (report.is_user_report === true && req.userRole === "user") {
-          return lead.assigned_to === req.userId;
-        }
+        // For user reports, regular users see all leads from their accessible sheets
+        // Sheet-level access control is already applied above via accessibleSheetIds
+        // (which is intersected with user's permitted sheets for non-admin users)
         
         return true;
       });
