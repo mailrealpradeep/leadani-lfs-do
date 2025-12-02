@@ -1,5 +1,16 @@
 import { startOfDay, startOfWeek, endOfWeek, addWeeks, subWeeks, parseISO, isValid, isSameDay, isBefore, isAfter, isWithinInterval } from "date-fns";
 import type { HighlightingRule, HighlightingCondition, Lead } from "@shared/schema";
+import { 
+  getCurrentDateInTimezone, 
+  getStartOfDayInTimezone, 
+  isSameDayInTimezone,
+  isBeforeTodayInTimezone,
+  isAfterTodayInTimezone,
+  isWithinThisWeekInTimezone,
+  getWeekRangeInTimezone,
+} from "./timezone-utils";
+
+const DEFAULT_TIMEZONE = "Asia/Kolkata";
 
 const HIGHLIGHT_COLORS = {
   // Red variants
@@ -52,7 +63,7 @@ function normalizeString(value: any): string {
   return String(value ?? "").toLowerCase().trim();
 }
 
-function evaluateCondition(condition: HighlightingCondition, lead: Lead): boolean {
+function evaluateCondition(condition: HighlightingCondition, lead: Lead, timezone: string = DEFAULT_TIMEZONE): boolean {
   const { column_key, operator, value, value2 } = condition;
   const fieldValue = getValue(lead, column_key);
 
@@ -137,21 +148,23 @@ function evaluateCondition(condition: HighlightingCondition, lead: Lead): boolea
       const dateValue = parseDate(fieldValue);
       const compareDate = parseDate(value);
       if (!dateValue || !compareDate) return false;
-      return isSameDay(dateValue, compareDate);
+      return isSameDayInTimezone(dateValue, compareDate, timezone);
     }
     
     case "date_before": {
       const dateValue = parseDate(fieldValue);
       const compareDate = parseDate(value);
       if (!dateValue || !compareDate) return false;
-      return isBefore(dateValue, startOfDay(compareDate));
+      const compareDayStart = getStartOfDayInTimezone(compareDate, timezone);
+      return dateValue.getTime() < compareDayStart.getTime();
     }
     
     case "date_after": {
       const dateValue = parseDate(fieldValue);
       const compareDate = parseDate(value);
       if (!dateValue || !compareDate) return false;
-      return isAfter(dateValue, startOfDay(compareDate));
+      const compareDayStart = getStartOfDayInTimezone(compareDate, timezone);
+      return dateValue.getTime() > compareDayStart.getTime();
     }
     
     case "date_between": {
@@ -159,52 +172,52 @@ function evaluateCondition(condition: HighlightingCondition, lead: Lead): boolea
       const startDate = parseDate(value);
       const endDate = parseDate(value2);
       if (!dateValue || !startDate || !endDate) return false;
-      return isWithinInterval(dateValue, { start: startOfDay(startDate), end: startOfDay(endDate) });
+      const startDayStart = getStartOfDayInTimezone(startDate, timezone);
+      const endDayEnd = new Date(getStartOfDayInTimezone(endDate, timezone).getTime() + 24 * 60 * 60 * 1000 - 1);
+      return dateValue.getTime() >= startDayStart.getTime() && dateValue.getTime() <= endDayEnd.getTime();
     }
     
     case "is_today": {
       const dateValue = parseDate(fieldValue);
       if (!dateValue) return false;
-      return isSameDay(dateValue, new Date());
+      return isSameDayInTimezone(dateValue, new Date(), timezone);
     }
     
     case "is_before_today": {
       const dateValue = parseDate(fieldValue);
       if (!dateValue) return false;
-      return isBefore(dateValue, startOfDay(new Date()));
+      return isBeforeTodayInTimezone(dateValue, timezone);
     }
     
     case "is_after_today": {
       const dateValue = parseDate(fieldValue);
       if (!dateValue) return false;
-      return isAfter(dateValue, startOfDay(new Date()));
+      return isAfterTodayInTimezone(dateValue, timezone);
     }
     
     case "is_this_week": {
       const dateValue = parseDate(fieldValue);
       if (!dateValue) return false;
-      const now = new Date();
-      const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-      const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
-      return isWithinInterval(dateValue, { start: weekStart, end: weekEnd });
+      return isWithinThisWeekInTimezone(dateValue, timezone);
     }
     
     case "is_next_week": {
       const dateValue = parseDate(fieldValue);
       if (!dateValue) return false;
       const nextWeek = addWeeks(new Date(), 1);
-      const weekStart = startOfWeek(nextWeek, { weekStartsOn: 1 });
-      const weekEnd = endOfWeek(nextWeek, { weekStartsOn: 1 });
-      return isWithinInterval(dateValue, { start: weekStart, end: weekEnd });
+      const { start, end } = getWeekRangeInTimezone(timezone);
+      const nextWeekStart = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const nextWeekEnd = new Date(end.getTime() + 7 * 24 * 60 * 60 * 1000);
+      return dateValue.getTime() >= nextWeekStart.getTime() && dateValue.getTime() <= nextWeekEnd.getTime();
     }
     
     case "is_last_week": {
       const dateValue = parseDate(fieldValue);
       if (!dateValue) return false;
-      const lastWeek = subWeeks(new Date(), 1);
-      const weekStart = startOfWeek(lastWeek, { weekStartsOn: 1 });
-      const weekEnd = endOfWeek(lastWeek, { weekStartsOn: 1 });
-      return isWithinInterval(dateValue, { start: weekStart, end: weekEnd });
+      const { start, end } = getWeekRangeInTimezone(timezone);
+      const lastWeekStart = new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const lastWeekEnd = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+      return dateValue.getTime() >= lastWeekStart.getTime() && dateValue.getTime() <= lastWeekEnd.getTime();
     }
     
     default:
@@ -212,15 +225,15 @@ function evaluateCondition(condition: HighlightingCondition, lead: Lead): boolea
   }
 }
 
-function evaluateRule(rule: HighlightingRule, lead: Lead): boolean {
+function evaluateRule(rule: HighlightingRule, lead: Lead, timezone: string = DEFAULT_TIMEZONE): boolean {
   const { conditions, logical_operator } = rule;
   
   if (!conditions || conditions.length === 0) return false;
   
   if (logical_operator === "and") {
-    return conditions.every(condition => evaluateCondition(condition, lead));
+    return conditions.every(condition => evaluateCondition(condition, lead, timezone));
   } else {
-    return conditions.some(condition => evaluateCondition(condition, lead));
+    return conditions.some(condition => evaluateCondition(condition, lead, timezone));
   }
 }
 
@@ -235,7 +248,8 @@ export interface HighlightResult {
 export function evaluateHighlightingRules(
   rules: HighlightingRule[],
   lead: Lead,
-  isDarkMode: boolean = false
+  isDarkMode: boolean = false,
+  timezone: string = DEFAULT_TIMEZONE
 ): HighlightResult | null {
   if (!rules || rules.length === 0) return null;
   
@@ -244,7 +258,7 @@ export function evaluateHighlightingRules(
     .sort((a, b) => a.priority - b.priority);
   
   for (const rule of activeRules) {
-    if (evaluateRule(rule, lead)) {
+    if (evaluateRule(rule, lead, timezone)) {
       const colorId = rule.row_color as HighlightColor;
       const color = HIGHLIGHT_COLORS[colorId];
       return {

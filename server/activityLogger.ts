@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { getCompanyTimezone, formatDateInTimezone } from "./timezone-utils";
 import type { 
   User, 
   Sheet,
@@ -221,10 +222,12 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
 export function computeFieldChanges(
   oldData: Record<string, any>,
   newData: Record<string, any>,
-  columns: CustomColumn[]
+  columns: CustomColumn[],
+  timezone?: string
 ): FieldChange[] {
   const changes: FieldChange[] = [];
   const columnMap = new Map(columns.map(c => [c.column_key, c]));
+  const tz = timezone || "Asia/Kolkata";
   
   const allKeys = Array.from(new Set([...Object.keys(oldData), ...Object.keys(newData)]));
   
@@ -236,8 +239,8 @@ export function computeFieldChanges(
       const column = columnMap.get(key);
       const fieldLabel = column?.name || key;
       
-      let oldDisplay = formatValue(oldValue, column);
-      let newDisplay = formatValue(newValue, column);
+      let oldDisplay = formatValue(oldValue, column, tz);
+      let newDisplay = formatValue(newValue, column, tz);
       
       changes.push({
         field_key: key,
@@ -253,21 +256,15 @@ export function computeFieldChanges(
   return changes;
 }
 
-function formatValue(value: any, column?: CustomColumn): string {
+function formatValue(value: any, column?: CustomColumn, timezone?: string): string {
   if (value === null || value === undefined || value === "") {
     return "(empty)";
   }
   
   if (column?.type === "date" && value) {
     try {
-      const date = new Date(value);
-      return date.toLocaleDateString("en-IN", { 
-        day: "numeric", 
-        month: "short", 
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit"
-      });
+      const tz = timezone || "Asia/Kolkata";
+      return formatDateInTimezone(value, tz);
     } catch {
       return String(value);
     }
@@ -317,7 +314,9 @@ export async function logLeadUpdated(
   sheet: Sheet,
   columns: CustomColumn[]
 ): Promise<void> {
-  const changes = computeFieldChanges(oldCustomFields, newCustomFields, columns);
+  const company = await storage.getCompany(sheet.company_id);
+  const timezone = getCompanyTimezone(company);
+  const changes = computeFieldChanges(oldCustomFields, newCustomFields, columns, timezone);
   
   if (changes.length === 0) return;
   

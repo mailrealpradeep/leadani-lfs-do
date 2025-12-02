@@ -1,4 +1,10 @@
 import { storage } from './storage';
+import { 
+  getCompanyTimezone, 
+  getCurrentDateInTimezone, 
+  getWeekRangeInTimezone,
+  getMonthRangeInTimezone 
+} from './timezone-utils';
 import type { 
   TargetRecord, 
   TargetGoalRecord,
@@ -522,10 +528,8 @@ export async function calculateGoalProgress(
   };
 }
 
-// Get period dates based on target time type
-export function getCurrentPeriod(target: TargetRecord): { start: Date; end: Date } {
-  const now = new Date();
-  
+// Get period dates based on target time type (uses company timezone)
+export function getCurrentPeriod(target: TargetRecord, timezone: string = 'Asia/Kolkata'): { start: Date; end: Date } {
   if (target.time_type === 'one_time') {
     return {
       start: new Date(target.start_date),
@@ -533,32 +537,25 @@ export function getCurrentPeriod(target: TargetRecord): { start: Date; end: Date
     };
   }
   
-  // Recurring targets
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
+  // Recurring targets - use company timezone
   switch (target.recurring_frequency) {
     case 'daily':
+      const today = getCurrentDateInTimezone(timezone);
       const dayEnd = new Date(today);
       dayEnd.setHours(23, 59, 59, 999);
       return { start: today, end: dayEnd };
     
     case 'weekly':
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay());
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
-      return { start: weekStart, end: weekEnd };
+      const weekRange = getWeekRangeInTimezone(timezone);
+      return weekRange;
     
     case 'monthly':
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      monthEnd.setHours(23, 59, 59, 999);
-      return { start: monthStart, end: monthEnd };
+      const monthRange = getMonthRangeInTimezone(timezone);
+      return monthRange;
     
     default:
-      return { start: today, end: new Date() };
+      const defaultToday = getCurrentDateInTimezone(timezone);
+      return { start: defaultToday, end: new Date() };
   }
 }
 
@@ -575,8 +572,11 @@ export async function calculateUserTargetProgress(
   const target = await storage.getTarget(targetId);
   if (!target) throw new Error('Target not found');
   
+  const company = await storage.getCompany(target.company_id);
+  const timezone = getCompanyTimezone(company);
+  
   const goals = await storage.getTargetGoals(targetId);
-  const period = getCurrentPeriod(target);
+  const period = getCurrentPeriod(target, timezone);
   
   const goalProgress: { goalId: string; goalName: string; currentValue: number; targetValue: number; percentage: number; isAchieved: boolean }[] = [];
   

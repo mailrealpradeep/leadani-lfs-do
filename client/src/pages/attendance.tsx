@@ -4,7 +4,8 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { format, formatDistanceToNow, parseISO, differenceInHours, differenceInMinutes } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
+import { formatDistanceToNow, differenceInHours, differenceInMinutes, parseISO } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +70,7 @@ export default function Attendance() {
   const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
+  const { formatDate, formatTime, formatInTimezone } = useCompanyTimezone();
   const isAdmin = isCompanyAdmin || isSuperAdmin;
 
   const [forceExitDialogOpen, setForceExitDialogOpen] = useState(false);
@@ -356,7 +358,7 @@ export default function Attendance() {
                 Today's Status
               </CardTitle>
               <CardDescription>
-                {format(new Date(), "EEEE, MMMM d, yyyy")}
+                {formatInTimezone(new Date(), "EEEE, MMMM d, yyyy")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -373,7 +375,7 @@ export default function Attendance() {
                         <div>
                           <div className="font-medium">Entry Time</div>
                           <div className="text-sm text-muted-foreground">
-                            {format(parseISO(todayEntry.entry_time), "h:mm a")}
+                            {formatTime(todayEntry.entry_time)}
                           </div>
                         </div>
                       </div>
@@ -384,7 +386,7 @@ export default function Attendance() {
                           <div className="flex-1">
                             <div className="font-medium">Exit Time</div>
                             <div className="text-sm text-muted-foreground">
-                              {format(parseISO(todayEntry.exit_time), "h:mm a")}
+                              {formatTime(todayEntry.exit_time)}
                             </div>
                           </div>
                           <div className="text-right">
@@ -501,12 +503,12 @@ export default function Attendance() {
                     >
                       <div>
                         <div className="font-medium">
-                          {format(parseISO(entry.entry_time), "EEEE, MMM d")}
+                          {formatInTimezone(entry.entry_time, "EEEE, MMM d")}
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {format(parseISO(entry.entry_time), "h:mm a")}
+                          {formatTime(entry.entry_time)}
                           {entry.exit_time && (
-                            <> - {format(parseISO(entry.exit_time), "h:mm a")}</>
+                            <> - {formatTime(entry.exit_time)}</>
                           )}
                         </div>
                       </div>
@@ -570,12 +572,12 @@ export default function Attendance() {
                         <div className="flex items-center gap-4 text-sm mb-3">
                           <div className="flex items-center gap-1">
                             <LogIn className="h-4 w-4 text-green-500" />
-                            Entry: {format(parseISO(entry.entry_time), "h:mm a")}
+                            Entry: {formatTime(entry.entry_time)}
                           </div>
                           {entry.exit_time && (
                             <div className="flex items-center gap-1">
                               <LogOut className="h-4 w-4 text-blue-500" />
-                              Exit: {format(parseISO(entry.exit_time), "h:mm a")}
+                              Exit: {formatTime(entry.exit_time)}
                               {entry.exit_type === "forced" && (
                                 <Badge variant="secondary" className="ml-1">Force</Badge>
                               )}
@@ -661,7 +663,7 @@ export default function Attendance() {
                             <div className="text-sm text-muted-foreground">{entry.user_email}</div>
                           </div>
                           <Badge variant="secondary">
-                            {format(parseISO(entry.entry_time), "MMM d")}
+                            {formatInTimezone(entry.entry_time, "MMM d")}
                           </Badge>
                         </div>
                         <div className="text-sm mb-3">
@@ -838,7 +840,7 @@ export default function Attendance() {
             <div className="space-y-4">
               <div className="p-4 rounded-lg bg-muted">
                 <div className="text-sm mb-2">
-                  <strong>Date:</strong> {format(parseISO(selectedReviewEntry.entry_time), "EEEE, MMM d, yyyy")}
+                  <strong>Date:</strong> {formatInTimezone(selectedReviewEntry.entry_time, "EEEE, MMM d, yyyy")}
                 </div>
                 <div className="text-sm mb-2">
                   <strong>Reason:</strong> {selectedReviewEntry.force_exit_reason}

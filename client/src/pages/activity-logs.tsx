@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { format } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Activity,
   User,
@@ -194,6 +194,7 @@ const formatDetails = (details: any): { label: string; items: Array<{ text: stri
 
 export default function ActivityLogs() {
   const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
+  const { formatDateTime } = useCompanyTimezone();
   const isAdmin = isCompanyAdmin || isSuperAdmin;
 
   const [page, setPage] = useState(1);
@@ -434,7 +435,7 @@ export default function ActivityLogs() {
                             </Badge>
                           </div>
                           <span className="text-xs text-muted-foreground whitespace-nowrap">
-                            {format(new Date(log.occurred_at), "MMM d, yyyy h:mm a")}
+                            {formatDateTime(log.occurred_at)}
                           </span>
                         </div>
                         

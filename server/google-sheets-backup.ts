@@ -2,6 +2,7 @@ import { storage } from "./storage";
 import type { BackupConfigRecord, Lead, LeadUpdate, CustomColumn } from "@shared/schema";
 import { extractGoogleSheetId } from "@shared/schema";
 import { google } from 'googleapis';
+import { getCompanyTimezone, formatDateForSheet as formatDateWithTimezone } from "./timezone-utils";
 
 // ============================================================================
 // Google Sheets API Client (using Replit Google Sheets Integration)
@@ -227,11 +228,8 @@ export interface BackupData {
   rows: (string | number | null)[][];
 }
 
-function formatDateForSheet(date: Date | string | null | undefined): string {
-  if (!date) return '';
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return '';
-  return d.toISOString().split('T')[0] + ' ' + d.toTimeString().split(' ')[0].substring(0, 5);
+function formatDateForSheetLocal(date: Date | string | null | undefined, timezone: string): string {
+  return formatDateWithTimezone(date, timezone);
 }
 
 function normalizePhone(phone: string | null | undefined): string {
@@ -246,6 +244,8 @@ export async function prepareBackupData(
   const leads = await storage.getLeadsBySheetId(sheetId);
   const columns = await storage.getCustomColumnsByCompany(companyId);
   const sheet = await storage.getSheet(sheetId);
+  const company = await storage.getCompany(companyId);
+  const timezone = getCompanyTimezone(company);
   
   const activeLeads = leads.filter(l => !l.deleted_at);
   
@@ -282,8 +282,8 @@ export async function prepareBackupData(
       lead.id,
       lead.sheet_id,
       lead.owner_user_id || '',
-      formatDateForSheet(lead.created_at),
-      formatDateForSheet(lead.updated_at),
+      formatDateForSheetLocal(lead.created_at, timezone),
+      formatDateForSheetLocal(lead.updated_at, timezone),
     ];
     
     const customData = (lead.custom_fields || {}) as Record<string, any>;
@@ -302,7 +302,7 @@ export async function prepareBackupData(
       if (i < sortedUpdates.length) {
         const update = sortedUpdates[i];
         row.push(update.update_via || '');
-        row.push(formatDateForSheet(update.update_on));
+        row.push(formatDateForSheetLocal(update.update_on, timezone));
         row.push(update.remark || '');
       } else {
         row.push('');

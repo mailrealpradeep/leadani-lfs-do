@@ -104,6 +104,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { useTheme } from "@/components/theme-provider";
 import { format, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
 import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRule, UserRowFilterRecord, RowFilterCondition } from "@shared/schema";
@@ -205,6 +206,7 @@ export function SpreadsheetGrid({
   const { toast } = useToast();
   const isMobile = useIsMobile();
   const { theme } = useTheme();
+  const { timezone } = useCompanyTimezone();
   const isDarkMode = theme === "dark";
   const { 
     searchQuery, 
@@ -1901,7 +1903,7 @@ export function SpreadsheetGrid({
                         ? "bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800" 
                         : "bg-card";
                       
-                      const mobileHighlightResult = evaluateHighlightingRules(highlightingRules, lead);
+                      const mobileHighlightResult = evaluateHighlightingRules(highlightingRules, lead, isDarkMode, timezone);
                       
                       const getMobileCardStyle = () => {
                         if (invalidLeadIds.has(lead.id)) return {};
@@ -2238,7 +2240,7 @@ export function SpreadsheetGrid({
                     ? "bg-amber-50 dark:bg-amber-950/20" 
                     : "";
                   
-                  const highlightResult = evaluateHighlightingRules(highlightingRules, lead);
+                  const highlightResult = evaluateHighlightingRules(highlightingRules, lead, isDarkMode, timezone);
                   
                   const getRowStyle = () => {
                     if (invalidLeadIds.has(lead.id)) {
