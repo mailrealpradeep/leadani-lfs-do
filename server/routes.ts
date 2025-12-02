@@ -6212,6 +6212,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   
   // GET /api/company/reports - Get all reports (filtered by permissions)
+  // For admins: returns admin-only reports (is_user_report=false)
+  // For users: returns user reports (is_user_report=true) filtered to their sheets
   app.get("/api/company/reports", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId && req.userRole !== "super_admin") {
@@ -6225,8 +6227,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get all reports for the company
       let reports = await storage.getReportsByCompanyId(companyId);
 
-      // For non-admin users, filter reports to only show those for sheets they have access to
+      // For non-admin users, filter to user reports only and their accessible sheets
       if (req.userRole === "user") {
+        // Users only see is_user_report=true reports
+        reports = reports.filter(report => report.is_user_report === true);
+        
         const userSheets = await storage.getSheetsByUserId(req.userId!);
         const userSheetIds = userSheets.map(s => s.id);
         
@@ -6234,11 +6239,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
           return reportSheetIds.some(sheetId => userSheetIds.includes(sheetId));
         });
+      } else {
+        // Admins see only admin reports (is_user_report=false) in the main reports view
+        reports = reports.filter(report => report.is_user_report !== true);
       }
 
       res.json(reports);
     } catch (error: any) {
       console.error("Get reports error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/company/reports/user-reports - Get all user reports (admin view for managing)
+  app.get("/api/company/reports/user-reports", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id 
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      // Get all reports for the company and filter to user reports only
+      let reports = await storage.getReportsByCompanyId(companyId);
+      reports = reports.filter(report => report.is_user_report === true);
+
+      res.json(reports);
+    } catch (error: any) {
+      console.error("Get user reports error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -6375,6 +6405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         report_type,
         sheet_ids,
         config: config || {},
+        is_user_report: req.body.is_user_report === true,
         created_by_user_id: req.userId!,
       });
 
@@ -6408,13 +6439,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Cannot update reports from other companies" });
       }
 
-      const { name, description, report_type, sheet_ids, config } = req.body;
+      const { name, description, report_type, sheet_ids, config, is_user_report } = req.body;
       const updates: any = {};
       
       if (name !== undefined) updates.name = name;
       if (description !== undefined) updates.description = description;
       if (report_type !== undefined) updates.report_type = report_type;
       if (config !== undefined) updates.config = config;
+      if (is_user_report !== undefined) updates.is_user_report = is_user_report;
       
       // If updating sheet_ids, verify all sheets belong to the company
       if (sheet_ids !== undefined) {
@@ -6591,7 +6623,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return enrichedLead;
           });
         })
-      )).flat().filter(lead => !lead.deleted_at);
+      )).flat().filter(lead => {
+        // Exclude soft-deleted leads
+        if (lead.deleted_at) return false;
+        
+        // For user reports viewed by regular users, filter to their own assigned leads only
+        if (report.is_user_report === true && req.userRole === "user") {
+          return lead.assigned_to === req.userId;
+        }
+        
+        return true;
+      });
 
       // Apply date range filter (from query params or report config)
       let filteredLeads = allLeads;
