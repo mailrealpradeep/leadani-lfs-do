@@ -603,35 +603,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Helper function to evaluate conditions
-      const evaluateCondition = (rule: any, webhookData: any): boolean => {
-        // Default rules (no condition fields) are NOT evaluated in the main filter
-        // They are only used as fallback when no other rules match
-        if (!rule.condition_field || !rule.condition_operator || !rule.condition_value) {
-          return false;
-        }
-
+      // Helper function to evaluate a single condition
+      const evaluateSingleCondition = (condition: { field: string; operator: string; value: string }, webhookData: any): boolean => {
         // Extract value from webhook data using dot notation
-        const actualValue = getNestedValue(webhookData, rule.condition_field);
+        const actualValue = getNestedValue(webhookData, condition.field);
         if (actualValue === undefined || actualValue === null) {
           return false;
         }
 
         // Convert to string for comparison
         const actualStr = String(actualValue).toLowerCase();
-        const expectedStr = String(rule.condition_value).toLowerCase();
+        const expectedStr = String(condition.value || '').toLowerCase();
 
         // Evaluate based on operator
-        switch (rule.condition_operator) {
+        switch (condition.operator) {
           case "equals":
             return actualStr === expectedStr;
           case "contains":
             return actualStr.includes(expectedStr);
           case "starts_with":
             return actualStr.startsWith(expectedStr);
+          case "ends_with":
+            return actualStr.endsWith(expectedStr);
+          case "not_equals":
+            return actualStr !== expectedStr;
+          case "not_contains":
+            return !actualStr.includes(expectedStr);
           default:
             return false;
         }
+      };
+
+      // Helper function to evaluate conditions (supports both new JSON array and legacy fields)
+      const evaluateCondition = (rule: any, webhookData: any): boolean => {
+        // First check if rule has conditions JSON array (new format)
+        if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+          const logicalOp = (rule.logical_operator || 'and').toLowerCase();
+          
+          if (logicalOp === 'or') {
+            // OR logic: at least one condition must match
+            return rule.conditions.some((cond: any) => evaluateSingleCondition(cond, webhookData));
+          } else {
+            // AND logic (default): all conditions must match
+            return rule.conditions.every((cond: any) => evaluateSingleCondition(cond, webhookData));
+          }
+        }
+        
+        // Fall back to legacy single-condition fields
+        // Default rules (no condition fields) are NOT evaluated in the main filter
+        // They are only used as fallback when no other rules match
+        if (!rule.condition_field || !rule.condition_operator || !rule.condition_value) {
+          return false;
+        }
+
+        // Use legacy single condition evaluation
+        return evaluateSingleCondition({
+          field: rule.condition_field,
+          operator: rule.condition_operator,
+          value: rule.condition_value
+        }, webhookData);
       };
 
       // Filter allocation rules based on conditions
