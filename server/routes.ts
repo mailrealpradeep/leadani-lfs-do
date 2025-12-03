@@ -163,7 +163,7 @@ function generateMockValue(fieldKey: string, fieldType?: string): string {
 // Rate limiters - disable trust proxy validation for Replit deployment
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
+  max: 15, // Increased from 5 to accommodate shared WiFi networks where multiple users share same IP
   message: "Too many login attempts, please try again later",
   validate: { trustProxy: false },
 });
