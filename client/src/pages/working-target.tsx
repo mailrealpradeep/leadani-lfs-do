@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/lib/auth";
 import { 
   Crosshair, Plus, Trash2, Edit, Target, TrendingUp, 
   Calendar, Clock, CheckCircle2, XCircle, Loader2,
@@ -117,6 +117,7 @@ export default function WorkingTarget() {
   const [singleColumnId, setSingleColumnId] = useState('');
   const [singleOperator, setSingleOperator] = useState<'equals' | 'not_equals' | 'is_empty' | 'is_not_empty'>('is_not_empty');
   const [singleValue, setSingleValue] = useState('');
+  const [singleTargetPercentage, setSingleTargetPercentage] = useState<number>(100);
   
   const [compareColumnId, setCompareColumnId] = useState('');
   const [compareFromValue, setCompareFromValue] = useState('');
@@ -145,10 +146,7 @@ export default function WorkingTarget() {
 
   const createMutation = useMutation({
     mutationFn: async (data: CreateTargetData) => {
-      return apiRequest('/api/working-targets', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      return apiRequest('POST', '/api/working-targets', data);
     },
     onSuccess: () => {
       toast({ title: "Target created successfully" });
@@ -163,10 +161,7 @@ export default function WorkingTarget() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<CreateTargetData> & { is_active?: boolean } }) => {
-      return apiRequest(`/api/working-targets/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      });
+      return apiRequest('PATCH', `/api/working-targets/${id}`, data);
     },
     onSuccess: () => {
       toast({ title: "Target updated successfully" });
@@ -182,7 +177,7 @@ export default function WorkingTarget() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest(`/api/working-targets/${id}`, { method: 'DELETE' });
+      return apiRequest('DELETE', `/api/working-targets/${id}`);
     },
     onSuccess: () => {
       toast({ title: "Target deleted successfully" });
@@ -207,6 +202,7 @@ export default function WorkingTarget() {
     setSingleColumnId('');
     setSingleOperator('is_not_empty');
     setSingleValue('');
+    setSingleTargetPercentage(100);
     setCompareColumnId('');
     setCompareFromValue('');
     setCompareToValue('');
@@ -233,6 +229,7 @@ export default function WorkingTarget() {
           column_id: singleColumnId,
           operator: singleOperator,
           value: singleValue,
+          target_percentage: singleTargetPercentage,
         },
       };
     } else {
@@ -273,6 +270,7 @@ export default function WorkingTarget() {
       setSingleColumnId(conf.column_id);
       setSingleOperator(conf.operator);
       setSingleValue(conf.value || '');
+      setSingleTargetPercentage(conf.target_percentage || 100);
     } else {
       const conf = (target.config as any).config;
       setCompareColumnId(conf.column_id);
@@ -303,6 +301,7 @@ export default function WorkingTarget() {
           column_id: singleColumnId,
           operator: singleOperator,
           value: singleValue,
+          target_percentage: singleTargetPercentage,
         },
       };
     } else {
@@ -673,6 +672,21 @@ export default function WorkingTarget() {
                           />
                         </div>
                       )}
+                      <div className="space-y-2">
+                        <Label>Target Compliance (%)</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={singleTargetPercentage}
+                          onChange={(e) => setSingleTargetPercentage(parseInt(e.target.value) || 100)}
+                          placeholder="Enter target percentage"
+                          data-testid="input-single-target-percentage"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Percentage of touched leads that must meet the condition
+                        </p>
+                      </div>
                     </>
                   )}
 
@@ -916,6 +930,16 @@ export default function WorkingTarget() {
                         />
                       </div>
                     )}
+                    <div className="space-y-2">
+                      <Label>Target Compliance (%)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={singleTargetPercentage}
+                        onChange={(e) => setSingleTargetPercentage(parseInt(e.target.value) || 100)}
+                      />
+                    </div>
                   </>
                 )}
 

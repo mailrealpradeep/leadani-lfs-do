@@ -3123,6 +3123,7 @@ export interface SingleColumnTargetConfig {
   operator: SingleColumnOperator;
   value?: string | number;           // The value to compare against (for equals, not_equals, etc.)
   dropdown_option_id?: string;       // If comparing to a dropdown value
+  target_percentage?: number;        // Required compliance percentage (default 100)
 }
 
 // Configuration for Compare Columns (transition) targets

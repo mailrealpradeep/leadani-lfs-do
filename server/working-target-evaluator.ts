@@ -134,7 +134,7 @@ async function evaluateSingleColumnTarget(
   periodEnd: Date
 ): Promise<EvaluationResult> {
   const config = (target.config as { type: 'single_column'; config: SingleColumnTargetConfig }).config;
-  const { column_id, operator, value } = config;
+  const { column_id, operator, value, target_percentage = 100 } = config;
   
   const userSheets = await db.select({ sheet_id: dbSchema.sheet_users.sheet_id })
     .from(dbSchema.sheet_users)
@@ -165,11 +165,23 @@ async function evaluateSingleColumnTarget(
       )
     );
   
-  const totalLeads = allLeads.length;
+  if (allLeads.length === 0) {
+    return {
+      currentValue: 0,
+      targetValue: 0,
+      compliancePercentage: 0,
+      isAchieved: false,
+      details: { noLeads: true, message: "No leads in accessible sheets" }
+    };
+  }
+  
+  const periodLeads = allLeads;
+  
+  const totalLeads = periodLeads.length;
   let matchingLeads = 0;
   const nonCompliantLeadIds: string[] = [];
   
-  for (const lead of allLeads) {
+  for (const lead of periodLeads) {
     const customFields = (lead.custom_fields as Record<string, any>) || {};
     const fieldValue = customFields[column_id];
     
@@ -197,11 +209,11 @@ async function evaluateSingleColumnTarget(
   }
   
   const compliancePercentage = totalLeads > 0 ? (matchingLeads / totalLeads) * 100 : 0;
-  const isAchieved = compliancePercentage >= 100;
+  const isAchieved = compliancePercentage >= target_percentage;
   
   return {
     currentValue: matchingLeads,
-    targetValue: totalLeads,
+    targetValue: Math.ceil(totalLeads * target_percentage / 100),
     compliancePercentage,
     isAchieved,
     details: {
@@ -211,7 +223,8 @@ async function evaluateSingleColumnTarget(
       nonCompliantLeadIds: nonCompliantLeadIds.slice(0, 10),
       operator,
       value,
-      column_id
+      column_id,
+      target_percentage
     }
   };
 }
