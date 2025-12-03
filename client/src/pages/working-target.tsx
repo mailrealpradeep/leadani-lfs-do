@@ -644,29 +644,29 @@ export default function WorkingTarget() {
           <TabsContent value="admin" className="mt-4">
             {/* Period Filter Tabs */}
             <Tabs value={periodFilter} onValueChange={(v) => setPeriodFilter(v as typeof periodFilter)} className="w-full">
-              <div className="overflow-x-auto">
-                <TabsList className="mb-4 inline-flex w-auto min-w-full sm:min-w-0">
-                  <TabsTrigger value="all" data-testid="tab-period-all" className="flex-shrink-0">
+              <div className="overflow-x-auto -mx-1 px-1 pb-1">
+                <TabsList className="mb-4 inline-flex w-max whitespace-nowrap">
+                  <TabsTrigger value="all" data-testid="tab-period-all">
                     All
                     {targets && targets.length > 0 && (
                       <Badge variant="secondary" className="ml-2 text-xs">{targets.length}</Badge>
                     )}
                   </TabsTrigger>
-                  <TabsTrigger value="daily" data-testid="tab-period-daily" className="flex-shrink-0">
+                  <TabsTrigger value="daily" data-testid="tab-period-daily">
                     <Clock className="h-3.5 w-3.5 mr-1.5" />
                     Daily
                     {targets && targets.filter(t => t.period_type === 'daily').length > 0 && (
                       <Badge variant="secondary" className="ml-2 text-xs">{targets.filter(t => t.period_type === 'daily').length}</Badge>
                     )}
                   </TabsTrigger>
-                  <TabsTrigger value="weekly" data-testid="tab-period-weekly" className="flex-shrink-0">
+                  <TabsTrigger value="weekly" data-testid="tab-period-weekly">
                     <Calendar className="h-3.5 w-3.5 mr-1.5" />
                     Weekly
                     {targets && targets.filter(t => t.period_type === 'weekly').length > 0 && (
                       <Badge variant="secondary" className="ml-2 text-xs">{targets.filter(t => t.period_type === 'weekly').length}</Badge>
                     )}
                   </TabsTrigger>
-                  <TabsTrigger value="monthly" data-testid="tab-period-monthly" className="flex-shrink-0">
+                  <TabsTrigger value="monthly" data-testid="tab-period-monthly">
                     <Calendar className="h-3.5 w-3.5 mr-1.5" />
                     Monthly
                     {targets && targets.filter(t => t.period_type === 'monthly').length > 0 && (
