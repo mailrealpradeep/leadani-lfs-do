@@ -7680,6 +7680,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const dataRows = flattenRowsWithColumns(hierarchy, [], 0);
 
+    // Calculate column totals directly from leads data (handles count, sum, avg correctly)
+    const columnTotals: Record<string, number> = {};
+    columns.forEach(col => {
+      const leadsInColumn = leads.filter(l => getFieldValue(l, columnField) === col);
+      columnTotals[col] = calculateAggregation(leadsInColumn);
+    });
+
+    // Calculate grand total from all leads
+    const grandTotal = calculateAggregation(leads);
+
     return {
       type: "pivot",
       rowFields,
@@ -7687,7 +7697,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       columns,
       aggregation,
       valueField,
-      rows: dataRows
+      rows: dataRows,
+      columnTotals,
+      grandTotal
     };
   }
 
