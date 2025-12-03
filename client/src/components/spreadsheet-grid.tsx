@@ -253,6 +253,7 @@ export function SpreadsheetGrid({
   // Keyboard navigation state - separate from editing
   const [selectedCell, setSelectedCell] = useState<{ leadId: string; columnKey: string } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const isFilterFocusedRef = useRef<boolean>(false);
   
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -2282,6 +2283,8 @@ export function SpreadsheetGrid({
                                       [col.key]: e.target.value,
                                     }))
                                   }
+                                  onFocus={() => { isFilterFocusedRef.current = true; }}
+                                  onBlur={() => { isFilterFocusedRef.current = false; }}
                                   className="h-7 text-xs"
                                   data-testid={`input-filter-${col.key}`}
                                 />
@@ -2415,6 +2418,11 @@ export function SpreadsheetGrid({
                             
                             // Single click selects the cell and focuses grid for keyboard nav
                             setSelectedCell({ leadId: lead.id, columnKey: col.key });
+                            
+                            // Don't steal focus from header filter inputs
+                            if (isFilterFocusedRef.current) {
+                              return;
+                            }
                             gridRef.current?.focus({ preventScroll: true });
                           }}
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
