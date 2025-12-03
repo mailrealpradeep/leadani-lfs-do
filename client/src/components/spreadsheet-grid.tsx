@@ -250,6 +250,10 @@ export function SpreadsheetGrid({
   const [editValue, setEditValue] = useState("");
   const [datePickerOpen, setDatePickerOpen] = useState<{ leadId: string; field: string } | null>(null);
   
+  // Keyboard navigation state - separate from editing
+  const [selectedCell, setSelectedCell] = useState<{ leadId: string; columnKey: string } | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnFilters, setColumnFilters] = useState<Record<string, string | DateFilterValue | null>>({});
@@ -967,8 +971,11 @@ export function SpreadsheetGrid({
   const handleCellKeyDown = (e: React.KeyboardEvent, lead: Lead) => {
     if (e.key === "Enter") {
       handleCellSave(lead);
+      // Clear selection on save - simpler and more predictable
+      setSelectedCell(null);
     } else if (e.key === "Escape") {
       setEditingCell(null);
+      setSelectedCell(null);
     }
   };
 
@@ -1280,6 +1287,102 @@ export function SpreadsheetGrid({
 
   // Use ordered columns for visible columns (respecting user's custom order)
   const visibleColumns = orderedColumns.filter((col) => !hiddenColumns.has(col.key));
+
+  // Reset selected cell when rows change (pagination, filtering, deletion)
+  useEffect(() => {
+    if (!selectedCell) return;
+    
+    // Check if the selected lead still exists
+    const leadExists = filteredAndSortedLeads.some(l => l.id === selectedCell.leadId);
+    const columnExists = visibleColumns.some(c => c.key === selectedCell.columnKey);
+    
+    if (!leadExists || !columnExists) {
+      setSelectedCell(null);
+    }
+  }, [filteredAndSortedLeads, visibleColumns, selectedCell]);
+
+
+  // Grid-level keyboard navigation handler (Excel-like arrow key navigation)
+  const handleGridKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Don't handle if we're editing a cell
+    if (editingCell) return;
+    if (!selectedCell) return;
+    
+    const currentLeadIndex = filteredAndSortedLeads.findIndex(l => l.id === selectedCell.leadId);
+    const currentColIndex = visibleColumns.findIndex(c => c.key === selectedCell.columnKey);
+    
+    if (currentLeadIndex === -1 || currentColIndex === -1) return;
+
+    switch (e.key) {
+      case "ArrowUp":
+        e.preventDefault();
+        if (currentLeadIndex > 0) {
+          const prevLead = filteredAndSortedLeads[currentLeadIndex - 1];
+          setSelectedCell({ leadId: prevLead.id, columnKey: selectedCell.columnKey });
+        }
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        if (currentLeadIndex < filteredAndSortedLeads.length - 1) {
+          const nextLead = filteredAndSortedLeads[currentLeadIndex + 1];
+          setSelectedCell({ leadId: nextLead.id, columnKey: selectedCell.columnKey });
+        }
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        if (currentColIndex > 0) {
+          const prevCol = visibleColumns[currentColIndex - 1];
+          setSelectedCell({ leadId: selectedCell.leadId, columnKey: prevCol.key });
+        }
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        if (currentColIndex < visibleColumns.length - 1) {
+          const nextCol = visibleColumns[currentColIndex + 1];
+          setSelectedCell({ leadId: selectedCell.leadId, columnKey: nextCol.key });
+        }
+        break;
+      case "Tab":
+        e.preventDefault();
+        if (e.shiftKey) {
+          // Move left
+          if (currentColIndex > 0) {
+            const prevCol = visibleColumns[currentColIndex - 1];
+            setSelectedCell({ leadId: selectedCell.leadId, columnKey: prevCol.key });
+          } else if (currentLeadIndex > 0) {
+            // Wrap to previous row's last column
+            const prevLead = filteredAndSortedLeads[currentLeadIndex - 1];
+            const lastCol = visibleColumns[visibleColumns.length - 1];
+            setSelectedCell({ leadId: prevLead.id, columnKey: lastCol.key });
+          }
+        } else {
+          // Move right
+          if (currentColIndex < visibleColumns.length - 1) {
+            const nextCol = visibleColumns[currentColIndex + 1];
+            setSelectedCell({ leadId: selectedCell.leadId, columnKey: nextCol.key });
+          } else if (currentLeadIndex < filteredAndSortedLeads.length - 1) {
+            // Wrap to next row's first column
+            const nextLead = filteredAndSortedLeads[currentLeadIndex + 1];
+            const firstCol = visibleColumns[0];
+            setSelectedCell({ leadId: nextLead.id, columnKey: firstCol.key });
+          }
+        }
+        break;
+      case "Enter":
+      case "F2":
+        e.preventDefault();
+        // Enter edit mode for the selected cell
+        const lead = filteredAndSortedLeads[currentLeadIndex];
+        const col = visibleColumns[currentColIndex];
+        const value = getLeadValue(lead, col.key);
+        handleCellClick(lead, col.key, value, col.type);
+        break;
+      case "Escape":
+        e.preventDefault();
+        setSelectedCell(null);
+        break;
+    }
+  }, [editingCell, selectedCell, filteredAndSortedLeads, visibleColumns, getLeadValue, handleCellClick]);
 
   // Calculate total table width: checkbox (50px) + all visible columns + actions (150px)
   const calculateTableWidth = () => {
@@ -2072,7 +2175,12 @@ export function SpreadsheetGrid({
             </div>
           )}
           
-          <div className="border rounded-lg flex-1 flex flex-col overflow-hidden">
+          <div 
+            className="border rounded-lg flex-1 flex flex-col overflow-hidden outline-none"
+            ref={gridRef}
+            tabIndex={0}
+            onKeyDown={handleGridKeyDown}
+          >
             {/* Horizontal and Vertical Scroll Container */}
             <div className="overflow-x-scroll overflow-y-auto flex-1 spreadsheet-scroll-container" ref={containerRef}>
             <div style={{ minWidth: `${calculateTableWidth()}px` }}>
@@ -2286,6 +2394,8 @@ export function SpreadsheetGrid({
                     {visibleColumns.map((col) => {
                       const isEditing =
                         editingCell?.leadId === lead.id && editingCell?.field === col.key;
+                      const isSelected = 
+                        selectedCell?.leadId === lead.id && selectedCell?.columnKey === col.key;
                       const value = getLeadValue(lead, col.key);
                       const isDropdown = col.dropdown;
                       const isPastNFDT = leadsWithPastNFDT.get(lead.id)?.includes(col.key);
@@ -2293,10 +2403,24 @@ export function SpreadsheetGrid({
                       return (
                         <div
                           key={col.key}
+                          onClick={(e) => {
+                            // Don't handle if already editing this cell
+                            if (isEditing) return;
+                            
+                            // Don't handle if clicking on an interactive child element
+                            const target = e.target as HTMLElement;
+                            if (target.closest('input, button, select, [role="combobox"], [role="listbox"], [aria-haspopup], [data-radix-collection-item]')) {
+                              return;
+                            }
+                            
+                            // Single click selects the cell and focuses grid for keyboard nav
+                            setSelectedCell({ leadId: lead.id, columnKey: col.key });
+                            gridRef.current?.focus({ preventScroll: true });
+                          }}
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
-                          className={`border-r px-3 py-2 wrap-text-cell ${
+                          className={`border-r px-3 py-2 wrap-text-cell cursor-pointer ${
                             isPastNFDT ? "bg-amber-100 dark:bg-amber-900/30" : ""
-                          }`}
+                          } ${isSelected && !isEditing ? "ring-2 ring-inset ring-primary bg-primary/5" : ""}`}
                           data-testid={`cell-${lead.id}-${col.key}`}
                           title={isPastNFDT ? "Past follow-up date" : undefined}
                         >
