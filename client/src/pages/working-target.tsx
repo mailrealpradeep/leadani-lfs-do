@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { 
   Crosshair, Plus, Trash2, Edit, Target, TrendingUp, 
   Calendar, Clock, CheckCircle2, XCircle, Loader2,
-  BarChart3, Columns, ArrowRight, AlertCircle
+  BarChart3, Columns, ArrowRight, AlertCircle, ChevronDown, ChevronUp, Users, Filter
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,25 @@ interface CreateTargetData {
   sheet_ids?: string[];
 }
 
+interface UserProgress {
+  userId: string;
+  userName: string;
+  currentValue: number;
+  targetValue: number;
+  compliancePercentage: number;
+  isAchieved: boolean;
+}
+
+interface AggregateTargetProgress {
+  targetId: string;
+  totalCurrentValue: number;
+  totalTargetValue: number;
+  averageCompliancePercentage: number;
+  achievedCount: number;
+  totalUsers: number;
+  userProgress: UserProgress[];
+}
+
 const TARGET_TYPE_INFO = {
   fixed: {
     icon: BarChart3,
@@ -103,10 +122,12 @@ export default function WorkingTarget() {
   
   const [activeTab, setActiveTab] = useState<string>(isAdmin ? "admin" : "progress");
   const [periodFilter, setPeriodFilter] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('all');
+  const [adminSheetFilter, setAdminSheetFilter] = useState<string>('all');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<WorkingTargetRecord | null>(null);
+  const [expandedTargets, setExpandedTargets] = useState<Set<string>>(new Set());
   
   const [wizardStep, setWizardStep] = useState(1);
   const [targetType, setTargetType] = useState<TargetType>('fixed');
@@ -146,6 +167,21 @@ export default function WorkingTarget() {
 
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ['/api/sheets'],
+  });
+
+  // Aggregate progress data for admin view
+  const { data: aggregateData, isLoading: aggregateLoading } = useQuery<Record<string, AggregateTargetProgress>>({
+    queryKey: ['/api/working-targets/aggregate', adminSheetFilter === 'all' ? '' : adminSheetFilter],
+    queryFn: async () => {
+      const url = adminSheetFilter === 'all' 
+        ? '/api/working-targets/aggregate'
+        : `/api/working-targets/aggregate?sheetId=${adminSheetFilter}`;
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch aggregate data');
+      return response.json();
+    },
+    enabled: isAdmin && activeTab === 'admin',
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 
   const fetchColumnDropdownOptions = async (columnKey: string) => {
@@ -505,10 +541,24 @@ export default function WorkingTarget() {
     );
   };
 
+  const toggleExpandTarget = (targetId: string) => {
+    setExpandedTargets(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(targetId)) {
+        newSet.delete(targetId);
+      } else {
+        newSet.add(targetId);
+      }
+      return newSet;
+    });
+  };
+
   const renderAdminTargetCard = (target: WorkingTargetRecord) => {
     const TypeInfo = TARGET_TYPE_INFO[target.target_type as TargetType];
     const TypeIcon = TypeInfo.icon;
     const config = (target.config as any).config;
+    const progress = aggregateData?.[target.id];
+    const isExpanded = expandedTargets.has(target.id);
 
     let description = '';
     if (target.target_type === 'fixed') {
@@ -540,16 +590,112 @@ export default function WorkingTarget() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
+        <CardContent className="space-y-4">
+          {/* Progress Section */}
+          {target.is_active && progress && progress.totalUsers > 0 && (
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Team Progress</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="text-xs">
+                    {progress.achievedCount}/{progress.totalUsers} achieved
+                  </Badge>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Average Compliance</span>
+                  <span className="font-medium">{Math.round(progress.averageCompliancePercentage)}%</span>
+                </div>
+                <Progress 
+                  value={Math.min(100, progress.averageCompliancePercentage)} 
+                  className="h-2"
+                />
+              </div>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Total: {progress.totalCurrentValue} / {progress.totalTargetValue}</span>
+              </div>
+
+              {/* Expandable User List */}
+              {progress.userProgress.length > 0 && (
+                <div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => toggleExpandTarget(target.id)}
+                    className="w-full justify-between text-xs h-8"
+                    data-testid={`button-toggle-users-${target.id}`}
+                  >
+                    <span>View Individual Progress ({progress.userProgress.length})</span>
+                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                  
+                  {isExpanded && (
+                    <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
+                      {progress.userProgress.map((userProg) => (
+                        <div 
+                          key={userProg.userId} 
+                          className="p-2 bg-muted/50 rounded-lg space-y-1"
+                          data-testid={`user-progress-${userProg.userId}`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium truncate max-w-[150px]">{userProg.userName}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">
+                                {userProg.currentValue}/{userProg.targetValue}
+                              </span>
+                              {userProg.isAchieved ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                              ) : (
+                                <span className="text-xs font-medium">{Math.round(userProg.compliancePercentage)}%</span>
+                              )}
+                            </div>
+                          </div>
+                          <Progress 
+                            value={Math.min(100, userProg.compliancePercentage)} 
+                            className="h-1.5"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* No progress data message */}
+          {target.is_active && progress && progress.totalUsers === 0 && (
+            <div className="pt-2 border-t">
+              <p className="text-xs text-muted-foreground text-center py-2">
+                No users assigned to target sheets
+              </p>
+            </div>
+          )}
+
+          {/* Loading state */}
+          {target.is_active && !progress && aggregateLoading && (
+            <div className="pt-2 border-t">
+              <div className="flex items-center justify-center gap-2 py-2">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Loading progress...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Footer with sheets info and actions */}
+          <div className="flex items-center justify-between pt-2">
             <div className="text-xs text-muted-foreground">
               {target.sheet_ids && target.sheet_ids.length > 0 
                 ? `Applied to ${target.sheet_ids.length} sheet(s)`
                 : 'Applied to all sheets'}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
                 onClick={() => handleEditTarget(target)}
                 data-testid={`button-edit-target-${target.id}`}
@@ -557,7 +703,7 @@ export default function WorkingTarget() {
                 <Edit className="h-4 w-4" />
               </Button>
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
                 onClick={() => updateMutation.mutate({ 
                   id: target.id, 
@@ -572,7 +718,7 @@ export default function WorkingTarget() {
                 )}
               </Button>
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
                 onClick={() => {
                   setSelectedTarget(target);
@@ -642,6 +788,34 @@ export default function WorkingTarget() {
 
         {isAdmin && (
           <TabsContent value="admin" className="mt-4">
+            {/* Sheet Filter and Period Filter */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <Select value={adminSheetFilter} onValueChange={setAdminSheetFilter}>
+                  <SelectTrigger className="w-[180px]" data-testid="select-sheet-filter">
+                    <SelectValue placeholder="Filter by sheet" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sheets</SelectItem>
+                    {sheets?.map(sheet => (
+                      <SelectItem key={sheet.id} value={sheet.id}>{sheet.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {adminSheetFilter !== 'all' && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setAdminSheetFilter('all')}
+                    className="h-8 px-2"
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
             {/* Period Filter Tabs */}
             <Tabs value={periodFilter} onValueChange={(v) => setPeriodFilter(v as typeof periodFilter)} className="w-full">
               <div className="overflow-x-auto -mx-1 px-1 pb-1">

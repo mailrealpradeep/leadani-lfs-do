@@ -13697,6 +13697,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Evaluate all working targets aggregate progress (admin only)
+  app.get("/api/working-targets/aggregate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(400).json({ error: "Company ID required" });
+      }
+      
+      const sheetId = req.query.sheetId as string | undefined;
+      
+      const { evaluateAllTargetsAggregate } = await import("./working-target-evaluator");
+      const results = await evaluateAllTargetsAggregate(req.companyId, sheetId);
+      
+      // Convert Map to object for JSON serialization
+      const aggregateData: Record<string, any> = {};
+      results.forEach((value, key) => {
+        aggregateData[key] = value;
+      });
+      
+      res.json(aggregateData);
+    } catch (error: any) {
+      console.error("Evaluate aggregate working targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================

@@ -404,3 +404,133 @@ export async function evaluateAllTargetsForCompany(
     }
   }
 }
+
+interface UserProgress {
+  userId: string;
+  userName: string;
+  currentValue: number;
+  targetValue: number;
+  compliancePercentage: number;
+  isAchieved: boolean;
+}
+
+export interface AggregateTargetProgress {
+  targetId: string;
+  totalCurrentValue: number;
+  totalTargetValue: number;
+  averageCompliancePercentage: number;
+  achievedCount: number;
+  totalUsers: number;
+  userProgress: UserProgress[];
+}
+
+export async function evaluateTargetForAllUsers(
+  target: WorkingTargetRecord,
+  filterSheetId?: string
+): Promise<AggregateTargetProgress> {
+  let relevantUserIds: Set<string> = new Set();
+  
+  const targetSheetIds = target.sheet_ids && target.sheet_ids.length > 0 
+    ? target.sheet_ids 
+    : null;
+  
+  if (filterSheetId) {
+    if (targetSheetIds && !targetSheetIds.includes(filterSheetId)) {
+      return {
+        targetId: target.id,
+        totalCurrentValue: 0,
+        totalTargetValue: 0,
+        averageCompliancePercentage: 0,
+        achievedCount: 0,
+        totalUsers: 0,
+        userProgress: []
+      };
+    }
+    const sheetUsers = await storage.getSheetUsers(filterSheetId);
+    sheetUsers.forEach(su => relevantUserIds.add(su.user_id));
+  } else if (targetSheetIds) {
+    for (const sheetId of targetSheetIds) {
+      const sheetUsers = await storage.getSheetUsers(sheetId);
+      sheetUsers.forEach(su => relevantUserIds.add(su.user_id));
+    }
+  } else {
+    const companyUsers = await storage.getUsersByCompanyId(target.company_id);
+    companyUsers.forEach(u => relevantUserIds.add(u.id));
+  }
+  
+  const userProgress: UserProgress[] = [];
+  let totalCurrentValue = 0;
+  let totalTargetValue = 0;
+  let achievedCount = 0;
+  let totalCompliance = 0;
+  
+  const userIdArray = Array.from(relevantUserIds);
+  for (const userId of userIdArray) {
+    try {
+      const user = await storage.getUser(userId);
+      if (!user || user.role === 'company_admin' || user.role === 'super_admin') {
+        continue;
+      }
+      
+      const result = await evaluateWorkingTarget(target, userId);
+      
+      if (result.details?.noAccess || result.details?.noLeads) {
+        continue;
+      }
+      
+      const progress: UserProgress = {
+        userId,
+        userName: user.name,
+        currentValue: result.currentValue,
+        targetValue: result.targetValue,
+        compliancePercentage: result.compliancePercentage,
+        isAchieved: result.isAchieved
+      };
+      
+      userProgress.push(progress);
+      totalCurrentValue += result.currentValue;
+      totalTargetValue += result.targetValue;
+      totalCompliance += result.compliancePercentage;
+      if (result.isAchieved) achievedCount++;
+    } catch (error) {
+      console.error(`Error evaluating target ${target.id} for user ${userId}:`, error);
+    }
+  }
+  
+  const avgCompliance = userProgress.length > 0 
+    ? totalCompliance / userProgress.length 
+    : 0;
+  
+  userProgress.sort((a, b) => b.compliancePercentage - a.compliancePercentage);
+  
+  return {
+    targetId: target.id,
+    totalCurrentValue,
+    totalTargetValue,
+    averageCompliancePercentage: Math.round(avgCompliance * 100) / 100,
+    achievedCount,
+    totalUsers: userProgress.length,
+    userProgress
+  };
+}
+
+export async function evaluateAllTargetsAggregate(
+  companyId: string,
+  filterSheetId?: string
+): Promise<Map<string, AggregateTargetProgress>> {
+  const targets = await storage.getWorkingTargetsByCompany(companyId);
+  const activeTargets = targets.filter(t => t.is_active);
+  
+  const results = new Map<string, AggregateTargetProgress>();
+  
+  for (const target of activeTargets) {
+    try {
+      const progress = await evaluateTargetForAllUsers(target, filterSheetId);
+      results.set(target.id, progress);
+    } catch (error) {
+      console.error(`Error evaluating aggregate for target ${target.id}:`, error);
+    }
+  }
+  
+  return results;
+}
