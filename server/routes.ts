@@ -13413,6 +13413,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Evaluate all working targets aggregate progress (admin only) - MUST be before /:id routes
+  app.get("/api/working-targets/aggregate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(400).json({ error: "Company ID required" });
+      }
+      
+      const sheetId = req.query.sheetId as string | undefined;
+      
+      const { evaluateAllTargetsAggregate } = await import("./working-target-evaluator");
+      const results = await evaluateAllTargetsAggregate(req.companyId, sheetId);
+      
+      // Convert Map to object for JSON serialization
+      const aggregateData: Record<string, any> = {};
+      results.forEach((value, key) => {
+        aggregateData[key] = value;
+      });
+      
+      res.json(aggregateData);
+    } catch (error: any) {
+      console.error("Evaluate aggregate working targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Evaluate working targets for current user (live calculation) - MUST be before /:id routes
+  app.get("/api/working-targets/evaluate/me", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(400).json({ error: "Company ID and User ID required" });
+      }
+      
+      const { evaluateAllTargetsForUser } = await import("./working-target-evaluator");
+      const results = await evaluateAllTargetsForUser(req.companyId, req.userId);
+      res.json(results);
+    } catch (error: any) {
+      console.error("Evaluate working targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get working target results for current user - MUST be before /:id routes
+  app.get("/api/working-targets/results/me", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.userId) {
+        return res.status(400).json({ error: "User ID required" });
+      }
+      
+      const { period_start, period_end } = req.query;
+      const periodStartDate = period_start ? new Date(period_start as string) : undefined;
+      const periodEndDate = period_end ? new Date(period_end as string) : undefined;
+      
+      const results = await storage.getWorkingTargetResultsByUser(
+        req.userId,
+        periodStartDate,
+        periodEndDate
+      );
+      res.json(results);
+    } catch (error: any) {
+      console.error("Get working target results error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get a specific working target
   app.get("/api/working-targets/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
@@ -13605,29 +13669,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get working target results for current user
-  app.get("/api/working-targets/results/me", authMiddleware, async (req: AuthRequest, res) => {
-    try {
-      if (!req.userId) {
-        return res.status(400).json({ error: "User ID required" });
-      }
-      
-      const { period_start, period_end } = req.query;
-      const periodStartDate = period_start ? new Date(period_start as string) : undefined;
-      const periodEndDate = period_end ? new Date(period_end as string) : undefined;
-      
-      const results = await storage.getWorkingTargetResultsByUser(
-        req.userId,
-        periodStartDate,
-        periodEndDate
-      );
-      res.json(results);
-    } catch (error: any) {
-      console.error("Get working target results error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
   // Get working target results for a specific target (admin only)
   app.get("/api/working-targets/:id/results", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
@@ -13645,22 +13686,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(results);
     } catch (error: any) {
       console.error("Get working target results error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Evaluate working targets for current user (live calculation)
-  app.get("/api/working-targets/evaluate/me", authMiddleware, async (req: AuthRequest, res) => {
-    try {
-      if (!req.companyId || !req.userId) {
-        return res.status(400).json({ error: "Company ID and User ID required" });
-      }
-      
-      const { evaluateAllTargetsForUser } = await import("./working-target-evaluator");
-      const results = await evaluateAllTargetsForUser(req.companyId, req.userId);
-      res.json(results);
-    } catch (error: any) {
-      console.error("Evaluate working targets error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -13693,31 +13718,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Evaluate working target error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Evaluate all working targets aggregate progress (admin only)
-  app.get("/api/working-targets/aggregate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
-    try {
-      if (!req.companyId) {
-        return res.status(400).json({ error: "Company ID required" });
-      }
-      
-      const sheetId = req.query.sheetId as string | undefined;
-      
-      const { evaluateAllTargetsAggregate } = await import("./working-target-evaluator");
-      const results = await evaluateAllTargetsAggregate(req.companyId, sheetId);
-      
-      // Convert Map to object for JSON serialization
-      const aggregateData: Record<string, any> = {};
-      results.forEach((value, key) => {
-        aggregateData[key] = value;
-      });
-      
-      res.json(aggregateData);
-    } catch (error: any) {
-      console.error("Evaluate aggregate working targets error:", error);
       res.status(500).json({ error: error.message });
     }
   });

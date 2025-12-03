@@ -179,9 +179,7 @@ export default function WorkingTarget() {
       const url = adminSheetFilter === 'all' 
         ? '/api/working-targets/aggregate'
         : `/api/working-targets/aggregate?sheetId=${adminSheetFilter}`;
-      const response = await fetch(url, { credentials: 'include' });
-      if (!response.ok) throw new Error('Failed to fetch aggregate data');
-      return response.json();
+      return apiRequest<Record<string, AggregateTargetProgress>>('GET', url);
     },
     enabled: isAdmin && activeTab === 'admin',
     refetchInterval: 30000, // Refresh every 30 seconds

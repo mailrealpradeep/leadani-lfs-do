@@ -474,7 +474,9 @@ export async function evaluateTargetForAllUsers(
       
       const result = await evaluateWorkingTarget(target, userId);
       
-      if (result.details?.noAccess || result.details?.noLeads) {
+      // Only skip users who truly have no access to target sheets
+      // Users with access but no leads/updates should still show 0 progress
+      if (result.details?.noAccess) {
         continue;
       }
       
