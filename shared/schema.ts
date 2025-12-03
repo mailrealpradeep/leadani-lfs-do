@@ -27,6 +27,7 @@ export interface Company {
     };
   };
   status: "active" | "suspended" | "trial";
+  attendance_exit_target_id: string | null; // Links to working_targets for attendance exit condition
   created_at: string;
   updated_at: string;
 }
@@ -725,6 +726,7 @@ export const companies = pgTable('companies', {
     custom_branding?: any;
   }>().default({}).notNull(),
   status: varchar('status', { length: 50 }).notNull().default('active'),
+  attendance_exit_target_id: varchar('attendance_exit_target_id'), // Links to working_targets for attendance exit condition
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

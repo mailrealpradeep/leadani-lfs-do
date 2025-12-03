@@ -5,6 +5,7 @@ export class ApiError extends Error {
   data: any;
   blocking_reasons?: string[];
   requires_force_exit?: boolean;
+  system_error?: boolean;
 
   constructor(status: number, message: string, data?: any) {
     super(message);
@@ -16,6 +17,9 @@ export class ApiError extends Error {
     }
     if (data?.requires_force_exit !== undefined) {
       this.requires_force_exit = data.requires_force_exit;
+    }
+    if (data?.system_error !== undefined) {
+      this.system_error = data.system_error;
     }
   }
 }

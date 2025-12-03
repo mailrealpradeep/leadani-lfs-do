@@ -628,6 +628,7 @@ export class MemStorage implements IStorage {
     const company: Company = {
       ...insertCompany,
       id,
+      attendance_exit_target_id: null,
       created_at: now,
       updated_at: now,
     };
@@ -2567,6 +2568,7 @@ export class PgStorage implements IStorage {
     const newCompany = {
       id,
       ...company,
+      attendance_exit_target_id: null,
       created_at: now,
       updated_at: now,
     };

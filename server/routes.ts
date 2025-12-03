@@ -9463,10 +9463,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Helper function to validate exit rules
-  async function validateExitRules(userId: string, companyId: string): Promise<{ valid: boolean; blockingReasons: string[] }> {
+  async function validateExitRules(userId: string, companyId: string): Promise<{ valid: boolean; blockingReasons: string[]; targetProgress?: { current: number; target: number; percentage: number; targetName: string }; systemError?: boolean }> {
+    const blockingReasons: string[] = [];
+    
+    // Check if there's a linked Daily Target for attendance exit
+    const company = await storage.getCompany(companyId);
+    if (company?.attendance_exit_target_id) {
+      const target = await storage.getWorkingTarget(company.attendance_exit_target_id);
+      if (target && target.is_active) {
+        try {
+          // Dynamically import the evaluator
+          const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+          const result = await evaluateWorkingTarget(target, userId);
+          
+          // Guard against invalid evaluator results - block exit with actionable message
+          if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {
+            console.error("Invalid evaluator result for target", target.id, result);
+            blockingReasons.push(`Unable to verify target "${target.name}". Please contact admin to check target configuration.`);
+            return { valid: false, blockingReasons, systemError: true };
+          }
+          
+          if (!result.isAchieved) {
+            const currentVal = result.currentValue ?? 0;
+            const targetVal = result.targetValue ?? 0;
+            const percentage = result.compliancePercentage ?? 0;
+            blockingReasons.push(`Daily Target "${target.name}" not achieved: ${currentVal}/${targetVal} (${Math.round(percentage)}%)`);
+            return {
+              valid: false,
+              blockingReasons,
+              targetProgress: {
+                current: currentVal,
+                target: targetVal,
+                percentage: percentage,
+                targetName: target.name,
+              }
+            };
+          }
+          
+          // Target achieved - exit is allowed
+          return { valid: true, blockingReasons: [] };
+        } catch (evalError: any) {
+          console.error("Error evaluating working target:", evalError);
+          // Block exit with actionable error message
+          blockingReasons.push(`Unable to verify target "${target.name}". Error: ${evalError.message || 'Unknown error'}. Please contact admin.`);
+          return { valid: false, blockingReasons, systemError: true };
+        }
+      }
+    }
+    
+    // No linked target - check old attendance rules for backward compatibility
     const rules = await storage.getAttendanceRulesByCompanyId(companyId);
     const enabledRules = rules.filter(r => r.is_enabled);
-    const blockingReasons: string[] = [];
     
     for (const rule of enabledRules) {
       if (rule.rule_type === "min_leads") {
@@ -9704,10 +9751,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validation = await validateExitRules(req.userId!, req.companyId!);
       
       if (!validation.valid) {
-        return res.status(400).json({ 
-          error: "Exit blocked",
+        // Use 503 for system errors (target evaluation failures)
+        const statusCode = validation.systemError ? 503 : 400;
+        return res.status(statusCode).json({ 
+          error: validation.systemError ? "System error verifying exit condition" : "Exit blocked",
           blocking_reasons: validation.blockingReasons,
-          requires_force_exit: true,
+          requires_force_exit: !validation.systemError,
+          system_error: validation.systemError || false,
         });
       }
       
@@ -10017,6 +10067,147 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error: any) {
       console.error("Delete attendance rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ATTENDANCE EXIT TARGET (Link Daily Target to Attendance)
+  // ============================================================================
+
+  // Get the linked attendance exit target
+  app.get("/api/attendance/exit-target", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const company = await storage.getCompany(req.companyId!);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      
+      let linkedTarget = null;
+      if (company.attendance_exit_target_id) {
+        linkedTarget = await storage.getWorkingTarget(company.attendance_exit_target_id);
+      }
+      
+      res.json({
+        attendance_exit_target_id: company.attendance_exit_target_id || null,
+        linked_target: linkedTarget || null,
+      });
+    } catch (error: any) {
+      console.error("Get attendance exit target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Set/update the attendance exit target (admin only)
+  app.post("/api/attendance/exit-target", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const setExitTargetSchema = z.object({
+        target_id: z.string().uuid().nullable().optional(),
+      });
+      
+      const parseResult = setExitTargetSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parseResult.error.errors });
+      }
+      
+      const { target_id } = parseResult.data;
+      
+      // If target_id is provided, validate it exists and is a daily target
+      if (target_id) {
+        const target = await storage.getWorkingTarget(target_id);
+        if (!target) {
+          return res.status(404).json({ error: "Target not found" });
+        }
+        if (target.company_id !== req.companyId) {
+          return res.status(403).json({ error: "Target does not belong to this company" });
+        }
+        if (target.period_type !== 'daily') {
+          return res.status(400).json({ error: "Only daily targets can be linked to attendance" });
+        }
+      }
+      
+      // Update company with the new target
+      const updated = await storage.updateCompany(req.companyId!, {
+        attendance_exit_target_id: target_id || null,
+      });
+      
+      // Verify persistence succeeded
+      if (!updated) {
+        return res.status(500).json({ error: "Failed to update company settings" });
+      }
+      
+      // Emit socket event only after successful persistence
+      io.to(`company-${req.companyId}`).emit("attendance:exit-target-updated", {
+        target_id: target_id || null,
+      });
+      
+      res.json({
+        success: true,
+        attendance_exit_target_id: updated.attendance_exit_target_id || null,
+      });
+    } catch (error: any) {
+      console.error("Set attendance exit target error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get daily targets available for linking (admin only)
+  app.get("/api/attendance/available-targets", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const targets = await storage.getWorkingTargetsByCompany(req.companyId!);
+      // Filter only active daily targets
+      const dailyTargets = targets.filter(t => t.period_type === 'daily' && t.is_active);
+      res.json(dailyTargets);
+    } catch (error: any) {
+      console.error("Get available targets error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get current user's exit target progress (for attendance screen)
+  app.get("/api/attendance/my-exit-progress", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const company = await storage.getCompany(req.companyId!);
+      if (!company?.attendance_exit_target_id) {
+        return res.json({ hasTarget: false });
+      }
+      
+      const target = await storage.getWorkingTarget(company.attendance_exit_target_id);
+      if (!target || !target.is_active) {
+        return res.json({ hasTarget: false });
+      }
+      
+      const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+      const result = await evaluateWorkingTarget(target, req.userId!);
+      
+      // Guard against null/undefined values from evaluator
+      if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {
+        console.error("Invalid evaluator result for target", target.id, result);
+        return res.json({
+          hasTarget: true,
+          targetName: target.name,
+          targetDescription: target.description,
+          current: 0,
+          target: 0,
+          percentage: 0,
+          isAchieved: false,
+          details: "Unable to evaluate target progress",
+          error: "Target configuration may be invalid",
+        });
+      }
+      
+      res.json({
+        hasTarget: true,
+        targetName: target.name,
+        targetDescription: target.description,
+        current: result.currentValue ?? 0,
+        target: result.targetValue ?? 0,
+        percentage: Math.round(result.compliancePercentage ?? 0),
+        isAchieved: result.isAchieved ?? false,
+        details: result.details,
+      });
+    } catch (error: any) {
+      console.error("Get exit progress error:", error);
       res.status(500).json({ error: error.message });
     }
   });

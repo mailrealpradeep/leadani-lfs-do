@@ -14,6 +14,7 @@ export const companies = pgTable('companies', {
     custom_branding?: any;
   }>().default({}).notNull(),
   status: varchar('status', { length: 50 }).notNull().default('active'), // active, suspended, trial
+  attendance_exit_target_id: varchar('attendance_exit_target_id'),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

@@ -77,6 +77,36 @@ interface AttendanceRule {
   updated_at: string;
 }
 
+interface WorkingTarget {
+  id: string;
+  company_id: string;
+  name: string;
+  description: string | null;
+  target_type: string;
+  period_type: string;
+  config: any;
+  sheet_ids: string[] | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ExitTargetResponse {
+  attendance_exit_target_id: string | null;
+  linked_target: WorkingTarget | null;
+}
+
+interface ExitProgressResponse {
+  hasTarget: boolean;
+  targetName?: string;
+  targetDescription?: string | null;
+  current?: number;
+  target?: number;
+  percentage?: number;
+  isAchieved?: boolean;
+  details?: Record<string, any>;
+}
+
 interface ParsedBlockingCondition {
   type: 'leads' | 'hours' | 'updates' | 'nfdt' | 'other';
   label: string;
@@ -181,6 +211,7 @@ export default function Attendance() {
   const [forceExitDialogOpen, setForceExitDialogOpen] = useState(false);
   const [forceExitReason, setForceExitReason] = useState("");
   const [blockingReasons, setBlockingReasons] = useState<string[]>([]);
+  const [isSystemError, setIsSystemError] = useState(false);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [selectedReviewEntry, setSelectedReviewEntry] = useState<AttendanceEntry | null>(null);
   const [reviewNotes, setReviewNotes] = useState("");
@@ -217,6 +248,21 @@ export default function Attendance() {
     enabled: isAdmin,
   });
 
+  // Exit target queries
+  const { data: exitTargetData } = useQuery<ExitTargetResponse>({
+    queryKey: ["/api/attendance/exit-target"],
+    enabled: isAdmin,
+  });
+
+  const { data: availableTargets = [] } = useQuery<WorkingTarget[]>({
+    queryKey: ["/api/attendance/available-targets"],
+    enabled: isAdmin,
+  });
+
+  const { data: myExitProgress } = useQuery<ExitProgressResponse>({
+    queryKey: ["/api/attendance/my-exit-progress"],
+  });
+
   const entryMutation = useMutation({
     mutationFn: async (data: { location?: any; selfie_url?: string }) => {
       return await apiRequest("POST", "/api/attendance/entry", data);
@@ -245,28 +291,54 @@ export default function Attendance() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
+      // Clear any previous error states on success
+      setIsSystemError(false);
+      setBlockingReasons([]);
       toast({
         title: "Exit Recorded",
         description: "Your attendance exit has been recorded successfully.",
       });
     },
     onError: (error: unknown) => {
-      if (error instanceof ApiError && error.blocking_reasons && error.blocking_reasons.length > 0) {
-        setBlockingReasons(error.blocking_reasons);
-        setForceExitDialogOpen(true);
-      } else {
-        const message = error instanceof Error ? error.message : "Failed to record exit";
-        toast({
-          variant: "destructive",
-          title: "Exit Failed",
-          description: message,
-        });
+      if (error instanceof ApiError) {
+        // Check for system errors (target evaluation failures)
+        if (error.system_error) {
+          // System error - clear states and show alert, don't allow force exit
+          setIsSystemError(true);
+          setBlockingReasons([]);
+          setForceExitDialogOpen(false);
+          toast({
+            variant: "destructive",
+            title: "System Error",
+            description: "Unable to verify exit condition. Please contact your administrator to check the target configuration.",
+          });
+          return;
+        }
+        
+        // Normal blocking - clear system error flag, allow force exit
+        setIsSystemError(false);
+        if (error.blocking_reasons && error.blocking_reasons.length > 0) {
+          setBlockingReasons(error.blocking_reasons);
+          setForceExitDialogOpen(true);
+          return;
+        }
       }
+      
+      const message = error instanceof Error ? error.message : "Failed to record exit";
+      toast({
+        variant: "destructive",
+        title: "Exit Failed",
+        description: message,
+      });
     },
   });
 
   const forceExitMutation = useMutation({
     mutationFn: async (reason: string) => {
+      // Don't allow force exit if there was a system error
+      if (isSystemError) {
+        throw new Error("Cannot force exit when there is a system error. Please contact your administrator.");
+      }
       return await apiRequest("POST", "/api/attendance/force-exit", { reason });
     },
     onSuccess: () => {
@@ -275,6 +347,7 @@ export default function Attendance() {
       setForceExitDialogOpen(false);
       setForceExitReason("");
       setBlockingReasons([]);
+      setIsSystemError(false);
       toast({
         title: "Force Exit Recorded",
         description: "Your exit has been recorded and is pending admin review.",
@@ -365,6 +438,28 @@ export default function Attendance() {
       toast({
         variant: "destructive",
         title: "Failed to Delete Rule",
+        description: error.message,
+      });
+    },
+  });
+
+  const setExitTargetMutation = useMutation({
+    mutationFn: async (targetId: string | null) => {
+      return await apiRequest("POST", "/api/attendance/exit-target", { target_id: targetId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/exit-target"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/my-exit-progress"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/available-targets"] });
+      toast({
+        title: "Exit Condition Updated",
+        description: "The attendance exit condition has been updated.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to Update Exit Condition",
         description: error.message,
       });
     },
@@ -541,6 +636,34 @@ export default function Attendance() {
                       <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
                       <p>No entry recorded today</p>
                       <p className="text-sm">Tap the button below to record your entry</p>
+                    </div>
+                  )}
+
+                  {/* Exit Target Progress */}
+                  {hasActiveEntry && myExitProgress?.hasTarget && (
+                    <div className="py-4 border-t">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Target className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-medium">{myExitProgress.targetName}</span>
+                        </div>
+                        <Badge variant={myExitProgress.isAchieved ? "default" : "secondary"}>
+                          {myExitProgress.current}/{myExitProgress.target}
+                        </Badge>
+                      </div>
+                      <Progress 
+                        value={myExitProgress.percentage} 
+                        className="h-2"
+                      />
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {myExitProgress.isAchieved ? (
+                          <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3" /> Target achieved - you can exit normally
+                          </span>
+                        ) : (
+                          `Complete this target to exit normally (${myExitProgress.percentage}% complete)`
+                        )}
+                      </p>
                     </div>
                   )}
 
@@ -807,78 +930,82 @@ export default function Attendance() {
 
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Settings className="h-5 w-5" />
-                      Exit Rules
-                    </CardTitle>
-                    <CardDescription>Configure requirements for normal exit</CardDescription>
-                  </div>
-                  <Button onClick={() => setAddRuleDialogOpen(true)} size="sm" data-testid="button-add-rule">
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add Rule
-                  </Button>
-                </div>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="h-5 w-5" />
+                  Exit Condition
+                </CardTitle>
+                <CardDescription>
+                  Link a Daily Target from Working Targets as the exit requirement
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                {loadingRules ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Daily Target for Exit</Label>
+                    <Select
+                      value={exitTargetData?.attendance_exit_target_id || "none"}
+                      onValueChange={(value) => {
+                        setExitTargetMutation.mutate(value === "none" ? null : value);
+                      }}
+                      data-testid="select-exit-target"
+                    >
+                      <SelectTrigger data-testid="trigger-exit-target">
+                        <SelectValue placeholder="Select a daily target..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No exit condition</SelectItem>
+                        {availableTargets.map((target) => (
+                          <SelectItem key={target.id} value={target.id}>
+                            {target.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Users must achieve this target to mark normal exit. Only active daily targets are shown.
+                    </p>
                   </div>
-                ) : rules.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Settings className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No exit rules configured</p>
-                    <p className="text-sm">Add rules to require conditions before employees can exit</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {rules.map((rule) => (
-                      <div
-                        key={rule.id}
-                        className="flex items-center justify-between p-4 rounded-lg border"
-                        data-testid={`rule-${rule.id}`}
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{rule.name}</span>
-                            <Badge variant="outline">{rule.rule_type.replace("_", " ")}</Badge>
+
+                  {exitTargetData?.linked_target && (
+                    <div className="p-4 rounded-lg border bg-muted/50">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="font-medium flex items-center gap-2">
+                            <Target className="h-4 w-4 text-primary" />
+                            {exitTargetData.linked_target.name}
                           </div>
-                          {rule.description && (
-                            <div className="text-sm text-muted-foreground mt-1">
-                              {rule.description}
-                            </div>
+                          {exitTargetData.linked_target.description && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {exitTargetData.linked_target.description}
+                            </p>
                           )}
-                          <div className="text-sm text-muted-foreground mt-1">
-                            {rule.rule_type === "min_leads" && `Minimum ${rule.config.min_count || 1} leads`}
-                            {rule.rule_type === "min_hours" && `Minimum ${rule.config.min_hours || 8} hours`}
-                            {rule.rule_type === "min_updates" && `Minimum ${rule.config.min_count || 1} updates`}
-                            {rule.rule_type === "nfdt_not_empty" && "All leads must have NFDT filled"}
-                            {rule.rule_type === "nfdt_not_past" && "No leads with past NFDT dates"}
-                            {rule.rule_type === "tomorrow_visits_updated" && "Tomorrow's visits must be updated today"}
-                            {rule.rule_type === "today_leads_updated" && "All leads received today must be updated"}
+                          <div className="flex items-center gap-2 mt-2">
+                            <Badge variant="outline">Daily</Badge>
+                            <Badge variant={exitTargetData.linked_target.is_active ? "default" : "secondary"}>
+                              {exitTargetData.linked_target.is_active ? "Active" : "Inactive"}
+                            </Badge>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <Switch
-                            checked={rule.is_enabled}
-                            onCheckedChange={(checked) => toggleRuleMutation.mutate({ ruleId: rule.id, is_enabled: checked })}
-                            data-testid={`switch-rule-${rule.id}`}
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteRuleMutation.mutate(rule.id)}
-                            data-testid={`button-delete-rule-${rule.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setExitTargetMutation.mutate(null)}
+                          data-testid="button-remove-exit-target"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  )}
+
+                  {!exitTargetData?.linked_target && availableTargets.length === 0 && (
+                    <div className="text-center py-6 text-muted-foreground border rounded-lg">
+                      <Target className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                      <p className="text-sm">No daily targets available</p>
+                      <p className="text-xs mt-1">Create daily targets in Working Targets first</p>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
