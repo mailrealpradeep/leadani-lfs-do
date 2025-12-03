@@ -834,9 +834,9 @@ export default function WorkingTarget() {
   const isDataStale = aggregateLoading && !!aggregateData;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] p-4 sm:p-6">
+    <div className="flex flex-col h-[calc(100vh-4rem)] p-3 sm:p-4">
       {/* Fixed Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap shrink-0 mb-2">
+      <div className="flex items-center justify-between gap-3 flex-wrap shrink-0 mb-1">
         <div className="flex items-center gap-3">
           <Crosshair className="h-8 w-8 text-primary" />
           <div>
