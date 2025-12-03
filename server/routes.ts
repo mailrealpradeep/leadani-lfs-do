@@ -13431,18 +13431,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid period_type. Must be: daily, weekly, or monthly" });
       }
       
-      // Validate config based on target_type
+      // Validate config structure (nested structure: { type, config: {...} })
+      if (!config || typeof config !== 'object' || !config.config || typeof config.config !== 'object') {
+        return res.status(400).json({ error: "Invalid config structure. Expected: { type, config: {...} }" });
+      }
+      
+      // Validate config.type matches target_type
+      if (config.type !== target_type) {
+        return res.status(400).json({ error: `Config type mismatch. Expected: ${target_type}` });
+      }
+      
+      const innerConfig = config.config;
       if (target_type === 'fixed') {
-        if (!config.metric || !config.target_value) {
+        if (!innerConfig.metric || innerConfig.target_value === undefined) {
           return res.status(400).json({ error: "Fixed target requires: metric, target_value" });
         }
+        // Validate metric is a valid value
+        if (!['lead_updates', 'status_transitions'].includes(innerConfig.metric)) {
+          return res.status(400).json({ error: "Fixed metric must be: lead_updates or status_transitions" });
+        }
+        // Validate target_value is a positive finite number
+        if (!Number.isFinite(innerConfig.target_value) || innerConfig.target_value < 0) {
+          return res.status(400).json({ error: "Fixed target_value must be a positive number" });
+        }
       } else if (target_type === 'single_column') {
-        if (!config.column_id || !config.operator || !config.value) {
-          return res.status(400).json({ error: "Single column target requires: column_id, operator, value" });
+        if (!innerConfig.column_id || !innerConfig.operator) {
+          return res.status(400).json({ error: "Single column target requires: column_id, operator" });
+        }
+        // Valid operators
+        const validOperators = ['equals', 'not_equals', 'contains', 'not_contains', 'is_empty', 'is_not_empty', 'greater_than', 'less_than'];
+        if (!validOperators.includes(innerConfig.operator)) {
+          return res.status(400).json({ error: `Invalid operator. Must be one of: ${validOperators.join(', ')}` });
+        }
+        // Require value for operators that need it (string comparison)
+        const operatorsRequiringStringValue = ['equals', 'not_equals', 'contains', 'not_contains'];
+        if (operatorsRequiringStringValue.includes(innerConfig.operator) && !innerConfig.value) {
+          return res.status(400).json({ error: `Single column operator '${innerConfig.operator}' requires a value` });
+        }
+        // Require numeric value for comparison operators
+        const numericOperators = ['greater_than', 'less_than'];
+        if (numericOperators.includes(innerConfig.operator)) {
+          const numValue = parseFloat(innerConfig.value);
+          if (!Number.isFinite(numValue)) {
+            return res.status(400).json({ error: `Single column operator '${innerConfig.operator}' requires a numeric value` });
+          }
+        }
+        // Validate target_percentage is a valid finite percentage (0-100)
+        if (innerConfig.target_percentage !== undefined) {
+          if (!Number.isFinite(innerConfig.target_percentage) || innerConfig.target_percentage < 0 || innerConfig.target_percentage > 100) {
+            return res.status(400).json({ error: "target_percentage must be a number between 0 and 100" });
+          }
         }
       } else if (target_type === 'compare_columns') {
-        if (!config.column_id || !config.from_value || !config.to_value) {
+        if (!innerConfig.column_id || !innerConfig.from_value || !innerConfig.to_value) {
           return res.status(400).json({ error: "Compare columns target requires: column_id, from_value, to_value" });
+        }
+        // Validate result_type if provided
+        if (innerConfig.result_type !== undefined) {
+          if (!['count', 'percentage'].includes(innerConfig.result_type)) {
+            return res.status(400).json({ error: "Compare columns result_type must be: count or percentage" });
+          }
+        }
+        // Validate target_value is a positive finite number if provided
+        if (innerConfig.target_value !== undefined) {
+          if (!Number.isFinite(innerConfig.target_value) || innerConfig.target_value < 0) {
+            return res.status(400).json({ error: "Compare columns target_value must be a positive number" });
+          }
         }
       }
       
