@@ -238,6 +238,9 @@ async function evaluateCompareColumnsTarget(
   const config = (target.config as { type: 'compare_columns'; config: CompareColumnsTargetConfig }).config;
   const { column_id, from_value, to_value, result_type, target_value } = config;
   
+  const fromValues: string[] = Array.isArray(from_value) ? from_value : (from_value ? [from_value] : []);
+  const toValues: string[] = Array.isArray(to_value) ? to_value : (to_value ? [to_value] : []);
+  
   const userSheets = await db.select({ sheet_id: dbSchema.sheet_users.sheet_id })
     .from(dbSchema.sheet_users)
     .where(eq(dbSchema.sheet_users.user_id, userId));
@@ -281,7 +284,9 @@ async function evaluateCompareColumnsTarget(
   
   for (const update of updates) {
     const remark = update.remark || '';
-    if (remark.includes(`${from_value}`) && remark.includes(`${to_value}`)) {
+    const hasFromValue = fromValues.length === 0 || fromValues.some(fv => remark.includes(fv));
+    const hasToValue = toValues.length === 0 || toValues.some(tv => remark.includes(tv));
+    if (hasFromValue && hasToValue) {
       transitionCount++;
       matchingUpdates.push(update.id);
     }
@@ -310,8 +315,8 @@ async function evaluateCompareColumnsTarget(
       transitionCount,
       totalUpdatesInPeriod: updates.length,
       matchingUpdateIds: matchingUpdates.slice(0, 10),
-      from_value,
-      to_value,
+      from_values: fromValues,
+      to_values: toValues,
       column_id,
       result_type
     }

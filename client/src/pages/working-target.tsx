@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -32,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,7 +43,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { CustomColumn, Sheet, WorkingTargetRecord } from "@shared/schema";
+import type { CustomColumn, Sheet, WorkingTargetRecord, DropdownOption } from "@shared/schema";
 
 type TargetType = 'fixed' | 'single_column' | 'compare_columns';
 type PeriodType = 'daily' | 'weekly' | 'monthly';
@@ -120,12 +121,14 @@ export default function WorkingTarget() {
   const [singleTargetPercentage, setSingleTargetPercentage] = useState<number>(100);
   
   const [compareColumnId, setCompareColumnId] = useState('');
-  const [compareFromValue, setCompareFromValue] = useState('');
-  const [compareToValue, setCompareToValue] = useState('');
+  const [compareFromValues, setCompareFromValues] = useState<string[]>([]);
+  const [compareToValues, setCompareToValues] = useState<string[]>([]);
   const [compareResultType, setCompareResultType] = useState<'count' | 'percentage'>('count');
   const [compareTargetValue, setCompareTargetValue] = useState<number>(5);
   
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
+  const [columnDropdownOptions, setColumnDropdownOptions] = useState<string[]>([]);
+  const [singleColumnDropdownOptions, setSingleColumnDropdownOptions] = useState<string[]>([]);
 
   const { data: targets, isLoading: targetsLoading } = useQuery<WorkingTargetRecord[]>({
     queryKey: ['/api/working-targets'],
@@ -143,6 +146,95 @@ export default function WorkingTarget() {
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ['/api/sheets'],
   });
+
+  const fetchColumnDropdownOptions = async (columnKey: string) => {
+    if (!columnKey) {
+      setColumnDropdownOptions([]);
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/company/dropdown-options/${columnKey}`, {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const options = await response.json();
+        const values = options.map((opt: DropdownOption) => opt.value);
+        setColumnDropdownOptions(values);
+      } else {
+        const column = columns?.find(c => c.column_key === columnKey);
+        if (column?.config?.dropdown_options) {
+          setColumnDropdownOptions(column.config.dropdown_options);
+        } else {
+          setColumnDropdownOptions([]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch dropdown options:', error);
+      const column = columns?.find(c => c.column_key === columnKey);
+      if (column?.config?.dropdown_options) {
+        setColumnDropdownOptions(column.config.dropdown_options);
+      } else {
+        setColumnDropdownOptions([]);
+      }
+    }
+  };
+
+  const [isLoadingEditData, setIsLoadingEditData] = useState(false);
+
+  useEffect(() => {
+    if (compareColumnId && !isLoadingEditData) {
+      fetchColumnDropdownOptions(compareColumnId);
+      setCompareFromValues([]);
+      setCompareToValues([]);
+    } else if (!compareColumnId) {
+      setColumnDropdownOptions([]);
+    }
+  }, [compareColumnId]);
+
+  const fetchSingleColumnDropdownOptions = async (columnKey: string) => {
+    if (!columnKey) {
+      setSingleColumnDropdownOptions([]);
+      return;
+    }
+    
+    const column = columns?.find(c => c.column_key === columnKey);
+    if (!column || column.type !== 'dropdown') {
+      setSingleColumnDropdownOptions([]);
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/company/dropdown-options/${columnKey}`, {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const options = await response.json();
+        const values = options.map((opt: DropdownOption) => opt.value);
+        setSingleColumnDropdownOptions(values);
+      } else if (column?.config?.dropdown_options) {
+        setSingleColumnDropdownOptions(column.config.dropdown_options);
+      } else {
+        setSingleColumnDropdownOptions([]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch dropdown options:', error);
+      if (column?.config?.dropdown_options) {
+        setSingleColumnDropdownOptions(column.config.dropdown_options);
+      } else {
+        setSingleColumnDropdownOptions([]);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (singleColumnId && !isLoadingEditData) {
+      fetchSingleColumnDropdownOptions(singleColumnId);
+      setSingleValue('');
+    } else if (!singleColumnId) {
+      setSingleColumnDropdownOptions([]);
+    }
+  }, [singleColumnId, columns]);
 
   const createMutation = useMutation({
     mutationFn: async (data: CreateTargetData) => {
@@ -169,6 +261,7 @@ export default function WorkingTarget() {
       queryClient.invalidateQueries({ queryKey: ['/api/working-targets/evaluate/me'] });
       setEditDialogOpen(false);
       setSelectedTarget(null);
+      setIsLoadingEditData(false);
     },
     onError: (error: Error) => {
       toast({ title: "Failed to update target", description: error.message, variant: "destructive" });
@@ -204,11 +297,14 @@ export default function WorkingTarget() {
     setSingleValue('');
     setSingleTargetPercentage(100);
     setCompareColumnId('');
-    setCompareFromValue('');
-    setCompareToValue('');
+    setCompareFromValues([]);
+    setCompareToValues([]);
     setCompareResultType('count');
     setCompareTargetValue(5);
     setSelectedSheetIds([]);
+    setColumnDropdownOptions([]);
+    setSingleColumnDropdownOptions([]);
+    setIsLoadingEditData(false);
   };
 
   const handleCreateTarget = () => {
@@ -237,8 +333,8 @@ export default function WorkingTarget() {
         type: 'compare_columns',
         config: {
           column_id: compareColumnId,
-          from_value: compareFromValue,
-          to_value: compareToValue,
+          from_value: compareFromValues,
+          to_value: compareToValues,
           result_type: compareResultType,
           target_value: compareTargetValue,
         },
@@ -254,7 +350,8 @@ export default function WorkingTarget() {
     });
   };
 
-  const handleEditTarget = (target: WorkingTargetRecord) => {
+  const handleEditTarget = async (target: WorkingTargetRecord) => {
+    setIsLoadingEditData(true);
     setSelectedTarget(target);
     setEditDialogOpen(true);
     setTargetName(target.name);
@@ -271,14 +368,23 @@ export default function WorkingTarget() {
       setSingleOperator(conf.operator);
       setSingleValue(conf.value || '');
       setSingleTargetPercentage(conf.target_percentage || 100);
+      if (conf.column_id) {
+        await fetchSingleColumnDropdownOptions(conf.column_id);
+      }
     } else {
       const conf = (target.config as any).config;
       setCompareColumnId(conf.column_id);
-      setCompareFromValue(conf.from_value);
-      setCompareToValue(conf.to_value);
+      const fromVal = conf.from_value;
+      const toVal = conf.to_value;
+      setCompareFromValues(Array.isArray(fromVal) ? fromVal : (fromVal ? [fromVal] : []));
+      setCompareToValues(Array.isArray(toVal) ? toVal : (toVal ? [toVal] : []));
       setCompareResultType(conf.result_type);
       setCompareTargetValue(conf.target_value);
+      if (conf.column_id) {
+        await fetchColumnDropdownOptions(conf.column_id);
+      }
     }
+    setIsLoadingEditData(false);
   };
 
   const handleSaveEdit = () => {
@@ -309,8 +415,8 @@ export default function WorkingTarget() {
         type: 'compare_columns',
         config: {
           column_id: compareColumnId,
-          from_value: compareFromValue,
-          to_value: compareToValue,
+          from_value: compareFromValues,
+          to_value: compareToValues,
           result_type: compareResultType,
           target_value: compareTargetValue,
         },
@@ -664,12 +770,27 @@ export default function WorkingTarget() {
                       {(singleOperator === 'equals' || singleOperator === 'not_equals') && (
                         <div className="space-y-2">
                           <Label>Value</Label>
-                          <Input
-                            value={singleValue}
-                            onChange={(e) => setSingleValue(e.target.value)}
-                            placeholder="Enter value to compare"
-                            data-testid="input-single-value"
-                          />
+                          {singleColumnDropdownOptions.length > 0 ? (
+                            <Select value={singleValue} onValueChange={setSingleValue}>
+                              <SelectTrigger data-testid="select-single-value">
+                                <SelectValue placeholder="Select value" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {singleColumnDropdownOptions.map((option) => (
+                                  <SelectItem key={option} value={option}>
+                                    {option}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              value={singleValue}
+                              onChange={(e) => setSingleValue(e.target.value)}
+                              placeholder="Enter value to compare"
+                              data-testid="input-single-value"
+                            />
+                          )}
                         </div>
                       )}
                       <div className="space-y-2">
@@ -699,34 +820,90 @@ export default function WorkingTarget() {
                             <SelectValue placeholder="Select column" />
                           </SelectTrigger>
                           <SelectContent>
-                            {columns?.map((col) => (
+                            {columns?.filter(col => col.type === 'dropdown').map((col) => (
                               <SelectItem key={col.column_key} value={col.column_key}>
                                 {col.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
+                        {columns && columns.filter(col => col.type === 'dropdown').length === 0 && (
+                          <p className="text-xs text-muted-foreground text-amber-600">
+                            No dropdown columns found. Status transitions require dropdown columns.
+                          </p>
+                        )}
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>From Value</Label>
-                          <Input
-                            value={compareFromValue}
-                            onChange={(e) => setCompareFromValue(e.target.value)}
-                            placeholder="Initial value"
-                            data-testid="input-compare-from"
-                          />
+                      
+                      {compareColumnId && columnDropdownOptions.length > 0 && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>From Values (Initial)</Label>
+                            <div className="border rounded-md p-2 max-h-40 overflow-y-auto space-y-1">
+                              {columnDropdownOptions.map((option) => (
+                                <div key={option} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`from-${option}`}
+                                    checked={compareFromValues.includes(option)}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        setCompareFromValues([...compareFromValues, option]);
+                                      } else {
+                                        setCompareFromValues(compareFromValues.filter(v => v !== option));
+                                      }
+                                    }}
+                                    data-testid={`checkbox-from-${option}`}
+                                  />
+                                  <label htmlFor={`from-${option}`} className="text-sm cursor-pointer">
+                                    {option}
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                            {compareFromValues.length > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                Selected: {compareFromValues.join(', ')}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <Label>To Values (Target)</Label>
+                            <div className="border rounded-md p-2 max-h-40 overflow-y-auto space-y-1">
+                              {columnDropdownOptions.map((option) => (
+                                <div key={option} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`to-${option}`}
+                                    checked={compareToValues.includes(option)}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        setCompareToValues([...compareToValues, option]);
+                                      } else {
+                                        setCompareToValues(compareToValues.filter(v => v !== option));
+                                      }
+                                    }}
+                                    data-testid={`checkbox-to-${option}`}
+                                  />
+                                  <label htmlFor={`to-${option}`} className="text-sm cursor-pointer">
+                                    {option}
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                            {compareToValues.length > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                Selected: {compareToValues.join(', ')}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          <Label>To Value</Label>
-                          <Input
-                            value={compareToValue}
-                            onChange={(e) => setCompareToValue(e.target.value)}
-                            placeholder="Target value"
-                            data-testid="input-compare-to"
-                          />
+                      )}
+                      
+                      {compareColumnId && columnDropdownOptions.length === 0 && (
+                        <div className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">
+                          <AlertCircle className="h-4 w-4 inline-block mr-1" />
+                          No dropdown options found for this column. Please configure options in Column Settings.
                         </div>
-                      </div>
+                      )}
+                      
                       <div className="space-y-2">
                         <Label>Result Type</Label>
                         <Select value={compareResultType} onValueChange={(v: any) => setCompareResultType(v)}>
@@ -924,10 +1101,25 @@ export default function WorkingTarget() {
                     {(singleOperator === 'equals' || singleOperator === 'not_equals') && (
                       <div className="space-y-2">
                         <Label>Value</Label>
-                        <Input
-                          value={singleValue}
-                          onChange={(e) => setSingleValue(e.target.value)}
-                        />
+                        {singleColumnDropdownOptions.length > 0 ? (
+                          <Select value={singleValue} onValueChange={setSingleValue}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select value" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {singleColumnDropdownOptions.map((option) => (
+                                <SelectItem key={option} value={option}>
+                                  {option}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            value={singleValue}
+                            onChange={(e) => setSingleValue(e.target.value)}
+                          />
+                        )}
                       </div>
                     )}
                     <div className="space-y-2">
@@ -952,7 +1144,7 @@ export default function WorkingTarget() {
                           <SelectValue placeholder="Select column" />
                         </SelectTrigger>
                         <SelectContent>
-                          {columns?.map((col) => (
+                          {columns?.filter(col => col.type === 'dropdown').map((col) => (
                             <SelectItem key={col.column_key} value={col.column_key}>
                               {col.name}
                             </SelectItem>
@@ -960,22 +1152,75 @@ export default function WorkingTarget() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>From Value</Label>
-                        <Input
-                          value={compareFromValue}
-                          onChange={(e) => setCompareFromValue(e.target.value)}
-                        />
+                    
+                    {compareColumnId && columnDropdownOptions.length > 0 && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>From Values (Initial)</Label>
+                          <div className="border rounded-md p-2 max-h-40 overflow-y-auto space-y-1">
+                            {columnDropdownOptions.map((option) => (
+                              <div key={option} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`edit-from-${option}`}
+                                  checked={compareFromValues.includes(option)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setCompareFromValues([...compareFromValues, option]);
+                                    } else {
+                                      setCompareFromValues(compareFromValues.filter(v => v !== option));
+                                    }
+                                  }}
+                                />
+                                <label htmlFor={`edit-from-${option}`} className="text-sm cursor-pointer">
+                                  {option}
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                          {compareFromValues.length > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Selected: {compareFromValues.join(', ')}
+                            </p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label>To Values (Target)</Label>
+                          <div className="border rounded-md p-2 max-h-40 overflow-y-auto space-y-1">
+                            {columnDropdownOptions.map((option) => (
+                              <div key={option} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`edit-to-${option}`}
+                                  checked={compareToValues.includes(option)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setCompareToValues([...compareToValues, option]);
+                                    } else {
+                                      setCompareToValues(compareToValues.filter(v => v !== option));
+                                    }
+                                  }}
+                                />
+                                <label htmlFor={`edit-to-${option}`} className="text-sm cursor-pointer">
+                                  {option}
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                          {compareToValues.length > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Selected: {compareToValues.join(', ')}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>To Value</Label>
-                        <Input
-                          value={compareToValue}
-                          onChange={(e) => setCompareToValue(e.target.value)}
-                        />
+                    )}
+                    
+                    {compareColumnId && columnDropdownOptions.length === 0 && (
+                      <div className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">
+                        <AlertCircle className="h-4 w-4 inline-block mr-1" />
+                        No dropdown options found for this column.
                       </div>
-                    </div>
+                    )}
+                    
                     <div className="space-y-2">
                       <Label>Result Type</Label>
                       <Select value={compareResultType} onValueChange={(v: any) => setCompareResultType(v)}>

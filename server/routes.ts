@@ -5774,6 +5774,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get all custom columns for the company (for Working Targets, etc.)
+  app.get("/api/custom-columns", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id 
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      const columns = await storage.getCompanyColumns(companyId);
+      
+      // Sort by order_index
+      columns.sort((a, b) => a.order_index - b.order_index);
+      
+      res.json(columns);
+    } catch (error: any) {
+      console.error("Get custom columns error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get dropdown options for a specific column key at company level
   app.get("/api/company/dropdown-options/:columnKey", authMiddleware, async (req: AuthRequest, res) => {
     try {
@@ -13483,8 +13506,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       } else if (target_type === 'compare_columns') {
-        if (!innerConfig.column_id || !innerConfig.from_value || !innerConfig.to_value) {
-          return res.status(400).json({ error: "Compare columns target requires: column_id, from_value, to_value" });
+        if (!innerConfig.column_id) {
+          return res.status(400).json({ error: "Compare columns target requires: column_id" });
+        }
+        const fromVal = innerConfig.from_value;
+        const toVal = innerConfig.to_value;
+        const fromIsValidArray = Array.isArray(fromVal) && fromVal.length > 0;
+        const fromIsValidString = typeof fromVal === 'string' && fromVal.length > 0;
+        const toIsValidArray = Array.isArray(toVal) && toVal.length > 0;
+        const toIsValidString = typeof toVal === 'string' && toVal.length > 0;
+        if (!fromIsValidArray && !fromIsValidString) {
+          return res.status(400).json({ error: "Compare columns target requires: from_value (string or array of strings)" });
+        }
+        if (!toIsValidArray && !toIsValidString) {
+          return res.status(400).json({ error: "Compare columns target requires: to_value (string or array of strings)" });
         }
         // Validate result_type if provided
         if (innerConfig.result_type !== undefined) {
