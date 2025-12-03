@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -183,6 +183,16 @@ export default function WorkingTarget() {
     enabled: isAdmin && activeTab === 'admin',
     refetchInterval: 30000, // Refresh every 30 seconds
   });
+
+  // Pre-compute grouped evaluations to avoid repeated filtering
+  const groupedEvaluations = useMemo(() => {
+    if (!evaluations) return { daily: [], weekly: [], monthly: [] };
+    return {
+      daily: evaluations.filter(e => e.target.period_type === 'daily'),
+      weekly: evaluations.filter(e => e.target.period_type === 'weekly'),
+      monthly: evaluations.filter(e => e.target.period_type === 'monthly'),
+    };
+  }, [evaluations]);
 
   const fetchColumnDropdownOptions = async (columnKey: string) => {
     if (!columnKey) {
@@ -773,8 +783,69 @@ export default function WorkingTarget() {
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-40" />)}
             </div>
           ) : evaluations && evaluations.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {evaluations.map(renderProgressCard)}
+            <div className="max-h-[calc(100vh-220px)] overflow-y-auto pr-2 space-y-8" data-testid="progress-scroll-area">
+              {/* Daily Targets Section */}
+              {groupedEvaluations.daily.length > 0 && (
+                <section className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/30 shrink-0">
+                      <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-lg font-semibold" data-testid="section-daily-targets">Daily Targets</h2>
+                      <p className="text-xs text-muted-foreground">Reset every day at midnight</p>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0">
+                      {groupedEvaluations.daily.length}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {groupedEvaluations.daily.map(renderProgressCard)}
+                  </div>
+                </section>
+              )}
+
+              {/* Weekly Targets Section */}
+              {groupedEvaluations.weekly.length > 0 && (
+                <section className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 shrink-0">
+                      <Calendar className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-lg font-semibold" data-testid="section-weekly-targets">Weekly Targets</h2>
+                      <p className="text-xs text-muted-foreground">Reset every Monday</p>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0">
+                      {groupedEvaluations.weekly.length}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {groupedEvaluations.weekly.map(renderProgressCard)}
+                  </div>
+                </section>
+              )}
+
+              {/* Monthly Targets Section */}
+              {groupedEvaluations.monthly.length > 0 && (
+                <section className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 shrink-0">
+                      <TrendingUp className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-lg font-semibold" data-testid="section-monthly-targets">Monthly Targets</h2>
+                      <p className="text-xs text-muted-foreground">Reset on the 1st of each month</p>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0">
+                      {groupedEvaluations.monthly.length}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {groupedEvaluations.monthly.map(renderProgressCard)}
+                  </div>
+                </section>
+              )}
             </div>
           ) : (
             <Card>
