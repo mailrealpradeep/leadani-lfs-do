@@ -509,59 +509,41 @@ export default function WorkingTarget() {
 
     return (
       <Card key={target.id} data-testid={`card-target-progress-${target.id}`}>
-        <CardHeader className="pb-2">
-          <div className="flex items-start justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              <TypeIcon className={`h-5 w-5 ${TypeInfo.color}`} />
-              <CardTitle className="text-lg">{target.name}</CardTitle>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="outline">
+        <CardContent className="p-3 space-y-2">
+          {/* Compact Header */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <TypeIcon className={`h-4 w-4 shrink-0 ${TypeInfo.color}`} />
+              <span className="font-medium text-sm truncate">{target.name}</span>
+              <Badge variant="outline" className="text-[10px] h-4 px-1 shrink-0">
                 {PERIOD_TYPE_INFO[target.period_type as PeriodType].label}
               </Badge>
-              {result.isAchieved ? (
-                <Badge className="bg-green-500/10 text-green-600 hover:bg-green-500/20">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Achieved
-                </Badge>
-              ) : (
-                <Badge variant="secondary">
-                  <Target className="h-3 w-3 mr-1" />
-                  In Progress
-                </Badge>
-              )}
             </div>
+            {result.isAchieved ? (
+              <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+            ) : (
+              <span className="text-xs font-semibold text-primary">{Math.round(result.compliancePercentage)}%</span>
+            )}
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Progress</span>
-              <span className="font-medium">
-                {Math.round(result.compliancePercentage)}%
-              </span>
-            </div>
-            <Progress 
-              value={Math.min(100, result.compliancePercentage)} 
-              className="h-2"
+          
+          {/* Progress Bar */}
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div 
+              className={`h-full rounded-full transition-all ${result.isAchieved ? 'bg-green-500' : 'bg-primary'}`}
+              style={{ width: `${Math.min(100, result.compliancePercentage)}%` }}
             />
           </div>
           
-          <div className="flex justify-between items-center text-sm">
-            <span className="text-muted-foreground">Current / Target</span>
-            <span className="font-medium">
-              {target.target_type === 'single_column' 
-                ? `${result.currentValue} / ${result.targetValue} leads`
-                : `${result.currentValue} / ${result.targetValue}`}
-            </span>
+          {/* Stats Row */}
+          <div className="flex justify-between items-center text-xs text-muted-foreground">
+            <span>{result.currentValue}/{result.targetValue}</span>
+            {target.target_type === 'single_column' && result.details.nonCompliantCount > 0 && (
+              <span className="flex items-center gap-0.5">
+                <AlertCircle className="h-3 w-3" />
+                {result.details.nonCompliantCount}
+              </span>
+            )}
           </div>
-
-          {target.target_type === 'single_column' && result.details.nonCompliantCount > 0 && (
-            <div className="text-xs text-muted-foreground flex items-center gap-1">
-              <AlertCircle className="h-3 w-3" />
-              {result.details.nonCompliantCount} leads need attention
-            </div>
-          )}
         </CardContent>
       </Card>
     );
@@ -601,137 +583,85 @@ export default function WorkingTarget() {
 
     return (
       <Card key={target.id} className="overflow-hidden" data-testid={`card-target-admin-${target.id}`}>
-        {/* Hero Header with gradient based on target type */}
-        <div className={`p-4 ${
-          target.target_type === 'fixed' 
-            ? 'bg-gradient-to-r from-blue-500/10 to-blue-600/5 dark:from-blue-500/20 dark:to-blue-600/10'
-            : target.target_type === 'single_column'
-            ? 'bg-gradient-to-r from-green-500/10 to-green-600/5 dark:from-green-500/20 dark:to-green-600/10'
-            : 'bg-gradient-to-r from-purple-500/10 to-purple-600/5 dark:from-purple-500/20 dark:to-purple-600/10'
-        }`}>
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-start gap-3 min-w-0 flex-1">
-              <div className={`p-2 rounded-lg ${
-                target.target_type === 'fixed'
-                  ? 'bg-blue-100 dark:bg-blue-900/50'
-                  : target.target_type === 'single_column'
-                  ? 'bg-green-100 dark:bg-green-900/50'
-                  : 'bg-purple-100 dark:bg-purple-900/50'
-              } shrink-0`}>
-                <TypeIcon className={`h-5 w-5 ${TypeInfo.color}`} />
-              </div>
+        {/* Compact Header - Clean, Classic Style */}
+        <div className="p-3 border-b bg-muted/30">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <TypeIcon className={`h-4 w-4 shrink-0 ${TypeInfo.color}`} />
               <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-base truncate" title={target.name}>{target.name}</h3>
-                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1" title={description}>{description}</p>
+                <h3 className="font-medium text-sm truncate" title={target.name}>{target.name}</h3>
+                <p className="text-xs text-muted-foreground truncate" title={description}>{description}</p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 shrink-0">
               <Badge 
                 variant={target.is_active ? "default" : "secondary"}
-                className={target.is_active ? "bg-green-600 hover:bg-green-700" : ""}
+                className={`text-[10px] h-5 ${target.is_active ? "bg-green-600 hover:bg-green-700" : ""}`}
               >
-                {target.is_active ? "Active" : "Inactive"}
+                {target.is_active ? "Active" : "Off"}
               </Badge>
-              <Badge variant="outline" className="text-xs">
+              <Badge variant="outline" className="text-[10px] h-5">
                 {PERIOD_TYPE_INFO[target.period_type as PeriodType].label}
               </Badge>
             </div>
           </div>
         </div>
 
-        <CardContent className="p-4 space-y-4">
-          {/* Team Progress Summary - Hero Stats */}
+        <CardContent className="p-3 space-y-2">
+          {/* Compact Stats Row */}
           {target.is_active && progress && progress.totalUsers > 0 && (
-            <div className="space-y-4">
-              {/* Stats Row */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="text-center p-2 rounded-lg bg-muted/50">
-                  <div className="text-lg font-bold text-primary">{Math.round(progress.averageCompliancePercentage)}%</div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Avg Progress</div>
+            <div className="space-y-2">
+              {/* Inline Stats */}
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-3">
+                  <span><strong className="text-primary">{Math.round(progress.averageCompliancePercentage)}%</strong> avg</span>
+                  <span><strong className="text-green-600">{progress.achievedCount}</strong>/{progress.totalUsers} achieved</span>
                 </div>
-                <div className="text-center p-2 rounded-lg bg-muted/50">
-                  <div className="text-lg font-bold text-green-600 dark:text-green-400">{progress.achievedCount}</div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Achieved</div>
-                </div>
-                <div className="text-center p-2 rounded-lg bg-muted/50">
-                  <div className="text-lg font-bold">{progress.totalUsers}</div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Users</div>
-                </div>
+                <span className="text-muted-foreground">{progress.totalCurrentValue}/{progress.totalTargetValue}</span>
               </div>
 
-              {/* Progress Bar */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Users className="h-3 w-3" />
-                    Team Achievement Rate
-                  </span>
-                  <span className="font-medium">{achievedPercentage}%</span>
-                </div>
-                <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-green-500 to-green-600 transition-all duration-500 rounded-full"
-                    style={{ width: `${achievedPercentage}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>Total: {progress.totalCurrentValue}</span>
-                  <span>Target: {progress.totalTargetValue}</span>
-                </div>
+              {/* Compact Progress Bar */}
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-green-500 transition-all duration-500 rounded-full"
+                  style={{ width: `${achievedPercentage}%` }}
+                />
               </div>
 
-              {/* Expandable User List */}
+              {/* Expandable User List - Compact */}
               {progress.userProgress.length > 0 && (
-                <div className="pt-2 border-t">
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                <div>
+                  <button
                     onClick={() => toggleExpandTarget(target.id)}
-                    className="w-full justify-between text-xs h-8 hover:bg-muted/50"
+                    className="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground py-1"
                     data-testid={`button-toggle-users-${target.id}`}
                   >
-                    <span className="flex items-center gap-1.5">
-                      <Users className="h-3.5 w-3.5" />
-                      Individual Progress
+                    <span className="flex items-center gap-1">
+                      <Users className="h-3 w-3" />
+                      {progress.userProgress.length} users
                     </span>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-[10px] h-5">{progress.userProgress.length}</Badge>
-                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                    </div>
-                  </Button>
+                    {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  </button>
                   
                   {isExpanded && (
-                    <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
+                    <div className="space-y-1 max-h-32 overflow-y-auto mt-1">
                       {[...progress.userProgress]
                         .sort((a, b) => b.compliancePercentage - a.compliancePercentage)
                         .map((userProg, idx) => (
                         <div 
                           key={userProg.userId} 
-                          className="p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                          className="flex items-center justify-between gap-2 py-1 px-2 text-xs rounded bg-muted/30"
                           data-testid={`user-progress-${userProg.userId}`}
                         >
-                          <div className="flex justify-between items-center gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-[10px] text-muted-foreground w-4">#{idx + 1}</span>
-                              <span className="text-sm font-medium truncate">{userProg.userName}</span>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-xs text-muted-foreground">
-                                {userProg.currentValue}/{userProg.targetValue}
-                              </span>
-                              {userProg.isAchieved ? (
-                                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                              ) : (
-                                <span className="text-xs font-semibold tabular-nums w-10 text-right">
-                                  {Math.round(userProg.compliancePercentage)}%
-                                </span>
-                              )}
-                            </div>
+                          <span className="truncate">{userProg.userName}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-muted-foreground">{userProg.currentValue}/{userProg.targetValue}</span>
+                            {userProg.isAchieved ? (
+                              <CheckCircle2 className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <span className="w-8 text-right">{Math.round(userProg.compliancePercentage)}%</span>
+                            )}
                           </div>
-                          <Progress 
-                            value={Math.min(100, userProg.compliancePercentage)} 
-                            className="h-1 mt-1.5"
-                          />
                         </div>
                       ))}
                     </div>
@@ -741,82 +671,38 @@ export default function WorkingTarget() {
             </div>
           )}
 
-          {/* No progress data message */}
+          {/* Compact Status Messages */}
           {target.is_active && progress && progress.totalUsers === 0 && (
-            <div className="py-4 text-center rounded-lg bg-muted/30">
-              <AlertCircle className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
-              <p className="text-sm text-muted-foreground">No users assigned to target sheets</p>
-            </div>
+            <div className="py-2 text-center text-xs text-muted-foreground">No users assigned</div>
           )}
-
-          {/* Inactive target message */}
           {!target.is_active && (
-            <div className="py-4 text-center rounded-lg bg-muted/30">
-              <XCircle className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
-              <p className="text-sm text-muted-foreground">Target is inactive</p>
-            </div>
+            <div className="py-2 text-center text-xs text-muted-foreground">Target inactive</div>
           )}
-
-          {/* Loading state - show when target is loading */}
           {target.is_active && isTargetLoading(target.id) && (
-            <div className="py-6 text-center">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">Loading team progress...</p>
+            <div className="py-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Loading...
             </div>
           )}
-
-          {/* No data state - when active, done loading, but no progress available */}
           {target.is_active && !progress && !isTargetLoading(target.id) && (
-            <div className="py-4 text-center rounded-lg bg-muted/30">
-              <BarChart3 className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
-              <p className="text-sm text-muted-foreground">No progress data available</p>
-            </div>
+            <div className="py-2 text-center text-xs text-muted-foreground">No data</div>
           )}
 
-          {/* Footer with sheets info and actions */}
-          <div className="flex items-center justify-between pt-3 border-t">
-            <div className="text-xs text-muted-foreground">
+          {/* Compact Footer */}
+          <div className="flex items-center justify-between pt-2 border-t">
+            <span className="text-[10px] text-muted-foreground">
               {target.sheet_ids && target.sheet_ids.length > 0 
                 ? `${target.sheet_ids.length} sheet(s)`
                 : 'All sheets'}
-            </div>
+            </span>
             <div className="flex items-center gap-0.5">
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => handleEditTarget(target)}
-                className="h-8 w-8"
-                data-testid={`button-edit-target-${target.id}`}
-              >
-                <Edit className="h-4 w-4" />
+              <Button size="icon" variant="ghost" onClick={() => handleEditTarget(target)} className="h-6 w-6" data-testid={`button-edit-target-${target.id}`}>
+                <Edit className="h-3 w-3" />
               </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => updateMutation.mutate({ 
-                  id: target.id, 
-                  data: { is_active: !target.is_active } 
-                })}
-                className="h-8 w-8"
-                data-testid={`button-toggle-target-${target.id}`}
-              >
-                {target.is_active ? (
-                  <XCircle className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                )}
+              <Button size="icon" variant="ghost" onClick={() => updateMutation.mutate({ id: target.id, data: { is_active: !target.is_active } })} className="h-6 w-6" data-testid={`button-toggle-target-${target.id}`}>
+                {target.is_active ? <XCircle className="h-3 w-3 text-muted-foreground" /> : <CheckCircle2 className="h-3 w-3 text-green-500" />}
               </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => {
-                  setSelectedTarget(target);
-                  setDeleteDialogOpen(true);
-                }}
-                className="h-8 w-8"
-                data-testid={`button-delete-target-${target.id}`}
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
+              <Button size="icon" variant="ghost" onClick={() => { setSelectedTarget(target); setDeleteDialogOpen(true); }} className="h-6 w-6" data-testid={`button-delete-target-${target.id}`}>
+                <Trash2 className="h-3 w-3 text-destructive" />
               </Button>
             </div>
           </div>
@@ -835,60 +721,69 @@ export default function WorkingTarget() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] p-3 sm:p-4">
-      {/* Fixed Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap shrink-0 mb-1">
-        <div className="flex items-center gap-3">
-          <Crosshair className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold" data-testid="text-working-target-title">Working Targets</h1>
-            <p className="text-muted-foreground">Track performance goals and team progress</p>
-          </div>
+      {/* Compact Header with Tabs Inline */}
+      <div className="flex items-center gap-3 shrink-0 border-b pb-2 mb-2">
+        {/* Title - Compact */}
+        <div className="flex items-center gap-2 shrink-0">
+          <Crosshair className="h-5 w-5 text-primary" />
+          <h1 className="text-lg font-semibold" data-testid="text-working-target-title">Working Targets</h1>
         </div>
+
+        {/* Underline-style Tabs - Inline */}
+        <div className="flex items-center gap-1 ml-4">
+          <button
+            onClick={() => setActiveTab('progress')}
+            className={`px-3 py-1.5 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'progress' 
+                ? 'border-primary text-primary' 
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+            data-testid="tab-progress"
+          >
+            My Progress
+          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`px-3 py-1.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'admin' 
+                  ? 'border-primary text-primary' 
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+              data-testid="tab-admin"
+            >
+              Manage Targets
+            </button>
+          )}
+        </div>
+
+        {/* Create Button - Right Aligned */}
         {isAdmin && (
-          <Button onClick={() => setCreateDialogOpen(true)} data-testid="button-create-target">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Target
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)} data-testid="button-create-target" className="ml-auto shrink-0">
+            <Plus className="h-4 w-4 mr-1" />
+            Create
           </Button>
         )}
       </div>
 
+      {/* Content Area */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="shrink-0">
-          <TabsTrigger value="progress" data-testid="tab-progress">
-            <TrendingUp className="h-4 w-4 mr-2" />
-            My Progress
-          </TabsTrigger>
-          {isAdmin && (
-            <TabsTrigger value="admin" data-testid="tab-admin">
-              <Target className="h-4 w-4 mr-2" />
-              Manage Targets
-            </TabsTrigger>
-          )}
-        </TabsList>
-
         <TabsContent value="progress" className="mt-0 flex-1 min-h-0 flex flex-col">
           {evaluationsLoading ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {[1, 2, 3].map(i => <Skeleton key={i} className="h-40" />)}
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}
             </div>
           ) : evaluations && evaluations.length > 0 ? (
-            <div className="flex-1 overflow-y-auto pr-2 space-y-8" data-testid="progress-scroll-area">
+            <div className="flex-1 overflow-y-auto pr-2 space-y-4" data-testid="progress-scroll-area">
               {/* Daily Targets Section */}
               {groupedEvaluations.daily.length > 0 && (
-                <section className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/30 shrink-0">
-                      <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h2 className="text-lg font-semibold" data-testid="section-daily-targets">Daily Targets</h2>
-                      <p className="text-xs text-muted-foreground">Reset every day at midnight</p>
-                    </div>
-                    <Badge variant="secondary" className="shrink-0">
-                      {groupedEvaluations.daily.length}
-                    </Badge>
+                <section className="space-y-2">
+                  <div className="flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-1 z-10">
+                    <Clock className="h-4 w-4 text-orange-500" />
+                    <h2 className="text-sm font-medium" data-testid="section-daily-targets">Daily</h2>
+                    <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{groupedEvaluations.daily.length}</Badge>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                     {groupedEvaluations.daily.map(renderProgressCard)}
                   </div>
                 </section>
@@ -896,20 +791,13 @@ export default function WorkingTarget() {
 
               {/* Weekly Targets Section */}
               {groupedEvaluations.weekly.length > 0 && (
-                <section className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 shrink-0">
-                      <Calendar className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h2 className="text-lg font-semibold" data-testid="section-weekly-targets">Weekly Targets</h2>
-                      <p className="text-xs text-muted-foreground">Reset every Monday</p>
-                    </div>
-                    <Badge variant="secondary" className="shrink-0">
-                      {groupedEvaluations.weekly.length}
-                    </Badge>
+                <section className="space-y-2">
+                  <div className="flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-1 z-10">
+                    <Calendar className="h-4 w-4 text-blue-500" />
+                    <h2 className="text-sm font-medium" data-testid="section-weekly-targets">Weekly</h2>
+                    <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{groupedEvaluations.weekly.length}</Badge>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                     {groupedEvaluations.weekly.map(renderProgressCard)}
                   </div>
                 </section>
@@ -917,20 +805,13 @@ export default function WorkingTarget() {
 
               {/* Monthly Targets Section */}
               {groupedEvaluations.monthly.length > 0 && (
-                <section className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 shrink-0">
-                      <TrendingUp className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h2 className="text-lg font-semibold" data-testid="section-monthly-targets">Monthly Targets</h2>
-                      <p className="text-xs text-muted-foreground">Reset on the 1st of each month</p>
-                    </div>
-                    <Badge variant="secondary" className="shrink-0">
-                      {groupedEvaluations.monthly.length}
-                    </Badge>
+                <section className="space-y-2">
+                  <div className="flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-1 z-10">
+                    <TrendingUp className="h-4 w-4 text-purple-500" />
+                    <h2 className="text-sm font-medium" data-testid="section-monthly-targets">Monthly</h2>
+                    <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{groupedEvaluations.monthly.length}</Badge>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                     {groupedEvaluations.monthly.map(renderProgressCard)}
                   </div>
                 </section>
@@ -938,9 +819,9 @@ export default function WorkingTarget() {
             </div>
           ) : (
             <Card>
-              <CardContent className="py-8 text-center">
-                <Target className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No active targets assigned to you</p>
+              <CardContent className="py-6 text-center">
+                <Target className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">No active targets</p>
               </CardContent>
             </Card>
           )}
@@ -948,103 +829,77 @@ export default function WorkingTarget() {
 
         {isAdmin && (
           <TabsContent value="admin" className="mt-0 flex-1 min-h-0 flex flex-col">
-            {/* Filters Section - Fixed at top */}
-            <div className="flex flex-col gap-2 pb-2 shrink-0">
-              {/* Sheet Filter */}
-              <div className="flex flex-wrap items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
-                <Select value={adminSheetFilter} onValueChange={setAdminSheetFilter}>
-                  <SelectTrigger className="w-[180px]" data-testid="select-sheet-filter">
-                    <SelectValue placeholder="Filter by sheet" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sheets (Aggregate)</SelectItem>
-                    {sheets?.map(sheet => (
-                      <SelectItem key={sheet.id} value={sheet.id}>{sheet.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {adminSheetFilter !== 'all' && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setAdminSheetFilter('all')}
-                    className="h-8 px-2"
-                  >
-                    <XCircle className="h-4 w-4" />
-                  </Button>
-                )}
-                {isDataStale && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground ml-auto">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="hidden sm:inline">Refreshing...</span>
-                  </div>
-                )}
+            {/* Compact Filters Bar - Single Row */}
+            <div className="flex flex-wrap items-center gap-2 pb-2 shrink-0">
+              {/* Sheet Filter - Compact */}
+              <Select value={adminSheetFilter} onValueChange={setAdminSheetFilter}>
+                <SelectTrigger className="w-[140px] h-8 text-xs" data-testid="select-sheet-filter">
+                  <SelectValue placeholder="All Sheets" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sheets</SelectItem>
+                  {sheets?.map(sheet => (
+                    <SelectItem key={sheet.id} value={sheet.id}>{sheet.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Separator */}
+              <div className="h-4 w-px bg-border" />
+
+              {/* Period Filter Pills - Compact Inline */}
+              <div className="flex items-center gap-0.5">
+                <Button
+                  variant={periodFilter === 'all' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setPeriodFilter('all')}
+                  className="h-7 px-2 text-xs"
+                  data-testid="tab-period-all"
+                >
+                  All {targets && targets.length > 0 && <span className="ml-1 text-muted-foreground">{targets.length}</span>}
+                </Button>
+                <Button
+                  variant={periodFilter === 'daily' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setPeriodFilter('daily')}
+                  className="h-7 px-2 text-xs"
+                  data-testid="tab-period-daily"
+                >
+                  Daily {targets && targets.filter(t => t.period_type === 'daily').length > 0 && <span className="ml-1 text-muted-foreground">{targets.filter(t => t.period_type === 'daily').length}</span>}
+                </Button>
+                <Button
+                  variant={periodFilter === 'weekly' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setPeriodFilter('weekly')}
+                  className="h-7 px-2 text-xs"
+                  data-testid="tab-period-weekly"
+                >
+                  Weekly {targets && targets.filter(t => t.period_type === 'weekly').length > 0 && <span className="ml-1 text-muted-foreground">{targets.filter(t => t.period_type === 'weekly').length}</span>}
+                </Button>
+                <Button
+                  variant={periodFilter === 'monthly' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setPeriodFilter('monthly')}
+                  className="h-7 px-2 text-xs"
+                  data-testid="tab-period-monthly"
+                >
+                  Monthly {targets && targets.filter(t => t.period_type === 'monthly').length > 0 && <span className="ml-1 text-muted-foreground">{targets.filter(t => t.period_type === 'monthly').length}</span>}
+                </Button>
               </div>
 
-              {/* Period Filter Tabs */}
-              <div className="overflow-x-auto -mx-1 px-1">
-                <div className="inline-flex items-center gap-1 p-1 bg-muted/50 rounded-lg">
-                  <Button
-                    variant={periodFilter === 'all' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setPeriodFilter('all')}
-                    className="gap-1.5"
-                    data-testid="tab-period-all"
-                  >
-                    All
-                    {targets && targets.length > 0 && (
-                      <Badge variant="outline" className="text-xs h-5 px-1.5">{targets.length}</Badge>
-                    )}
-                  </Button>
-                  <Button
-                    variant={periodFilter === 'daily' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setPeriodFilter('daily')}
-                    className="gap-1.5"
-                    data-testid="tab-period-daily"
-                  >
-                    <Clock className="h-3.5 w-3.5" />
-                    Daily
-                    {targets && targets.filter(t => t.period_type === 'daily').length > 0 && (
-                      <Badge variant="outline" className="text-xs h-5 px-1.5">{targets.filter(t => t.period_type === 'daily').length}</Badge>
-                    )}
-                  </Button>
-                  <Button
-                    variant={periodFilter === 'weekly' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setPeriodFilter('weekly')}
-                    className="gap-1.5"
-                    data-testid="tab-period-weekly"
-                  >
-                    <Calendar className="h-3.5 w-3.5" />
-                    Weekly
-                    {targets && targets.filter(t => t.period_type === 'weekly').length > 0 && (
-                      <Badge variant="outline" className="text-xs h-5 px-1.5">{targets.filter(t => t.period_type === 'weekly').length}</Badge>
-                    )}
-                  </Button>
-                  <Button
-                    variant={periodFilter === 'monthly' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setPeriodFilter('monthly')}
-                    className="gap-1.5"
-                    data-testid="tab-period-monthly"
-                  >
-                    <TrendingUp className="h-3.5 w-3.5" />
-                    Monthly
-                    {targets && targets.filter(t => t.period_type === 'monthly').length > 0 && (
-                      <Badge variant="outline" className="text-xs h-5 px-1.5">{targets.filter(t => t.period_type === 'monthly').length}</Badge>
-                    )}
-                  </Button>
+              {/* Loading indicator */}
+              {isDataStale && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground ml-auto">
+                  <Loader2 className="h-3 w-3 animate-spin" />
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Scrollable Content Area */}
             <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="admin-scroll-area">
               {targetsLoading ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-48" />)}
+                <div className="grid gap-2 md:grid-cols-2">
+                  {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-28" />)}
                 </div>
               ) : (() => {
                 const filteredTargets = targets?.filter(t => 
@@ -1075,7 +930,7 @@ export default function WorkingTarget() {
                 }
                 
                 return (
-                  <div className="grid gap-4 md:grid-cols-2 pb-4" data-testid="admin-targets-grid">
+                  <div className="grid gap-2 md:grid-cols-2 pb-4" data-testid="admin-targets-grid">
                     {filteredTargets.map(renderAdminTargetCard)}
                   </div>
                 );
