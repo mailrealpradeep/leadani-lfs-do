@@ -836,7 +836,7 @@ export default function WorkingTarget() {
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] p-4 sm:p-6">
       {/* Fixed Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap shrink-0 mb-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap shrink-0 mb-2">
         <div className="flex items-center gap-3">
           <Crosshair className="h-8 w-8 text-primary" />
           <div>
@@ -866,7 +866,7 @@ export default function WorkingTarget() {
           )}
         </TabsList>
 
-        <TabsContent value="progress" className="mt-2 flex-1 min-h-0 flex flex-col">
+        <TabsContent value="progress" className="mt-0 flex-1 min-h-0 flex flex-col">
           {evaluationsLoading ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-40" />)}
@@ -947,9 +947,9 @@ export default function WorkingTarget() {
         </TabsContent>
 
         {isAdmin && (
-          <TabsContent value="admin" className="mt-2 flex-1 min-h-0 flex flex-col">
+          <TabsContent value="admin" className="mt-0 flex-1 min-h-0 flex flex-col">
             {/* Filters Section - Fixed at top */}
-            <div className="flex flex-col gap-3 pb-3 shrink-0">
+            <div className="flex flex-col gap-2 pb-2 shrink-0">
               {/* Sheet Filter */}
               <div className="flex flex-wrap items-center gap-2">
                 <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
