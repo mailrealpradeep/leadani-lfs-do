@@ -102,6 +102,7 @@ export default function WorkingTarget() {
   const isAdmin = user?.role === 'company_admin' || user?.role === 'super_admin';
   
   const [activeTab, setActiveTab] = useState<string>(isAdmin ? "admin" : "progress");
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'daily' | 'weekly' | 'monthly'>('all');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -641,26 +642,136 @@ export default function WorkingTarget() {
 
         {isAdmin && (
           <TabsContent value="admin" className="mt-4">
-            {targetsLoading ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                {[1, 2].map(i => <Skeleton key={i} className="h-32" />)}
+            {/* Period Filter Tabs */}
+            <Tabs value={periodFilter} onValueChange={(v) => setPeriodFilter(v as typeof periodFilter)} className="w-full">
+              <div className="overflow-x-auto">
+                <TabsList className="mb-4 inline-flex w-auto min-w-full sm:min-w-0">
+                  <TabsTrigger value="all" data-testid="tab-period-all" className="flex-shrink-0">
+                    All
+                    {targets && targets.length > 0 && (
+                      <Badge variant="secondary" className="ml-2 text-xs">{targets.length}</Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="daily" data-testid="tab-period-daily" className="flex-shrink-0">
+                    <Clock className="h-3.5 w-3.5 mr-1.5" />
+                    Daily
+                    {targets && targets.filter(t => t.period_type === 'daily').length > 0 && (
+                      <Badge variant="secondary" className="ml-2 text-xs">{targets.filter(t => t.period_type === 'daily').length}</Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="weekly" data-testid="tab-period-weekly" className="flex-shrink-0">
+                    <Calendar className="h-3.5 w-3.5 mr-1.5" />
+                    Weekly
+                    {targets && targets.filter(t => t.period_type === 'weekly').length > 0 && (
+                      <Badge variant="secondary" className="ml-2 text-xs">{targets.filter(t => t.period_type === 'weekly').length}</Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="monthly" data-testid="tab-period-monthly" className="flex-shrink-0">
+                    <Calendar className="h-3.5 w-3.5 mr-1.5" />
+                    Monthly
+                    {targets && targets.filter(t => t.period_type === 'monthly').length > 0 && (
+                      <Badge variant="secondary" className="ml-2 text-xs">{targets.filter(t => t.period_type === 'monthly').length}</Badge>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
               </div>
-            ) : targets && targets.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                {targets.map(renderAdminTargetCard)}
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <Target className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground mb-4">No working targets created yet</p>
-                  <Button onClick={() => setCreateDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Your First Target
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+
+              {/* All Targets */}
+              <TabsContent value="all" className="mt-0">
+                {targetsLoading ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[1, 2].map(i => <Skeleton key={i} className="h-32" />)}
+                  </div>
+                ) : targets && targets.length > 0 ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {targets.map(renderAdminTargetCard)}
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="py-8 text-center">
+                      <Target className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground mb-4">No working targets created yet</p>
+                      <Button onClick={() => setCreateDialogOpen(true)}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Your First Target
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              {/* Daily Targets */}
+              <TabsContent value="daily" className="mt-0">
+                {targetsLoading ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[1, 2].map(i => <Skeleton key={i} className="h-32" />)}
+                  </div>
+                ) : targets && targets.filter(t => t.period_type === 'daily').length > 0 ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {targets.filter(t => t.period_type === 'daily').map(renderAdminTargetCard)}
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="py-8 text-center">
+                      <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground mb-4">No daily targets created yet</p>
+                      <Button onClick={() => { setPeriodType('daily'); setCreateDialogOpen(true); }} data-testid="button-create-daily-target">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Daily Target
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              {/* Weekly Targets */}
+              <TabsContent value="weekly" className="mt-0">
+                {targetsLoading ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[1, 2].map(i => <Skeleton key={i} className="h-32" />)}
+                  </div>
+                ) : targets && targets.filter(t => t.period_type === 'weekly').length > 0 ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {targets.filter(t => t.period_type === 'weekly').map(renderAdminTargetCard)}
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="py-8 text-center">
+                      <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground mb-4">No weekly targets created yet</p>
+                      <Button onClick={() => { setPeriodType('weekly'); setCreateDialogOpen(true); }} data-testid="button-create-weekly-target">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Weekly Target
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              {/* Monthly Targets */}
+              <TabsContent value="monthly" className="mt-0">
+                {targetsLoading ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[1, 2].map(i => <Skeleton key={i} className="h-32" />)}
+                  </div>
+                ) : targets && targets.filter(t => t.period_type === 'monthly').length > 0 ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {targets.filter(t => t.period_type === 'monthly').map(renderAdminTargetCard)}
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="py-8 text-center">
+                      <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground mb-4">No monthly targets created yet</p>
+                      <Button onClick={() => { setPeriodType('monthly'); setCreateDialogOpen(true); }} data-testid="button-create-monthly-target">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Monthly Target
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+            </Tabs>
           </TabsContent>
         )}
       </Tabs>
