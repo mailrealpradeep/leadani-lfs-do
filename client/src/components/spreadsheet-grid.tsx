@@ -134,17 +134,38 @@ function useStableArray<T>(array: T[], compareFn: (a: T, b: T) => boolean): T[] 
   return ref.current;
 }
 
+// Deep compare dropdown options arrays
+function areDropdownOptionsEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return a === b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 // Compare two column objects for equality (used by useStableArray)
+// Includes config comparison for dropdown options to ensure changes propagate
 function areColumnsEqual(
   a: { key: string; label: string; type: string; width: string; sortable: boolean; dropdown?: boolean; config: any },
   b: { key: string; label: string; type: string; width: string; sortable: boolean; dropdown?: boolean; config: any }
 ): boolean {
-  return a.key === b.key && 
-    a.label === b.label && 
-    a.type === b.type && 
-    a.width === b.width && 
-    a.sortable === b.sortable && 
-    a.dropdown === b.dropdown;
+  if (a.key !== b.key) return false;
+  if (a.label !== b.label) return false;
+  if (a.type !== b.type) return false;
+  if (a.width !== b.width) return false;
+  if (a.sortable !== b.sortable) return false;
+  if (a.dropdown !== b.dropdown) return false;
+  
+  // Compare dropdown options in config if it's a dropdown column
+  if (a.type === 'dropdown' || b.type === 'dropdown') {
+    const aOptions = a.config?.dropdown_options;
+    const bOptions = b.config?.dropdown_options;
+    if (!areDropdownOptionsEqual(aOptions, bOptions)) return false;
+  }
+  
+  return true;
 }
 
 // Compare two string arrays for equality
@@ -432,6 +453,10 @@ function areColumnHeadersEqual(
       if (prev.width !== next.width) return false;
       if (prev.sortable !== next.sortable) return false;
       if (prev.dropdown !== next.dropdown) return false;
+      // Compare dropdown options in config for dropdown columns
+      if (prev.type === 'dropdown' || next.type === 'dropdown') {
+        if (!areDropdownOptionsEqual(prev.config?.dropdown_options, next.config?.dropdown_options)) return false;
+      }
     }
   }
   
