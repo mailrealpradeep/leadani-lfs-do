@@ -1290,6 +1290,16 @@ export function SpreadsheetGrid({
     return orderedColumns.filter((col) => !hiddenColumns.has(col.key));
   }, [orderedColumns, hiddenColumns]);
 
+  // Memoize column keys for SortableContext to prevent re-renders on filter changes
+  const visibleColumnKeys = useMemo(() => {
+    return visibleColumns.map(c => c.key);
+  }, [visibleColumns]);
+
+  // Memoize grid template style to prevent header re-renders on filter changes
+  const gridTemplateStyle = useMemo(() => {
+    return `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`;
+  }, [visibleColumns]);
+
   // Calculate total table width: checkbox (50px) + all visible columns + actions (150px)
   const calculateTableWidth = () => {
     const checkboxWidth = 50;
@@ -2094,7 +2104,7 @@ export function SpreadsheetGrid({
                 <div 
                   className="sticky top-0 z-20 bg-background border-b-2 grid"
                   style={{ 
-                    gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`
+                    gridTemplateColumns: gridTemplateStyle
                   }}
                 >
                   {/* Checkbox Column Header */}
@@ -2114,7 +2124,7 @@ export function SpreadsheetGrid({
                   
                   {/* Column Headers - Sortable */}
                   <SortableContext 
-                    items={visibleColumns.map(c => c.key)} 
+                    items={visibleColumnKeys} 
                     strategy={horizontalListSortingStrategy}
                   >
                     {visibleColumns.map((col) => (
@@ -2257,7 +2267,7 @@ export function SpreadsheetGrid({
                         <div
                           className={`hover-elevate grid border-b ${getRowClass()}`}
                           style={{ 
-                            gridTemplateColumns: `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`,
+                            gridTemplateColumns: gridTemplateStyle,
                             ...getRowStyle()
                           }}
                           data-testid={`row-lead-${lead.id}`}
