@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
 import {
@@ -250,20 +250,9 @@ export function SpreadsheetGrid({
   const [editValue, setEditValue] = useState("");
   const [datePickerOpen, setDatePickerOpen] = useState<{ leadId: string; field: string } | null>(null);
   
-  // Keyboard navigation state - separate from editing
-  const [selectedCell, setSelectedCell] = useState<{ leadId: string; columnKey: string } | null>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
-  
-  // Filter focus management - track which filter input should have focus
-  const focusedFilterKeyRef = useRef<string | null>(null);
-  const filterInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
-  // Debounced column filters - localFilterValues for immediate UI, columnFilters for API queries
-  const [localFilterValues, setLocalFilterValues] = useState<Record<string, string | DateFilterValue | null>>({});
   const [columnFilters, setColumnFilters] = useState<Record<string, string | DateFilterValue | null>>({});
-  const filterDebounceRef = useRef<Record<string, NodeJS.Timeout>>({});
   const [isScrolled, setIsScrolled] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
@@ -414,9 +403,6 @@ export function SpreadsheetGrid({
   // Use JSON.stringify for stable dependency reference of columnFilters
   const columnFiltersKey = JSON.stringify(columnFilters);
   const prevDepsRef = useRef({ activeSheetId: "", activeSheetIdsLength: 0, searchQuery: "", columnFiltersKey: "", sortColumn: "", sortDirection: "", thoughtFilter: "" });
-  const paginationRef = useRef(pagination);
-  paginationRef.current = pagination;
-  
   useEffect(() => {
     const prevDeps = prevDepsRef.current;
     // Only reset page if dependencies actually changed (not on mount)
@@ -429,11 +415,11 @@ export function SpreadsheetGrid({
       prevDeps.sortDirection !== sortDirection ||
       prevDeps.thoughtFilter !== (thoughtFilter || "");
     
-    if (depsChanged && paginationRef.current.page !== 1) {
-      // Use a stable default limit from ref to avoid dependency loop
+    if (depsChanged && pagination.page !== 1) {
+      // Use a stable default limit from context
       setPagination({
         page: 1,
-        limit: paginationRef.current.limit || 50,
+        limit: pagination.limit || 50,
         total: 0,
         totalPages: 1,
       });
@@ -448,7 +434,7 @@ export function SpreadsheetGrid({
       sortDirection,
       thoughtFilter: thoughtFilter || "",
     };
-  }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, setPagination]);
+  }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
 
   // Unified data access
   const leads = isMultiMode ? (multiSheetData?.leads || []) : (singleSheetData?.leads || []);
@@ -569,57 +555,6 @@ export function SpreadsheetGrid({
       setHiddenColumns(new Set());
     }
   }, [userSheetView?.hidden_columns, activeSheetId]);
-
-  // Track debounce version to prevent stale updates after clear
-  const filterVersionRef = useRef<Record<string, number>>({});
-  
-  // Debounced filter update handler - updates local state immediately, debounces API trigger
-  const handleFilterChange = useCallback((columnKey: string, value: string | DateFilterValue | null) => {
-    // Update local state immediately for responsive UI
-    setLocalFilterValues(prev => ({ ...prev, [columnKey]: value }));
-    
-    // Clear any pending debounce for this column
-    if (filterDebounceRef.current[columnKey]) {
-      clearTimeout(filterDebounceRef.current[columnKey]);
-    }
-    
-    // Increment version to track this specific update
-    const currentVersion = (filterVersionRef.current[columnKey] || 0) + 1;
-    filterVersionRef.current[columnKey] = currentVersion;
-    
-    // Debounce the actual filter update that triggers API call
-    filterDebounceRef.current[columnKey] = setTimeout(() => {
-      // Only apply if this is still the most recent version (not cleared)
-      if (filterVersionRef.current[columnKey] === currentVersion) {
-        setColumnFilters(prev => ({ ...prev, [columnKey]: value }));
-      }
-      delete filterDebounceRef.current[columnKey];
-    }, 400); // 400ms debounce
-  }, []);
-
-  // Clear filter (immediate, no debounce needed)
-  const handleClearFilter = useCallback((columnKey: string) => {
-    // Clear any pending debounce
-    if (filterDebounceRef.current[columnKey]) {
-      clearTimeout(filterDebounceRef.current[columnKey]);
-      delete filterDebounceRef.current[columnKey];
-    }
-    // Increment version so any pending debounce callbacks won't reapply
-    filterVersionRef.current[columnKey] = (filterVersionRef.current[columnKey] || 0) + 1;
-    setLocalFilterValues(prev => ({ ...prev, [columnKey]: null }));
-    setColumnFilters(prev => ({ ...prev, [columnKey]: null }));
-  }, []);
-
-  // Cleanup debounce timers on unmount
-  useEffect(() => {
-    return () => {
-      Object.values(filterDebounceRef.current).forEach(clearTimeout);
-    };
-  }, []);
-
-  // Focus restoration is handled differently - we don't use useLayoutEffect
-  // Instead, we ensure the input never loses focus by using controlled components properly
-  // The key is that localFilterValues updates immediately, preventing re-focus issues
 
   // Save user sheet view mutation
   const saveUserSheetViewMutation = useMutation({
@@ -889,7 +824,6 @@ export function SpreadsheetGrid({
     }
     
     // Reset filters and sort to defaults when switching sheets
-    setLocalFilterValues({});
     setColumnFilters({});
     // Default sort: created_at descending (newest leads first)
     setSortColumn("created_at");
@@ -1033,11 +967,8 @@ export function SpreadsheetGrid({
   const handleCellKeyDown = (e: React.KeyboardEvent, lead: Lead) => {
     if (e.key === "Enter") {
       handleCellSave(lead);
-      // Clear selection on save - simpler and more predictable
-      setSelectedCell(null);
     } else if (e.key === "Escape") {
       setEditingCell(null);
-      setSelectedCell(null);
     }
   };
 
@@ -1350,102 +1281,6 @@ export function SpreadsheetGrid({
   // Use ordered columns for visible columns (respecting user's custom order)
   const visibleColumns = orderedColumns.filter((col) => !hiddenColumns.has(col.key));
 
-  // Reset selected cell when rows change (pagination, filtering, deletion)
-  useEffect(() => {
-    if (!selectedCell) return;
-    
-    // Check if the selected lead still exists
-    const leadExists = filteredAndSortedLeads.some(l => l.id === selectedCell.leadId);
-    const columnExists = visibleColumns.some(c => c.key === selectedCell.columnKey);
-    
-    if (!leadExists || !columnExists) {
-      setSelectedCell(null);
-    }
-  }, [filteredAndSortedLeads, visibleColumns, selectedCell]);
-
-
-  // Grid-level keyboard navigation handler (Excel-like arrow key navigation)
-  const handleGridKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Don't handle if we're editing a cell
-    if (editingCell) return;
-    if (!selectedCell) return;
-    
-    const currentLeadIndex = filteredAndSortedLeads.findIndex(l => l.id === selectedCell.leadId);
-    const currentColIndex = visibleColumns.findIndex(c => c.key === selectedCell.columnKey);
-    
-    if (currentLeadIndex === -1 || currentColIndex === -1) return;
-
-    switch (e.key) {
-      case "ArrowUp":
-        e.preventDefault();
-        if (currentLeadIndex > 0) {
-          const prevLead = filteredAndSortedLeads[currentLeadIndex - 1];
-          setSelectedCell({ leadId: prevLead.id, columnKey: selectedCell.columnKey });
-        }
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        if (currentLeadIndex < filteredAndSortedLeads.length - 1) {
-          const nextLead = filteredAndSortedLeads[currentLeadIndex + 1];
-          setSelectedCell({ leadId: nextLead.id, columnKey: selectedCell.columnKey });
-        }
-        break;
-      case "ArrowLeft":
-        e.preventDefault();
-        if (currentColIndex > 0) {
-          const prevCol = visibleColumns[currentColIndex - 1];
-          setSelectedCell({ leadId: selectedCell.leadId, columnKey: prevCol.key });
-        }
-        break;
-      case "ArrowRight":
-        e.preventDefault();
-        if (currentColIndex < visibleColumns.length - 1) {
-          const nextCol = visibleColumns[currentColIndex + 1];
-          setSelectedCell({ leadId: selectedCell.leadId, columnKey: nextCol.key });
-        }
-        break;
-      case "Tab":
-        e.preventDefault();
-        if (e.shiftKey) {
-          // Move left
-          if (currentColIndex > 0) {
-            const prevCol = visibleColumns[currentColIndex - 1];
-            setSelectedCell({ leadId: selectedCell.leadId, columnKey: prevCol.key });
-          } else if (currentLeadIndex > 0) {
-            // Wrap to previous row's last column
-            const prevLead = filteredAndSortedLeads[currentLeadIndex - 1];
-            const lastCol = visibleColumns[visibleColumns.length - 1];
-            setSelectedCell({ leadId: prevLead.id, columnKey: lastCol.key });
-          }
-        } else {
-          // Move right
-          if (currentColIndex < visibleColumns.length - 1) {
-            const nextCol = visibleColumns[currentColIndex + 1];
-            setSelectedCell({ leadId: selectedCell.leadId, columnKey: nextCol.key });
-          } else if (currentLeadIndex < filteredAndSortedLeads.length - 1) {
-            // Wrap to next row's first column
-            const nextLead = filteredAndSortedLeads[currentLeadIndex + 1];
-            const firstCol = visibleColumns[0];
-            setSelectedCell({ leadId: nextLead.id, columnKey: firstCol.key });
-          }
-        }
-        break;
-      case "Enter":
-      case "F2":
-        e.preventDefault();
-        // Enter edit mode for the selected cell
-        const lead = filteredAndSortedLeads[currentLeadIndex];
-        const col = visibleColumns[currentColIndex];
-        const value = getLeadValue(lead, col.key);
-        handleCellClick(lead, col.key, value, col.type);
-        break;
-      case "Escape":
-        e.preventDefault();
-        setSelectedCell(null);
-        break;
-    }
-  }, [editingCell, selectedCell, filteredAndSortedLeads, visibleColumns, getLeadValue, handleCellClick]);
-
   // Calculate total table width: checkbox (50px) + all visible columns + actions (150px)
   const calculateTableWidth = () => {
     const checkboxWidth = 50;
@@ -1514,7 +1349,6 @@ export function SpreadsheetGrid({
   const applyQuickFilter = useCallback((filterId: string, filterConfig: any) => {
     if (!filterConfig || !filterConfig.conditions || filterConfig.conditions.length === 0) {
       // Empty filter - just clear all filters
-      setLocalFilterValues({});
       setColumnFilters({});
       setActiveQuickFilter(filterId);
       return;
@@ -1718,7 +1552,6 @@ export function SpreadsheetGrid({
     }
 
     // Apply the filters (always using AND logic due to column filter limitations)
-    setLocalFilterValues(newFilters);
     setColumnFilters(newFilters);
     setActiveQuickFilter(filterId);
 
@@ -1744,7 +1577,6 @@ export function SpreadsheetGrid({
   }, [customColumns, setActiveQuickFilter, setColumnFilters, toast]);
 
   const clearAllFilters = useCallback(() => {
-    setLocalFilterValues({});
     setColumnFilters({});
     setActiveQuickFilter(null);
   }, [setActiveQuickFilter]);
@@ -1987,7 +1819,13 @@ export function SpreadsheetGrid({
                             variant="ghost"
                             size="icon"
                             className="h-4 w-4 ml-0.5 hover:bg-transparent"
-                            onClick={() => handleClearFilter(key)}
+                            onClick={() => {
+                              setColumnFilters(prev => {
+                                const updated = { ...prev };
+                                delete updated[key];
+                                return updated;
+                              });
+                            }}
                             data-testid={`button-clear-filter-${key}`}
                           >
                             <X className="h-3 w-3" />
@@ -2003,7 +1841,6 @@ export function SpreadsheetGrid({
                         onClick={() => {
                           setSortColumn(null);
                           setSortDirection("asc");
-                          setLocalFilterValues({});
                           setColumnFilters({});
                         }}
                         data-testid="button-clear-all-mobile"
@@ -2029,7 +1866,6 @@ export function SpreadsheetGrid({
                           onClick={() => {
                             setSortColumn(null);
                             setSortDirection("asc");
-                            setLocalFilterValues({});
                             setColumnFilters({});
                           }}
                           data-testid="button-clear-filters-empty"
@@ -2236,12 +2072,7 @@ export function SpreadsheetGrid({
             </div>
           )}
           
-          <div 
-            className="border rounded-lg flex-1 flex flex-col overflow-hidden outline-none"
-            ref={gridRef}
-            tabIndex={0}
-            onKeyDown={handleGridKeyDown}
-          >
+          <div className="border rounded-lg flex-1 flex flex-col overflow-hidden">
             {/* Horizontal and Vertical Scroll Container */}
             <div className="overflow-x-scroll overflow-y-auto flex-1 spreadsheet-scroll-container" ref={containerRef}>
             <div style={{ minWidth: `${calculateTableWidth()}px` }}>
@@ -2335,28 +2166,29 @@ export function SpreadsheetGrid({
                             ) : (
                               <>
                                 <Input
-                                  ref={(el) => { filterInputRefs.current[col.key] = el; }}
                                   placeholder="Filter..."
-                                  value={(localFilterValues[col.key] as string) ?? (columnFilters[col.key] as string) ?? ""}
-                                  onChange={(e) => handleFilterChange(col.key, e.target.value)}
-                                  onFocus={() => { focusedFilterKeyRef.current = col.key; }}
-                                  onBlur={() => { 
-                                    // Delay clearing to allow useLayoutEffect to restore focus if needed
-                                    setTimeout(() => {
-                                      if (focusedFilterKeyRef.current === col.key) {
-                                        focusedFilterKeyRef.current = null;
-                                      }
-                                    }, 50);
-                                  }}
+                                  value={(columnFilters[col.key] as string) || ""}
+                                  onChange={(e) =>
+                                    setColumnFilters((prev) => ({
+                                      ...prev,
+                                      [col.key]: e.target.value,
+                                    }))
+                                  }
                                   className="h-7 text-xs"
                                   data-testid={`input-filter-${col.key}`}
                                 />
-                                {(localFilterValues[col.key] || columnFilters[col.key]) && (
+                                {columnFilters[col.key] && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
                                     className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                                    onClick={() => handleClearFilter(col.key)}
+                                    onClick={() =>
+                                      setColumnFilters((prev) => {
+                                        const next = { ...prev };
+                                        delete next[col.key];
+                                        return next;
+                                      })
+                                    }
                                   >
                                     <X className="h-3 w-3" />
                                   </Button>
@@ -2454,8 +2286,6 @@ export function SpreadsheetGrid({
                     {visibleColumns.map((col) => {
                       const isEditing =
                         editingCell?.leadId === lead.id && editingCell?.field === col.key;
-                      const isSelected = 
-                        selectedCell?.leadId === lead.id && selectedCell?.columnKey === col.key;
                       const value = getLeadValue(lead, col.key);
                       const isDropdown = col.dropdown;
                       const isPastNFDT = leadsWithPastNFDT.get(lead.id)?.includes(col.key);
@@ -2463,29 +2293,10 @@ export function SpreadsheetGrid({
                       return (
                         <div
                           key={col.key}
-                          onClick={(e) => {
-                            // Don't handle if already editing this cell
-                            if (isEditing) return;
-                            
-                            // Don't handle if clicking on an interactive child element
-                            const target = e.target as HTMLElement;
-                            if (target.closest('input, button, select, [role="combobox"], [role="listbox"], [aria-haspopup], [data-radix-collection-item]')) {
-                              return;
-                            }
-                            
-                            // Single click selects the cell and focuses grid for keyboard nav
-                            setSelectedCell({ leadId: lead.id, columnKey: col.key });
-                            
-                            // Don't steal focus from header filter inputs
-                            if (focusedFilterKeyRef.current) {
-                              return;
-                            }
-                            gridRef.current?.focus({ preventScroll: true });
-                          }}
                           onDoubleClick={() => handleCellClick(lead, col.key, value, col.type)}
-                          className={`border-r px-3 py-2 wrap-text-cell cursor-pointer ${
+                          className={`border-r px-3 py-2 wrap-text-cell ${
                             isPastNFDT ? "bg-amber-100 dark:bg-amber-900/30" : ""
-                          } ${isSelected && !isEditing ? "ring-2 ring-inset ring-primary bg-primary/5" : ""}`}
+                          }`}
                           data-testid={`cell-${lead.id}-${col.key}`}
                           title={isPastNFDT ? "Past follow-up date" : undefined}
                         >
