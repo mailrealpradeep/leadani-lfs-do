@@ -1879,9 +1879,11 @@ export function SpreadsheetGrid({
             if (typeof value === "object" && "type" in value) {
               const typeLabels: Record<string, string> = {
                 today: "Today",
+                tomorrow: "Tomorrow",
                 thisWeek: "This Week", 
                 thisMonth: "This Month",
                 last7Days: "Last 7 Days",
+                last30Days: "Last 30 Days",
                 custom: "Custom",
               };
               return `${col?.label || key}: ${typeLabels[value.type] || value.type}`;

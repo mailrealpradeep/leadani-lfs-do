@@ -100,9 +100,11 @@ export function MobileFilterSheet({
     if (typeof value === "object" && "type" in value) {
       switch (value.type) {
         case "today": return "Today";
+        case "tomorrow": return "Tomorrow";
         case "thisWeek": return "This Week";
         case "thisMonth": return "This Month";
         case "last7Days": return "Last 7 Days";
+        case "last30Days": return "Last 30 Days";
         case "custom": return "Custom Range";
         default: return "";
       }

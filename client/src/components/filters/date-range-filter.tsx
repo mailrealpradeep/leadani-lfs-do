@@ -14,10 +14,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Filter, X, CalendarIcon } from "lucide-react";
-import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays } from "date-fns";
+import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, addDays, startOfDay, endOfDay } from "date-fns";
 
 export type DateFilterValue = {
-  type: "today" | "thisWeek" | "thisMonth" | "last7Days" | "custom";
+  type: "today" | "tomorrow" | "thisWeek" | "thisMonth" | "last7Days" | "last30Days" | "custom";
   from?: Date;
   to?: Date;
 } | null;
@@ -42,8 +42,12 @@ export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: 
 
     switch (type) {
       case "today": {
-        const today = new Date();
         onChange({ type: "today", from: startOfToday(), to: endOfToday() });
+        break;
+      }
+      case "tomorrow": {
+        const tomorrow = addDays(new Date(), 1);
+        onChange({ type: "tomorrow", from: startOfDay(tomorrow), to: endOfDay(tomorrow) });
         break;
       }
       case "thisWeek": {
@@ -59,6 +63,11 @@ export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: 
       case "last7Days": {
         const today = new Date();
         onChange({ type: "last7Days", from: subDays(today, 7), to: today });
+        break;
+      }
+      case "last30Days": {
+        const today = new Date();
+        onChange({ type: "last30Days", from: subDays(today, 30), to: today });
         break;
       }
       case "custom": {
@@ -98,12 +107,16 @@ export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: 
     switch (value.type) {
       case "today":
         return "Today";
+      case "tomorrow":
+        return "Tomorrow";
       case "thisWeek":
         return "This Week";
       case "thisMonth":
         return "This Month";
       case "last7Days":
         return "Last 7 Days";
+      case "last30Days":
+        return "Last 30 Days";
       case "custom":
         if (value.from && value.to) {
           return `${format(value.from, "dd/MM/yy")} - ${format(value.to, "dd/MM/yy")}`;
@@ -136,9 +149,11 @@ export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: 
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="tomorrow">Tomorrow</SelectItem>
                 <SelectItem value="thisWeek">This Week</SelectItem>
                 <SelectItem value="thisMonth">This Month</SelectItem>
                 <SelectItem value="last7Days">Last 7 Days</SelectItem>
+                <SelectItem value="last30Days">Last 30 Days</SelectItem>
                 <SelectItem value="custom">Custom Range</SelectItem>
               </SelectContent>
             </Select>
