@@ -414,6 +414,9 @@ export function SpreadsheetGrid({
   // Use JSON.stringify for stable dependency reference of columnFilters
   const columnFiltersKey = JSON.stringify(columnFilters);
   const prevDepsRef = useRef({ activeSheetId: "", activeSheetIdsLength: 0, searchQuery: "", columnFiltersKey: "", sortColumn: "", sortDirection: "", thoughtFilter: "" });
+  const paginationRef = useRef(pagination);
+  paginationRef.current = pagination;
+  
   useEffect(() => {
     const prevDeps = prevDepsRef.current;
     // Only reset page if dependencies actually changed (not on mount)
@@ -426,11 +429,11 @@ export function SpreadsheetGrid({
       prevDeps.sortDirection !== sortDirection ||
       prevDeps.thoughtFilter !== (thoughtFilter || "");
     
-    if (depsChanged && pagination.page !== 1) {
-      // Use a stable default limit from context
+    if (depsChanged && paginationRef.current.page !== 1) {
+      // Use a stable default limit from ref to avoid dependency loop
       setPagination({
         page: 1,
-        limit: pagination.limit || 50,
+        limit: paginationRef.current.limit || 50,
         total: 0,
         totalPages: 1,
       });
@@ -445,7 +448,7 @@ export function SpreadsheetGrid({
       sortDirection,
       thoughtFilter: thoughtFilter || "",
     };
-  }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
+  }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, setPagination]);
 
   // Unified data access
   const leads = isMultiMode ? (multiSheetData?.leads || []) : (singleSheetData?.leads || []);
@@ -570,9 +573,6 @@ export function SpreadsheetGrid({
   // Track debounce version to prevent stale updates after clear
   const filterVersionRef = useRef<Record<string, number>>({});
   
-  // Track if we're waiting for filter results (for focus restoration)
-  const pendingFilterFocusRef = useRef<string | null>(null);
-  
   // Debounced filter update handler - updates local state immediately, debounces API trigger
   const handleFilterChange = useCallback((columnKey: string, value: string | DateFilterValue | null) => {
     // Update local state immediately for responsive UI
@@ -587,28 +587,11 @@ export function SpreadsheetGrid({
     const currentVersion = (filterVersionRef.current[columnKey] || 0) + 1;
     filterVersionRef.current[columnKey] = currentVersion;
     
-    // Track that we're expecting to restore focus after this filter completes
-    pendingFilterFocusRef.current = columnKey;
-    
     // Debounce the actual filter update that triggers API call
     filterDebounceRef.current[columnKey] = setTimeout(() => {
       // Only apply if this is still the most recent version (not cleared)
       if (filterVersionRef.current[columnKey] === currentVersion) {
         setColumnFilters(prev => ({ ...prev, [columnKey]: value }));
-        
-        // Schedule focus restoration after React processes the state update
-        // Give enough time for API to return and component to re-render
-        setTimeout(() => {
-          const focusKey = pendingFilterFocusRef.current;
-          if (focusKey) {
-            const inputRef = filterInputRefs.current[focusKey];
-            if (inputRef && document.activeElement !== inputRef) {
-              inputRef.focus();
-              const len = inputRef.value.length;
-              inputRef.setSelectionRange(len, len);
-            }
-          }
-        }, 100);
       }
       delete filterDebounceRef.current[columnKey];
     }, 400); // 400ms debounce
@@ -634,8 +617,9 @@ export function SpreadsheetGrid({
     };
   }, []);
 
-  // Focus restoration is handled via setTimeout after the filter API completes
-  // See handleFilterChange - it schedules focus restoration after the debounce
+  // Focus restoration is handled differently - we don't use useLayoutEffect
+  // Instead, we ensure the input never loses focus by using controlled components properly
+  // The key is that localFilterValues updates immediately, preventing re-focus issues
 
   // Save user sheet view mutation
   const saveUserSheetViewMutation = useMutation({
