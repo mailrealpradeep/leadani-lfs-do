@@ -318,6 +318,544 @@ const DebouncedFilterInput = memo(function DebouncedFilterInput({
   );
 });
 
+// Memoized spreadsheet header - prevents header re-render when data changes
+// Only re-renders when columns structure, sort state, or filter values for date/dropdown change
+interface MemoizedSpreadsheetHeaderProps {
+  visibleColumns: Array<{
+    key: string;
+    label: string;
+    type: string;
+    width: string;
+    sortable: boolean;
+    dropdown?: boolean;
+    config: any;
+  }>;
+  visibleColumnKeys: string[];
+  gridTemplateStyle: string;
+  sortColumn: string | null;
+  sortDirection: "asc" | "desc";
+  isMultiMode: boolean;
+  selectedRowsSize: number;
+  leadsLength: number;
+  onSelectAll: (checked: boolean) => void;
+  onToggleSort: (columnKey: string) => void;
+  onResizeStart: (e: React.MouseEvent, columnKey: string) => void;
+  onFilterChange: (columnKey: string, value: string) => void;
+  onFilterClear: (columnKey: string) => void;
+  onDateFilterChange: (columnKey: string, value: DateFilterValue | null) => void;
+  onDropdownFilterChange: (columnKey: string, value: string | null) => void;
+  getDropdownOptionsForColumn: (columnKey: string) => string[];
+  columnFilters: Record<string, string | DateFilterValue | null>;
+  sensors: any;
+  handleColumnDragEnd: (event: DragEndEvent) => void;
+}
+
+const MemoizedSpreadsheetHeader = memo(function MemoizedSpreadsheetHeader({
+  visibleColumns,
+  visibleColumnKeys,
+  gridTemplateStyle,
+  sortColumn,
+  sortDirection,
+  isMultiMode,
+  selectedRowsSize,
+  leadsLength,
+  onSelectAll,
+  onToggleSort,
+  onResizeStart,
+  onFilterChange,
+  onFilterClear,
+  onDateFilterChange,
+  onDropdownFilterChange,
+  getDropdownOptionsForColumn,
+  columnFilters,
+  sensors,
+  handleColumnDragEnd,
+}: MemoizedSpreadsheetHeaderProps) {
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleColumnDragEnd}
+    >
+      <div 
+        className="sticky top-0 z-20 bg-background border-b-2 grid"
+        style={{ gridTemplateColumns: gridTemplateStyle }}
+      >
+        {/* Checkbox Column Header */}
+        <div className="border-b border-r px-3 py-3 flex items-center justify-center">
+          <Checkbox
+            checked={selectedRowsSize === leadsLength && leadsLength > 0}
+            onCheckedChange={(checked) => onSelectAll(!!checked)}
+            data-testid="checkbox-select-all"
+          />
+        </div>
+        
+        {/* Column Headers - Sortable */}
+        <SortableContext 
+          items={visibleColumnKeys} 
+          strategy={horizontalListSortingStrategy}
+        >
+          {visibleColumns.map((col) => (
+            <SortableColumnHeader
+              key={col.key}
+              columnKey={col.key}
+              width={col.width}
+              onResizeStart={onResizeStart}
+              isDraggingEnabled={!isMultiMode}
+            >
+              <div className="flex flex-col gap-1" data-testid={`column-header-${col.key}`}>
+                <div className="flex items-center gap-1">
+                  <span data-testid={`column-label-${col.key}`}>{col.label}</span>
+                  {col.sortable && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={() => onToggleSort(col.key)}
+                      data-testid={`button-sort-${col.key}`}
+                    >
+                      {sortColumn === col.key ? (
+                        sortDirection === "asc" ? (
+                          <ChevronUp className="h-3 w-3" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3" />
+                        )
+                      ) : (
+                        <ChevronDown className="h-3 w-3 opacity-30" />
+                      )}
+                    </Button>
+                  )}
+                </div>
+                <div className="relative">
+                  {col.type === "date" ? (
+                    <DateRangeFilter
+                      value={columnFilters[col.key] as DateFilterValue}
+                      onChange={(value) => onDateFilterChange(col.key, value)}
+                    />
+                  ) : col.type === "dropdown" ? (
+                    <DropdownFilter
+                      value={columnFilters[col.key] as string | null}
+                      onChange={(value) => onDropdownFilterChange(col.key, value)}
+                      options={getDropdownOptionsForColumn(col.key)}
+                    />
+                  ) : (
+                    <DebouncedFilterInput
+                      value={(columnFilters[col.key] as string) || ""}
+                      onFilterChange={onFilterChange}
+                      columnKey={col.key}
+                      onFilterClear={onFilterClear}
+                    />
+                  )}
+                </div>
+              </div>
+            </SortableColumnHeader>
+          ))}
+        </SortableContext>
+        
+        {/* Actions Column Header */}
+        <div className="border-b px-3 py-2"></div>
+      </div>
+    </DndContext>
+  );
+});
+
+// Memoized data row - prevents re-render when other rows or headers change
+interface MemoizedDataRowProps {
+  lead: Lead;
+  visibleColumns: Array<{
+    key: string;
+    label: string;
+    type: string;
+    width: string;
+    sortable: boolean;
+    dropdown?: boolean;
+    config: any;
+  }>;
+  gridTemplateStyle: string;
+  selectedRows: Set<string>;
+  onSelectRow: (leadId: string, checked: boolean) => void;
+  editingCell: { leadId: string; field: string; originalValue?: any } | null;
+  editValue: string;
+  datePickerOpen: { leadId: string; field: string } | null;
+  onCellClick: (lead: Lead, field: string, value: any, type: string) => void;
+  onCellSave: (lead: Lead) => void;
+  onCellKeyDown: (e: React.KeyboardEvent, lead: Lead) => void;
+  onEditValueChange: (value: string) => void;
+  onSetEditingCell: (cell: { leadId: string; field: string; originalValue?: any } | null) => void;
+  onSetDatePickerOpen: (open: { leadId: string; field: string } | null) => void;
+  onUpdateLead: (data: { leadId: string; customFields: any }) => void;
+  invalidLeadIds: Set<string>;
+  leadValidationResults: Map<string, { missingFields: string[] }>;
+  highlightingRules: HighlightingRule[];
+  isDarkMode: boolean;
+  timezone: string;
+  leadsWithPastNFDT: Map<string, string[]>;
+  formatInTimezone: (date: string | Date, pattern: string) => string;
+  onOpenLeadDetail: (leadId: string) => void;
+  onOpenUpdateDialog: (leadId: string) => void;
+  onOpenUpdateHistoryDialog: (leadId: string) => void;
+  onDeleteLead: (leadIds: string[]) => void;
+  updateDialogOpen: boolean;
+  updateHistoryDialogOpen: boolean;
+  onSetThought: (leadId: string, thought: string | null) => void;
+}
+
+const MemoizedDataRow = memo(function MemoizedDataRow({
+  lead,
+  visibleColumns,
+  gridTemplateStyle,
+  selectedRows,
+  onSelectRow,
+  editingCell,
+  editValue,
+  datePickerOpen,
+  onCellClick,
+  onCellSave,
+  onCellKeyDown,
+  onEditValueChange,
+  onSetEditingCell,
+  onSetDatePickerOpen,
+  onUpdateLead,
+  invalidLeadIds,
+  leadValidationResults,
+  highlightingRules,
+  isDarkMode,
+  timezone,
+  leadsWithPastNFDT,
+  formatInTimezone,
+  onOpenLeadDetail,
+  onOpenUpdateDialog,
+  onOpenUpdateHistoryDialog,
+  onDeleteLead,
+  updateDialogOpen,
+  updateHistoryDialogOpen,
+  onSetThought,
+}: MemoizedDataRowProps) {
+  const leadThought = lead.meta?.thought as "sure" | "maybe" | undefined;
+  const thoughtRowClass = leadThought === "sure" 
+    ? "bg-emerald-50 dark:bg-emerald-950/20" 
+    : leadThought === "maybe" 
+    ? "bg-amber-50 dark:bg-amber-950/20" 
+    : "";
+  
+  const highlightResult = evaluateHighlightingRules(highlightingRules, lead, isDarkMode, timezone);
+  
+  const getRowStyle = () => {
+    if (invalidLeadIds.has(lead.id)) return {};
+    if (highlightResult) {
+      return { backgroundColor: isDarkMode ? highlightResult.colorDark : highlightResult.colorLight };
+    }
+    return {};
+  };
+  
+  const getRowClass = () => {
+    if (invalidLeadIds.has(lead.id)) return "bg-red-50 dark:bg-red-950/20";
+    if (highlightResult) return "";
+    return thoughtRowClass;
+  };
+
+  const getLeadValue = (lead: Lead, key: string): string => {
+    if (key === "__sheet_name__") return (lead as any).sheetName || "";
+    return lead.custom_fields?.[key] ?? "";
+  };
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          className={`hover-elevate grid border-b ${getRowClass()}`}
+          style={{ 
+            gridTemplateColumns: gridTemplateStyle,
+            ...getRowStyle()
+          }}
+          data-testid={`row-lead-${lead.id}`}
+          title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+            ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
+            : highlightResult 
+            ? `Highlighted by rule: ${highlightResult.ruleName}`
+            : undefined
+          }
+        >
+          {/* Checkbox Cell with Thought Icon */}
+          <div className="border-r px-2 py-2 flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+            {leadThought === "sure" && (
+              <Star className="h-4 w-4 text-emerald-500 fill-emerald-500" />
+            )}
+            {leadThought === "maybe" && (
+              <HelpCircle className="h-4 w-4 text-amber-500" />
+            )}
+            <Checkbox
+              checked={selectedRows.has(lead.id)}
+              onCheckedChange={(checked) => onSelectRow(lead.id, !!checked)}
+              data-testid={`checkbox-select-${lead.id}`}
+            />
+          </div>
+      
+          {/* Data Cells */}
+          {visibleColumns.map((col) => {
+            const isEditing = editingCell?.leadId === lead.id && editingCell?.field === col.key;
+            const value = getLeadValue(lead, col.key);
+            const isDropdown = col.dropdown;
+            const isPastNFDT = leadsWithPastNFDT.get(lead.id)?.includes(col.key);
+
+            return (
+              <div
+                key={col.key}
+                onDoubleClick={() => onCellClick(lead, col.key, value, col.type)}
+                className={`border-r px-3 py-2 wrap-text-cell ${
+                  isPastNFDT ? "bg-amber-100 dark:bg-amber-900/30" : ""
+                }`}
+                data-testid={`cell-${lead.id}-${col.key}`}
+                title={isPastNFDT ? "Past follow-up date" : undefined}
+              >
+              {isEditing ? (
+                isDropdown ? (
+                  <Select
+                    value={editValue}
+                    onValueChange={(val) => {
+                      onEditValueChange(val);
+                      const updatedFields = {
+                        ...lead.custom_fields,
+                        [col.key]: val,
+                      };
+                      onUpdateLead({
+                        leadId: lead.id,
+                        customFields: updatedFields,
+                      });
+                      onSetEditingCell(null);
+                    }}
+                    open
+                    onOpenChange={(open) => {
+                      if (!open) onSetEditingCell(null);
+                    }}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {col.config.dropdown_options?.map((opt: string) => (
+                        <SelectItem key={opt} value={opt}>
+                          {opt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : col.type === "date" ? (
+                  <Popover 
+                    open={datePickerOpen?.leadId === lead.id && datePickerOpen?.field === col.key} 
+                    onOpenChange={(open) => {
+                      if (!open) {
+                        onSetDatePickerOpen(null);
+                        onSetEditingCell(null);
+                      }
+                    }}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="h-8 w-full justify-start text-left font-normal"
+                        data-testid={`date-picker-trigger-${col.key}`}
+                      >
+                        {editingCell?.originalValue 
+                          ? safeFormatDate(editingCell.originalValue, "dd/MM/yy", formatInTimezone) 
+                          : "Pick a date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent 
+                      className="w-auto p-0" 
+                      align="start"
+                      onEscapeKeyDown={(e) => {
+                        e.preventDefault();
+                        onSetDatePickerOpen(null);
+                        onSetEditingCell(null);
+                      }}
+                      onInteractOutside={() => {
+                        onSetDatePickerOpen(null);
+                        onSetEditingCell(null);
+                      }}
+                    >
+                      <Calendar
+                        mode="single"
+                        selected={editingCell?.originalValue ? new Date(editingCell.originalValue) : undefined}
+                        onSelect={(date) => {
+                          if (date) {
+                            const formattedDate = format(date, "yyyy-MM-dd");
+                            const updatedFields = {
+                              ...lead.custom_fields,
+                              [col.key]: formattedDate,
+                            };
+                            onUpdateLead({
+                              leadId: lead.id,
+                              customFields: updatedFields,
+                            });
+                            onSetDatePickerOpen(null);
+                            onSetEditingCell(null);
+                          }
+                        }}
+                        initialFocus
+                      />
+                      <div className="p-2 border-t">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => {
+                            const updatedFields = { ...lead.custom_fields };
+                            delete updatedFields[col.key];
+                            onUpdateLead({
+                              leadId: lead.id,
+                              customFields: updatedFields,
+                            });
+                            onSetDatePickerOpen(null);
+                            onSetEditingCell(null);
+                          }}
+                          data-testid={`button-clear-date-${col.key}`}
+                        >
+                          Clear date
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                ) : (
+                  <Input
+                    value={editValue}
+                    onChange={(e) => onEditValueChange(e.target.value)}
+                    onBlur={() => onCellSave(lead)}
+                    onKeyDown={(e) => onCellKeyDown(e, lead)}
+                    className={
+                      col.type === "mobile"
+                        ? "h-8 min-w-[160px]" 
+                        : "h-8 min-w-[150px]"
+                    }
+                    autoFocus
+                    data-testid={`input-edit-${col.key}`}
+                  />
+                )
+              ) : (
+                <div className="flex items-center gap-1.5 w-full">
+                  <span className={`text-sm flex items-center gap-1 flex-1 min-w-0 ${col.width === "260px" || col.key === "name" ? "break-words" : ""} ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
+                    {isPastNFDT && <Clock className="h-3 w-3 flex-shrink-0" />}
+                    {(col.type === "date" || col.type === "datetime") && value
+                      ? safeFormatDate(value, col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy", formatInTimezone)
+                      : col.type === "percentage" && value != null && value !== ""
+                      ? `${value}%`
+                      : value || "-"}
+                  </span>
+                  {/* WhatsApp icon for Mobile No field type only */}
+                  {col.type === "mobile" && value && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 flex-shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const cleanNumber = String(value).replace(/[\s-]/g, '');
+                            const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
+                            window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                          }}
+                          data-testid={`button-whatsapp-${lead.id}-${col.key}`}
+                        >
+                          <MessageCircle className="h-3.5 w-3.5 text-green-500" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">WhatsApp</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              )}
+              </div>
+            );
+          })}
+          
+          {/* Actions Cell */}
+          <div className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => {
+                if (updateDialogOpen) return;
+                onOpenUpdateDialog(lead.id);
+              }}
+              data-testid={`button-update-lead-${lead.id}`}
+              title="Record update"
+            >
+              <Edit2 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => {
+                if (updateHistoryDialogOpen) return;
+                onOpenUpdateHistoryDialog(lead.id);
+              }}
+              data-testid={`button-update-history-${lead.id}`}
+              title="View update history"
+            >
+              <History className="h-4 w-4" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  data-testid={`button-actions-${lead.id}`}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => onOpenLeadDetail(lead.id)}
+                  data-testid={`button-view-details-${lead.id}`}
+                >
+                  View Details
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => onDeleteLead([lead.id])}
+                  className="text-destructive"
+                  data-testid={`button-delete-${lead.id}`}
+                >
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            </div>
+          </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => onOpenLeadDetail(lead.id)}>
+          View Details
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => onSetThought(lead.id, "sure")}>
+          <Star className="h-4 w-4 mr-2 text-emerald-500" />
+          Mark as Sure
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => onSetThought(lead.id, "maybe")}>
+          <HelpCircle className="h-4 w-4 mr-2 text-amber-500" />
+          Mark as May Be
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => onSetThought(lead.id, null)}>
+          <XCircle className="h-4 w-4 mr-2 text-muted-foreground" />
+          Clear Thought
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => onDeleteLead([lead.id])} className="text-destructive">
+          <Trash2 className="h-4 w-4 mr-2" />
+          Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+});
+
 export function SpreadsheetGrid({
   sheetId,
   sheetIds,
@@ -373,6 +911,22 @@ export function SpreadsheetGrid({
       return next;
     });
   }, []);
+  
+  // Stable callbacks for date and dropdown filters
+  const handleDateFilterChange = useCallback((columnKey: string, value: DateFilterValue | null) => {
+    setColumnFilters((prev) => ({
+      ...prev,
+      [columnKey]: value,
+    }));
+  }, []);
+  
+  const handleDropdownFilterChange = useCallback((columnKey: string, value: string | null) => {
+    setColumnFilters((prev) => ({
+      ...prev,
+      [columnKey]: value,
+    }));
+  }, []);
+  
   
   const [isScrolled, setIsScrolled] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
@@ -1093,23 +1647,28 @@ export function SpreadsheetGrid({
     }
   };
 
-  const getDropdownOptionsForColumn = (columnKey: string): string[] => {
+  // Stable callback for getting dropdown options - used by memoized header
+  const getDropdownOptionsForColumn = useCallback((columnKey: string): string[] => {
     const column = customColumns.find((col) => col.column_key === columnKey);
     if (!column || column.type !== "dropdown") return [];
     
     // Extract dropdown options from column config
     const config = column.config as any;
     return config?.dropdown_options || [];
-  };
+  }, [customColumns]);
 
-  const toggleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
+  // Stable callback for toggling sort - used by memoized header
+  const toggleSort = useCallback((column: string) => {
+    setSortColumn(prev => {
+      if (prev === column) {
+        setSortDirection(d => d === "asc" ? "desc" : "asc");
+        return prev;
+      } else {
+        setSortDirection("asc");
+        return column;
+      }
+    });
+  }, []);
 
   // Get value from lead's custom_fields (or sheet name for multi-mode)
   const getLeadValue = (lead: Lead, columnKey: string) => {
@@ -2216,111 +2775,34 @@ export function SpreadsheetGrid({
             {/* Horizontal and Vertical Scroll Container */}
             <div className="overflow-x-scroll overflow-y-auto flex-1 spreadsheet-scroll-container" ref={containerRef}>
             <div style={{ minWidth: `${calculateTableWidth()}px` }}>
-              {/* Sticky Header with Drag and Drop */}
-              <DndContext
+              {/* Memoized Sticky Header - only re-renders when columns/sort change, not on data changes */}
+              <MemoizedSpreadsheetHeader
+                visibleColumns={visibleColumns}
+                visibleColumnKeys={visibleColumnKeys}
+                gridTemplateStyle={gridTemplateStyle}
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                isMultiMode={isMultiMode}
+                selectedRowsSize={selectedRows.size}
+                leadsLength={leads.length}
+                onSelectAll={(checked) => {
+                  if (checked) {
+                    setSelectedRows(new Set(leads.map((l) => l.id)));
+                  } else {
+                    setSelectedRows(new Set());
+                  }
+                }}
+                onToggleSort={toggleSort}
+                onResizeStart={handleResizeStart}
+                onFilterChange={handleColumnFilterChange}
+                onFilterClear={handleColumnFilterClear}
+                onDateFilterChange={handleDateFilterChange}
+                onDropdownFilterChange={handleDropdownFilterChange}
+                getDropdownOptionsForColumn={getDropdownOptionsForColumn}
+                columnFilters={columnFilters}
                 sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleColumnDragEnd}
-              >
-                <div 
-                  className="sticky top-0 z-20 bg-background border-b-2 grid"
-                  style={{ 
-                    gridTemplateColumns: gridTemplateStyle
-                  }}
-                >
-                  {/* Checkbox Column Header */}
-                  <div className="border-b border-r px-3 py-3 flex items-center justify-center">
-                    <Checkbox
-                      checked={selectedRows.size === leads.length && leads.length > 0}
-                      onCheckedChange={(checked) => {
-                        if (checked) {
-                          setSelectedRows(new Set(leads.map((l) => l.id)));
-                        } else {
-                          setSelectedRows(new Set());
-                        }
-                      }}
-                      data-testid="checkbox-select-all"
-                    />
-                  </div>
-                  
-                  {/* Column Headers - Sortable */}
-                  <SortableContext 
-                    items={visibleColumnKeys} 
-                    strategy={horizontalListSortingStrategy}
-                  >
-                    {visibleColumns.map((col) => (
-                      <SortableColumnHeader
-                        key={col.key}
-                        columnKey={col.key}
-                        width={col.width}
-                        onResizeStart={handleResizeStart}
-                        isDraggingEnabled={!isMultiMode}
-                      >
-                        <div className="flex flex-col gap-1" data-testid={`column-header-${col.key}`}>
-                          <div className="flex items-center gap-1">
-                            <span data-testid={`column-label-${col.key}`}>{col.label}</span>
-                            {/* Sort button - works in both single and multi-sheet mode */}
-                            {col.sortable && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5"
-                                onClick={() => toggleSort(col.key)}
-                                data-testid={`button-sort-${col.key}`}
-                              >
-                                {sortColumn === col.key ? (
-                                  sortDirection === "asc" ? (
-                                    <ChevronUp className="h-3 w-3" />
-                                  ) : (
-                                    <ChevronDown className="h-3 w-3" />
-                                  )
-                                ) : (
-                                  <ChevronDown className="h-3 w-3 opacity-30" />
-                                )}
-                              </Button>
-                            )}
-                          </div>
-                          {/* Column filters - works in both single and multi-sheet mode */}
-                          <div className="relative">
-                            {col.type === "date" ? (
-                              <DateRangeFilter
-                                value={columnFilters[col.key] as DateFilterValue}
-                                onChange={(value) =>
-                                  setColumnFilters((prev) => ({
-                                    ...prev,
-                                    [col.key]: value,
-                                  }))
-                                }
-                              />
-                            ) : col.type === "dropdown" ? (
-                              <DropdownFilter
-                                value={columnFilters[col.key] as string | null}
-                                onChange={(value) =>
-                                  setColumnFilters((prev) => ({
-                                    ...prev,
-                                    [col.key]: value,
-                                  }))
-                                }
-                                options={getDropdownOptionsForColumn(col.key)}
-                              />
-                            ) : (
-                              <DebouncedFilterInput
-                                value={(columnFilters[col.key] as string) || ""}
-                                onFilterChange={handleColumnFilterChange}
-                                columnKey={col.key}
-                                onFilterClear={handleColumnFilterClear}
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </SortableColumnHeader>
-                    ))}
-                  </SortableContext>
-                  
-                  {/* Actions Column Header */}
-                  <div className="border-b px-3 py-2"></div>
-                </div>
-              </DndContext>
+                handleColumnDragEnd={handleColumnDragEnd}
+              />
 
               {/* Table Body */}
               {filteredAndSortedLeads.length === 0 ? (
