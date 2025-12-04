@@ -1083,33 +1083,39 @@ export function SpreadsheetGrid({
   };
 
   // Convert CustomColumn to display columns (must be before filteredAndSortedLeads)
-  const baseColumns = customColumns
-    .sort((a, b) => a.order_index - b.order_index)
-    .map((col) => ({
-      key: col.column_key,
-      label: col.name,
-      width: getColumnWidth(col.column_key, col.type),
-      sortable: true,
-      dropdown: col.type === "dropdown",
-      type: col.type,
-      config: col.config,
-    }));
+  // Memoize to prevent re-creating array on every render (fixes filter input focus loss)
+  const baseColumns = useMemo(() => {
+    return [...customColumns]
+      .sort((a, b) => a.order_index - b.order_index)
+      .map((col) => ({
+        key: col.column_key,
+        label: col.name,
+        width: getColumnWidth(col.column_key, col.type),
+        sortable: true,
+        dropdown: col.type === "dropdown",
+        type: col.type,
+        config: col.config,
+      }));
+  }, [customColumns, columnWidths]);
 
   // Add Sheet column as first column in multi-mode
-  const columns = isMultiMode
-    ? [
-        {
-          key: "__sheet_name__",
-          label: "Sheet",
-          width: "140px",
-          sortable: true,
-          dropdown: false,
-          type: "text" as const,
-          config: {},
-        },
-        ...baseColumns,
-      ]
-    : baseColumns;
+  // Memoize to keep stable reference when only filters change
+  const columns = useMemo(() => {
+    return isMultiMode
+      ? [
+          {
+            key: "__sheet_name__",
+            label: "Sheet",
+            width: "140px",
+            sortable: true,
+            dropdown: false,
+            type: "text" as const,
+            config: {},
+          },
+          ...baseColumns,
+        ]
+      : baseColumns;
+  }, [baseColumns, isMultiMode]);
 
   // Apply custom column ordering (only in single-sheet mode)
   const orderedColumns = useMemo(() => {
