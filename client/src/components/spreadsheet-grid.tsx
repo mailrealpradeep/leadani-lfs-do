@@ -214,6 +214,73 @@ function SortableColumnHeader({ columnKey, children, width, onResizeStart, isDra
   );
 }
 
+// Debounced filter input to prevent focus loss during server refetches
+interface DebouncedFilterInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  columnKey: string;
+  onClear: () => void;
+}
+
+function DebouncedFilterInput({ value, onChange, columnKey, onClear }: DebouncedFilterInputProps) {
+  const [localValue, setLocalValue] = useState(value);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Sync local value when parent value changes externally (e.g., clear all filters)
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+  
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    setLocalValue(newValue);
+    
+    // Clear any pending debounce
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    
+    // Debounce the parent update to prevent refetch on every keystroke
+    debounceRef.current = setTimeout(() => {
+      onChange(newValue);
+    }, 300);
+  }, [onChange]);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+  
+  return (
+    <>
+      <Input
+        placeholder="Filter..."
+        value={localValue}
+        onChange={handleChange}
+        className="h-7 text-xs"
+        data-testid={`input-filter-${columnKey}`}
+      />
+      {localValue && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
+          onClick={() => {
+            setLocalValue("");
+            onClear();
+          }}
+        >
+          <X className="h-3 w-3" />
+        </Button>
+      )}
+    </>
+  );
+}
+
 export function SpreadsheetGrid({
   sheetId,
   sheetIds,
