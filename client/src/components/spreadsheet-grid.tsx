@@ -345,6 +345,65 @@ interface MemoizedColumnHeadersProps {
   columnFilters: Record<string, string | DateFilterValue | null>;
 }
 
+// Custom comparison function for MemoizedColumnHeaders
+// Deep compares visibleColumns array since it gets new reference on each render
+function areColumnHeadersEqual(
+  prevProps: MemoizedColumnHeadersProps,
+  nextProps: MemoizedColumnHeadersProps
+): boolean {
+  // Compare primitive props first (fast)
+  if (prevProps.sortColumn !== nextProps.sortColumn) return false;
+  if (prevProps.sortDirection !== nextProps.sortDirection) return false;
+  if (prevProps.isMultiMode !== nextProps.isMultiMode) return false;
+  
+  // Compare callback references (should be stable with useCallback)
+  if (prevProps.onToggleSort !== nextProps.onToggleSort) return false;
+  if (prevProps.onResizeStart !== nextProps.onResizeStart) return false;
+  if (prevProps.onFilterChange !== nextProps.onFilterChange) return false;
+  if (prevProps.onFilterClear !== nextProps.onFilterClear) return false;
+  if (prevProps.onDateFilterChange !== nextProps.onDateFilterChange) return false;
+  if (prevProps.onDropdownFilterChange !== nextProps.onDropdownFilterChange) return false;
+  if (prevProps.getDropdownOptionsForColumn !== nextProps.getDropdownOptionsForColumn) return false;
+  
+  // Deep compare visibleColumnKeys array (order and content must match)
+  if (prevProps.visibleColumnKeys.length !== nextProps.visibleColumnKeys.length) return false;
+  for (let i = 0; i < prevProps.visibleColumnKeys.length; i++) {
+    if (prevProps.visibleColumnKeys[i] !== nextProps.visibleColumnKeys[i]) return false;
+  }
+  
+  // Deep compare visibleColumns array - check key, label, type, width, sortable
+  if (prevProps.visibleColumns.length !== nextProps.visibleColumns.length) return false;
+  for (let i = 0; i < prevProps.visibleColumns.length; i++) {
+    const prev = prevProps.visibleColumns[i];
+    const next = nextProps.visibleColumns[i];
+    if (prev.key !== next.key) return false;
+    if (prev.label !== next.label) return false;
+    if (prev.type !== next.type) return false;
+    if (prev.width !== next.width) return false;
+    if (prev.sortable !== next.sortable) return false;
+    if (prev.dropdown !== next.dropdown) return false;
+  }
+  
+  // Deep compare columnFilters object
+  const prevFilterKeys = Object.keys(prevProps.columnFilters);
+  const nextFilterKeys = Object.keys(nextProps.columnFilters);
+  if (prevFilterKeys.length !== nextFilterKeys.length) return false;
+  for (const key of prevFilterKeys) {
+    const prevVal = prevProps.columnFilters[key];
+    const nextVal = nextProps.columnFilters[key];
+    // Handle date range filters (objects with from/to)
+    if (typeof prevVal === 'object' && prevVal !== null && typeof nextVal === 'object' && nextVal !== null) {
+      const prevDate = prevVal as DateFilterValue | null;
+      const nextDate = nextVal as DateFilterValue | null;
+      if (prevDate?.from !== nextDate?.from || prevDate?.to !== nextDate?.to) return false;
+    } else if (prevVal !== nextVal) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
 const MemoizedColumnHeaders = memo(function MemoizedColumnHeaders({
   visibleColumns,
   visibleColumnKeys,
@@ -422,7 +481,7 @@ const MemoizedColumnHeaders = memo(function MemoizedColumnHeaders({
       ))}
     </SortableContext>
   );
-});
+}, areColumnHeadersEqual);
 
 // Memoized data row - prevents re-render when other rows or headers change
 interface MemoizedDataRowProps {
