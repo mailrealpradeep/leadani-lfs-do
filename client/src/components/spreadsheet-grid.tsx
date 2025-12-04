@@ -270,6 +270,11 @@ function DebouncedFilterInput({ value, onChange, columnKey, onClear }: Debounced
           size="icon"
           className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
           onClick={() => {
+            // Cancel any pending debounce to prevent stale update after clear
+            if (debounceRef.current) {
+              clearTimeout(debounceRef.current);
+              debounceRef.current = null;
+            }
             setLocalValue("");
             onClear();
           }}
@@ -2250,36 +2255,23 @@ export function SpreadsheetGrid({
                                 options={getDropdownOptionsForColumn(col.key)}
                               />
                             ) : (
-                              <>
-                                <Input
-                                  placeholder="Filter..."
-                                  value={(columnFilters[col.key] as string) || ""}
-                                  onChange={(e) =>
-                                    setColumnFilters((prev) => ({
-                                      ...prev,
-                                      [col.key]: e.target.value,
-                                    }))
-                                  }
-                                  className="h-7 text-xs"
-                                  data-testid={`input-filter-${col.key}`}
-                                />
-                                {columnFilters[col.key] && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                                    onClick={() =>
-                                      setColumnFilters((prev) => {
-                                        const next = { ...prev };
-                                        delete next[col.key];
-                                        return next;
-                                      })
-                                    }
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                )}
-                              </>
+                              <DebouncedFilterInput
+                                value={(columnFilters[col.key] as string) || ""}
+                                onChange={(value) =>
+                                  setColumnFilters((prev) => ({
+                                    ...prev,
+                                    [col.key]: value,
+                                  }))
+                                }
+                                columnKey={col.key}
+                                onClear={() =>
+                                  setColumnFilters((prev) => {
+                                    const next = { ...prev };
+                                    delete next[col.key];
+                                    return next;
+                                  })
+                                }
+                              />
                             )}
                           </div>
                         </div>
