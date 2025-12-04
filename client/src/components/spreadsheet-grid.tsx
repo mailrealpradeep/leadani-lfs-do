@@ -118,6 +118,55 @@ import { DropdownFilter } from "./filters/dropdown-filter";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { Pagination } from "./pagination";
 
+// Custom hook to stabilize array references - prevents SortableContext re-initialization
+// Only returns new reference when content actually changes
+function useStableArray<T>(array: T[], compareFn: (a: T, b: T) => boolean): T[] {
+  const ref = useRef<T[]>(array);
+  
+  // Check if arrays are equal by length and content
+  const areEqual = ref.current.length === array.length && 
+    ref.current.every((item, index) => compareFn(item, array[index]));
+  
+  if (!areEqual) {
+    ref.current = array;
+  }
+  
+  return ref.current;
+}
+
+// Compare two column objects for equality (used by useStableArray)
+function areColumnsEqual(
+  a: { key: string; label: string; type: string; width: string; sortable: boolean; dropdown?: boolean; config: any },
+  b: { key: string; label: string; type: string; width: string; sortable: boolean; dropdown?: boolean; config: any }
+): boolean {
+  return a.key === b.key && 
+    a.label === b.label && 
+    a.type === b.type && 
+    a.width === b.width && 
+    a.sortable === b.sortable && 
+    a.dropdown === b.dropdown;
+}
+
+// Compare two string arrays for equality
+function areStringArraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+// Hook to stabilize visibleColumnKeys array reference
+function useStableColumnKeys(keys: string[]): string[] {
+  const ref = useRef<string[]>(keys);
+  
+  if (!areStringArraysEqual(ref.current, keys)) {
+    ref.current = keys;
+  }
+  
+  return ref.current;
+}
+
 // Helper to safely format dates, handling both ISO strings and legacy dd/MM/yy formats
 const safeFormatDate = (value: string | Date | null | undefined, formatPattern: string, formatInTimezoneFn: (date: string | Date, pattern: string) => string): string => {
   if (!value) return "-";
@@ -346,42 +395,44 @@ interface MemoizedColumnHeadersProps {
 }
 
 // Custom comparison function for MemoizedColumnHeaders
-// Deep compares visibleColumns array since it gets new reference on each render
+// ONLY compares data that affects visual output - NOT callback references
+// Callbacks don't affect visual state, so changes to them shouldn't trigger re-render
 function areColumnHeadersEqual(
   prevProps: MemoizedColumnHeadersProps,
   nextProps: MemoizedColumnHeadersProps
 ): boolean {
-  // Compare primitive props first (fast)
+  // Compare primitive props that affect visual state
   if (prevProps.sortColumn !== nextProps.sortColumn) return false;
   if (prevProps.sortDirection !== nextProps.sortDirection) return false;
   if (prevProps.isMultiMode !== nextProps.isMultiMode) return false;
   
-  // Compare callback references (should be stable with useCallback)
-  if (prevProps.onToggleSort !== nextProps.onToggleSort) return false;
-  if (prevProps.onResizeStart !== nextProps.onResizeStart) return false;
-  if (prevProps.onFilterChange !== nextProps.onFilterChange) return false;
-  if (prevProps.onFilterClear !== nextProps.onFilterClear) return false;
-  if (prevProps.onDateFilterChange !== nextProps.onDateFilterChange) return false;
-  if (prevProps.onDropdownFilterChange !== nextProps.onDropdownFilterChange) return false;
-  if (prevProps.getDropdownOptionsForColumn !== nextProps.getDropdownOptionsForColumn) return false;
+  // NOTE: We intentionally DO NOT compare callback references!
+  // Callbacks change frequently due to closure updates but don't affect visual output.
+  // The header only needs to re-render when actual displayed data changes.
   
-  // Deep compare visibleColumnKeys array (order and content must match)
-  if (prevProps.visibleColumnKeys.length !== nextProps.visibleColumnKeys.length) return false;
-  for (let i = 0; i < prevProps.visibleColumnKeys.length; i++) {
-    if (prevProps.visibleColumnKeys[i] !== nextProps.visibleColumnKeys[i]) return false;
+  // Compare visibleColumnKeys array using reference equality (already stabilized)
+  if (prevProps.visibleColumnKeys !== nextProps.visibleColumnKeys) {
+    // If references differ, do content comparison as fallback
+    if (prevProps.visibleColumnKeys.length !== nextProps.visibleColumnKeys.length) return false;
+    for (let i = 0; i < prevProps.visibleColumnKeys.length; i++) {
+      if (prevProps.visibleColumnKeys[i] !== nextProps.visibleColumnKeys[i]) return false;
+    }
   }
   
-  // Deep compare visibleColumns array - check key, label, type, width, sortable
-  if (prevProps.visibleColumns.length !== nextProps.visibleColumns.length) return false;
-  for (let i = 0; i < prevProps.visibleColumns.length; i++) {
-    const prev = prevProps.visibleColumns[i];
-    const next = nextProps.visibleColumns[i];
-    if (prev.key !== next.key) return false;
-    if (prev.label !== next.label) return false;
-    if (prev.type !== next.type) return false;
-    if (prev.width !== next.width) return false;
-    if (prev.sortable !== next.sortable) return false;
-    if (prev.dropdown !== next.dropdown) return false;
+  // Compare visibleColumns array using reference equality (already stabilized)
+  if (prevProps.visibleColumns !== nextProps.visibleColumns) {
+    // If references differ, do content comparison as fallback
+    if (prevProps.visibleColumns.length !== nextProps.visibleColumns.length) return false;
+    for (let i = 0; i < prevProps.visibleColumns.length; i++) {
+      const prev = prevProps.visibleColumns[i];
+      const next = nextProps.visibleColumns[i];
+      if (prev.key !== next.key) return false;
+      if (prev.label !== next.label) return false;
+      if (prev.type !== next.type) return false;
+      if (prev.width !== next.width) return false;
+      if (prev.sortable !== next.sortable) return false;
+      if (prev.dropdown !== next.dropdown) return false;
+    }
   }
   
   // Deep compare columnFilters object
@@ -1994,14 +2045,24 @@ export function SpreadsheetGrid({
 
   // Use ordered columns for visible columns (respecting user's custom order)
   // Memoize to keep stable reference when only filters change (fixes filter input focus loss)
-  const visibleColumns = useMemo(() => {
+  // Compute visible columns from ordered columns
+  const computedVisibleColumns = useMemo(() => {
     return orderedColumns.filter((col) => !hiddenColumns.has(col.key));
   }, [orderedColumns, hiddenColumns]);
+  
+  // CRITICAL: Stabilize visibleColumns reference to prevent SortableContext re-initialization
+  // React Query returns new array references even when content is the same
+  // This causes SortableContext to see "new" items and fully re-render all headers
+  const visibleColumns = useStableArray(computedVisibleColumns, areColumnsEqual);
 
-  // Memoize column keys for SortableContext to prevent re-renders on filter changes
-  const visibleColumnKeys = useMemo(() => {
+  // Compute column keys for SortableContext
+  const computedVisibleColumnKeys = useMemo(() => {
     return visibleColumns.map(c => c.key);
   }, [visibleColumns]);
+  
+  // CRITICAL: Stabilize visibleColumnKeys reference for SortableContext
+  // SortableContext treats new array reference as topology change and reinitializes
+  const visibleColumnKeys = useStableColumnKeys(computedVisibleColumnKeys);
 
   // Memoize grid template style to prevent header re-renders on filter changes
   const gridTemplateStyle = useMemo(() => {
