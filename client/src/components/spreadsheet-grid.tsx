@@ -318,9 +318,10 @@ const DebouncedFilterInput = memo(function DebouncedFilterInput({
   );
 });
 
-// Memoized spreadsheet header - prevents header re-render when data changes
-// Only re-renders when columns structure, sort state, or filter values for date/dropdown change
-interface MemoizedSpreadsheetHeaderProps {
+// Memoized column headers - prevents header re-render when data changes
+// Only re-renders when columns structure, sort state, or filter values change
+// NOTE: Checkbox and actions columns are rendered separately outside this component
+interface MemoizedColumnHeadersProps {
   visibleColumns: Array<{
     key: string;
     label: string;
@@ -331,13 +332,9 @@ interface MemoizedSpreadsheetHeaderProps {
     config: any;
   }>;
   visibleColumnKeys: string[];
-  gridTemplateStyle: string;
   sortColumn: string | null;
   sortDirection: "asc" | "desc";
   isMultiMode: boolean;
-  selectedRowsSize: number;
-  leadsLength: number;
-  onSelectAll: (checked: boolean) => void;
   onToggleSort: (columnKey: string) => void;
   onResizeStart: (e: React.MouseEvent, columnKey: string) => void;
   onFilterChange: (columnKey: string, value: string) => void;
@@ -346,20 +343,14 @@ interface MemoizedSpreadsheetHeaderProps {
   onDropdownFilterChange: (columnKey: string, value: string | null) => void;
   getDropdownOptionsForColumn: (columnKey: string) => string[];
   columnFilters: Record<string, string | DateFilterValue | null>;
-  sensors: any;
-  handleColumnDragEnd: (event: DragEndEvent) => void;
 }
 
-const MemoizedSpreadsheetHeader = memo(function MemoizedSpreadsheetHeader({
+const MemoizedColumnHeaders = memo(function MemoizedColumnHeaders({
   visibleColumns,
   visibleColumnKeys,
-  gridTemplateStyle,
   sortColumn,
   sortDirection,
   isMultiMode,
-  selectedRowsSize,
-  leadsLength,
-  onSelectAll,
   onToggleSort,
   onResizeStart,
   onFilterChange,
@@ -368,94 +359,68 @@ const MemoizedSpreadsheetHeader = memo(function MemoizedSpreadsheetHeader({
   onDropdownFilterChange,
   getDropdownOptionsForColumn,
   columnFilters,
-  sensors,
-  handleColumnDragEnd,
-}: MemoizedSpreadsheetHeaderProps) {
+}: MemoizedColumnHeadersProps) {
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={handleColumnDragEnd}
+    <SortableContext 
+      items={visibleColumnKeys} 
+      strategy={horizontalListSortingStrategy}
     >
-      <div 
-        className="sticky top-0 z-20 bg-background border-b-2 grid"
-        style={{ gridTemplateColumns: gridTemplateStyle }}
-      >
-        {/* Checkbox Column Header */}
-        <div className="border-b border-r px-3 py-3 flex items-center justify-center">
-          <Checkbox
-            checked={selectedRowsSize === leadsLength && leadsLength > 0}
-            onCheckedChange={(checked) => onSelectAll(!!checked)}
-            data-testid="checkbox-select-all"
-          />
-        </div>
-        
-        {/* Column Headers - Sortable */}
-        <SortableContext 
-          items={visibleColumnKeys} 
-          strategy={horizontalListSortingStrategy}
+      {visibleColumns.map((col) => (
+        <SortableColumnHeader
+          key={col.key}
+          columnKey={col.key}
+          width={col.width}
+          onResizeStart={onResizeStart}
+          isDraggingEnabled={!isMultiMode}
         >
-          {visibleColumns.map((col) => (
-            <SortableColumnHeader
-              key={col.key}
-              columnKey={col.key}
-              width={col.width}
-              onResizeStart={onResizeStart}
-              isDraggingEnabled={!isMultiMode}
-            >
-              <div className="flex flex-col gap-1" data-testid={`column-header-${col.key}`}>
-                <div className="flex items-center gap-1">
-                  <span data-testid={`column-label-${col.key}`}>{col.label}</span>
-                  {col.sortable && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5"
-                      onClick={() => onToggleSort(col.key)}
-                      data-testid={`button-sort-${col.key}`}
-                    >
-                      {sortColumn === col.key ? (
-                        sortDirection === "asc" ? (
-                          <ChevronUp className="h-3 w-3" />
-                        ) : (
-                          <ChevronDown className="h-3 w-3" />
-                        )
-                      ) : (
-                        <ChevronDown className="h-3 w-3 opacity-30" />
-                      )}
-                    </Button>
-                  )}
-                </div>
-                <div className="relative">
-                  {col.type === "date" ? (
-                    <DateRangeFilter
-                      value={columnFilters[col.key] as DateFilterValue}
-                      onChange={(value) => onDateFilterChange(col.key, value)}
-                    />
-                  ) : col.type === "dropdown" ? (
-                    <DropdownFilter
-                      value={columnFilters[col.key] as string | null}
-                      onChange={(value) => onDropdownFilterChange(col.key, value)}
-                      options={getDropdownOptionsForColumn(col.key)}
-                    />
+          <div className="flex flex-col gap-1" data-testid={`column-header-${col.key}`}>
+            <div className="flex items-center gap-1">
+              <span data-testid={`column-label-${col.key}`}>{col.label}</span>
+              {col.sortable && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5"
+                  onClick={() => onToggleSort(col.key)}
+                  data-testid={`button-sort-${col.key}`}
+                >
+                  {sortColumn === col.key ? (
+                    sortDirection === "asc" ? (
+                      <ChevronUp className="h-3 w-3" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" />
+                    )
                   ) : (
-                    <DebouncedFilterInput
-                      value={(columnFilters[col.key] as string) || ""}
-                      onFilterChange={onFilterChange}
-                      columnKey={col.key}
-                      onFilterClear={onFilterClear}
-                    />
+                    <ChevronDown className="h-3 w-3 opacity-30" />
                   )}
-                </div>
-              </div>
-            </SortableColumnHeader>
-          ))}
-        </SortableContext>
-        
-        {/* Actions Column Header */}
-        <div className="border-b px-3 py-2"></div>
-      </div>
-    </DndContext>
+                </Button>
+              )}
+            </div>
+            <div className="relative">
+              {col.type === "date" ? (
+                <DateRangeFilter
+                  value={columnFilters[col.key] as DateFilterValue}
+                  onChange={(value) => onDateFilterChange(col.key, value)}
+                />
+              ) : col.type === "dropdown" ? (
+                <DropdownFilter
+                  value={columnFilters[col.key] as string | null}
+                  onChange={(value) => onDropdownFilterChange(col.key, value)}
+                  options={getDropdownOptionsForColumn(col.key)}
+                />
+              ) : (
+                <DebouncedFilterInput
+                  value={(columnFilters[col.key] as string) || ""}
+                  onFilterChange={onFilterChange}
+                  columnKey={col.key}
+                  onFilterClear={onFilterClear}
+                />
+              )}
+            </div>
+          </div>
+        </SortableColumnHeader>
+      ))}
+    </SortableContext>
   );
 });
 
@@ -1684,20 +1649,19 @@ export function SpreadsheetGrid({
     setColumnWidths(columnPreferences);
   }, [columnPreferences, sheetId]);
 
-  // Column resize handlers
-  const handleResizeStart = (e: React.MouseEvent, columnKey: string) => {
+  // Stable callback for column resize start - used by memoized header
+  // NOTE: Does not depend on `columns` to avoid temporal dead zone issues
+  const handleResizeStart = useCallback((e: React.MouseEvent, columnKey: string) => {
     e.preventDefault();
     e.stopPropagation();
     setResizingColumn(columnKey);
     resizeStartX.current = e.clientX;
     hasMovedRef.current = false;
     
-    // Get current width - use saved width or parse default width for the column type
-    const column = columns.find(c => c.key === columnKey);
-    const defaultWidth = column ? parseInt(column.width) : 120;
-    const currentWidth = columnWidths[columnKey] || defaultWidth;
+    // Get current width from saved preferences or use default (120px)
+    const currentWidth = columnWidths[columnKey] || 120;
     resizeStartWidth.current = currentWidth;
-  };
+  }, [columnWidths]);
 
   const handleResizeMove = useCallback((e: MouseEvent) => {
     if (!resizingColumn) return;
@@ -1828,24 +1792,29 @@ export function SpreadsheetGrid({
     return orderedArr;
   }, [columns, customColumnOrder, isMultiMode]);
 
-  // Handle column drag end
-  const handleColumnDragEnd = (event: DragEndEvent) => {
+  // Stable callback for column drag end - used by DndContext
+  const handleColumnDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     
     if (over && active.id !== over.id) {
-      const oldIndex = orderedColumns.findIndex((col) => col.key === active.id);
-      const newIndex = orderedColumns.findIndex((col) => col.key === over.id);
-      
-      const newOrder = arrayMove(orderedColumns.map(c => c.key), oldIndex, newIndex);
-      setCustomColumnOrder(newOrder);
-      
-      // Save to backend
-      saveUserSheetViewMutation.mutate({
-        columnOrder: newOrder,
-        hiddenColumns: Array.from(hiddenColumns),
+      setCustomColumnOrder(prevOrder => {
+        // Use current orderedColumns derived from state
+        const currentColumns = orderedColumns;
+        const oldIndex = currentColumns.findIndex((col) => col.key === active.id);
+        const newIndex = currentColumns.findIndex((col) => col.key === over.id);
+        
+        const newOrder = arrayMove(currentColumns.map(c => c.key), oldIndex, newIndex);
+        
+        // Save to backend
+        saveUserSheetViewMutation.mutate({
+          columnOrder: newOrder,
+          hiddenColumns: Array.from(hiddenColumns),
+        });
+        
+        return newOrder;
       });
     }
-  };
+  }, [orderedColumns, hiddenColumns, saveUserSheetViewMutation]);
 
   // Evaluate if a lead should be hidden based on user row filters
   const evaluateRowFilters = useCallback((lead: Lead): boolean => {
@@ -2775,34 +2744,52 @@ export function SpreadsheetGrid({
             {/* Horizontal and Vertical Scroll Container */}
             <div className="overflow-x-scroll overflow-y-auto flex-1 spreadsheet-scroll-container" ref={containerRef}>
             <div style={{ minWidth: `${calculateTableWidth()}px` }}>
-              {/* Memoized Sticky Header - only re-renders when columns/sort change, not on data changes */}
-              <MemoizedSpreadsheetHeader
-                visibleColumns={visibleColumns}
-                visibleColumnKeys={visibleColumnKeys}
-                gridTemplateStyle={gridTemplateStyle}
-                sortColumn={sortColumn}
-                sortDirection={sortDirection}
-                isMultiMode={isMultiMode}
-                selectedRowsSize={selectedRows.size}
-                leadsLength={leads.length}
-                onSelectAll={(checked) => {
-                  if (checked) {
-                    setSelectedRows(new Set(leads.map((l) => l.id)));
-                  } else {
-                    setSelectedRows(new Set());
-                  }
-                }}
-                onToggleSort={toggleSort}
-                onResizeStart={handleResizeStart}
-                onFilterChange={handleColumnFilterChange}
-                onFilterClear={handleColumnFilterClear}
-                onDateFilterChange={handleDateFilterChange}
-                onDropdownFilterChange={handleDropdownFilterChange}
-                getDropdownOptionsForColumn={getDropdownOptionsForColumn}
-                columnFilters={columnFilters}
+              {/* Sticky Header Row with DnD Context */}
+              <DndContext
                 sensors={sensors}
-                handleColumnDragEnd={handleColumnDragEnd}
-              />
+                collisionDetection={closestCenter}
+                onDragEnd={handleColumnDragEnd}
+              >
+                <div 
+                  className="sticky top-0 z-20 bg-background border-b-2 grid"
+                  style={{ gridTemplateColumns: gridTemplateStyle }}
+                >
+                  {/* Checkbox Column Header - NOT memoized, updates when selection changes */}
+                  <div className="border-b border-r px-3 py-3 flex items-center justify-center">
+                    <Checkbox
+                      checked={selectedRows.size === leads.length && leads.length > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedRows(new Set(leads.map((l) => l.id)));
+                        } else {
+                          setSelectedRows(new Set());
+                        }
+                      }}
+                      data-testid="checkbox-select-all"
+                    />
+                  </div>
+                  
+                  {/* Memoized Column Headers - only re-renders when columns/sort/filters change, NOT on data changes */}
+                  <MemoizedColumnHeaders
+                    visibleColumns={visibleColumns}
+                    visibleColumnKeys={visibleColumnKeys}
+                    sortColumn={sortColumn}
+                    sortDirection={sortDirection}
+                    isMultiMode={isMultiMode}
+                    onToggleSort={toggleSort}
+                    onResizeStart={handleResizeStart}
+                    onFilterChange={handleColumnFilterChange}
+                    onFilterClear={handleColumnFilterClear}
+                    onDateFilterChange={handleDateFilterChange}
+                    onDropdownFilterChange={handleDropdownFilterChange}
+                    getDropdownOptionsForColumn={getDropdownOptionsForColumn}
+                    columnFilters={columnFilters}
+                  />
+                  
+                  {/* Actions Column Header */}
+                  <div className="border-b px-3 py-2"></div>
+                </div>
+              </DndContext>
 
               {/* Table Body */}
               {filteredAndSortedLeads.length === 0 ? (
