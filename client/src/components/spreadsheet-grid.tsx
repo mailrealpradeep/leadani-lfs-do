@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
 import {
@@ -253,11 +253,17 @@ export function SpreadsheetGrid({
   // Keyboard navigation state - separate from editing
   const [selectedCell, setSelectedCell] = useState<{ leadId: string; columnKey: string } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const isFilterFocusedRef = useRef<boolean>(false);
+  
+  // Filter focus management - track which filter input should have focus
+  const focusedFilterKeyRef = useRef<string | null>(null);
+  const filterInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  // Debounced column filters - localFilterValues for immediate UI, columnFilters for API queries
+  const [localFilterValues, setLocalFilterValues] = useState<Record<string, string | DateFilterValue | null>>({});
   const [columnFilters, setColumnFilters] = useState<Record<string, string | DateFilterValue | null>>({});
+  const filterDebounceRef = useRef<Record<string, NodeJS.Timeout>>({});
   const [isScrolled, setIsScrolled] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
@@ -561,6 +567,57 @@ export function SpreadsheetGrid({
     }
   }, [userSheetView?.hidden_columns, activeSheetId]);
 
+  // Track debounce version to prevent stale updates after clear
+  const filterVersionRef = useRef<Record<string, number>>({});
+  
+  // Debounced filter update handler - updates local state immediately, debounces API trigger
+  const handleFilterChange = useCallback((columnKey: string, value: string | DateFilterValue | null) => {
+    // Update local state immediately for responsive UI
+    setLocalFilterValues(prev => ({ ...prev, [columnKey]: value }));
+    
+    // Clear any pending debounce for this column
+    if (filterDebounceRef.current[columnKey]) {
+      clearTimeout(filterDebounceRef.current[columnKey]);
+    }
+    
+    // Increment version to track this specific update
+    const currentVersion = (filterVersionRef.current[columnKey] || 0) + 1;
+    filterVersionRef.current[columnKey] = currentVersion;
+    
+    // Debounce the actual filter update that triggers API call
+    filterDebounceRef.current[columnKey] = setTimeout(() => {
+      // Only apply if this is still the most recent version (not cleared)
+      if (filterVersionRef.current[columnKey] === currentVersion) {
+        setColumnFilters(prev => ({ ...prev, [columnKey]: value }));
+      }
+      delete filterDebounceRef.current[columnKey];
+    }, 400); // 400ms debounce
+  }, []);
+
+  // Clear filter (immediate, no debounce needed)
+  const handleClearFilter = useCallback((columnKey: string) => {
+    // Clear any pending debounce
+    if (filterDebounceRef.current[columnKey]) {
+      clearTimeout(filterDebounceRef.current[columnKey]);
+      delete filterDebounceRef.current[columnKey];
+    }
+    // Increment version so any pending debounce callbacks won't reapply
+    filterVersionRef.current[columnKey] = (filterVersionRef.current[columnKey] || 0) + 1;
+    setLocalFilterValues(prev => ({ ...prev, [columnKey]: null }));
+    setColumnFilters(prev => ({ ...prev, [columnKey]: null }));
+  }, []);
+
+  // Cleanup debounce timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(filterDebounceRef.current).forEach(clearTimeout);
+    };
+  }, []);
+
+  // Focus restoration is handled differently - we don't use useLayoutEffect
+  // Instead, we ensure the input never loses focus by using controlled components properly
+  // The key is that localFilterValues updates immediately, preventing re-focus issues
+
   // Save user sheet view mutation
   const saveUserSheetViewMutation = useMutation({
     mutationFn: async ({ columnOrder, hiddenColumns }: { columnOrder: string[]; hiddenColumns: string[] }) => {
@@ -829,6 +886,7 @@ export function SpreadsheetGrid({
     }
     
     // Reset filters and sort to defaults when switching sheets
+    setLocalFilterValues({});
     setColumnFilters({});
     // Default sort: created_at descending (newest leads first)
     setSortColumn("created_at");
@@ -1453,6 +1511,7 @@ export function SpreadsheetGrid({
   const applyQuickFilter = useCallback((filterId: string, filterConfig: any) => {
     if (!filterConfig || !filterConfig.conditions || filterConfig.conditions.length === 0) {
       // Empty filter - just clear all filters
+      setLocalFilterValues({});
       setColumnFilters({});
       setActiveQuickFilter(filterId);
       return;
@@ -1656,6 +1715,7 @@ export function SpreadsheetGrid({
     }
 
     // Apply the filters (always using AND logic due to column filter limitations)
+    setLocalFilterValues(newFilters);
     setColumnFilters(newFilters);
     setActiveQuickFilter(filterId);
 
@@ -1681,6 +1741,7 @@ export function SpreadsheetGrid({
   }, [customColumns, setActiveQuickFilter, setColumnFilters, toast]);
 
   const clearAllFilters = useCallback(() => {
+    setLocalFilterValues({});
     setColumnFilters({});
     setActiveQuickFilter(null);
   }, [setActiveQuickFilter]);
@@ -1923,13 +1984,7 @@ export function SpreadsheetGrid({
                             variant="ghost"
                             size="icon"
                             className="h-4 w-4 ml-0.5 hover:bg-transparent"
-                            onClick={() => {
-                              setColumnFilters(prev => {
-                                const updated = { ...prev };
-                                delete updated[key];
-                                return updated;
-                              });
-                            }}
+                            onClick={() => handleClearFilter(key)}
                             data-testid={`button-clear-filter-${key}`}
                           >
                             <X className="h-3 w-3" />
@@ -1945,6 +2000,7 @@ export function SpreadsheetGrid({
                         onClick={() => {
                           setSortColumn(null);
                           setSortDirection("asc");
+                          setLocalFilterValues({});
                           setColumnFilters({});
                         }}
                         data-testid="button-clear-all-mobile"
@@ -1970,6 +2026,7 @@ export function SpreadsheetGrid({
                           onClick={() => {
                             setSortColumn(null);
                             setSortDirection("asc");
+                            setLocalFilterValues({});
                             setColumnFilters({});
                           }}
                           data-testid="button-clear-filters-empty"
@@ -2275,31 +2332,28 @@ export function SpreadsheetGrid({
                             ) : (
                               <>
                                 <Input
+                                  ref={(el) => { filterInputRefs.current[col.key] = el; }}
                                   placeholder="Filter..."
-                                  value={(columnFilters[col.key] as string) || ""}
-                                  onChange={(e) =>
-                                    setColumnFilters((prev) => ({
-                                      ...prev,
-                                      [col.key]: e.target.value,
-                                    }))
-                                  }
-                                  onFocus={() => { isFilterFocusedRef.current = true; }}
-                                  onBlur={() => { isFilterFocusedRef.current = false; }}
+                                  value={(localFilterValues[col.key] as string) ?? (columnFilters[col.key] as string) ?? ""}
+                                  onChange={(e) => handleFilterChange(col.key, e.target.value)}
+                                  onFocus={() => { focusedFilterKeyRef.current = col.key; }}
+                                  onBlur={() => { 
+                                    // Delay clearing to allow useLayoutEffect to restore focus if needed
+                                    setTimeout(() => {
+                                      if (focusedFilterKeyRef.current === col.key) {
+                                        focusedFilterKeyRef.current = null;
+                                      }
+                                    }, 50);
+                                  }}
                                   className="h-7 text-xs"
                                   data-testid={`input-filter-${col.key}`}
                                 />
-                                {columnFilters[col.key] && (
+                                {(localFilterValues[col.key] || columnFilters[col.key]) && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
                                     className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-                                    onClick={() =>
-                                      setColumnFilters((prev) => {
-                                        const next = { ...prev };
-                                        delete next[col.key];
-                                        return next;
-                                      })
-                                    }
+                                    onClick={() => handleClearFilter(col.key)}
                                   >
                                     <X className="h-3 w-3" />
                                   </Button>
@@ -2420,7 +2474,7 @@ export function SpreadsheetGrid({
                             setSelectedCell({ leadId: lead.id, columnKey: col.key });
                             
                             // Don't steal focus from header filter inputs
-                            if (isFilterFocusedRef.current) {
+                            if (focusedFilterKeyRef.current) {
                               return;
                             }
                             gridRef.current?.focus({ preventScroll: true });
