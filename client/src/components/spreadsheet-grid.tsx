@@ -570,6 +570,9 @@ export function SpreadsheetGrid({
   // Track debounce version to prevent stale updates after clear
   const filterVersionRef = useRef<Record<string, number>>({});
   
+  // Track if we're waiting for filter results (for focus restoration)
+  const pendingFilterFocusRef = useRef<string | null>(null);
+  
   // Debounced filter update handler - updates local state immediately, debounces API trigger
   const handleFilterChange = useCallback((columnKey: string, value: string | DateFilterValue | null) => {
     // Update local state immediately for responsive UI
@@ -583,6 +586,9 @@ export function SpreadsheetGrid({
     // Increment version to track this specific update
     const currentVersion = (filterVersionRef.current[columnKey] || 0) + 1;
     filterVersionRef.current[columnKey] = currentVersion;
+    
+    // Track that we're expecting to restore focus after this filter completes
+    pendingFilterFocusRef.current = columnKey;
     
     // Debounce the actual filter update that triggers API call
     filterDebounceRef.current[columnKey] = setTimeout(() => {
@@ -614,9 +620,35 @@ export function SpreadsheetGrid({
     };
   }, []);
 
-  // Focus restoration is handled differently - we don't use useLayoutEffect
-  // Instead, we ensure the input never loses focus by using controlled components properly
-  // The key is that localFilterValues updates immediately, preventing re-focus issues
+  // Track if we're waiting for filter results (debounce in progress)
+  const pendingFilterFocusRef = useRef<string | null>(null);
+  
+  // Restore focus after filter results load
+  // Uses the query's isFetching state change as trigger (not object references)
+  const isFetchingLeads = isMultiMode ? isLoadingMultiLeads : isLoadingSingleLeads;
+  const prevIsFetchingRef = useRef(isFetchingLeads);
+  
+  useEffect(() => {
+    // Only run when fetching transitions from true to false (data just arrived)
+    const wasFetching = prevIsFetchingRef.current;
+    prevIsFetchingRef.current = isFetchingLeads;
+    
+    if (wasFetching && !isFetchingLeads && pendingFilterFocusRef.current) {
+      const focusedKey = pendingFilterFocusRef.current;
+      const inputRef = filterInputRefs.current[focusedKey];
+      
+      if (inputRef && document.activeElement !== inputRef) {
+        // Use microtask to avoid blocking the render
+        queueMicrotask(() => {
+          if (inputRef && document.activeElement !== inputRef) {
+            inputRef.focus();
+            const len = inputRef.value.length;
+            inputRef.setSelectionRange(len, len);
+          }
+        });
+      }
+    }
+  }, [isFetchingLeads]); // Only depends on boolean, not object references
 
   // Save user sheet view mutation
   const saveUserSheetViewMutation = useMutation({
