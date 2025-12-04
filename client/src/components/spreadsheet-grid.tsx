@@ -220,16 +220,16 @@ let focusedFilterColumnKey: string | null = null;
 // Debounced filter input to prevent focus loss during server refetches
 interface DebouncedFilterInputProps {
   value: string;
-  onChange: (value: string) => void;
+  onFilterChange: (columnKey: string, value: string) => void;
   columnKey: string;
-  onClear: () => void;
+  onFilterClear: (columnKey: string) => void;
 }
 
 const DebouncedFilterInput = memo(function DebouncedFilterInput({ 
   value, 
-  onChange, 
+  onFilterChange, 
   columnKey, 
-  onClear 
+  onFilterClear 
 }: DebouncedFilterInputProps) {
   const [localValue, setLocalValue] = useState(value);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -258,9 +258,9 @@ const DebouncedFilterInput = memo(function DebouncedFilterInput({
     
     // Debounce the parent update to prevent refetch on every keystroke
     debounceRef.current = setTimeout(() => {
-      onChange(newValue);
+      onFilterChange(columnKey, newValue);
     }, 300);
-  }, [onChange]);
+  }, [onFilterChange, columnKey]);
   
   const handleFocus = useCallback(() => {
     focusedFilterColumnKey = columnKey;
@@ -272,6 +272,16 @@ const DebouncedFilterInput = memo(function DebouncedFilterInput({
       focusedFilterColumnKey = null;
     }
   }, [columnKey]);
+  
+  const handleClear = useCallback(() => {
+    // Cancel any pending debounce to prevent stale update after clear
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    setLocalValue("");
+    onFilterClear(columnKey);
+  }, [onFilterClear, columnKey]);
   
   // Cleanup on unmount
   useEffect(() => {
@@ -299,15 +309,7 @@ const DebouncedFilterInput = memo(function DebouncedFilterInput({
           variant="ghost"
           size="icon"
           className="h-5 w-5 absolute right-0.5 top-1/2 -translate-y-1/2"
-          onClick={() => {
-            // Cancel any pending debounce to prevent stale update after clear
-            if (debounceRef.current) {
-              clearTimeout(debounceRef.current);
-              debounceRef.current = null;
-            }
-            setLocalValue("");
-            onClear();
-          }}
+          onClick={handleClear}
         >
           <X className="h-3 w-3" />
         </Button>
@@ -355,6 +357,23 @@ export function SpreadsheetGrid({
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnFilters, setColumnFilters] = useState<Record<string, string | DateFilterValue | null>>({});
+  
+  // Stable callbacks for filter inputs - prevents re-creation on every render
+  const handleColumnFilterChange = useCallback((columnKey: string, value: string) => {
+    setColumnFilters((prev) => ({
+      ...prev,
+      [columnKey]: value,
+    }));
+  }, []);
+  
+  const handleColumnFilterClear = useCallback((columnKey: string) => {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      delete next[columnKey];
+      return next;
+    });
+  }, []);
+  
   const [isScrolled, setIsScrolled] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
@@ -2287,20 +2306,9 @@ export function SpreadsheetGrid({
                             ) : (
                               <DebouncedFilterInput
                                 value={(columnFilters[col.key] as string) || ""}
-                                onChange={(value) =>
-                                  setColumnFilters((prev) => ({
-                                    ...prev,
-                                    [col.key]: value,
-                                  }))
-                                }
+                                onFilterChange={handleColumnFilterChange}
                                 columnKey={col.key}
-                                onClear={() =>
-                                  setColumnFilters((prev) => {
-                                    const next = { ...prev };
-                                    delete next[col.key];
-                                    return next;
-                                  })
-                                }
+                                onFilterClear={handleColumnFilterClear}
                               />
                             )}
                           </div>
