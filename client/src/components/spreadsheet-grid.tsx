@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
 import {
@@ -214,6 +214,9 @@ function SortableColumnHeader({ columnKey, children, width, onResizeStart, isDra
   );
 }
 
+// Global focus tracker for column filter inputs - persists across re-renders
+let focusedFilterColumnKey: string | null = null;
+
 // Debounced filter input to prevent focus loss during server refetches
 interface DebouncedFilterInputProps {
   value: string;
@@ -222,14 +225,27 @@ interface DebouncedFilterInputProps {
   onClear: () => void;
 }
 
-function DebouncedFilterInput({ value, onChange, columnKey, onClear }: DebouncedFilterInputProps) {
+const DebouncedFilterInput = memo(function DebouncedFilterInput({ 
+  value, 
+  onChange, 
+  columnKey, 
+  onClear 
+}: DebouncedFilterInputProps) {
   const [localValue, setLocalValue] = useState(value);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   
   // Sync local value when parent value changes externally (e.g., clear all filters)
   useEffect(() => {
     setLocalValue(value);
   }, [value]);
+  
+  // Restore focus if this column was the last focused one
+  useEffect(() => {
+    if (focusedFilterColumnKey === columnKey && inputRef.current) {
+      inputRef.current.focus();
+    }
+  });
   
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
@@ -246,6 +262,17 @@ function DebouncedFilterInput({ value, onChange, columnKey, onClear }: Debounced
     }, 300);
   }, [onChange]);
   
+  const handleFocus = useCallback(() => {
+    focusedFilterColumnKey = columnKey;
+  }, [columnKey]);
+  
+  const handleBlur = useCallback(() => {
+    // Only clear if this column was the focused one
+    if (focusedFilterColumnKey === columnKey) {
+      focusedFilterColumnKey = null;
+    }
+  }, [columnKey]);
+  
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -258,9 +285,12 @@ function DebouncedFilterInput({ value, onChange, columnKey, onClear }: Debounced
   return (
     <>
       <Input
+        ref={inputRef}
         placeholder="Filter..."
         value={localValue}
         onChange={handleChange}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         className="h-7 text-xs"
         data-testid={`input-filter-${columnKey}`}
       />
@@ -284,7 +314,7 @@ function DebouncedFilterInput({ value, onChange, columnKey, onClear }: Debounced
       )}
     </>
   );
-}
+});
 
 export function SpreadsheetGrid({
   sheetId,
