@@ -1285,7 +1285,10 @@ export function SpreadsheetGrid({
   });
 
   // Use ordered columns for visible columns (respecting user's custom order)
-  const visibleColumns = orderedColumns.filter((col) => !hiddenColumns.has(col.key));
+  // Memoize to keep stable reference when only filters change (fixes filter input focus loss)
+  const visibleColumns = useMemo(() => {
+    return orderedColumns.filter((col) => !hiddenColumns.has(col.key));
+  }, [orderedColumns, hiddenColumns]);
 
   // Calculate total table width: checkbox (50px) + all visible columns + actions (150px)
   const calculateTableWidth = () => {
