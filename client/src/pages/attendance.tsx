@@ -141,31 +141,50 @@ interface ParsedBlockingCondition {
   current?: number;
   required?: number;
   progress?: number;
+  requiredPercentage?: number;
   icon: 'target' | 'clock' | 'edit' | 'calendar' | 'alert';
 }
 
 function parseBlockingReason(reason: string): ParsedBlockingCondition {
   const lowerReason = reason.toLowerCase();
   
-  const numMatch = reason.match(/\(you have (\d+(?:\.\d+)?)\)/i);
-  const currentValue = numMatch ? parseFloat(numMatch[1]) : undefined;
-  
-  const minMatch = reason.match(/minimum (\d+(?:\.\d+)?)/i);
-  const requiredValue = minMatch ? parseFloat(minMatch[1]) : undefined;
-  
+  let currentValue: number | undefined;
+  let requiredValue: number | undefined;
   let progress: number | undefined;
-  if (currentValue !== undefined && requiredValue !== undefined && requiredValue > 0) {
-    progress = Math.min(100, (currentValue / requiredValue) * 100);
+  let targetName: string | undefined;
+  let requiredPercentage: number | undefined;
+  
+  // New format: Target "TargetName" not met: 3/5 (60% / 80% required)
+  const newFormatMatch = reason.match(/Target "([^"]+)" not met:\s*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\s*\((\d+(?:\.\d+)?)%\s*\/\s*(\d+(?:\.\d+)?)%\s*required\)/i);
+  if (newFormatMatch) {
+    targetName = newFormatMatch[1];
+    currentValue = parseFloat(newFormatMatch[2]);
+    requiredValue = parseFloat(newFormatMatch[3]);
+    progress = parseFloat(newFormatMatch[4]);
+    requiredPercentage = parseFloat(newFormatMatch[5]);
+  } else {
+    // Legacy format: "(you have X)" and "minimum Y"
+    const numMatch = reason.match(/\(you have (\d+(?:\.\d+)?)\)/i);
+    currentValue = numMatch ? parseFloat(numMatch[1]) : undefined;
+    
+    const minMatch = reason.match(/minimum (\d+(?:\.\d+)?)/i);
+    requiredValue = minMatch ? parseFloat(minMatch[1]) : undefined;
+    
+    if (currentValue !== undefined && requiredValue !== undefined && requiredValue > 0) {
+      progress = Math.min(100, (currentValue / requiredValue) * 100);
+    }
   }
   
+  // Determine type and icon based on content
   if (lowerReason.includes('lead') && lowerReason.includes('update')) {
     return {
       type: 'updates',
-      label: 'Lead Updates',
+      label: targetName || 'Lead Updates',
       description: reason,
       current: currentValue,
       required: requiredValue,
       progress,
+      requiredPercentage,
       icon: 'edit',
     };
   }
@@ -173,11 +192,12 @@ function parseBlockingReason(reason: string): ParsedBlockingCondition {
   if (lowerReason.includes('lead') && !lowerReason.includes('update')) {
     return {
       type: 'leads',
-      label: 'Leads Created',
+      label: targetName || 'Leads Created',
       description: reason,
       current: currentValue,
       required: requiredValue,
       progress,
+      requiredPercentage,
       icon: 'target',
     };
   }
@@ -185,11 +205,12 @@ function parseBlockingReason(reason: string): ParsedBlockingCondition {
   if (lowerReason.includes('hour') || lowerReason.includes('minute') || lowerReason.includes('time')) {
     return {
       type: 'hours',
-      label: 'Working Hours',
+      label: targetName || 'Working Hours',
       description: reason,
       current: currentValue,
       required: requiredValue,
       progress,
+      requiredPercentage,
       icon: 'clock',
     };
   }
@@ -197,23 +218,26 @@ function parseBlockingReason(reason: string): ParsedBlockingCondition {
   if (lowerReason.includes('nfdt') || lowerReason.includes('follow-up') || lowerReason.includes('followup')) {
     return {
       type: 'nfdt',
-      label: 'Follow-up Dates',
+      label: targetName || 'Follow-up Dates',
       description: reason,
       current: currentValue,
       required: requiredValue,
       progress,
+      requiredPercentage,
       icon: 'calendar',
     };
   }
   
+  // Default case - use target name if available
   return {
     type: 'other',
-    label: 'Condition',
+    label: targetName || 'Daily Target',
     description: reason,
     current: currentValue,
     required: requiredValue,
     progress,
-    icon: 'alert',
+    requiredPercentage,
+    icon: 'target',
   };
 }
 
@@ -1229,23 +1253,44 @@ export default function Attendance() {
                       <IconComponent className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
                         <span className="font-medium text-sm text-foreground">{parsed.label}</span>
-                        {parsed.current !== undefined && parsed.required !== undefined && (
-                          <Badge variant="secondary" className="text-xs">
-                            {parsed.current} / {parsed.required}
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {parsed.current !== undefined && parsed.required !== undefined && (
+                            <Badge variant="secondary" className="text-xs font-mono">
+                              {parsed.current} / {parsed.required}
+                            </Badge>
+                          )}
+                          {parsed.progress !== undefined && (
+                            <Badge 
+                              variant={parsed.progress >= (parsed.requiredPercentage || 100) ? "default" : "destructive"} 
+                              className="text-xs"
+                            >
+                              {Math.round(parsed.progress)}%
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                       
                       {parsed.progress !== undefined && (
-                        <div className="mb-2">
-                          <Progress value={parsed.progress} className="h-2" />
+                        <div className="mb-2 relative">
+                          <Progress value={parsed.progress} className="h-2.5" />
+                          {parsed.requiredPercentage && parsed.requiredPercentage < 100 && (
+                            <div 
+                              className="absolute top-0 h-2.5 w-0.5 bg-foreground/50" 
+                              style={{ left: `${parsed.requiredPercentage}%` }}
+                              title={`Required: ${parsed.requiredPercentage}%`}
+                            />
+                          )}
                         </div>
                       )}
                       
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        {parsed.current !== undefined && parsed.required !== undefined ? (
+                        {parsed.progress !== undefined && parsed.requiredPercentage !== undefined ? (
+                          <>
+                            Your progress: <span className="font-medium text-foreground">{Math.round(parsed.progress)}%</span> — Need at least <span className="font-medium text-foreground">{parsed.requiredPercentage}%</span> to exit.
+                          </>
+                        ) : parsed.current !== undefined && parsed.required !== undefined ? (
                           <>
                             You need <span className="font-medium text-foreground">{parsed.required - parsed.current} more</span> to meet this requirement.
                           </>
