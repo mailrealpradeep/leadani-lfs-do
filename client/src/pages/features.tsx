@@ -687,7 +687,7 @@ function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <Badge className="mb-6 px-4 py-1.5 text-sm" variant="secondary">
+            <Badge className="mb-6 px-4 py-1.5 text-sm" variant="secondary" data-testid="badge-hero">
               <Sparkles className="h-3.5 w-3.5 mr-1.5" />
               Built for Growing Businesses
             </Badge>
@@ -698,6 +698,7 @@ function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.1 }}
             className="text-4xl md:text-6xl font-bold tracking-tight"
+            data-testid="text-hero-heading"
           >
             Features That
             <span className="block mt-2 bg-gradient-to-r from-primary via-blue-500 to-purple-600 bg-clip-text text-transparent">
@@ -710,6 +711,7 @@ function HeroSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
             className="mt-6 text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto"
+            data-testid="text-hero-description"
           >
             Every feature designed to help you capture more leads, manage your team better, 
             and never lose a single opportunity. Built by teams, for teams.
@@ -721,14 +723,14 @@ function HeroSection() {
             transition={{ duration: 0.6, delay: 0.3 }}
             className="mt-10 flex flex-col sm:flex-row gap-4 justify-center"
           >
-            <Link href="/signup">
-              <Button size="lg" className="gap-2 px-8">
+            <Link href="/signup" data-testid="link-hero-signup">
+              <Button size="lg" className="gap-2 px-8" data-testid="button-hero-trial">
                 Start Free Trial
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-            <Link href="/login">
-              <Button size="lg" variant="outline" className="gap-2 px-8">
+            <Link href="/login" data-testid="link-hero-signin">
+              <Button size="lg" variant="outline" className="gap-2 px-8" data-testid="button-hero-signin">
                 Sign In
               </Button>
             </Link>
@@ -741,10 +743,10 @@ function HeroSection() {
             className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8"
           >
             {[
-              { value: "50K+", label: "Leads Managed" },
-              { value: "500+", label: "Happy Users" },
-              { value: "99.9%", label: "Uptime" },
-              { value: "24/7", label: "Support" },
+              { value: "50K+", label: "Leads Managed", id: "leads" },
+              { value: "500+", label: "Happy Users", id: "users" },
+              { value: "99.9%", label: "Uptime", id: "uptime" },
+              { value: "24/7", label: "Support", id: "support" },
             ].map((stat, i) => (
               <motion.div
                 key={i}
@@ -752,11 +754,12 @@ function HeroSection() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6 + i * 0.1 }}
                 className="text-center"
+                data-testid={`stat-${stat.id}`}
               >
-                <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
+                <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent" data-testid={`text-stat-value-${stat.id}`}>
                   {stat.value}
                 </p>
-                <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
+                <p className="text-sm text-muted-foreground mt-1" data-testid={`text-stat-label-${stat.id}`}>{stat.label}</p>
               </motion.div>
             ))}
           </motion.div>
@@ -821,7 +824,7 @@ export default function Features() {
     <div className="min-h-screen bg-background" data-testid="features-page">
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/">
+          <Link href="/" data-testid="link-home-logo">
             <motion.div 
               className="flex items-center gap-2 cursor-pointer"
               whileHover={{ scale: 1.02 }}
@@ -835,11 +838,11 @@ export default function Features() {
           
           <div className="flex items-center gap-3">
             <ThemeToggle />
-            <Link href="/login">
-              <Button variant="ghost" size="sm">Sign In</Button>
+            <Link href="/login" data-testid="link-header-signin">
+              <Button variant="ghost" size="sm" data-testid="button-header-signin">Sign In</Button>
             </Link>
-            <Link href="/signup">
-              <Button size="sm">Get Started</Button>
+            <Link href="/signup" data-testid="link-header-signup">
+              <Button size="sm" data-testid="button-header-signup">Get Started</Button>
             </Link>
           </div>
         </div>
@@ -916,23 +919,24 @@ export default function Features() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           className="mt-20 text-center py-16 px-8 rounded-3xl bg-gradient-to-br from-primary/10 via-blue-500/10 to-purple-500/10 border"
+          data-testid="section-cta"
         >
-          <h2 className="text-3xl md:text-4xl font-bold">
+          <h2 className="text-3xl md:text-4xl font-bold" data-testid="text-cta-heading">
             Ready to Transform Your Lead Management?
           </h2>
-          <p className="text-muted-foreground mt-4 max-w-xl mx-auto text-lg">
+          <p className="text-muted-foreground mt-4 max-w-xl mx-auto text-lg" data-testid="text-cta-description">
             Join hundreds of businesses who've already made the switch. 
             Start your free trial today - no credit card required.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/signup">
-              <Button size="lg" className="gap-2 px-8">
+            <Link href="/signup" data-testid="link-cta-signup">
+              <Button size="lg" className="gap-2 px-8" data-testid="button-cta-trial">
                 <Sparkles className="h-4 w-4" />
                 Start Free Trial
               </Button>
             </Link>
-            <Link href="/">
-              <Button size="lg" variant="outline" className="gap-2 px-8">
+            <Link href="/" data-testid="link-cta-home">
+              <Button size="lg" variant="outline" className="gap-2 px-8" data-testid="button-cta-learn">
                 Learn More
               </Button>
             </Link>
@@ -940,9 +944,9 @@ export default function Features() {
         </motion.section>
       </main>
 
-      <footer className="border-t py-8">
+      <footer className="border-t py-8" data-testid="footer">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} LeadAni LFS. All rights reserved.</p>
+          <p data-testid="text-copyright">&copy; {new Date().getFullYear()} LeadAni LFS. All rights reserved.</p>
         </div>
       </footer>
     </div>
