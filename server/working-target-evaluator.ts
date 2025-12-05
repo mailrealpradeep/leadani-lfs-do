@@ -241,6 +241,18 @@ async function evaluateCompareColumnsTarget(
   const fromValues: string[] = Array.isArray(from_value) ? from_value : (from_value ? [from_value] : []);
   const toValues: string[] = Array.isArray(to_value) ? to_value : (to_value ? [to_value] : []);
   
+  // Get the column to find its column_key (for matching in activity_logs)
+  const column = await storage.getCustomColumnById(column_id);
+  if (!column) {
+    return {
+      currentValue: 0,
+      targetValue: target_value,
+      compliancePercentage: 0,
+      isAchieved: false,
+      details: { error: "Column not found", column_id }
+    };
+  }
+  
   const userSheets = await db.select({ sheet_id: dbSchema.sheet_users.sheet_id })
     .from(dbSchema.sheet_users)
     .where(eq(dbSchema.sheet_users.user_id, userId));
@@ -260,35 +272,55 @@ async function evaluateCompareColumnsTarget(
     };
   }
   
-  const updates = await db.select({
-    id: dbSchema.lead_updates.id,
-    lead_id: dbSchema.lead_updates.lead_id,
-    update_on: dbSchema.lead_updates.update_on,
-    remark: dbSchema.lead_updates.remark,
-    created_at: dbSchema.lead_updates.created_at,
+  // Query activity_logs for lead field changes (status transitions are logged here, not in lead_updates)
+  // The activity_logs.details.changes array contains field changes with field_key, old_value, new_value
+  const activityLogs = await db.select({
+    id: dbSchema.activity_logs.id,
+    details: dbSchema.activity_logs.details,
+    occurred_at: dbSchema.activity_logs.occurred_at,
+    target_id: dbSchema.activity_logs.target_id,
   })
-  .from(dbSchema.lead_updates)
-  .innerJoin(dbSchema.leads, eq(dbSchema.lead_updates.lead_id, dbSchema.leads.id))
+  .from(dbSchema.activity_logs)
   .where(
     and(
-      eq(dbSchema.lead_updates.created_by_user_id, userId),
-      inArray(dbSchema.leads.sheet_id, sheetIds),
-      eq(dbSchema.lead_updates.update_on, column_id),
-      gte(dbSchema.lead_updates.created_at, periodStart),
-      lte(dbSchema.lead_updates.created_at, periodEnd)
+      eq(dbSchema.activity_logs.user_id, userId),
+      eq(dbSchema.activity_logs.action, 'lead_updated'),
+      inArray(dbSchema.activity_logs.sheet_id, sheetIds),
+      gte(dbSchema.activity_logs.occurred_at, periodStart),
+      lte(dbSchema.activity_logs.occurred_at, periodEnd)
     )
   );
   
   let transitionCount = 0;
-  const matchingUpdates: string[] = [];
+  const matchingActivityIds: string[] = [];
+  let totalFieldChanges = 0;
   
-  for (const update of updates) {
-    const remark = update.remark || '';
-    const hasFromValue = fromValues.length === 0 || fromValues.some(fv => remark.includes(fv));
-    const hasToValue = toValues.length === 0 || toValues.some(tv => remark.includes(tv));
-    if (hasFromValue && hasToValue) {
-      transitionCount++;
-      matchingUpdates.push(update.id);
+  // Parse each activity log's details to find matching field transitions
+  for (const log of activityLogs) {
+    const details = log.details as { changes?: Array<{ field_key: string; old_value?: any; new_value?: any }> } | null;
+    const changes = details?.changes || [];
+    
+    for (const change of changes) {
+      // Match by column_key (case-insensitive for flexibility across companies)
+      if (change.field_key.toLowerCase() === column.column_key.toLowerCase()) {
+        totalFieldChanges++;
+        
+        const oldVal = String(change.old_value || '');
+        const newVal = String(change.new_value || '');
+        
+        // Check if this transition matches the configured from_value → to_value
+        const matchesFrom = fromValues.length === 0 || fromValues.some(fv => 
+          oldVal.toLowerCase().includes(fv.toLowerCase())
+        );
+        const matchesTo = toValues.length === 0 || toValues.some(tv => 
+          newVal.toLowerCase().includes(tv.toLowerCase())
+        );
+        
+        if (matchesFrom && matchesTo) {
+          transitionCount++;
+          matchingActivityIds.push(log.id);
+        }
+      }
     }
   }
   
@@ -300,8 +332,7 @@ async function evaluateCompareColumnsTarget(
     compliancePercentage = target_value > 0 ? Math.min(100, (transitionCount / target_value) * 100) : 0;
     isAchieved = transitionCount >= target_value;
   } else if (result_type === 'percentage') {
-    const totalUpdates = updates.length;
-    compliancePercentage = totalUpdates > 0 ? (transitionCount / totalUpdates) * 100 : 0;
+    compliancePercentage = totalFieldChanges > 0 ? (transitionCount / totalFieldChanges) * 100 : 0;
     currentValue = compliancePercentage;
     isAchieved = compliancePercentage >= target_value;
   }
@@ -313,11 +344,13 @@ async function evaluateCompareColumnsTarget(
     isAchieved,
     details: {
       transitionCount,
-      totalUpdatesInPeriod: updates.length,
-      matchingUpdateIds: matchingUpdates.slice(0, 10),
+      totalActivityLogsInPeriod: activityLogs.length,
+      totalFieldChangesForColumn: totalFieldChanges,
+      matchingActivityIds: matchingActivityIds.slice(0, 10),
       from_values: fromValues,
       to_values: toValues,
       column_id,
+      column_key: column.column_key,
       result_type
     }
   };
