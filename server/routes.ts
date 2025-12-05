@@ -14531,6 +14531,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Leaderboard - Get ranked user progress based on working targets with date filters
+  app.get("/api/working-targets/leaderboard", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(400).json({ error: "Company ID required" });
+      }
+      
+      const preset = (req.query.preset as string) || 'today';
+      const customStart = req.query.start_date as string | undefined;
+      const customEnd = req.query.end_date as string | undefined;
+      
+      const { generateLeaderboard } = await import("./working-target-evaluator");
+      const leaderboard = await generateLeaderboard(req.companyId, preset, customStart, customEnd);
+      
+      res.json(leaderboard);
+    } catch (error: any) {
+      console.error("Generate leaderboard error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Evaluate working targets for current user (live calculation) - MUST be before /:id routes
   app.get("/api/working-targets/evaluate/me", authMiddleware, async (req: AuthRequest, res) => {
     try {

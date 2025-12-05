@@ -595,3 +595,257 @@ export async function evaluateAllTargetsAggregate(
   
   return results;
 }
+
+// Leaderboard entry for a user across all working targets
+export interface LeaderboardEntry {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  rank: number;
+  previousRank: number | null;
+  totalTargets: number;
+  achievedTargets: number;
+  averageCompliance: number;
+  totalCurrentValue: number;
+  totalTargetValue: number;
+  targetBreakdown: Array<{
+    targetId: string;
+    targetName: string;
+    targetType: string;
+    compliancePercentage: number;
+    isAchieved: boolean;
+    currentValue: number;
+    targetValue: number;
+  }>;
+}
+
+export interface LeaderboardResult {
+  entries: LeaderboardEntry[];
+  dateRange: {
+    start: string;
+    end: string;
+    preset: string;
+  };
+  totalUsers: number;
+  totalTargets: number;
+}
+
+// Get custom date range based on preset or custom dates
+export async function getCustomDateRange(
+  companyId: string,
+  preset: string,
+  customStart?: string,
+  customEnd?: string
+): Promise<{ periodStart: Date; periodEnd: Date }> {
+  const company = await storage.getCompany(companyId);
+  const timezone = getCompanyTimezone(company as Company);
+  const now = getCurrentDateInTimezone(timezone);
+  
+  let periodStart: Date;
+  let periodEnd: Date = getEndOfDayInTimezone(now, timezone);
+  
+  switch (preset) {
+    case 'today':
+      periodStart = getStartOfDayInTimezone(now, timezone);
+      break;
+    case 'this_week':
+      const weekRange = getWeekRangeInTimezone(timezone);
+      periodStart = weekRange.start;
+      periodEnd = weekRange.end;
+      break;
+    case 'this_month':
+      const monthRange = getMonthRangeInTimezone(timezone);
+      periodStart = monthRange.start;
+      periodEnd = monthRange.end;
+      break;
+    case 'last_7_days':
+      periodStart = new Date(now);
+      periodStart.setDate(periodStart.getDate() - 6);
+      periodStart = getStartOfDayInTimezone(periodStart, timezone);
+      break;
+    case 'last_30_days':
+      periodStart = new Date(now);
+      periodStart.setDate(periodStart.getDate() - 29);
+      periodStart = getStartOfDayInTimezone(periodStart, timezone);
+      break;
+    case 'custom':
+      if (customStart && customEnd) {
+        periodStart = new Date(customStart);
+        periodEnd = new Date(customEnd);
+        periodEnd = getEndOfDayInTimezone(periodEnd, timezone);
+      } else {
+        periodStart = getStartOfDayInTimezone(now, timezone);
+      }
+      break;
+    default:
+      periodStart = getStartOfDayInTimezone(now, timezone);
+  }
+  
+  return { periodStart, periodEnd };
+}
+
+// Evaluate a single target for a user with custom date range
+async function evaluateTargetWithDateRange(
+  target: WorkingTargetRecord,
+  userId: string,
+  periodStart: Date,
+  periodEnd: Date
+): Promise<EvaluationResult> {
+  const targetType = target.target_type;
+  
+  if (targetType === 'fixed') {
+    return evaluateFixedTarget(target, userId, periodStart, periodEnd);
+  } else if (targetType === 'single_column') {
+    return evaluateSingleColumnTarget(target, userId, periodStart, periodEnd);
+  } else if (targetType === 'compare_columns') {
+    return evaluateCompareColumnsTarget(target, userId, periodStart, periodEnd);
+  }
+  
+  return {
+    currentValue: 0,
+    targetValue: 0,
+    compliancePercentage: 0,
+    isAchieved: false,
+    details: { error: "Unknown target type" }
+  };
+}
+
+// Generate leaderboard for all users based on working target progress
+export async function generateLeaderboard(
+  companyId: string,
+  preset: string = 'today',
+  customStart?: string,
+  customEnd?: string
+): Promise<LeaderboardResult> {
+  const { periodStart, periodEnd } = await getCustomDateRange(companyId, preset, customStart, customEnd);
+  
+  // Get all active working targets
+  const targets = await storage.getWorkingTargetsByCompany(companyId);
+  const activeTargets = targets.filter(t => t.is_active);
+  
+  // Get all company users (excluding admins from ranking)
+  const companyUsers = await storage.getUsersByCompanyId(companyId);
+  const regularUsers = companyUsers.filter(u => 
+    u.is_active && u.role !== 'company_admin' && u.role !== 'super_admin'
+  );
+  
+  const userScores: Map<string, {
+    userId: string;
+    userName: string;
+    userEmail: string;
+    totalCompliance: number;
+    targetCount: number;
+    achievedCount: number;
+    totalCurrentValue: number;
+    totalTargetValue: number;
+    targetBreakdown: LeaderboardEntry['targetBreakdown'];
+  }> = new Map();
+  
+  // Initialize all users
+  for (const user of regularUsers) {
+    userScores.set(user.id, {
+      userId: user.id,
+      userName: user.name,
+      userEmail: user.email,
+      totalCompliance: 0,
+      targetCount: 0,
+      achievedCount: 0,
+      totalCurrentValue: 0,
+      totalTargetValue: 0,
+      targetBreakdown: []
+    });
+  }
+  
+  // Evaluate each target for each user
+  for (const target of activeTargets) {
+    // Get users who have access to this target's sheets
+    let targetUserIds: Set<string> = new Set();
+    
+    if (target.sheet_ids && target.sheet_ids.length > 0) {
+      for (const sheetId of target.sheet_ids) {
+        const sheetUsers = await storage.getSheetUsers(sheetId);
+        sheetUsers.forEach(su => targetUserIds.add(su.user_id));
+      }
+    } else {
+      regularUsers.forEach(u => targetUserIds.add(u.id));
+    }
+    
+    for (const userId of targetUserIds) {
+      const userScore = userScores.get(userId);
+      if (!userScore) continue;
+      
+      try {
+        const result = await evaluateTargetWithDateRange(target, userId, periodStart, periodEnd);
+        
+        if (result.details?.noAccess) continue;
+        
+        userScore.targetCount++;
+        userScore.totalCompliance += result.compliancePercentage;
+        userScore.totalCurrentValue += result.currentValue;
+        userScore.totalTargetValue += result.targetValue;
+        if (result.isAchieved) userScore.achievedCount++;
+        
+        userScore.targetBreakdown.push({
+          targetId: target.id,
+          targetName: target.name,
+          targetType: target.target_type,
+          compliancePercentage: result.compliancePercentage,
+          isAchieved: result.isAchieved,
+          currentValue: result.currentValue,
+          targetValue: result.targetValue
+        });
+      } catch (error) {
+        console.error(`Leaderboard: Error evaluating target ${target.id} for user ${userId}:`, error);
+      }
+    }
+  }
+  
+  // Build leaderboard entries
+  const entries: LeaderboardEntry[] = [];
+  
+  userScores.forEach((score) => {
+    if (score.targetCount === 0) return; // Skip users with no targets
+    
+    const averageCompliance = score.targetCount > 0 
+      ? Math.round((score.totalCompliance / score.targetCount) * 100) / 100
+      : 0;
+    
+    entries.push({
+      userId: score.userId,
+      userName: score.userName,
+      userEmail: score.userEmail,
+      rank: 0, // Will be set after sorting
+      previousRank: null, // Could be fetched from historical data
+      totalTargets: score.targetCount,
+      achievedTargets: score.achievedCount,
+      averageCompliance,
+      totalCurrentValue: score.totalCurrentValue,
+      totalTargetValue: score.totalTargetValue,
+      targetBreakdown: score.targetBreakdown.sort((a, b) => b.compliancePercentage - a.compliancePercentage)
+    });
+  });
+  
+  // Sort by average compliance (descending), then by achieved targets (descending)
+  entries.sort((a, b) => {
+    if (b.averageCompliance !== a.averageCompliance) {
+      return b.averageCompliance - a.averageCompliance;
+    }
+    return b.achievedTargets - a.achievedTargets;
+  });
+  
+  // Assign ranks
+  entries.forEach((entry, index) => {
+    entry.rank = index + 1;
+  });
+  
+  return {
+    entries,
+    dateRange: {
+      start: periodStart.toISOString(),
+      end: periodEnd.toISOString(),
+      preset
+    },
+    totalUsers: entries.length,
+    totalTargets: activeTargets.length
+  };
+}
