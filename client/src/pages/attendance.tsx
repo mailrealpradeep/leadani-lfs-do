@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient, ApiError } from "@/lib/queryClient";
@@ -128,7 +128,10 @@ interface TeamExitProgressResponse {
     conditions: Array<{
       targetId: string;
       targetName: string;
+      current: number;
+      target: number;
       percentage: number;
+      minPercentage: number;
       isAchieved: boolean;
     }>;
     averageProgress: number;
@@ -361,6 +364,87 @@ export default function Attendance() {
     queryKey: ["/api/attendance/team/exit-progress"],
     enabled: isAdmin,
   });
+
+  // Calculate aggregated team exit conditions for admin display
+  const aggregatedTeamExitConditions = useMemo(() => {
+    if (!isAdmin || !teamExitProgress || teamExitProgress.userProgress.length === 0) {
+      return null;
+    }
+
+    // Collect all unique conditions with their TOTAL values across all users
+    const conditionMap = new Map<string, {
+      targetId: string;
+      targetName: string;
+      minPercentage: number;
+      totals: { 
+        totalCurrent: number; 
+        totalTarget: number; 
+        achievedCount: number; 
+        userCount: number;
+      };
+    }>();
+
+    for (const user of teamExitProgress.userProgress) {
+      for (const condition of user.conditions) {
+        const existing = conditionMap.get(condition.targetId);
+        if (existing) {
+          existing.totals.totalCurrent += condition.current;
+          existing.totals.totalTarget += condition.target;
+          existing.totals.achievedCount += condition.isAchieved ? 1 : 0;
+          existing.totals.userCount += 1;
+        } else {
+          conditionMap.set(condition.targetId, {
+            targetId: condition.targetId,
+            targetName: condition.targetName,
+            minPercentage: condition.minPercentage,
+            totals: {
+              totalCurrent: condition.current,
+              totalTarget: condition.target,
+              achievedCount: condition.isAchieved ? 1 : 0,
+              userCount: 1,
+            },
+          });
+        }
+      }
+    }
+
+    // Calculate team totals and percentage for each condition
+    const aggregatedConditions = Array.from(conditionMap.values()).map(cond => {
+      const totalCurrent = cond.totals.totalCurrent;
+      const totalTarget = cond.totals.totalTarget;
+      // Calculate actual percentage from totals (not average of percentages)
+      const teamPercentage = totalTarget > 0 ? Math.round((totalCurrent / totalTarget) * 100) : 0;
+      // Condition is "achieved" for team if team percentage meets minPercentage threshold
+      const isTeamAchieved = teamPercentage >= cond.minPercentage;
+      
+      return {
+        conditionId: cond.targetId,
+        targetId: cond.targetId,
+        targetName: cond.targetName,
+        targetDescription: null,
+        current: totalCurrent, // Team total current
+        target: totalTarget,   // Team total target
+        percentage: teamPercentage, // Actual percentage from totals
+        minPercentage: cond.minPercentage,
+        isAchieved: isTeamAchieved, // Based on team percentage vs threshold
+        achievedCount: cond.totals.achievedCount, // Number of individual users who achieved
+        totalUsers: cond.totals.userCount,
+      };
+    });
+
+    const allConditionsMet = aggregatedConditions.every(c => c.isAchieved);
+    const achievedCount = aggregatedConditions.filter(c => c.isAchieved).length;
+
+    return {
+      hasTarget: true,
+      isMultiCondition: true,
+      allConditionsMet,
+      achievedCount,
+      totalConditions: aggregatedConditions.length,
+      conditions: aggregatedConditions,
+      teamSize: teamExitProgress.usersWithProgress,
+    };
+  }, [isAdmin, teamExitProgress]);
 
   // Exit conditions queries
   const { data: exitConditions = [], isLoading: loadingExitConditions } = useQuery<ExitCondition[]>({
@@ -835,7 +919,67 @@ export default function Attendance() {
                   )}
 
                   {/* Exit Target Progress - Multiple Conditions */}
-                  {hasActiveEntry && myExitProgress?.hasTarget && myExitProgress.conditions && myExitProgress.conditions.length > 0 && (
+                  {/* For admins, show team total; for regular users, show personal progress */}
+                  {/* Admins ONLY see team view - never fall through to personal view */}
+                  {isAdmin ? (
+                    aggregatedTeamExitConditions && aggregatedTeamExitConditions.conditions.length > 0 ? (
+                      <div className="py-4 border-t space-y-3" data-testid="admin-exit-requirements-section">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-muted-foreground">Team Exit Requirements</span>
+                            <Badge variant="outline" className="text-xs">
+                              {aggregatedTeamExitConditions.teamSize} users
+                            </Badge>
+                          </div>
+                          <Badge variant="secondary">
+                            {aggregatedTeamExitConditions.achievedCount}/{aggregatedTeamExitConditions.totalConditions} Met
+                          </Badge>
+                        </div>
+                        
+                        {aggregatedTeamExitConditions.conditions.map((condition) => (
+                          <div 
+                            key={condition.targetId} 
+                            className={`p-3 rounded-lg border ${
+                              condition.isAchieved 
+                                ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' 
+                                : 'bg-muted/50 border-border'
+                            }`}
+                            data-testid={`admin-exit-condition-${condition.targetId}`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                {condition.isAchieved ? (
+                                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                ) : (
+                                  <Target className="h-4 w-4 text-primary" />
+                                )}
+                                <span className="text-sm font-medium">{condition.targetName}</span>
+                              </div>
+                              <Badge variant={condition.isAchieved ? "default" : "secondary"}>
+                                {condition.current}/{condition.target}
+                              </Badge>
+                            </div>
+                            <Progress 
+                              value={Math.min(100, (condition.percentage / condition.minPercentage) * 100)} 
+                              className="h-2"
+                            />
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-xs text-muted-foreground">
+                                {condition.percentage}% / {condition.minPercentage}% required
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {condition.achievedCount}/{condition.totalUsers} users achieved
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Showing team total exit progress across {aggregatedTeamExitConditions.teamSize} users
+                        </p>
+                      </div>
+                    ) : null
+                  ) : hasActiveEntry && myExitProgress?.hasTarget && myExitProgress.conditions && myExitProgress.conditions.length > 0 ? (
                     <div className="py-4 border-t space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-muted-foreground">Exit Requirements</span>
@@ -897,7 +1041,7 @@ export default function Attendance() {
                         )}
                       </p>
                     </div>
-                  )}
+                  ) : null}
 
                   <div className="pt-4">
                     {hasActiveEntry ? (
