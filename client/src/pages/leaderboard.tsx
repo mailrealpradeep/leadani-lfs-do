@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Trophy,
   Medal,
@@ -11,511 +12,811 @@ import {
   Star,
   Users,
   Calendar,
-  ChevronRight,
-  Filter,
-  RefreshCw,
+  ChevronDown,
+  Flame,
+  Award,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import type { TargetWithDetails, User } from "@shared/schema";
+import { cn } from "@/lib/utils";
+
+interface TargetBreakdown {
+  targetId: string;
+  targetName: string;
+  targetType: string;
+  compliancePercentage: number;
+  isAchieved: boolean;
+  currentValue: number;
+  targetValue: number;
+}
 
 interface LeaderboardEntry {
   userId: string;
   userName: string;
   userEmail: string;
-  totalTargets: number;
-  achievedTargets: number;
-  averageProgress: number;
   rank: number;
   previousRank: number | null;
-  targets: {
-    targetId: string;
-    targetName: string;
-    percentage: number;
-    isAchieved: boolean;
-  }[];
+  totalTargets: number;
+  achievedTargets: number;
+  averageCompliance: number;
+  totalCurrentValue: number;
+  totalTargetValue: number;
+  targetBreakdown: TargetBreakdown[];
 }
 
-function RankBadge({ rank }: { rank: number }) {
-  if (rank === 1) {
-    return (
-      <div className="flex items-center justify-center h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900">
-        <Crown className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-      </div>
-    );
-  }
-  if (rank === 2) {
-    return (
-      <div className="flex items-center justify-center h-10 w-10 rounded-full bg-gray-100 dark:bg-gray-800">
-        <Medal className="h-5 w-5 text-gray-500" />
-      </div>
-    );
-  }
-  if (rank === 3) {
-    return (
-      <div className="flex items-center justify-center h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900">
-        <Medal className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-      </div>
-    );
-  }
+interface LeaderboardResult {
+  entries: LeaderboardEntry[];
+  dateRange: {
+    start: string;
+    end: string;
+    preset: string;
+  };
+  totalUsers: number;
+  totalTargets: number;
+}
+
+type DatePreset = 'today' | 'this_week' | 'this_month' | 'last_7_days' | 'last_30_days' | 'custom';
+
+const datePresets: { value: DatePreset; label: string; icon: any }[] = [
+  { value: 'today', label: 'Today', icon: Zap },
+  { value: 'this_week', label: 'This Week', icon: Calendar },
+  { value: 'this_month', label: 'This Month', icon: Calendar },
+  { value: 'last_7_days', label: 'Last 7 Days', icon: Calendar },
+  { value: 'last_30_days', label: 'Last 30 Days', icon: Calendar },
+];
+
+function CircularProgress({ 
+  value, 
+  size = 80, 
+  strokeWidth = 8,
+  showLabel = true,
+  className = "",
+  delay = 0 
+}: { 
+  value: number; 
+  size?: number; 
+  strokeWidth?: number;
+  showLabel?: boolean;
+  className?: string;
+  delay?: number;
+}) {
+  const [animatedValue, setAnimatedValue] = useState(0);
+  const radius = (size - strokeWidth) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const offset = circumference - (animatedValue / 100) * circumference;
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnimatedValue(Math.min(value, 100));
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+
+  const getColor = () => {
+    if (value >= 100) return 'stroke-green-500';
+    if (value >= 75) return 'stroke-emerald-500';
+    if (value >= 50) return 'stroke-amber-500';
+    return 'stroke-orange-500';
+  };
+
   return (
-    <div className="flex items-center justify-center h-10 w-10 rounded-full border">
-      <span className="text-lg font-semibold text-muted-foreground">{rank}</span>
+    <div className={cn("relative inline-flex items-center justify-center", className)}>
+      <svg width={size} height={size} className="transform -rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={strokeWidth}
+          fill="none"
+          className="stroke-muted/30"
+        />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 1, ease: "easeOut", delay: delay / 1000 }}
+          strokeLinecap="round"
+          className={getColor()}
+        />
+      </svg>
+      {showLabel && (
+        <motion.div 
+          className="absolute flex flex-col items-center"
+          initial={{ opacity: 0, scale: 0.5 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: delay / 1000 + 0.5, duration: 0.3 }}
+        >
+          <span className="text-lg font-bold">{Math.round(value)}%</span>
+        </motion.div>
+      )}
     </div>
   );
 }
 
 function RankChange({ current, previous }: { current: number; previous: number | null }) {
   if (previous === null) {
-    return <Badge variant="outline">New</Badge>;
+    return (
+      <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800">
+        <Sparkles className="h-3 w-3 mr-1" />
+        New
+      </Badge>
+    );
   }
   const diff = previous - current;
   if (diff === 0) {
-    return <span className="text-muted-foreground">—</span>;
+    return <span className="text-muted-foreground text-sm">—</span>;
   }
   if (diff > 0) {
     return (
-      <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+      <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400 border-0">
         <TrendingUp className="h-3 w-3 mr-1" />
         +{diff}
       </Badge>
     );
   }
   return (
-    <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+    <Badge className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400 border-0">
       <TrendingDown className="h-3 w-3 mr-1" />
       {diff}
     </Badge>
   );
 }
 
-function TopPerformersCards({ entries }: { entries: LeaderboardEntry[] }) {
+function PodiumCard({ 
+  entry, 
+  place, 
+  isCurrentUser 
+}: { 
+  entry: LeaderboardEntry; 
+  place: 1 | 2 | 3; 
+  isCurrentUser: boolean;
+}) {
+  const placeConfig = {
+    1: {
+      height: 'h-48',
+      order: 'order-2',
+      gradient: 'from-yellow-400 via-amber-500 to-yellow-600',
+      bgGradient: 'from-yellow-50 to-amber-50 dark:from-yellow-950/30 dark:to-amber-950/30',
+      borderColor: 'border-yellow-300 dark:border-yellow-600',
+      icon: Crown,
+      iconColor: 'text-yellow-500',
+      label: '1st',
+      delay: 0.2,
+    },
+    2: {
+      height: 'h-40',
+      order: 'order-1',
+      gradient: 'from-gray-300 via-gray-400 to-gray-500',
+      bgGradient: 'from-gray-50 to-slate-50 dark:from-gray-900/30 dark:to-slate-900/30',
+      borderColor: 'border-gray-300 dark:border-gray-600',
+      icon: Medal,
+      iconColor: 'text-gray-400',
+      label: '2nd',
+      delay: 0.4,
+    },
+    3: {
+      height: 'h-32',
+      order: 'order-3',
+      gradient: 'from-orange-400 via-amber-600 to-orange-700',
+      bgGradient: 'from-orange-50 to-amber-50 dark:from-orange-950/30 dark:to-amber-950/30',
+      borderColor: 'border-orange-300 dark:border-orange-600',
+      icon: Medal,
+      iconColor: 'text-orange-500',
+      label: '3rd',
+      delay: 0.6,
+    },
+  };
+
+  const config = placeConfig[place];
+  const IconComponent = config.icon;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 50, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ 
+        delay: config.delay, 
+        duration: 0.5, 
+        type: "spring",
+        stiffness: 200 
+      }}
+      className={cn("flex flex-col items-center", config.order)}
+      data-testid={`podium-place-${place}`}
+    >
+      <motion.div
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        transition={{ delay: config.delay + 0.3, type: "spring", stiffness: 300 }}
+        className={cn(
+          "relative mb-3 rounded-full p-1",
+          `bg-gradient-to-br ${config.gradient}`
+        )}
+      >
+        <Avatar className={cn(
+          "border-4 border-background",
+          place === 1 ? "h-24 w-24" : place === 2 ? "h-20 w-20" : "h-16 w-16"
+        )}>
+          <AvatarFallback className={cn(
+            "text-xl font-bold",
+            `bg-gradient-to-br ${config.bgGradient}`
+          )}>
+            {entry.userName.substring(0, 2).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <motion.div
+          initial={{ scale: 0, rotate: -180 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ delay: config.delay + 0.5, type: "spring", stiffness: 400 }}
+          className={cn(
+            "absolute -top-1 -right-1 rounded-full p-1.5",
+            `bg-gradient-to-br ${config.gradient}`,
+            "shadow-lg"
+          )}
+        >
+          <IconComponent className={cn("h-4 w-4 text-white")} />
+        </motion.div>
+        {isCurrentUser && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: config.delay + 0.7 }}
+            className="absolute -bottom-1 left-1/2 -translate-x-1/2"
+          >
+            <Badge className="bg-primary text-primary-foreground text-[10px] px-1.5">
+              You
+            </Badge>
+          </motion.div>
+        )}
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: config.delay + 0.4 }}
+        className="text-center mb-2"
+      >
+        <p className="font-semibold text-sm truncate max-w-[120px]">{entry.userName}</p>
+        <p className="text-xs text-muted-foreground truncate max-w-[120px]">{entry.userEmail}</p>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: config.delay + 0.5 }}
+        className={cn(
+          "w-28 flex flex-col items-center justify-end rounded-t-xl border-2",
+          config.height,
+          config.borderColor,
+          `bg-gradient-to-t ${config.bgGradient}`
+        )}
+      >
+        <div className="py-3 text-center">
+          <CircularProgress 
+            value={entry.averageCompliance} 
+            size={56} 
+            strokeWidth={5}
+            delay={config.delay * 1000 + 600}
+          />
+          <div className="mt-2 flex items-center justify-center gap-1">
+            <Trophy className="h-3 w-3 text-amber-500" />
+            <span className="text-xs font-medium">
+              {entry.achievedTargets}/{entry.totalTargets}
+            </span>
+          </div>
+        </div>
+        <div className={cn(
+          "w-full py-1.5 text-center font-bold text-white rounded-t-lg",
+          `bg-gradient-to-r ${config.gradient}`
+        )}>
+          {config.label}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function Podium({ entries, currentUserId }: { entries: LeaderboardEntry[]; currentUserId?: string }) {
   const top3 = entries.slice(0, 3);
   
   if (top3.length === 0) return null;
 
+  const getEntry = (rank: 1 | 2 | 3) => top3.find(e => e.rank === rank);
+
   return (
-    <div className="grid gap-4 md:grid-cols-3">
-      {top3.map((entry, index) => (
-        <Card
-          key={entry.userId}
-          className={`relative overflow-hidden ${
-            index === 0
-              ? "border-yellow-300 dark:border-yellow-600"
-              : index === 1
-              ? "border-gray-300 dark:border-gray-600"
-              : "border-orange-300 dark:border-orange-600"
-          }`}
-          data-testid={`top-performer-${index + 1}`}
-        >
-          {index === 0 && (
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-yellow-400 to-yellow-600" />
-          )}
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-3">
-              <RankBadge rank={index + 1} />
-              <div className="flex-1 min-w-0">
-                <CardTitle className="text-lg truncate">{entry.userName}</CardTitle>
-                <CardDescription className="truncate">{entry.userEmail}</CardDescription>
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="flex justify-center items-end gap-4 py-8"
+      data-testid="podium-section"
+    >
+      {getEntry(2) && (
+        <PodiumCard 
+          entry={getEntry(2)!} 
+          place={2} 
+          isCurrentUser={getEntry(2)!.userId === currentUserId}
+        />
+      )}
+      {getEntry(1) && (
+        <PodiumCard 
+          entry={getEntry(1)!} 
+          place={1} 
+          isCurrentUser={getEntry(1)!.userId === currentUserId}
+        />
+      )}
+      {getEntry(3) && (
+        <PodiumCard 
+          entry={getEntry(3)!} 
+          place={3} 
+          isCurrentUser={getEntry(3)!.userId === currentUserId}
+        />
+      )}
+    </motion.div>
+  );
+}
+
+function LeaderboardRow({ 
+  entry, 
+  index, 
+  isCurrentUser,
+  isExpanded,
+  onToggle,
+}: { 
+  entry: LeaderboardEntry; 
+  index: number;
+  isCurrentUser: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const getRankBadge = (rank: number) => {
+    if (rank === 1) return <Crown className="h-5 w-5 text-yellow-500" />;
+    if (rank === 2) return <Medal className="h-5 w-5 text-gray-400" />;
+    if (rank === 3) return <Medal className="h-5 w-5 text-orange-500" />;
+    return <span className="text-lg font-bold text-muted-foreground">{rank}</span>;
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.05 }}
+      data-testid={`leaderboard-row-${entry.userId}`}
+    >
+      <Collapsible open={isExpanded} onOpenChange={onToggle}>
+        <CollapsibleTrigger asChild>
+          <div 
+            className={cn(
+              "flex items-center gap-4 p-4 rounded-lg cursor-pointer transition-all",
+              "hover:bg-muted/50",
+              isCurrentUser && "bg-primary/5 border border-primary/20",
+              isExpanded && "bg-muted/30"
+            )}
+          >
+            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted/50">
+              {getRankBadge(entry.rank)}
+            </div>
+
+            <Avatar className="h-10 w-10 border-2 border-muted">
+              <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/20 font-semibold">
+                {entry.userName.substring(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium truncate">{entry.userName}</span>
+                {isCurrentUser && (
+                  <Badge variant="outline" className="text-xs">You</Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground truncate">{entry.userEmail}</p>
+            </div>
+
+            <div className="hidden sm:flex items-center gap-4">
+              <div className="text-center">
+                <div className="flex items-center gap-1 text-sm font-medium">
+                  <Trophy className="h-4 w-4 text-amber-500" />
+                  <span>{entry.achievedTargets}/{entry.totalTargets}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Achieved</p>
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Progress</span>
-              <span className="text-2xl font-bold">{Math.round(entry.averageProgress)}%</span>
-            </div>
-            <Progress value={entry.averageProgress} className="h-2" />
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">
-                <Trophy className="h-4 w-4 inline mr-1" />
-                {entry.achievedTargets}/{entry.totalTargets} achieved
-              </span>
+
+            <CircularProgress 
+              value={entry.averageCompliance} 
+              size={48} 
+              strokeWidth={4}
+              delay={index * 50}
+            />
+
+            <div className="hidden sm:block">
               <RankChange current={entry.rank} previous={entry.previousRank} />
             </div>
-          </CardContent>
-        </Card>
+
+            <motion.div
+              animate={{ rotate: isExpanded ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </motion.div>
+          </div>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="ml-16 mr-4 mb-4 p-4 rounded-lg bg-muted/30 border"
+          >
+            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+              <Target className="h-4 w-4" />
+              Target Breakdown
+            </h4>
+            <div className="grid gap-2">
+              {entry.targetBreakdown.map((target, i) => (
+                <motion.div
+                  key={target.targetId}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="flex items-center justify-between p-2 rounded bg-background/50"
+                >
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {target.isAchieved ? (
+                      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30">
+                        <Trophy className="h-3 w-3 text-green-600 dark:text-green-400" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-muted">
+                        <Target className="h-3 w-3 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{target.targetName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {target.currentValue} / {target.targetValue}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge 
+                    variant={target.isAchieved ? "default" : "outline"}
+                    className={cn(
+                      target.isAchieved && "bg-green-600"
+                    )}
+                  >
+                    {Math.round(target.compliancePercentage)}%
+                  </Badge>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        </CollapsibleContent>
+      </Collapsible>
+    </motion.div>
+  );
+}
+
+function DateFilterButtons({ 
+  selected, 
+  onSelect 
+}: { 
+  selected: DatePreset; 
+  onSelect: (preset: DatePreset) => void;
+}) {
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-wrap gap-2"
+      data-testid="date-filters"
+    >
+      {datePresets.map((preset) => {
+        const Icon = preset.icon;
+        const isActive = selected === preset.value;
+        return (
+          <motion.div
+            key={preset.value}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            <Button
+              variant={isActive ? "default" : "outline"}
+              size="sm"
+              onClick={() => onSelect(preset.value)}
+              className={cn(
+                "gap-1.5 transition-all",
+                isActive && "shadow-md"
+              )}
+              data-testid={`filter-${preset.value}`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {preset.label}
+            </Button>
+          </motion.div>
+        );
+      })}
+    </motion.div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-8">
+      <div className="flex justify-center items-end gap-4 py-8">
+        <Skeleton className="w-28 h-40 rounded-t-xl" />
+        <Skeleton className="w-28 h-48 rounded-t-xl" />
+        <Skeleton className="w-28 h-32 rounded-t-xl" />
+      </div>
+      <div className="space-y-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <Skeleton key={i} className="h-20 w-full rounded-lg" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center justify-center py-16"
+    >
+      <motion.div
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+        className="relative"
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-yellow-400/20 to-amber-500/20 rounded-full blur-xl" />
+        <div className="relative p-6 rounded-full bg-gradient-to-br from-yellow-50 to-amber-50 dark:from-yellow-950/30 dark:to-amber-950/30 border border-yellow-200 dark:border-yellow-800">
+          <Trophy className="h-12 w-12 text-yellow-500" />
+        </div>
+      </motion.div>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="mt-6 text-center"
+      >
+        <h3 className="text-xl font-semibold">No Rankings Yet</h3>
+        <p className="text-muted-foreground mt-2 max-w-sm">
+          Working targets need to be created and assigned to team members to see the leaderboard rankings.
+        </p>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function StatsCards({ data }: { data: LeaderboardResult }) {
+  const stats = [
+    {
+      label: "Total Participants",
+      value: data.totalUsers,
+      icon: Users,
+      gradient: "from-blue-500 to-indigo-600",
+    },
+    {
+      label: "Active Targets",
+      value: data.totalTargets,
+      icon: Target,
+      gradient: "from-purple-500 to-pink-600",
+    },
+    {
+      label: "Top Performer",
+      value: data.entries[0]?.averageCompliance ? `${Math.round(data.entries[0].averageCompliance)}%` : "—",
+      icon: Flame,
+      gradient: "from-orange-500 to-red-600",
+    },
+    {
+      label: "Perfect Scores",
+      value: data.entries.filter(e => e.averageCompliance >= 100).length,
+      icon: Award,
+      gradient: "from-emerald-500 to-green-600",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {stats.map((stat, index) => (
+        <motion.div
+          key={stat.label}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.1 }}
+        >
+          <Card className="overflow-hidden">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "flex items-center justify-center w-10 h-10 rounded-lg",
+                  `bg-gradient-to-br ${stat.gradient}`
+                )}>
+                  <stat.icon className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{stat.value}</p>
+                  <p className="text-xs text-muted-foreground">{stat.label}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       ))}
     </div>
   );
 }
 
-function LeaderboardTable({ entries, currentUserId }: { entries: LeaderboardEntry[]; currentUserId?: string }) {
-  return (
-    <div className="rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-16">Rank</TableHead>
-            <TableHead>User</TableHead>
-            <TableHead className="text-center">Targets</TableHead>
-            <TableHead className="text-center">Achieved</TableHead>
-            <TableHead>Progress</TableHead>
-            <TableHead className="text-center">Change</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {entries.map((entry) => (
-            <TableRow
-              key={entry.userId}
-              className={entry.userId === currentUserId ? "bg-muted/50" : ""}
-              data-testid={`leaderboard-row-${entry.userId}`}
-            >
-              <TableCell>
-                <RankBadge rank={entry.rank} />
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback>
-                      {entry.userName.substring(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <div className="font-medium">{entry.userName}</div>
-                    <div className="text-sm text-muted-foreground">{entry.userEmail}</div>
-                  </div>
-                  {entry.userId === currentUserId && (
-                    <Badge variant="outline" className="ml-2">You</Badge>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell className="text-center">
-                <Badge variant="outline">{entry.totalTargets}</Badge>
-              </TableCell>
-              <TableCell className="text-center">
-                <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                  {entry.achievedTargets}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <div className="w-full max-w-32 space-y-1">
-                  <Progress value={entry.averageProgress} className="h-2" />
-                  <span className="text-xs text-muted-foreground">
-                    {Math.round(entry.averageProgress)}%
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell className="text-center">
-                <RankChange current={entry.rank} previous={entry.previousRank} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function TargetLeaderboard({ targetId }: { targetId: string }) {
-  const { data: entries = [], isLoading } = useQuery<LeaderboardEntry[]>({
-    queryKey: ["/api/targets", targetId, "leaderboard"],
-    enabled: !!targetId,
-  });
-
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-16 w-full" />
-        ))}
-      </div>
-    );
-  }
-
-  if (entries.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        No participants for this target yet.
-      </div>
-    );
-  }
-
-  return <LeaderboardTable entries={entries} />;
-}
-
 export default function Leaderboard() {
-  const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
-  const isAdmin = isCompanyAdmin || isSuperAdmin;
-  const [selectedTarget, setSelectedTarget] = useState<string>("all");
-  const [timeframe, setTimeframe] = useState<string>("current");
-  const { toast } = useToast();
+  const { user } = useAuth();
+  const [datePreset, setDatePreset] = useState<DatePreset>('today');
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  const { data: targets = [] } = useQuery<TargetWithDetails[]>({
-    queryKey: ["/api/targets"],
-    enabled: isAdmin,
-  });
-
-  const { data: users = [] } = useQuery<User[]>({
-    queryKey: ["/api/admin/company/users"],
-    enabled: isAdmin,
-  });
-
-  const { data: myProgress = [] } = useQuery<any[]>({
-    queryKey: ["/api/targets/my/progress"],
-  });
-
-  const refreshMutation = useMutation({
-    mutationFn: async () => {
-      if (selectedTarget !== "all") {
-        return apiRequest("POST", `/api/targets/${selectedTarget}/recalculate-all`);
-      }
-      const activeTargets = targets.filter(t => t.status === "active");
-      await Promise.all(
-        activeTargets.map(t => apiRequest("POST", `/api/targets/${t.id}/recalculate-all`))
-      );
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/targets"] });
-      toast({ title: "Leaderboard refreshed" });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error refreshing leaderboard",
-        description: error.message,
-        variant: "destructive",
+  const { data, isLoading, error } = useQuery<LeaderboardResult>({
+    queryKey: ['/api/working-targets/leaderboard', datePreset],
+    queryFn: async () => {
+      const response = await fetch(`/api/working-targets/leaderboard?preset=${datePreset}`, {
+        credentials: 'include',
       });
+      if (!response.ok) throw new Error('Failed to fetch leaderboard');
+      return response.json();
     },
+    refetchInterval: 60000,
   });
 
-  const buildLeaderboardData = (): LeaderboardEntry[] => {
-    if (!isAdmin || !users.length) {
-      if (myProgress.length === 0) return [];
-      
-      return [{
-        userId: user?.id || "",
-        userName: user?.name || "You",
-        userEmail: user?.email || "",
-        totalTargets: myProgress.length,
-        achievedTargets: myProgress.filter((p: any) => p.isFullyAchieved).length,
-        averageProgress: myProgress.reduce((sum: number, p: any) => sum + p.overallPercentage, 0) / myProgress.length,
-        rank: 1,
-        previousRank: null,
-        targets: myProgress.map((p: any) => ({
-          targetId: p.target.id,
-          targetName: p.target.name,
-          percentage: p.overallPercentage,
-          isAchieved: p.isFullyAchieved,
-        })),
-      }];
+  const toggleRow = (userId: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(userId)) {
+      newExpanded.delete(userId);
+    } else {
+      newExpanded.add(userId);
     }
-
-    const activeTargets = selectedTarget === "all"
-      ? targets.filter(t => t.status === "active")
-      : targets.filter(t => t.id === selectedTarget);
-
-    const userEntries = users
-      .filter(u => u.is_active)
-      .map(u => {
-        const userTargets = activeTargets.filter(t =>
-          t.assignment_type === "all_users" ||
-          t.assigned_users?.some(au => au.id === u.id)
-        );
-
-        const totalTargets = userTargets.length;
-        const achievedTargets = 0;
-        const averageProgress = 0;
-
-        return {
-          userId: u.id,
-          userName: u.name,
-          userEmail: u.email,
-          totalTargets,
-          achievedTargets,
-          averageProgress,
-          rank: 0,
-          previousRank: null,
-          targets: userTargets.map(t => ({
-            targetId: t.id,
-            targetName: t.name,
-            percentage: 0,
-            isAchieved: false,
-          })),
-        };
-      })
-      .filter(e => e.totalTargets > 0)
-      .sort((a, b) => b.averageProgress - a.averageProgress)
-      .map((entry, index) => ({
-        ...entry,
-        rank: index + 1,
-      }));
-
-    return userEntries;
+    setExpandedRows(newExpanded);
   };
 
-  const leaderboardData = buildLeaderboardData();
+  const handlePresetChange = (preset: DatePreset) => {
+    setDatePreset(preset);
+    setExpandedRows(new Set());
+  };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="min-h-screen p-4 md:p-6 space-y-6 overflow-auto">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+      >
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Trophy className="h-6 w-6 text-yellow-500" />
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
+            <motion.div
+              initial={{ rotate: -20, scale: 0 }}
+              animate={{ rotate: 0, scale: 1 }}
+              transition={{ type: "spring", stiffness: 300 }}
+              className="p-2 rounded-xl bg-gradient-to-br from-yellow-400 to-amber-500 text-white shadow-lg"
+            >
+              <Trophy className="h-6 w-6" />
+            </motion.div>
             Leaderboard
           </h1>
-          <p className="text-muted-foreground mt-1">
-            Track performance and celebrate achievements
+          <p className="text-muted-foreground mt-1 ml-14">
+            Track team performance and celebrate achievements
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {isAdmin && targets.length > 0 && (
-            <Select value={selectedTarget} onValueChange={setSelectedTarget}>
-              <SelectTrigger className="w-48" data-testid="select-target-filter">
-                <SelectValue placeholder="Filter by target" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Targets</SelectItem>
-                {targets
-                  .filter(t => t.status === "active")
-                  .map((target) => (
-                    <SelectItem key={target.id} value={target.id}>
-                      {target.name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Select value={timeframe} onValueChange={setTimeframe}>
-            <SelectTrigger className="w-36" data-testid="select-timeframe">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="current">Current Period</SelectItem>
-              <SelectItem value="weekly">This Week</SelectItem>
-              <SelectItem value="monthly">This Month</SelectItem>
-              <SelectItem value="all_time">All Time</SelectItem>
-            </SelectContent>
-          </Select>
-          {isAdmin && (
-            <Button
-              variant="outline"
-              onClick={() => refreshMutation.mutate()}
-              disabled={refreshMutation.isPending}
-              data-testid="refresh-leaderboard"
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-          )}
-        </div>
-      </div>
+        
+        <DateFilterButtons selected={datePreset} onSelect={handlePresetChange} />
+      </motion.div>
 
-      {leaderboardData.length === 0 ? (
-        <Card className="p-12 text-center">
-          <div className="flex flex-col items-center gap-4">
-            <Trophy className="h-16 w-16 text-muted-foreground" />
-            <div>
-              <h3 className="font-semibold text-lg">No leaderboard data yet</h3>
-              <p className="text-muted-foreground">
-                {isAdmin
-                  ? "Create targets and assign users to see the leaderboard"
-                  : "You don't have any assigned targets yet"}
-              </p>
-            </div>
-          </div>
-        </Card>
-      ) : (
-        <>
-          <TopPerformersCards entries={leaderboardData} />
-
-          <Tabs defaultValue="ranking" className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="ranking" data-testid="tab-ranking">
-                <Users className="h-4 w-4 mr-2" />
-                Rankings
-              </TabsTrigger>
-              <TabsTrigger value="my-progress" data-testid="tab-my-progress">
-                <Target className="h-4 w-4 mr-2" />
-                My Progress
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="ranking">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Team Rankings</CardTitle>
-                  <CardDescription>
-                    Performance ranking based on target completion
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <LeaderboardTable entries={leaderboardData} currentUserId={user?.id} />
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="my-progress">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Your Target Progress</CardTitle>
-                  <CardDescription>
-                    Detailed view of your performance on assigned targets
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {myProgress.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      You don't have any targets assigned.
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {myProgress.map((progress: any) => (
-                        <div
-                          key={progress.target.id}
-                          className="p-4 rounded-lg border hover-elevate"
-                        >
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                              {progress.isFullyAchieved ? (
-                                <Trophy className="h-5 w-5 text-yellow-500" />
-                              ) : (
-                                <Target className="h-5 w-5 text-muted-foreground" />
-                              )}
-                              <span className="font-medium">{progress.target.name}</span>
-                            </div>
-                            <Badge variant={progress.isFullyAchieved ? "default" : "outline"}>
-                              {progress.overallPercentage}%
-                            </Badge>
-                          </div>
-                          <Progress value={progress.overallPercentage} className="h-2" />
-                          <div className="mt-2 text-sm text-muted-foreground">
-                            {progress.goals.filter((g: any) => g.isAchieved).length} of{" "}
-                            {progress.goals.length} goals achieved
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </>
+      {data && data.entries.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+        >
+          <StatsCards data={data} />
+        </motion.div>
       )}
+
+      <AnimatePresence mode="wait">
+        {isLoading ? (
+          <motion.div
+            key="loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <Card>
+              <CardContent className="p-6">
+                <LoadingSkeleton />
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : error ? (
+          <motion.div
+            key="error"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <Card className="border-destructive">
+              <CardContent className="p-6 text-center text-destructive">
+                Failed to load leaderboard. Please try again.
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : !data || data.entries.length === 0 ? (
+          <motion.div
+            key="empty"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <Card>
+              <CardContent className="p-6">
+                <EmptyState />
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="space-y-6"
+          >
+            <Card className="overflow-hidden">
+              <div className="bg-gradient-to-r from-yellow-50/50 via-amber-50/30 to-orange-50/50 dark:from-yellow-950/20 dark:via-amber-950/10 dark:to-orange-950/20">
+                <Podium entries={data.entries} currentUserId={user?.id} />
+              </div>
+              <Separator />
+              <CardHeader className="pb-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Full Rankings
+                    </CardTitle>
+                    <CardDescription>
+                      {format(new Date(data.dateRange.start), "MMM d")} — {format(new Date(data.dateRange.end), "MMM d, yyyy")}
+                    </CardDescription>
+                  </div>
+                  <Badge variant="secondary" className="gap-1">
+                    <Users className="h-3 w-3" />
+                    {data.totalUsers} participants
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <div className="space-y-2">
+                  {data.entries.map((entry, index) => (
+                    <LeaderboardRow
+                      key={entry.userId}
+                      entry={entry}
+                      index={index}
+                      isCurrentUser={entry.userId === user?.id}
+                      isExpanded={expandedRows.has(entry.userId)}
+                      onToggle={() => toggleRow(entry.userId)}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
