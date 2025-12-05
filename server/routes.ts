@@ -1770,6 +1770,192 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================================================
+  // USER-SHEET ASSIGNMENTS OVERVIEW (New Simplified Interface)
+  // ============================================================================
+  
+  // Get all users with their sheet assignments - user-centric view
+  app.get("/api/admin/assignments", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+      
+      // Get all users in company
+      const users = await storage.getUsersByCompanyId(req.companyId);
+      
+      // Get all sheets in company
+      const sheets = await storage.getSheetsByCompanyId(req.companyId);
+      const activeSheets = sheets.filter(s => !s.deleted_at);
+      
+      // Build a map of sheet assignments per user
+      const assignments = await Promise.all(
+        users.map(async (user) => {
+          const userSheets = await storage.getSheetsByUserId(user.id);
+          
+          // Get role for each sheet
+          const sheetAssignments = await Promise.all(
+            userSheets.map(async (sheet) => {
+              const sheetUser = await storage.getSheetUser(sheet.id, user.id);
+              return {
+                sheet_id: sheet.id,
+                sheet_name: sheet.name,
+                role: sheetUser?.role || "viewer"
+              };
+            })
+          );
+          
+          return {
+            user_id: user.id,
+            user_name: user.name,
+            user_email: user.email,
+            user_role: user.role,
+            sheets: sheetAssignments
+          };
+        })
+      );
+      
+      res.json({
+        users: assignments,
+        available_sheets: activeSheets.map(s => ({ id: s.id, name: s.name }))
+      });
+    } catch (error: any) {
+      console.error("Get assignments error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Add or remove a sheet assignment for a user
+  app.post("/api/admin/assignments/:userId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const { sheet_id, action, role = "editor" } = req.body;
+      
+      if (!sheet_id) {
+        return res.status(400).json({ error: "sheet_id is required" });
+      }
+      
+      if (!action || !["add", "remove"].includes(action)) {
+        return res.status(400).json({ error: "action must be 'add' or 'remove'" });
+      }
+      
+      // Verify user exists and belongs to company
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.company_id !== req.companyId) {
+        return res.status(403).json({ error: "User must belong to your company" });
+      }
+      
+      // Verify sheet exists and belongs to company
+      const sheet = await storage.getSheet(sheet_id);
+      if (!sheet || sheet.deleted_at) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      if (sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Sheet must belong to your company" });
+      }
+      
+      if (action === "add") {
+        // Check if already assigned
+        const existing = await storage.getSheetUser(sheet_id, userId);
+        if (existing) {
+          return res.status(400).json({ error: "User is already assigned to this sheet" });
+        }
+        
+        // Create assignment
+        const sheetUser = await storage.createSheetUser({
+          sheet_id,
+          user_id: userId,
+          role: role || "editor",
+        });
+        
+        // Audit log
+        await storage.createAuditLog({
+          user_id: req.userId!,
+          company_id: req.companyId!,
+          action: "create",
+          model: "sheet_user",
+          model_id: sheetUser.id,
+          payload: { sheet_id, assigned_user_id: userId, role },
+        });
+        
+        res.status(201).json({ success: true, action: "added", sheet_id, user_id: userId });
+      } else {
+        // Remove assignment
+        const sheetUser = await storage.getSheetUser(sheet_id, userId);
+        if (!sheetUser) {
+          return res.status(404).json({ error: "User is not assigned to this sheet" });
+        }
+        
+        await storage.deleteSheetUser(sheetUser.id);
+        
+        // Audit log
+        await storage.createAuditLog({
+          user_id: req.userId!,
+          company_id: req.companyId!,
+          action: "delete",
+          model: "sheet_user",
+          model_id: sheetUser.id,
+          payload: { sheet_id, removed_user_id: userId },
+        });
+        
+        res.json({ success: true, action: "removed", sheet_id, user_id: userId });
+      }
+    } catch (error: any) {
+      console.error("Update assignment error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Update role for a user-sheet assignment
+  app.patch("/api/admin/assignments/:userId/:sheetId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { userId, sheetId } = req.params;
+      const { role } = req.body;
+      
+      if (!role || !["viewer", "editor"].includes(role)) {
+        return res.status(400).json({ error: "Role must be 'viewer' or 'editor'" });
+      }
+      
+      // Verify user exists and belongs to company
+      const user = await storage.getUser(userId);
+      if (!user || user.company_id !== req.companyId) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Verify sheet exists and belongs to company
+      const sheet = await storage.getSheet(sheetId);
+      if (!sheet || sheet.deleted_at || sheet.company_id !== req.companyId) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+      
+      // Get and update assignment
+      const sheetUser = await storage.getSheetUser(sheetId, userId);
+      if (!sheetUser) {
+        return res.status(404).json({ error: "Assignment not found" });
+      }
+      
+      await storage.updateSheetUserRole(sheetUser.id, role);
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "update",
+        model: "sheet_user",
+        model_id: sheetUser.id,
+        payload: { sheet_id: sheetId, user_id: userId, old_role: sheetUser.role, new_role: role },
+      });
+      
+      res.json({ success: true, sheet_id: sheetId, user_id: userId, role });
+    } catch (error: any) {
+      console.error("Update role error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       // Company admins can only see users in their company
