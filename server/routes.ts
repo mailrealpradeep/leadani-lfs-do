@@ -9487,7 +9487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         try {
-          const result = await evaluateWorkingTarget(target, userId);
+          const result = await evaluateWorkingTarget(target, userId, { userOnlyLeads: true });
           
           // Guard against invalid evaluator results
           if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {
@@ -9533,7 +9533,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           // Dynamically import the evaluator
           const { evaluateWorkingTarget } = await import("./working-target-evaluator");
-          const result = await evaluateWorkingTarget(target, userId);
+          const result = await evaluateWorkingTarget(target, userId, { userOnlyLeads: true });
           
           // Guard against invalid evaluator results - block exit with actionable message
           if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {
@@ -10244,7 +10244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!target || !target.is_active) continue;
           
           try {
-            const result = await evaluateWorkingTarget(target, req.userId!);
+            const result = await evaluateWorkingTarget(target, req.userId!, { userOnlyLeads: true });
             const percentage = Math.round(result.compliancePercentage ?? 0);
             const meetsThreshold = percentage >= condition.min_percentage;
             
@@ -10288,7 +10288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { evaluateWorkingTarget } = await import("./working-target-evaluator");
-      const result = await evaluateWorkingTarget(target, req.userId!);
+      const result = await evaluateWorkingTarget(target, req.userId!, { userOnlyLeads: true });
       
       // Guard against null/undefined values from evaluator
       if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {

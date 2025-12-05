@@ -62,7 +62,8 @@ async function evaluateFixedTarget(
   target: WorkingTargetRecord,
   userId: string,
   periodStart: Date,
-  periodEnd: Date
+  periodEnd: Date,
+  options: { userOnlyLeads?: boolean } = {}
 ): Promise<EvaluationResult> {
   const config = (target.config as { type: 'fixed'; config: FixedTargetConfig }).config;
   const metric = config.metric;
@@ -131,7 +132,8 @@ async function evaluateSingleColumnTarget(
   target: WorkingTargetRecord,
   userId: string,
   periodStart: Date,
-  periodEnd: Date
+  periodEnd: Date,
+  options: { userOnlyLeads?: boolean } = {}
 ): Promise<EvaluationResult> {
   const config = (target.config as { type: 'single_column'; config: SingleColumnTargetConfig }).config;
   const { column_id, operator, value, target_percentage = 100 } = config;
@@ -156,14 +158,18 @@ async function evaluateSingleColumnTarget(
     };
   }
   
+  const whereConditions = [
+    inArray(dbSchema.leads.sheet_id, sheetIds),
+    sql`${dbSchema.leads.deleted_at} IS NULL`
+  ];
+  
+  if (options.userOnlyLeads) {
+    whereConditions.push(eq(dbSchema.leads.owner_user_id, userId));
+  }
+  
   const allLeads = await db.select()
     .from(dbSchema.leads)
-    .where(
-      and(
-        inArray(dbSchema.leads.sheet_id, sheetIds),
-        sql`${dbSchema.leads.deleted_at} IS NULL`
-      )
-    );
+    .where(and(...whereConditions));
   
   if (allLeads.length === 0) {
     return {
@@ -233,7 +239,8 @@ async function evaluateCompareColumnsTarget(
   target: WorkingTargetRecord,
   userId: string,
   periodStart: Date,
-  periodEnd: Date
+  periodEnd: Date,
+  options: { userOnlyLeads?: boolean } = {}
 ): Promise<EvaluationResult> {
   const config = (target.config as { type: 'compare_columns'; config: CompareColumnsTargetConfig }).config;
   const { column_id, from_value, to_value, result_type, target_value } = config;
@@ -323,20 +330,25 @@ async function evaluateCompareColumnsTarget(
   };
 }
 
+export interface EvaluateOptions {
+  userOnlyLeads?: boolean;
+}
+
 export async function evaluateWorkingTarget(
   target: WorkingTargetRecord,
-  userId: string
+  userId: string,
+  options: EvaluateOptions = {}
 ): Promise<EvaluationResult> {
   const { periodStart, periodEnd } = await getPeriodBoundaries(target.company_id, target.period_type);
   
   const targetType = target.target_type;
   
   if (targetType === 'fixed') {
-    return evaluateFixedTarget(target, userId, periodStart, periodEnd);
+    return evaluateFixedTarget(target, userId, periodStart, periodEnd, options);
   } else if (targetType === 'single_column') {
-    return evaluateSingleColumnTarget(target, userId, periodStart, periodEnd);
+    return evaluateSingleColumnTarget(target, userId, periodStart, periodEnd, options);
   } else if (targetType === 'compare_columns') {
-    return evaluateCompareColumnsTarget(target, userId, periodStart, periodEnd);
+    return evaluateCompareColumnsTarget(target, userId, periodStart, periodEnd, options);
   }
   
   return {
