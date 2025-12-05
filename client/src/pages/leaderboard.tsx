@@ -405,6 +405,7 @@ function LeaderboardRow({
               isCurrentUser && "bg-primary/5 border border-primary/20",
               isExpanded && "bg-muted/30"
             )}
+            data-testid={`button-expand-row-${entry.userId}`}
           >
             <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted/50">
               {getRankBadge(entry.rank)}
@@ -542,7 +543,7 @@ function DateFilterButtons({
                 "gap-1.5 transition-all",
                 isActive && "shadow-md"
               )}
-              data-testid={`filter-${preset.value}`}
+              data-testid={`button-filter-${preset.value}`}
             >
               <Icon className="h-3.5 w-3.5" />
               {preset.label}
@@ -605,35 +606,45 @@ function EmptyState() {
 }
 
 function StatsCards({ data }: { data: LeaderboardResult }) {
+  const topPerformerCompliance = data.entries.length > 0 && data.entries[0]?.averageCompliance !== undefined
+    ? `${Math.round(data.entries[0].averageCompliance)}%`
+    : "—";
+    
+  const perfectScoreCount = data.entries.filter(e => e.averageCompliance >= 100).length;
+
   const stats = [
     {
+      id: "participants",
       label: "Total Participants",
       value: data.totalUsers,
       icon: Users,
       gradient: "from-blue-500 to-indigo-600",
     },
     {
+      id: "targets",
       label: "Active Targets",
       value: data.totalTargets,
       icon: Target,
       gradient: "from-purple-500 to-pink-600",
     },
     {
+      id: "top-performer",
       label: "Top Performer",
-      value: data.entries[0]?.averageCompliance ? `${Math.round(data.entries[0].averageCompliance)}%` : "—",
+      value: topPerformerCompliance,
       icon: Flame,
       gradient: "from-orange-500 to-red-600",
     },
     {
+      id: "perfect-scores",
       label: "Perfect Scores",
-      value: data.entries.filter(e => e.averageCompliance >= 100).length,
+      value: perfectScoreCount,
       icon: Award,
       gradient: "from-emerald-500 to-green-600",
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="stats-cards">
       {stats.map((stat, index) => (
         <motion.div
           key={stat.label}
@@ -641,7 +652,7 @@ function StatsCards({ data }: { data: LeaderboardResult }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: index * 0.1 }}
         >
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden" data-testid={`stat-card-${stat.id}`}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className={cn(
@@ -651,7 +662,7 @@ function StatsCards({ data }: { data: LeaderboardResult }) {
                   <stat.icon className="h-5 w-5 text-white" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{stat.value}</p>
+                  <p className="text-2xl font-bold" data-testid={`text-stat-value-${stat.id}`}>{stat.value}</p>
                   <p className="text-xs text-muted-foreground">{stat.label}</p>
                 </div>
               </div>
