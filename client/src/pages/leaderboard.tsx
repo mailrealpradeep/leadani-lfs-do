@@ -29,6 +29,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { getUserAvatarProps } from "@/lib/avatar-icons";
 
 interface TargetBreakdown {
   targetId: string;
@@ -224,6 +225,8 @@ function PodiumCard({
 
   const config = placeConfig[place];
   const IconComponent = config.icon;
+  const avatarProps = getUserAvatarProps(entry.userId);
+  const UserIcon = avatarProps.Icon;
 
   return (
     <motion.div
@@ -244,7 +247,7 @@ function PodiumCard({
         transition={{ delay: config.delay + 0.3, type: "spring", stiffness: 300 }}
         className={cn(
           "relative mb-3 rounded-full p-1",
-          `bg-gradient-to-br ${config.gradient}`
+          `bg-gradient-to-br ${avatarProps.gradient}`
         )}
       >
         <Avatar className={cn(
@@ -252,10 +255,13 @@ function PodiumCard({
           place === 1 ? "h-24 w-24" : place === 2 ? "h-20 w-20" : "h-16 w-16"
         )}>
           <AvatarFallback className={cn(
-            "text-xl font-bold",
-            `bg-gradient-to-br ${config.bgGradient}`
+            "flex items-center justify-center",
+            avatarProps.bgColor
           )}>
-            {entry.userName.substring(0, 2).toUpperCase()}
+            <UserIcon className={cn(
+              avatarProps.iconColor,
+              place === 1 ? "h-10 w-10" : place === 2 ? "h-8 w-8" : "h-6 w-6"
+            )} />
           </AvatarFallback>
         </Avatar>
         <motion.div
@@ -382,6 +388,9 @@ function LeaderboardRow({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
+  const avatarProps = getUserAvatarProps(entry.userId);
+  const UserIcon = avatarProps.Icon;
+
   const getRankBadge = (rank: number) => {
     if (rank === 1) return <Crown className="h-5 w-5 text-yellow-500" />;
     if (rank === 2) return <Medal className="h-5 w-5 text-gray-400" />;
@@ -411,11 +420,12 @@ function LeaderboardRow({
               {getRankBadge(entry.rank)}
             </div>
 
-            <Avatar className="h-10 w-10 border-2 border-muted">
-              <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/20 font-semibold">
-                {entry.userName.substring(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            <div className={cn(
+              "h-10 w-10 rounded-full flex items-center justify-center",
+              `bg-gradient-to-br ${avatarProps.gradient}`
+            )}>
+              <UserIcon className="h-5 w-5 text-white" />
+            </div>
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
