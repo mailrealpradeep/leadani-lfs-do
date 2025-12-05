@@ -1716,9 +1716,35 @@ export function SpreadsheetGrid({
         
         case "date_not_equals":
           // For not equals, we can't easily do this with the current filter system
-          // But we'll try to support it by documenting the limitation
+          // This would require excluding a specific date range, which column filters don't support
           if (relative_date || value) {
             unsupportedOperators.push(`date_not_equals on ${column_key}`);
+          }
+          break;
+
+        case "date_within":
+          // Date within a relative period (e.g., "within this week", "within last 30 days")
+          // or within a custom date range
+          if (relative_date) {
+            const dateRange = getRelativeDate(relative_date);
+            if (dateRange) {
+              newFilters[column_key] = {
+                type: "custom",
+                from: dateRange.from,
+                to: dateRange.to,
+              };
+            }
+          } else if (value && typeof value === "object" && value.from) {
+            // Custom date range - works like date_between
+            const fromDate = new Date(value.from);
+            fromDate.setHours(0, 0, 0, 0);
+            const toDate = value.to ? new Date(value.to) : new Date(value.from);
+            toDate.setHours(23, 59, 59, 999);
+            newFilters[column_key] = {
+              type: "custom",
+              from: fromDate,
+              to: toDate,
+            };
           }
           break;
 
