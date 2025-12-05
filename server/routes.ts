@@ -9479,6 +9479,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const { evaluateWorkingTarget } = await import("./working-target-evaluator");
       
+      let hasSystemError = false;
+      const unmetConditions: Array<{ current: number; target: number; percentage: number; targetName: string }> = [];
+      
       // Evaluate ALL matching conditions - user must meet all of them
       for (const condition of sortedConditions) {
         const target = await storage.getWorkingTarget(condition.working_target_id);
@@ -9493,7 +9496,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {
             console.error("Invalid evaluator result for target", target.id, result);
             blockingReasons.push(`Unable to verify target "${target.name}". Please contact admin to check target configuration.`);
-            return { valid: false, blockingReasons, systemError: true };
+            hasSystemError = true;
+            continue; // Continue checking other conditions
           }
           
           const percentage = Math.round(result.compliancePercentage ?? 0);
@@ -9503,22 +9507,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const currentVal = result.currentValue ?? 0;
             const targetVal = result.targetValue ?? 0;
             blockingReasons.push(`Target "${target.name}" not met: ${currentVal}/${targetVal} (${percentage}% / ${condition.min_percentage}% required)`);
-            return {
-              valid: false,
-              blockingReasons,
-              targetProgress: {
-                current: currentVal,
-                target: targetVal,
-                percentage: percentage,
-                targetName: target.name,
-              }
-            };
+            unmetConditions.push({
+              current: currentVal,
+              target: targetVal,
+              percentage: percentage,
+              targetName: target.name,
+            });
           }
         } catch (evalError: any) {
           console.error("Error evaluating working target:", evalError);
           blockingReasons.push(`Unable to verify target "${target.name}". Error: ${evalError.message || 'Unknown error'}. Please contact admin.`);
-          return { valid: false, blockingReasons, systemError: true };
+          hasSystemError = true;
         }
+      }
+      
+      // Return results after checking ALL conditions
+      if (blockingReasons.length > 0) {
+        return { 
+          valid: false, 
+          blockingReasons, 
+          targetProgress: unmetConditions.length > 0 ? unmetConditions[0] : undefined,
+          systemError: hasSystemError 
+        };
       }
       
       // All conditions met

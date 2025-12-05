@@ -96,15 +96,24 @@ interface ExitTargetResponse {
   linked_target: WorkingTarget | null;
 }
 
+interface ExitConditionProgress {
+  conditionId: string;
+  targetId: string;
+  targetName: string;
+  targetDescription: string | null;
+  current: number;
+  target: number;
+  percentage: number;
+  minPercentage: number;
+  isAchieved: boolean;
+  details?: Record<string, any>;
+}
+
 interface ExitProgressResponse {
   hasTarget: boolean;
-  targetName?: string;
-  targetDescription?: string | null;
-  current?: number;
-  target?: number;
-  percentage?: number;
-  isAchieved?: boolean;
-  details?: Record<string, any>;
+  isMultiCondition?: boolean;
+  allConditionsMet?: boolean;
+  conditions?: ExitConditionProgress[];
 }
 
 interface ExitCondition {
@@ -799,29 +808,66 @@ export default function Attendance() {
                     </div>
                   )}
 
-                  {/* Exit Target Progress */}
-                  {hasActiveEntry && myExitProgress?.hasTarget && (
-                    <div className="py-4 border-t">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Target className="h-4 w-4 text-primary" />
-                          <span className="text-sm font-medium">{myExitProgress.targetName}</span>
-                        </div>
-                        <Badge variant={myExitProgress.isAchieved ? "default" : "secondary"}>
-                          {myExitProgress.current}/{myExitProgress.target}
-                        </Badge>
+                  {/* Exit Target Progress - Multiple Conditions */}
+                  {hasActiveEntry && myExitProgress?.hasTarget && myExitProgress.conditions && myExitProgress.conditions.length > 0 && (
+                    <div className="py-4 border-t space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-muted-foreground">Exit Requirements</span>
+                        {myExitProgress.allConditionsMet ? (
+                          <Badge variant="default" className="bg-green-600">
+                            <CheckCircle className="h-3 w-3 mr-1" /> All Met
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">
+                            {myExitProgress.conditions.filter(c => c.isAchieved).length}/{myExitProgress.conditions.length} Met
+                          </Badge>
+                        )}
                       </div>
-                      <Progress 
-                        value={myExitProgress.percentage} 
-                        className="h-2"
-                      />
+                      
+                      {myExitProgress.conditions.map((condition) => (
+                        <div 
+                          key={condition.conditionId} 
+                          className={`p-3 rounded-lg border ${
+                            condition.isAchieved 
+                              ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' 
+                              : 'bg-muted/50 border-border'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              {condition.isAchieved ? (
+                                <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                              ) : (
+                                <Target className="h-4 w-4 text-primary" />
+                              )}
+                              <span className="text-sm font-medium">{condition.targetName}</span>
+                            </div>
+                            <Badge variant={condition.isAchieved ? "default" : "secondary"}>
+                              {condition.current}/{condition.target}
+                            </Badge>
+                          </div>
+                          <Progress 
+                            value={Math.min(100, (condition.percentage / condition.minPercentage) * 100)} 
+                            className="h-2"
+                          />
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs text-muted-foreground">
+                              {condition.percentage}% / {condition.minPercentage}% required
+                            </span>
+                            {condition.isAchieved && (
+                              <span className="text-xs text-green-600 dark:text-green-400">Achieved</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      
                       <p className="text-xs text-muted-foreground mt-2">
-                        {myExitProgress.isAchieved ? (
+                        {myExitProgress.allConditionsMet ? (
                           <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
-                            <CheckCircle className="h-3 w-3" /> Target achieved - you can exit normally
+                            <CheckCircle className="h-3 w-3" /> All conditions met - you can exit normally
                           </span>
                         ) : (
-                          `Complete this target to exit normally (${myExitProgress.percentage}% complete)`
+                          "Complete all conditions to exit normally"
                         )}
                       </p>
                     </div>
