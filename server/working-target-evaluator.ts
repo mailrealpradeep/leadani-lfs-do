@@ -105,20 +105,38 @@ async function evaluateFixedTarget(
     currentValue = Number(result[0]?.count || 0);
     details.updateCount = currentValue;
   } else if (metric === 'status_transitions') {
-    const result = await db.select({ count: sql<number>`count(*)` })
-      .from(dbSchema.lead_updates)
-      .innerJoin(dbSchema.leads, eq(dbSchema.lead_updates.lead_id, dbSchema.leads.id))
-      .where(
-        and(
-          eq(dbSchema.lead_updates.created_by_user_id, userId),
-          inArray(dbSchema.leads.sheet_id, sheetIds),
-          sql`${dbSchema.lead_updates.update_on} ILIKE '%status%'`,
-          gte(dbSchema.lead_updates.created_at, periodStart),
-          lte(dbSchema.lead_updates.created_at, periodEnd)
-        )
-      );
-    currentValue = Number(result[0]?.count || 0);
+    // Status transitions are logged in activity_logs, not lead_updates
+    // We need to query activity_logs and count changes where field_key contains 'status'
+    const activityLogs = await db.select({
+      id: dbSchema.activity_logs.id,
+      details: dbSchema.activity_logs.details,
+    })
+    .from(dbSchema.activity_logs)
+    .where(
+      and(
+        eq(dbSchema.activity_logs.user_id, userId),
+        eq(dbSchema.activity_logs.action, 'lead_updated'),
+        inArray(dbSchema.activity_logs.sheet_id, sheetIds),
+        gte(dbSchema.activity_logs.occurred_at, periodStart),
+        lte(dbSchema.activity_logs.occurred_at, periodEnd)
+      )
+    );
+    
+    // Count status field changes from activity_logs details
+    let transitionCount = 0;
+    for (const log of activityLogs) {
+      const logDetails = log.details as { changes?: Array<{ field_key: string }> } | null;
+      const changes = logDetails?.changes || [];
+      for (const change of changes) {
+        if (change.field_key.toLowerCase().includes('status')) {
+          transitionCount++;
+        }
+      }
+    }
+    
+    currentValue = transitionCount;
     details.transitionCount = currentValue;
+    details.activityLogsChecked = activityLogs.length;
   }
   
   const compliancePercentage = targetValue > 0 ? Math.min(100, (currentValue / targetValue) * 100) : 0;
@@ -241,16 +259,24 @@ async function evaluateCompareColumnsTarget(
   const fromValues: string[] = Array.isArray(from_value) ? from_value : (from_value ? [from_value] : []);
   const toValues: string[] = Array.isArray(to_value) ? to_value : (to_value ? [to_value] : []);
   
-  // Get the column to find its column_key (for matching in activity_logs)
-  const column = await storage.getCustomColumnById(column_id);
-  if (!column) {
-    return {
-      currentValue: 0,
-      targetValue: target_value,
-      compliancePercentage: 0,
-      isAchieved: false,
-      details: { error: "Column not found", column_id }
-    };
+  // The config may store column_id as either a UUID or as a column_key string
+  // First try to look up by ID (if it looks like a UUID), otherwise use it directly as column_key
+  // Fallback: if UUID lookup fails (deleted column, cross-company), use the column_id as key anyway
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(column_id);
+  let columnKey: string;
+  
+  if (isUuid) {
+    const column = await storage.getCustomColumnById(column_id);
+    if (column) {
+      columnKey = column.column_key;
+    } else {
+      // UUID lookup failed (column deleted or cross-company) - use column_id as fallback
+      // This allows legacy configs to still work by matching field_key directly
+      columnKey = column_id;
+    }
+  } else {
+    // column_id is actually the column_key (e.g., "lead_status")
+    columnKey = column_id;
   }
   
   const userSheets = await db.select({ sheet_id: dbSchema.sheet_users.sheet_id })
@@ -302,7 +328,7 @@ async function evaluateCompareColumnsTarget(
     
     for (const change of changes) {
       // Match by column_key (case-insensitive for flexibility across companies)
-      if (change.field_key.toLowerCase() === column.column_key.toLowerCase()) {
+      if (change.field_key.toLowerCase() === columnKey.toLowerCase()) {
         totalFieldChanges++;
         
         const oldVal = String(change.old_value || '');
@@ -350,7 +376,7 @@ async function evaluateCompareColumnsTarget(
       from_values: fromValues,
       to_values: toValues,
       column_id,
-      column_key: column.column_key,
+      column_key: columnKey,
       result_type
     }
   };
