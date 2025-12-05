@@ -6367,8 +6367,8 @@ export class PgStorage implements IStorage {
   async getActiveExitConditionsForUser(userId: string, companyId: string): Promise<AttendanceExitConditionRecord[]> {
     // Get user's sheet assignments
     const userSheets = await db.select()
-      .from(dbSchema.sheetUsers)
-      .where(eq(dbSchema.sheetUsers.user_id, userId));
+      .from(dbSchema.sheet_users)
+      .where(eq(dbSchema.sheet_users.user_id, userId));
     const userSheetIds = userSheets.map(su => su.sheet_id);
 
     // Get all active conditions for this company
