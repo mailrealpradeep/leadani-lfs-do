@@ -891,6 +891,9 @@ function CompanyAdminView() {
             </AccordionContent>
           </AccordionItem>
 
+          {/* OLD TARGET SYSTEM - Not being used. Covered by Working Targets.
+              When cleaning up code, remove this AccordionItem, the KpiManagement component,
+              target-management.tsx, and related /api/targets backend routes.
           <AccordionItem value="targets" className="border rounded-lg px-4 bg-card">
             <AccordionTrigger className="hover:no-underline" data-testid="accordion-targets">
               <div className="flex items-center gap-3">
@@ -909,6 +912,7 @@ function CompanyAdminView() {
               </div>
             </AccordionContent>
           </AccordionItem>
+          */}
 
           <AccordionItem value="sheets" className="border rounded-lg px-4 bg-card">
             <AccordionTrigger className="hover:no-underline" data-testid="accordion-sheets">

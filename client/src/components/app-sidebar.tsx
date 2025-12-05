@@ -164,12 +164,15 @@ export function AppSidebar() {
       icon: Trophy,
       testId: "link-leaderboard",
     },
-    {
-      title: "My Targets",
-      url: "/my-targets",
-      icon: Target,
-      testId: "link-my-targets",
-    },
+    // OLD TARGET SYSTEM - Not being used. Covered by Working Targets.
+    // When cleaning up code, remove this menu item, the my-targets.tsx page, 
+    // user-target-progress.tsx component, and related /api/targets backend routes.
+    // {
+    //   title: "My Targets",
+    //   url: "/my-targets",
+    //   icon: Target,
+    //   testId: "link-my-targets",
+    // },
     {
       title: "Working Target",
       url: "/working-target",
