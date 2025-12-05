@@ -290,8 +290,8 @@ function PodiumCard({
         transition={{ delay: config.delay + 0.4 }}
         className="text-center mb-2"
       >
-        <p className="font-semibold text-sm truncate max-w-[120px]">{entry.userName}</p>
-        <p className="text-xs text-muted-foreground truncate max-w-[120px]">{entry.userEmail}</p>
+        <p className="font-semibold text-sm truncate max-w-[90px] sm:max-w-[120px]">{entry.userName}</p>
+        <p className="text-xs text-muted-foreground truncate max-w-[90px] sm:max-w-[120px]">{entry.userEmail}</p>
       </motion.div>
 
       <motion.div
@@ -299,7 +299,7 @@ function PodiumCard({
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: config.delay + 0.5 }}
         className={cn(
-          "w-28 flex flex-col items-center justify-end rounded-t-xl border-2",
+          "w-24 sm:w-28 flex flex-col items-center justify-end rounded-t-xl border-2",
           config.height,
           config.borderColor,
           `bg-gradient-to-t ${config.bgGradient}`
@@ -341,7 +341,7 @@ function Podium({ entries, currentUserId }: { entries: LeaderboardEntry[]; curre
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="flex justify-center items-end gap-4 py-8"
+      className="flex justify-center items-end gap-2 sm:gap-6 md:gap-8 py-8 px-2"
       data-testid="podium-section"
     >
       {getEntry(2) && (
@@ -700,7 +700,7 @@ export default function Leaderboard() {
   };
 
   return (
-    <div className="min-h-screen p-4 md:p-6 space-y-6 overflow-auto">
+    <div className="h-full p-4 md:p-6 space-y-6 overflow-auto">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
