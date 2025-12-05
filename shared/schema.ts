@@ -1372,6 +1372,7 @@ export function getDefaultAttendanceRules(companyId: string): InsertAttendanceRu
 // ============================================================================
 export type TaskStatus = "pending" | "ongoing" | "completed";
 export type TaskPriority = "low" | "medium" | "high";
+export type TaskRecurrenceType = "none" | "daily" | "weekly" | "monthly";
 
 export interface Task {
   id: string;
@@ -1386,6 +1387,8 @@ export interface Task {
   admin_remarks: string | null;
   assigned_to_user_id: string;
   created_by_user_id: string;
+  recurrence_type: TaskRecurrenceType;
+  parent_task_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1403,6 +1406,8 @@ export const tasks = pgTable('tasks', {
   admin_remarks: text('admin_remarks'),
   assigned_to_user_id: varchar('assigned_to_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  recurrence_type: varchar('recurrence_type', { length: 20 }).notNull().default('none'), // 'none', 'daily', 'weekly', 'monthly'
+  parent_task_id: varchar('parent_task_id'), // Reference to original task for recurring chain
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

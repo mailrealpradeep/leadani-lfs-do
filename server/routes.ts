@@ -11201,6 +11201,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           description: `Status changed from "${existing.status}" to "${status}"`,
         });
       }
+      
+      // Handle recurrence_type update (admin only)
+      const { recurrence_type } = req.body;
+      if (recurrence_type !== undefined && recurrence_type !== existing.recurrence_type && isAdmin) {
+        const validRecurrenceTypes = ['none', 'daily', 'weekly', 'monthly'];
+        if (validRecurrenceTypes.includes(recurrence_type)) {
+          updates.recurrence_type = recurrence_type;
+          changes.push(`Recurrence changed from "${existing.recurrence_type || 'none'}" to "${recurrence_type}"`);
+        }
+      }
       if (user_remarks !== undefined && user_remarks !== existing.user_remarks) {
         updates.user_remarks = user_remarks?.trim() || null;
         changes.push("User remarks updated");
@@ -11265,6 +11275,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const updated = await storage.updateTask(taskId, updates);
+      
+      // Handle recurring task - create next occurrence when completed
+      if (status === "completed" && existing.recurrence_type && existing.recurrence_type !== "none") {
+        const { addDays, addWeeks, addMonths, parseISO, format } = await import("date-fns");
+        
+        // Calculate next due date based on recurrence type
+        let nextDueDate: Date | null = null;
+        const baseDueDate = existing.due_date ? parseISO(existing.due_date as string) : new Date();
+        
+        switch (existing.recurrence_type) {
+          case "daily":
+            nextDueDate = addDays(baseDueDate, 1);
+            break;
+          case "weekly":
+            nextDueDate = addWeeks(baseDueDate, 1);
+            break;
+          case "monthly":
+            nextDueDate = addMonths(baseDueDate, 1);
+            break;
+        }
+        
+        if (nextDueDate) {
+          // Calculate next start date with same offset from due date
+          let nextStartDate: Date | null = null;
+          if (existing.start_date && existing.due_date) {
+            const startDate = parseISO(existing.start_date as string);
+            const dueDate = parseISO(existing.due_date as string);
+            const daysDiff = Math.round((dueDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+            nextStartDate = addDays(nextDueDate, -daysDiff);
+          }
+          
+          // Create the next recurring task - reset status to pending, preserve all metadata
+          const nextTask = await storage.createTask({
+            company_id: existing.company_id,
+            title: existing.title,
+            description: existing.description,
+            priority: existing.priority as "low" | "medium" | "high",
+            start_date: nextStartDate ? nextStartDate.toISOString() : null,
+            due_date: nextDueDate.toISOString(),
+            status: "pending", // Reset to pending for the new occurrence
+            assigned_to_user_id: existing.assigned_to_user_id,
+            created_by_user_id: existing.created_by_user_id,
+            recurrence_type: existing.recurrence_type as "none" | "daily" | "weekly" | "monthly",
+            parent_task_id: existing.parent_task_id || existing.id, // Link to original task
+            admin_remarks: existing.admin_remarks,
+            user_remarks: null, // Reset user remarks for fresh task
+          });
+          
+          // Copy linked leads from the original task to the new recurring task
+          const linkedLeads = await storage.getTaskLeads(taskId);
+          for (const leadLink of linkedLeads) {
+            await storage.linkLeadToTask(nextTask.id, leadLink.lead_id);
+          }
+          
+          // Create update for the next occurrence
+          await storage.createTaskUpdate({
+            task_id: nextTask.id,
+            user_id: req.userId!,
+            update_type: "auto_created",
+            old_value: null,
+            new_value: { recurrence_type: existing.recurrence_type, linkedLeadsCount: linkedLeads.length },
+            description: `Auto-generated from recurring task "${existing.title}"${linkedLeads.length > 0 ? ` with ${linkedLeads.length} linked lead(s)` : ''}`,
+          });
+          
+          // Also log on original task that recurrence was triggered
+          await storage.createTaskUpdate({
+            task_id: taskId,
+            user_id: req.userId!,
+            update_type: "recurrence_triggered",
+            old_value: null,
+            new_value: { nextTaskId: nextTask.id, nextDueDate: nextDueDate.toISOString() },
+            description: `Next occurrence created for ${format(nextDueDate, "MMM d, yyyy")}`,
+          });
+          
+          // Emit socket event for new recurring task
+          io.to(`company-${req.companyId}`).emit("task:created", {
+            task: nextTask,
+            createdBy: req.userId,
+            isRecurring: true,
+          });
+        }
+      }
       
       // Emit socket event
       io.to(`company-${req.companyId}`).emit("task:updated", {

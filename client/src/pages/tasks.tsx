@@ -21,6 +21,7 @@ import {
   Filter,
   X,
   MessageSquare,
+  Repeat,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +65,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 
+type RecurrenceType = "none" | "daily" | "weekly" | "monthly";
+
 interface Task {
   id: string;
   company_id: string;
@@ -79,6 +82,8 @@ interface Task {
   created_by_user_id: string;
   assigned_to_name: string;
   created_by_name: string;
+  recurrence_type: RecurrenceType;
+  parent_task_id: string | null;
   created_at: string;
   updated_at: string;
   linked_leads?: Array<{ id: string; full_name: string; mobile_no: string }>;
@@ -182,6 +187,7 @@ export default function Tasks() {
     assigned_to_user_id: "",
     admin_remarks: "",
     user_remarks: "",
+    recurrence_type: "none" as RecurrenceType,
   });
   
   const [newComment, setNewComment] = useState("");
@@ -332,6 +338,7 @@ export default function Tasks() {
       assigned_to_user_id: user?.id || "",
       admin_remarks: "",
       user_remarks: "",
+      recurrence_type: "none",
     });
     setNewComment("");
   };
@@ -356,6 +363,7 @@ export default function Tasks() {
       updateData.due_date = formData.due_date || null;
       updateData.assigned_to_user_id = formData.assigned_to_user_id;
       updateData.admin_remarks = formData.admin_remarks;
+      updateData.recurrence_type = formData.recurrence_type;
     } else {
       updateData.user_remarks = formData.user_remarks;
     }
@@ -383,6 +391,7 @@ export default function Tasks() {
       assigned_to_user_id: task.assigned_to_user_id,
       admin_remarks: task.admin_remarks || "",
       user_remarks: task.user_remarks || "",
+      recurrence_type: task.recurrence_type || "none",
     });
     setIsEditDialogOpen(true);
   };
@@ -588,21 +597,40 @@ export default function Tasks() {
                 data-testid="input-task-description"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="priority">Priority</Label>
-              <Select 
-                value={formData.priority} 
-                onValueChange={(value: "low" | "medium" | "high") => setFormData(prev => ({ ...prev, priority: value }))}
-              >
-                <SelectTrigger data-testid="select-task-priority">
-                  <SelectValue placeholder="Select priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="priority">Priority</Label>
+                <Select 
+                  value={formData.priority} 
+                  onValueChange={(value: "low" | "medium" | "high") => setFormData(prev => ({ ...prev, priority: value }))}
+                >
+                  <SelectTrigger data-testid="select-task-priority">
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="recurrence">Recurrence</Label>
+                <Select 
+                  value={formData.recurrence_type} 
+                  onValueChange={(value: RecurrenceType) => setFormData(prev => ({ ...prev, recurrence_type: value }))}
+                >
+                  <SelectTrigger data-testid="select-task-recurrence">
+                    <SelectValue placeholder="Select recurrence" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">One-time</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -841,21 +869,40 @@ export default function Tasks() {
                     data-testid="input-edit-task-description"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-priority">Priority</Label>
-                  <Select 
-                    value={formData.priority} 
-                    onValueChange={(value: "low" | "medium" | "high") => setFormData(prev => ({ ...prev, priority: value }))}
-                  >
-                    <SelectTrigger data-testid="select-edit-task-priority">
-                      <SelectValue placeholder="Select priority" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-priority">Priority</Label>
+                    <Select 
+                      value={formData.priority} 
+                      onValueChange={(value: "low" | "medium" | "high") => setFormData(prev => ({ ...prev, priority: value }))}
+                    >
+                      <SelectTrigger data-testid="select-edit-task-priority">
+                        <SelectValue placeholder="Select priority" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-recurrence">Recurrence</Label>
+                    <Select 
+                      value={formData.recurrence_type} 
+                      onValueChange={(value: RecurrenceType) => setFormData(prev => ({ ...prev, recurrence_type: value }))}
+                    >
+                      <SelectTrigger data-testid="select-edit-task-recurrence">
+                        <SelectValue placeholder="Select recurrence" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">One-time</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
@@ -1000,6 +1047,12 @@ function TaskCard({
                 <Badge variant={getDueDateBadgeVariant(task.due_date, task.status)}>
                   <Calendar className="h-3 w-3 mr-1" />
                   {format(parseISO(task.due_date), "MMM d")}
+                </Badge>
+              )}
+              {task.recurrence_type && task.recurrence_type !== "none" && (
+                <Badge variant="outline" className="text-xs">
+                  <Repeat className="h-3 w-3 mr-1" />
+                  {task.recurrence_type.charAt(0).toUpperCase() + task.recurrence_type.slice(1)}
                 </Badge>
               )}
             </div>
