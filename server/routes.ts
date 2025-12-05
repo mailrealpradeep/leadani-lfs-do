@@ -10598,7 +10598,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const result = await evaluateWorkingTarget(target, user.id);
             const percentage = Math.round(result.compliancePercentage ?? 0);
             const currentValue = result.currentValue ?? 0;
-            const targetValue = result.goalValue ?? 0;
+            const targetValue = result.targetValue ?? 0;
             
             allUserProgress.push({
               userId: user.id,
@@ -10643,7 +10643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const percentage = Math.round(result.compliancePercentage ?? 0);
             const meetsThreshold = percentage >= condition.min_percentage;
             const currentValue = result.currentValue ?? 0;
-            const targetValue = result.goalValue ?? 0;
+            const targetValue = result.targetValue ?? 0;
             
             if (!meetsThreshold) {
               allMet = false;
