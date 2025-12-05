@@ -295,13 +295,24 @@ export function QuickFilterManager({ headless = false }: QuickFilterManagerProps
       
       // Check if value is required for this operator
       const requiresValue = !["is_empty", "is_not_empty"].includes(condition.operator);
-      const isDateEquals = condition.operator === "date_equals";
+      
+      // Date operators that support relative_date
+      const isDateOperator = [
+        "date_equals", 
+        "date_not_equals", 
+        "date_before", 
+        "date_after", 
+        "date_within"
+      ].includes(condition.operator);
       
       if (requiresValue) {
-        if (isDateEquals && !condition.relative_date && !condition.value) {
-          return { valid: false, error: `Condition ${i + 1}: Date value is required` };
-        } else if (!isDateEquals) {
-          // Check for missing value
+        if (isDateOperator) {
+          // For date operators, accept either relative_date OR value
+          if (!condition.relative_date && !condition.value) {
+            return { valid: false, error: `Condition ${i + 1}: Date value is required` };
+          }
+        } else {
+          // For non-date operators, value is required
           if (!condition.value && condition.value !== 0 && condition.value !== false) {
             return { valid: false, error: `Condition ${i + 1}: Value is required` };
           }
