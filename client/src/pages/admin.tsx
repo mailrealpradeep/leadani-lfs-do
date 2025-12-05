@@ -1024,100 +1024,99 @@ function CompanyAdminView() {
   );
 }
 
+interface SheetAssignment {
+  sheet_id: string;
+  sheet_name: string;
+  role: string;
+}
+
+interface UserAssignment {
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  user_role: string;
+  sheets: SheetAssignment[];
+}
+
+interface AssignmentsResponse {
+  users: UserAssignment[];
+  available_sheets: { id: string; name: string }[];
+}
+
 interface SheetAssignmentManagerProps {
   headless?: boolean;
 }
 
 function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProps) {
   const { toast } = useToast();
-  const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
-  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedUser, setSelectedUser] = useState<UserAssignment | null>(null);
+  const [addSheetDialogOpen, setAddSheetDialogOpen] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>("editor");
 
-  interface Sheet {
-    id: string;
-    name: string;
-    visibility: string;
-  }
-
-  interface SheetUserWithDetails {
-    id: string;
-    sheet_id: string;
-    user_id: string;
-    role: string;
-    user_name?: string;
-    user_email?: string;
-  }
-
-  const { data: sheets = [] } = useQuery<Sheet[]>({
-    queryKey: ["/api/sheets"],
+  const { data: assignmentsData, isLoading, refetch } = useQuery<AssignmentsResponse>({
+    queryKey: ["/api/admin/assignments"],
   });
 
-  const { data: companyUsers = [] } = useQuery<User[]>({
-    queryKey: ["/api/admin/company/users"],
-  });
+  const users = assignmentsData?.users || [];
+  const availableSheets = assignmentsData?.available_sheets || [];
 
-  const { data: sheetUsers = [], refetch: refetchSheetUsers } = useQuery<SheetUserWithDetails[]>({
-    queryKey: ["/api/admin/sheets", selectedSheet, "users"],
-    enabled: !!selectedSheet,
-  });
-
-  const assignMutation = useMutation({
-    mutationFn: async ({ user_id, role }: { user_id: string; role: string }) => {
-      return await apiRequest("POST", `/api/admin/sheets/${selectedSheet}/users`, { user_id, role });
-    },
-    onSuccess: (_, variables) => {
-      refetchSheetUsers();
-      toast({
-        title: "User assigned",
-        description: "User has been assigned to the sheet successfully.",
+  const addAssignmentMutation = useMutation({
+    mutationFn: async ({ userId, sheetId, role }: { userId: string; sheetId: string; role: string }) => {
+      return await apiRequest("POST", `/api/admin/assignments/${userId}`, { 
+        sheet_id: sheetId, 
+        action: "add",
+        role 
       });
-      // Close dialog if this was the last available user (check with current data minus assigned user)
-      const remainingUsers = availableUsers.filter(u => u.id !== variables.user_id);
-      if (remainingUsers.length === 0) {
-        setAssignDialogOpen(false);
-        setSearchQuery("");
-      }
+    },
+    onSuccess: () => {
+      refetch();
+      toast({
+        title: "Sheet assigned",
+        description: "User now has access to this sheet.",
+      });
     },
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to assign user",
+        description: error.message || "Failed to assign sheet",
         variant: "destructive",
       });
     },
   });
 
-  const unassignMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      return await apiRequest("DELETE", `/api/admin/sheets/${selectedSheet}/users/${userId}`);
+  const removeAssignmentMutation = useMutation({
+    mutationFn: async ({ userId, sheetId }: { userId: string; sheetId: string }) => {
+      return await apiRequest("POST", `/api/admin/assignments/${userId}`, { 
+        sheet_id: sheetId, 
+        action: "remove" 
+      });
     },
     onSuccess: () => {
-      refetchSheetUsers();
+      refetch();
       toast({
-        title: "User unassigned",
-        description: "User has been removed from the sheet.",
+        title: "Sheet removed",
+        description: "User no longer has access to this sheet.",
       });
     },
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to unassign user",
+        description: error.message || "Failed to remove sheet",
         variant: "destructive",
       });
     },
   });
 
   const updateRoleMutation = useMutation({
-    mutationFn: async ({ user_id, role }: { user_id: string; role: string }) => {
-      return await apiRequest("PATCH", `/api/admin/sheets/${selectedSheet}/users/${user_id}`, { role });
+    mutationFn: async ({ userId, sheetId, role }: { userId: string; sheetId: string; role: string }) => {
+      return await apiRequest("PATCH", `/api/admin/assignments/${userId}/${sheetId}`, { role });
     },
     onSuccess: () => {
-      refetchSheetUsers();
+      refetch();
       toast({
         title: "Role updated",
-        description: "User role has been updated successfully.",
+        description: "Permission level has been changed.",
       });
     },
     onError: (error: any) => {
@@ -1129,144 +1128,161 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
     },
   });
 
-  const assignedUserIds = new Set(sheetUsers.map((su) => su.user_id));
-  const availableUsers = companyUsers.filter((u) => !assignedUserIds.has(u.id));
-
-  const filteredAvailableUsers = useMemo(() => {
-    if (!searchQuery.trim()) return availableUsers;
+  const filteredUsers = useMemo(() => {
+    if (!searchQuery.trim()) return users;
     const query = searchQuery.toLowerCase();
-    return availableUsers.filter(
+    return users.filter(
       (user) =>
-        user.name?.toLowerCase().includes(query) ||
-        user.email?.toLowerCase().includes(query)
+        user.user_name?.toLowerCase().includes(query) ||
+        user.user_email?.toLowerCase().includes(query)
     );
-  }, [availableUsers, searchQuery]);
+  }, [users, searchQuery]);
 
-  const handleDialogClose = (open: boolean) => {
-    setAssignDialogOpen(open);
-    if (!open) {
-      setSearchQuery("");
-    }
+  const getUnassignedSheets = (user: UserAssignment) => {
+    const assignedIds = new Set(user.sheets.map(s => s.sheet_id));
+    return availableSheets.filter(s => !assignedIds.has(s.id));
+  };
+
+  const handleAddSheet = (user: UserAssignment) => {
+    setSelectedUser(user);
+    setAddSheetDialogOpen(true);
   };
 
   const content = (
     <div className="space-y-4">
-      <div>
-        <label className="text-sm font-medium mb-2 block">Select Sheet</label>
-        <Select value={selectedSheet || ""} onValueChange={setSelectedSheet}>
-          <SelectTrigger data-testid="select-sheet">
-            <SelectValue placeholder="Choose a sheet..." />
-          </SelectTrigger>
-          <SelectContent>
-            {sheets.map((sheet) => (
-              <SelectItem key={sheet.id} value={sheet.id} data-testid={`sheet-option-${sheet.id}`}>
-                {sheet.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search users..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+          data-testid="input-search-assignments"
+        />
       </div>
 
-      {selectedSheet && (
-        <>
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <h4 className="text-sm font-medium">
-              Assigned Users
-              {sheetUsers.length > 0 && (
-                <Badge variant="secondary" className="ml-2">
-                  {sheetUsers.length}
-                </Badge>
-              )}
-            </h4>
-            <Button
-              size="sm"
-              onClick={() => setAssignDialogOpen(true)}
-              disabled={availableUsers.length === 0}
-              data-testid="button-assign-user"
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+      ) : filteredUsers.length === 0 ? (
+        <div className="text-center py-8">
+          <Users className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+          <p className="text-sm text-muted-foreground">
+            {searchQuery ? "No users match your search" : "No users in your company yet"}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredUsers.map((user) => (
+            <div
+              key={user.user_id}
+              className="border rounded-lg p-4 space-y-3"
+              data-testid={`assignment-user-${user.user_id}`}
             >
-              <UserPlus className="h-4 w-4 mr-2" />
-              Assign User
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            {sheetUsers.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No users assigned to this sheet
-              </p>
-            ) : (
-              sheetUsers.map((su) => (
-                <div
-                  key={su.id}
-                  className="flex items-center justify-between gap-2 p-3 border rounded-lg"
-                  data-testid={`sheet-user-${su.id}`}
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <Avatar className="h-8 w-8 shrink-0">
-                      <AvatarFallback className="text-xs">
-                        {su.user_name?.slice(0, 2).toUpperCase() || "??"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium truncate">{su.user_name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{su.user_email}</div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <Avatar className="h-10 w-10 shrink-0">
+                    <AvatarFallback>
+                      {user.user_name?.slice(0, 2).toUpperCase() || "??"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm truncate">{user.user_name}</span>
+                      <Badge variant={user.user_role === "company_admin" ? "default" : "secondary"} className="shrink-0">
+                        {user.user_role === "company_admin" ? "Admin" : "User"}
+                      </Badge>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Select
-                      value={su.role}
-                      onValueChange={(newRole) => updateRoleMutation.mutate({ user_id: su.user_id, role: newRole })}
-                      disabled={updateRoleMutation.isPending}
-                    >
-                      <SelectTrigger className="w-24 h-8" data-testid={`select-role-${su.id}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="viewer">Viewer</SelectItem>
-                        <SelectItem value="editor">Editor</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => unassignMutation.mutate(su.user_id)}
-                      disabled={unassignMutation.isPending}
-                      data-testid={`button-unassign-${su.id}`}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                    <div className="text-xs text-muted-foreground truncate">{user.user_email}</div>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        </>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleAddSheet(user)}
+                  disabled={getUnassignedSheets(user).length === 0}
+                  data-testid={`button-add-sheet-${user.user_id}`}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Sheet
+                </Button>
+              </div>
+              
+              {user.sheets.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-2 pl-[52px]">
+                  No sheets assigned
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2 pl-[52px]">
+                  {user.sheets.map((sheet) => (
+                    <div
+                      key={sheet.sheet_id}
+                      className="flex items-center gap-1 bg-muted/50 rounded-md pl-3 pr-1 py-1 group"
+                      data-testid={`sheet-badge-${user.user_id}-${sheet.sheet_id}`}
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5 text-muted-foreground mr-1" />
+                      <span className="text-sm">{sheet.sheet_name}</span>
+                      <Select
+                        value={sheet.role}
+                        onValueChange={(newRole) => 
+                          updateRoleMutation.mutate({ 
+                            userId: user.user_id, 
+                            sheetId: sheet.sheet_id, 
+                            role: newRole 
+                          })
+                        }
+                        disabled={updateRoleMutation.isPending}
+                      >
+                        <SelectTrigger 
+                          className="h-6 w-[70px] text-xs border-0 bg-transparent p-1" 
+                          data-testid={`select-role-${user.user_id}-${sheet.sheet_id}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="viewer">Viewer</SelectItem>
+                          <SelectItem value="editor">Editor</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-50 hover:opacity-100 hover:text-destructive"
+                        onClick={() => removeAssignmentMutation.mutate({ 
+                          userId: user.user_id, 
+                          sheetId: sheet.sheet_id 
+                        })}
+                        disabled={removeAssignmentMutation.isPending}
+                        data-testid={`button-remove-sheet-${user.user_id}-${sheet.sheet_id}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
-      <Dialog open={assignDialogOpen} onOpenChange={handleDialogClose}>
-        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
-          <DialogHeader className="shrink-0">
-            <DialogTitle>Assign Users to Sheet</DialogTitle>
+      <Dialog open={addSheetDialogOpen} onOpenChange={setAddSheetDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Sheet Access</DialogTitle>
             <DialogDescription>
-              Select users to give them access. {filteredAvailableUsers.length} of {availableUsers.length} user(s) shown.
+              Select sheets to give {selectedUser?.user_name} access to.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="flex flex-col gap-4 min-h-0 flex-1 overflow-hidden">
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name or email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                  data-testid="input-search-users"
-                />
-              </div>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Default role:</span>
               <Select value={selectedRole} onValueChange={setSelectedRole}>
-                <SelectTrigger className="w-28" data-testid="select-default-role">
+                <SelectTrigger className="w-28" data-testid="select-add-role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1276,49 +1292,42 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
               </Select>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <ScrollArea className="h-full max-h-[50vh]">
-                <div className="space-y-2 pr-4">
-                  {filteredAvailableUsers.length === 0 ? (
-                    <div className="text-center py-8">
-                      <p className="text-sm text-muted-foreground">
-                        {searchQuery
-                          ? "No users match your search"
-                          : "All users are already assigned to this sheet"}
-                      </p>
-                    </div>
-                  ) : (
-                    filteredAvailableUsers.map((user) => (
-                      <div
-                        key={user.id}
-                        className="flex items-center justify-between gap-2 p-3 border rounded-lg hover-elevate"
-                      >
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <Avatar className="h-9 w-9 shrink-0">
-                            <AvatarFallback className="text-xs">
-                              {user.name?.slice(0, 2).toUpperCase() || "??"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium truncate">{user.name}</div>
-                            <div className="text-xs text-muted-foreground truncate">{user.email}</div>
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          onClick={() => assignMutation.mutate({ user_id: user.id, role: selectedRole })}
-                          disabled={assignMutation.isPending}
-                          data-testid={`button-assign-${user.id}`}
-                        >
-                          <UserPlus className="h-4 w-4 mr-1" />
-                          Assign
-                        </Button>
+            <ScrollArea className="max-h-[300px]">
+              <div className="space-y-2 pr-4">
+                {selectedUser && getUnassignedSheets(selectedUser).length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    All sheets are already assigned to this user
+                  </p>
+                ) : (
+                  selectedUser && getUnassignedSheets(selectedUser).map((sheet) => (
+                    <div
+                      key={sheet.id}
+                      className="flex items-center justify-between gap-2 p-3 border rounded-lg hover-elevate"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
+                        <span className="text-sm font-medium">{sheet.name}</span>
                       </div>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          addAssignmentMutation.mutate({ 
+                            userId: selectedUser.user_id, 
+                            sheetId: sheet.id,
+                            role: selectedRole
+                          });
+                        }}
+                        disabled={addAssignmentMutation.isPending}
+                        data-testid={`button-assign-sheet-${sheet.id}`}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
           </div>
         </DialogContent>
       </Dialog>
@@ -1333,7 +1342,7 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
     <Card>
       <CardHeader>
         <CardTitle>Sheet Assignments</CardTitle>
-        <CardDescription>Manage which users have access to specific sheets</CardDescription>
+        <CardDescription>See which users have access to which sheets - all in one view</CardDescription>
       </CardHeader>
       <CardContent>
         {content}
