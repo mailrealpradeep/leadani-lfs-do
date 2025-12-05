@@ -10230,14 +10230,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const exitConditions = await storage.getActiveExitConditionsForUser(req.userId!, req.companyId!);
       
       if (exitConditions.length > 0) {
-        // Use new multi-condition system - return progress for the first unmet condition
+        // Use new multi-condition system - return ALL conditions with their progress
         const { evaluateWorkingTarget } = await import("./working-target-evaluator");
         
-        let overallProgress = {
-          hasTarget: true,
-          conditions: [] as any[],
-          allMet: true,
-        };
+        const conditionsProgress: Array<{
+          conditionId: string;
+          targetId: string;
+          targetName: string;
+          targetDescription: string | null;
+          current: number;
+          target: number;
+          percentage: number;
+          minPercentage: number;
+          isAchieved: boolean;
+          details?: Record<string, any>;
+        }> = [];
+        
+        let allMet = true;
         
         for (const condition of exitConditions) {
           const target = await storage.getWorkingTarget(condition.working_target_id);
@@ -10249,34 +10258,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const meetsThreshold = percentage >= condition.min_percentage;
             
             if (!meetsThreshold) {
-              overallProgress.allMet = false;
-              // Return first unmet condition as the primary display
-              return res.json({
-                hasTarget: true,
-                targetName: target.name,
-                targetDescription: target.description,
-                current: result.currentValue ?? 0,
-                target: result.targetValue ?? 0,
-                percentage,
-                minPercentage: condition.min_percentage,
-                isAchieved: meetsThreshold,
-                details: result.details,
-              });
+              allMet = false;
             }
+            
+            conditionsProgress.push({
+              conditionId: condition.id,
+              targetId: target.id,
+              targetName: target.name,
+              targetDescription: target.description,
+              current: result.currentValue ?? 0,
+              target: result.targetValue ?? 0,
+              percentage,
+              minPercentage: condition.min_percentage,
+              isAchieved: meetsThreshold,
+              details: result.details,
+            });
           } catch (err) {
             console.error("Error evaluating condition", condition.id, err);
           }
         }
         
-        // All conditions met
+        // Return all conditions with their progress
         return res.json({
           hasTarget: true,
-          isAchieved: true,
-          allConditionsMet: true,
+          isMultiCondition: true,
+          allConditionsMet: allMet,
+          conditions: conditionsProgress,
         });
       }
       
-      // Fall back to legacy system
+      // Fall back to legacy system (single target)
       const company = await storage.getCompany(req.companyId!);
       if (!company?.attendance_exit_target_id) {
         return res.json({ hasTarget: false });
@@ -10295,26 +10306,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Invalid evaluator result for target", target.id, result);
         return res.json({
           hasTarget: true,
-          targetName: target.name,
-          targetDescription: target.description,
-          current: 0,
-          target: 0,
-          percentage: 0,
-          isAchieved: false,
-          details: "Unable to evaluate target progress",
-          error: "Target configuration may be invalid",
+          isMultiCondition: false,
+          conditions: [{
+            conditionId: 'legacy',
+            targetId: target.id,
+            targetName: target.name,
+            targetDescription: target.description,
+            current: 0,
+            target: 0,
+            percentage: 0,
+            minPercentage: 100,
+            isAchieved: false,
+          }],
+          allConditionsMet: false,
         });
       }
       
+      const percentage = Math.round(result.compliancePercentage ?? 0);
       res.json({
         hasTarget: true,
-        targetName: target.name,
-        targetDescription: target.description,
-        current: result.currentValue ?? 0,
-        target: result.targetValue ?? 0,
-        percentage: Math.round(result.compliancePercentage ?? 0),
-        isAchieved: result.isAchieved ?? false,
-        details: result.details,
+        isMultiCondition: false,
+        allConditionsMet: result.isAchieved ?? false,
+        conditions: [{
+          conditionId: 'legacy',
+          targetId: target.id,
+          targetName: target.name,
+          targetDescription: target.description,
+          current: result.currentValue ?? 0,
+          target: result.targetValue ?? 0,
+          percentage,
+          minPercentage: 100,
+          isAchieved: result.isAchieved ?? false,
+          details: result.details,
+        }],
       });
     } catch (error: any) {
       console.error("Get exit progress error:", error);
