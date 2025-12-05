@@ -680,14 +680,7 @@ export default function Leaderboard() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const { data, isLoading, error } = useQuery<LeaderboardResult>({
-    queryKey: ['/api/working-targets/leaderboard', datePreset],
-    queryFn: async () => {
-      const response = await fetch(`/api/working-targets/leaderboard?preset=${datePreset}`, {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Failed to fetch leaderboard');
-      return response.json();
-    },
+    queryKey: [`/api/working-targets/leaderboard?preset=${datePreset}`],
     refetchInterval: 60000,
   });
 
