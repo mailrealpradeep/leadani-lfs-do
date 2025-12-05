@@ -116,6 +116,26 @@ interface ExitProgressResponse {
   conditions?: ExitConditionProgress[];
 }
 
+interface TeamExitProgressResponse {
+  teamSize: number;
+  usersWithProgress: number;
+  completedUsers: number;
+  averageProgress: number;
+  completionRate: number;
+  userProgress: {
+    userId: string;
+    userName: string;
+    conditions: Array<{
+      targetId: string;
+      targetName: string;
+      percentage: number;
+      isAchieved: boolean;
+    }>;
+    averageProgress: number;
+    allConditionsMet: boolean;
+  }[];
+}
+
 interface ExitCondition {
   id: string;
   company_id: string;
@@ -334,6 +354,12 @@ export default function Attendance() {
 
   const { data: myExitProgress } = useQuery<ExitProgressResponse>({
     queryKey: ["/api/attendance/my-exit-progress"],
+  });
+
+  // Team exit progress query (admin only)
+  const { data: teamExitProgress, isLoading: loadingTeamExitProgress } = useQuery<TeamExitProgressResponse>({
+    queryKey: ["/api/attendance/team/exit-progress"],
+    enabled: isAdmin,
   });
 
   // Exit conditions queries
@@ -971,6 +997,98 @@ export default function Attendance() {
 
         {isAdmin && (
           <TabsContent value="admin" className="space-y-4">
+            {/* Team Exit Progress Summary Card */}
+            <Card data-testid="team-exit-progress-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Team Exit Progress
+                </CardTitle>
+                <CardDescription>Today's team-wide exit target completion</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingTeamExitProgress ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : !teamExitProgress || teamExitProgress.teamSize === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground">
+                    <Users className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No team members or exit targets configured</p>
+                  </div>
+                ) : teamExitProgress.usersWithProgress === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground">
+                    <Target className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No exit targets assigned to team members</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="text-center p-3 rounded-lg bg-muted/50" data-testid="exit-stat-team-members">
+                        <div className="text-2xl font-bold" data-testid="exit-value-team-members">{teamExitProgress.teamSize}</div>
+                        <div className="text-xs text-muted-foreground">Team Members</div>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-muted/50" data-testid="exit-stat-avg-progress">
+                        <div className="text-2xl font-bold text-blue-600" data-testid="exit-value-avg-progress">{teamExitProgress.averageProgress}%</div>
+                        <div className="text-xs text-muted-foreground">Avg Progress</div>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-muted/50" data-testid="exit-stat-completed-users">
+                        <div className="text-2xl font-bold text-green-600" data-testid="exit-value-completed-users">{teamExitProgress.completedUsers}</div>
+                        <div className="text-xs text-muted-foreground">Exit Ready</div>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-muted/50" data-testid="exit-stat-completion-rate">
+                        <div className="text-2xl font-bold" data-testid="exit-value-completion-rate">{teamExitProgress.completionRate}%</div>
+                        <div className="text-xs text-muted-foreground">Completion Rate</div>
+                      </div>
+                    </div>
+                    
+                    {/* Progress Bar */}
+                    <div className="space-y-2" data-testid="exit-progress-bar-section">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Team Average Progress</span>
+                        <span className="font-medium" data-testid="exit-progress-label">{teamExitProgress.averageProgress}%</span>
+                      </div>
+                      <Progress value={teamExitProgress.averageProgress} className="h-3" data-testid="exit-team-progress-bar" />
+                    </div>
+                    
+                    {/* User Progress List */}
+                    {teamExitProgress.userProgress.length > 0 && (
+                      <div className="space-y-2 max-h-60 overflow-y-auto" data-testid="exit-user-progress-list">
+                        <div className="text-sm font-medium text-muted-foreground">Individual Progress</div>
+                        {teamExitProgress.userProgress.map((userProg) => (
+                          <div 
+                            key={userProg.userId}
+                            className={`flex items-center justify-between p-2 rounded-lg border ${
+                              userProg.allConditionsMet 
+                                ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' 
+                                : 'bg-muted/30'
+                            }`}
+                            data-testid={`team-user-exit-${userProg.userId}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              {userProg.allConditionsMet ? (
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <Clock className="h-4 w-4 text-muted-foreground" />
+                              )}
+                              <span className="text-sm font-medium" data-testid={`exit-user-name-${userProg.userId}`}>{userProg.userName}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Progress value={userProg.averageProgress} className="h-2 w-16" />
+                              <Badge variant={userProg.allConditionsMet ? "default" : "outline"} className="min-w-[3rem] justify-center" data-testid={`exit-user-progress-${userProg.userId}`}>
+                                {userProg.averageProgress}%
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

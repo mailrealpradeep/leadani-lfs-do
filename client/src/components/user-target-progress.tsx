@@ -12,6 +12,7 @@ import {
   Medal,
   ChevronDown,
   ChevronRight,
+  Users,
 } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +28,25 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
 import type { TargetWithDetails } from "@shared/schema";
+
+interface TeamTargetProgress {
+  teamSize: number;
+  usersWithTargets: number;
+  targetsTracked: number;
+  totalTargetsAssigned: number;
+  totalAchieved: number;
+  averageProgress: number;
+  achievementRate: number;
+  userProgress: {
+    userId: string;
+    userName: string;
+    userEmail: string;
+    targets: { targetId: string; targetName: string; percentage: number; isAchieved: boolean }[];
+    averageProgress: number;
+    achievedCount: number;
+    totalTargets: number;
+  }[];
+}
 
 interface TargetProgress {
   target: TargetWithDetails;
@@ -266,8 +286,192 @@ function NoTargets() {
   );
 }
 
+function TeamUserProgressCard({ 
+  userProgress 
+}: { 
+  userProgress: TeamTargetProgress['userProgress'][0] 
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Card data-testid={`team-user-progress-${userProgress.userId}`}>
+      <Collapsible open={expanded} onOpenChange={setExpanded}>
+        <CollapsibleTrigger className="w-full" data-testid={`team-user-toggle-${userProgress.userId}`}>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <ProgressRing percentage={userProgress.averageProgress} size={48} />
+                <div className="text-left">
+                  <CardTitle className="text-base" data-testid={`team-user-name-${userProgress.userId}`}>{userProgress.userName}</CardTitle>
+                  <p className="text-xs text-muted-foreground" data-testid={`team-user-email-${userProgress.userId}`}>{userProgress.userEmail}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={userProgress.achievedCount === userProgress.totalTargets && userProgress.totalTargets > 0 ? "default" : "outline"} data-testid={`team-user-achieved-${userProgress.userId}`}>
+                  {userProgress.achievedCount}/{userProgress.totalTargets} achieved
+                </Badge>
+                {expanded ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                )}
+              </div>
+            </div>
+          </CardHeader>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <CardContent className="pt-0 space-y-2" data-testid={`team-user-targets-list-${userProgress.userId}`}>
+            <Separator />
+            {userProgress.targets.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2">No targets assigned</p>
+            ) : (
+              userProgress.targets.map((target) => (
+                <div
+                  key={target.targetId}
+                  className="flex items-center justify-between p-2 rounded-lg border"
+                  data-testid={`team-target-row-${target.targetId}`}
+                >
+                  <div className="flex items-center gap-2">
+                    {target.isAchieved ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    ) : (
+                      <Target className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <span className="text-sm" data-testid={`team-target-name-${target.targetId}`}>{target.targetName}</span>
+                  </div>
+                  <Badge variant={target.isAchieved ? "default" : "outline"} data-testid={`team-target-progress-${target.targetId}`}>
+                    {target.percentage}%
+                  </Badge>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
+  );
+}
+
+function TeamTargetProgressView() {
+  const { data: teamProgress, isLoading, error } = useQuery<TeamTargetProgress>({
+    queryKey: ["/api/targets/team/progress"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-8 w-16" />
+              </CardHeader>
+            </Card>
+          ))}
+        </div>
+        {[1, 2, 3].map((i) => (
+          <Card key={i}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-12 w-12 rounded-full" />
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (error || !teamProgress) {
+    return (
+      <Card className="p-8 text-center">
+        <div className="flex flex-col items-center gap-4">
+          <Users className="h-16 w-16 text-muted-foreground" />
+          <div>
+            <h3 className="font-semibold text-lg">Unable to load team progress</h3>
+            <p className="text-muted-foreground mt-1">
+              Please try again later or check your connection.
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (teamProgress.teamSize === 0) {
+    return (
+      <Card className="p-8 text-center">
+        <div className="flex flex-col items-center gap-4">
+          <Users className="h-16 w-16 text-muted-foreground" />
+          <div>
+            <h3 className="font-semibold text-lg">No team members</h3>
+            <p className="text-muted-foreground mt-1">
+              Add team members to start tracking their target progress.
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6" data-testid="team-target-progress-view">
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card data-testid="stat-team-members">
+          <CardHeader className="pb-2">
+            <CardDescription>Team Members</CardDescription>
+            <CardTitle className="text-3xl" data-testid="value-team-members">{teamProgress.teamSize}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card data-testid="stat-active-targets">
+          <CardHeader className="pb-2">
+            <CardDescription>Active Targets</CardDescription>
+            <CardTitle className="text-3xl" data-testid="value-active-targets">{teamProgress.targetsTracked}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card data-testid="stat-team-avg-progress">
+          <CardHeader className="pb-2">
+            <CardDescription>Team Avg Progress</CardDescription>
+            <CardTitle className="text-3xl text-blue-600" data-testid="value-team-avg-progress">{teamProgress.averageProgress}%</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card data-testid="stat-achievement-rate">
+          <CardHeader className="pb-2">
+            <CardDescription>Achievement Rate</CardDescription>
+            <CardTitle className="text-3xl text-green-600" data-testid="value-achievement-rate">{teamProgress.achievementRate}%</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <Users className="h-5 w-5" />
+          Team Member Progress
+        </h2>
+        <div className="grid gap-3 md:grid-cols-2" data-testid="team-member-progress-grid">
+          {teamProgress.userProgress.map((userProg) => (
+            <TeamUserProgressCard key={userProg.userId} userProgress={userProg} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function UserTargetProgress() {
-  const { user } = useAuth();
+  const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
+  const isAdmin = isCompanyAdmin || isSuperAdmin;
+  
+  // For admins, show team progress view
+  if (isAdmin) {
+    return <TeamTargetProgressView />;
+  }
   
   const { data: progressData = [], isLoading, error } = useQuery<TargetProgress[]>({
     queryKey: ["/api/targets/my/progress"],
@@ -343,12 +547,22 @@ export function UserTargetProgress() {
 }
 
 export function CompactTargetWidget() {
-  const { user } = useAuth();
+  const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
+  const isAdmin = isCompanyAdmin || isSuperAdmin;
   
-  const { data: progressData = [], isLoading } = useQuery<TargetProgress[]>({
+  // Regular user progress query
+  const { data: progressData = [], isLoading: loadingPersonal } = useQuery<TargetProgress[]>({
     queryKey: ["/api/targets/my/progress"],
-    enabled: !!user,
+    enabled: !!user && !isAdmin,
   });
+
+  // Admin team progress query
+  const { data: teamProgress, isLoading: loadingTeam } = useQuery<TeamTargetProgress>({
+    queryKey: ["/api/targets/team/progress"],
+    enabled: !!user && isAdmin,
+  });
+
+  const isLoading = isAdmin ? loadingTeam : loadingPersonal;
 
   if (isLoading) {
     return (
@@ -360,6 +574,41 @@ export function CompactTargetWidget() {
     );
   }
 
+  // Admin view - show team progress
+  if (isAdmin && teamProgress) {
+    if (teamProgress.teamSize === 0) {
+      return null;
+    }
+
+    return (
+      <Card className="hover-elevate" data-testid="team-target-widget">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Team Target Progress
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="text-2xl font-bold">
+                {teamProgress.achievementRate}%
+              </div>
+              <div className="text-xs text-muted-foreground">Achievement Rate</div>
+            </div>
+            <div className="text-right">
+              <ProgressRing percentage={teamProgress.averageProgress} size={48} />
+              <div className="text-xs text-muted-foreground mt-1">
+                Avg Progress
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Regular user view
   if (progressData.length === 0) {
     return null;
   }
@@ -368,7 +617,7 @@ export function CompactTargetWidget() {
   const topTarget = progressData.sort((a, b) => b.overallPercentage - a.overallPercentage)[0];
 
   return (
-    <Card className="hover-elevate">
+    <Card className="hover-elevate" data-testid="personal-target-widget">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <Target className="h-4 w-4" />

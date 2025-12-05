@@ -10542,6 +10542,148 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get team aggregate exit target progress (admin only)
+  app.get("/api/attendance/team/exit-progress", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      // Get all active users in company (exclude admins)
+      const users = await storage.getUsersByCompanyId(req.companyId);
+      const activeUsers = users.filter(u => u.is_active && u.role !== 'company_admin');
+      
+      if (activeUsers.length === 0) {
+        return res.json({
+          teamSize: 0,
+          usersWithProgress: 0,
+          averageProgress: 0,
+          completionRate: 0,
+          userProgress: [],
+        });
+      }
+      
+      const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+      
+      // Collect exit progress for each user
+      const allUserProgress: {
+        userId: string;
+        userName: string;
+        conditions: Array<{
+          targetId: string;
+          targetName: string;
+          percentage: number;
+          isAchieved: boolean;
+        }>;
+        averageProgress: number;
+        allConditionsMet: boolean;
+      }[] = [];
+      
+      for (const user of activeUsers) {
+        // Get exit conditions for this user
+        const exitConditions = await storage.getActiveExitConditionsForUser(user.id, req.companyId!);
+        
+        if (exitConditions.length === 0) {
+          // Check legacy system
+          const company = await storage.getCompany(req.companyId!);
+          if (!company?.attendance_exit_target_id) continue;
+          
+          const target = await storage.getWorkingTarget(company.attendance_exit_target_id);
+          if (!target || !target.is_active) continue;
+          
+          try {
+            const result = await evaluateWorkingTarget(target, user.id);
+            const percentage = Math.round(result.compliancePercentage ?? 0);
+            
+            allUserProgress.push({
+              userId: user.id,
+              userName: user.name || user.email,
+              conditions: [{
+                targetId: target.id,
+                targetName: target.name,
+                percentage,
+                isAchieved: result.isAchieved ?? false,
+              }],
+              averageProgress: percentage,
+              allConditionsMet: result.isAchieved ?? false,
+            });
+          } catch (e) {
+            console.error(`Error evaluating exit progress for user ${user.id}:`, e);
+          }
+          continue;
+        }
+        
+        // Process multi-condition system
+        const conditionsProgress: Array<{
+          targetId: string;
+          targetName: string;
+          percentage: number;
+          isAchieved: boolean;
+        }> = [];
+        
+        let allMet = true;
+        
+        for (const condition of exitConditions) {
+          const target = await storage.getWorkingTarget(condition.working_target_id);
+          if (!target || !target.is_active) continue;
+          
+          try {
+            const result = await evaluateWorkingTarget(target, user.id);
+            const percentage = Math.round(result.compliancePercentage ?? 0);
+            const meetsThreshold = percentage >= condition.min_percentage;
+            
+            if (!meetsThreshold) {
+              allMet = false;
+            }
+            
+            conditionsProgress.push({
+              targetId: target.id,
+              targetName: target.name,
+              percentage,
+              isAchieved: meetsThreshold,
+            });
+          } catch (e) {
+            console.error(`Error evaluating condition ${condition.id} for user ${user.id}:`, e);
+          }
+        }
+        
+        if (conditionsProgress.length > 0) {
+          const avgProgress = Math.round(conditionsProgress.reduce((sum, c) => sum + c.percentage, 0) / conditionsProgress.length);
+          allUserProgress.push({
+            userId: user.id,
+            userName: user.name || user.email,
+            conditions: conditionsProgress,
+            averageProgress: avgProgress,
+            allConditionsMet: allMet,
+          });
+        }
+      }
+      
+      // Calculate team aggregates
+      const usersWithProgress = allUserProgress.length;
+      const teamAverageProgress = usersWithProgress > 0
+        ? Math.round(allUserProgress.reduce((sum, u) => sum + u.averageProgress, 0) / usersWithProgress)
+        : 0;
+      
+      const completedUsers = allUserProgress.filter(u => u.allConditionsMet).length;
+      const completionRate = usersWithProgress > 0
+        ? Math.round((completedUsers / usersWithProgress) * 100)
+        : 0;
+      
+      res.json({
+        teamSize: activeUsers.length,
+        usersWithProgress,
+        completedUsers,
+        averageProgress: teamAverageProgress,
+        completionRate,
+        userProgress: allUserProgress,
+      });
+    } catch (error: any) {
+      console.error("Get team exit progress error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // ATTENDANCE EXIT CONDITIONS (New Multi-Condition System)
   // ============================================================================
@@ -12957,6 +13099,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(progressResults.filter(Boolean));
     } catch (error: any) {
       console.error("Get my targets progress error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get team aggregate target progress (admin only)
+  app.get("/api/targets/team/progress", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { status } = req.query;
+      const statusFilter = status ? (status as string).split(',') : ['active'];
+      
+      // Get all active users in company
+      const users = await storage.getUsersByCompanyId(req.companyId);
+      const activeUsers = users.filter(u => u.is_active && u.role !== 'company_admin');
+      
+      if (activeUsers.length === 0) {
+        return res.json({
+          teamSize: 0,
+          targetsTracked: 0,
+          averageProgress: 0,
+          achievementRate: 0,
+          userProgress: [],
+        });
+      }
+      
+      const { calculateUserTargetProgress } = await import('./target-evaluator');
+      
+      // Collect progress for each user
+      const allUserProgress: {
+        userId: string;
+        userName: string;
+        userEmail: string;
+        targets: { targetId: string; targetName: string; percentage: number; isAchieved: boolean }[];
+        averageProgress: number;
+        achievedCount: number;
+        totalTargets: number;
+      }[] = [];
+      
+      // Get all active targets for the company
+      const companyTargets = await storage.getTargetsByCompanyId(req.companyId, { status: statusFilter as string[] });
+      
+      for (const user of activeUsers) {
+        // Get targets assigned to this user
+        const userTargets = await storage.getTargetsForUser(user.id, statusFilter);
+        
+        const targetProgress: { targetId: string; targetName: string; percentage: number; isAchieved: boolean }[] = [];
+        
+        for (const target of userTargets) {
+          try {
+            const progress = await calculateUserTargetProgress(target.id, user.id);
+            targetProgress.push({
+              targetId: target.id,
+              targetName: target.name,
+              percentage: progress.overallPercentage,
+              isAchieved: progress.isFullyAchieved,
+            });
+          } catch (e) {
+            console.error(`Error calculating progress for user ${user.id}, target ${target.id}:`, e);
+          }
+        }
+        
+        const averageProgress = targetProgress.length > 0
+          ? Math.round(targetProgress.reduce((sum, t) => sum + t.percentage, 0) / targetProgress.length)
+          : 0;
+        const achievedCount = targetProgress.filter(t => t.isAchieved).length;
+        
+        allUserProgress.push({
+          userId: user.id,
+          userName: user.name || user.email,
+          userEmail: user.email,
+          targets: targetProgress,
+          averageProgress,
+          achievedCount,
+          totalTargets: targetProgress.length,
+        });
+      }
+      
+      // Calculate team aggregates
+      const usersWithTargets = allUserProgress.filter(u => u.totalTargets > 0);
+      const teamAverageProgress = usersWithTargets.length > 0
+        ? Math.round(usersWithTargets.reduce((sum, u) => sum + u.averageProgress, 0) / usersWithTargets.length)
+        : 0;
+      
+      const totalTargetsAssigned = usersWithTargets.reduce((sum, u) => sum + u.totalTargets, 0);
+      const totalAchieved = usersWithTargets.reduce((sum, u) => sum + u.achievedCount, 0);
+      const achievementRate = totalTargetsAssigned > 0
+        ? Math.round((totalAchieved / totalTargetsAssigned) * 100)
+        : 0;
+      
+      res.json({
+        teamSize: activeUsers.length,
+        usersWithTargets: usersWithTargets.length,
+        targetsTracked: companyTargets.length,
+        totalTargetsAssigned,
+        totalAchieved,
+        averageProgress: teamAverageProgress,
+        achievementRate,
+        userProgress: allUserProgress,
+      });
+    } catch (error: any) {
+      console.error("Get team targets progress error:", error);
       res.status(500).json({ error: error.message });
     }
   });
