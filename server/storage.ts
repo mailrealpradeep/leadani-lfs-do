@@ -2543,6 +2543,26 @@ export class MemStorage implements IStorage {
   async createOrUpdateWorkingTargetResult(_result: InsertWorkingTargetResult): Promise<WorkingTargetResultRecord> {
     throw new Error("Working Target Results not implemented in MemStorage");
   }
+
+  // Attendance Exit Conditions (not implemented in MemStorage - requires PostgreSQL)
+  async getAttendanceExitCondition(_id: string): Promise<AttendanceExitConditionRecord | undefined> {
+    return undefined;
+  }
+  async getAttendanceExitConditionsByCompany(_companyId: string): Promise<AttendanceExitConditionRecord[]> {
+    return [];
+  }
+  async getActiveExitConditionsForUser(_userId: string, _companyId: string): Promise<AttendanceExitConditionRecord[]> {
+    return [];
+  }
+  async createAttendanceExitCondition(_condition: InsertAttendanceExitCondition): Promise<AttendanceExitConditionRecord> {
+    throw new Error("Attendance Exit Conditions not implemented in MemStorage");
+  }
+  async updateAttendanceExitCondition(_id: string, _updates: Partial<AttendanceExitConditionRecord>): Promise<AttendanceExitConditionRecord | undefined> {
+    return undefined;
+  }
+  async deleteAttendanceExitCondition(_id: string): Promise<boolean> {
+    return false;
+  }
 }
 
 // ============================================================================
@@ -6324,6 +6344,77 @@ export class PgStorage implements IStorage {
       const rows = await db.insert(dbSchema.working_target_results).values(result).returning();
       return rows[0];
     }
+  }
+
+  // =========================================================================
+  // ATTENDANCE EXIT CONDITIONS
+  // =========================================================================
+
+  async getAttendanceExitCondition(id: string): Promise<AttendanceExitConditionRecord | undefined> {
+    const result = await db.select()
+      .from(dbSchema.attendance_exit_conditions)
+      .where(eq(dbSchema.attendance_exit_conditions.id, id));
+    return result[0];
+  }
+
+  async getAttendanceExitConditionsByCompany(companyId: string): Promise<AttendanceExitConditionRecord[]> {
+    return await db.select()
+      .from(dbSchema.attendance_exit_conditions)
+      .where(eq(dbSchema.attendance_exit_conditions.company_id, companyId))
+      .orderBy(desc(dbSchema.attendance_exit_conditions.created_at));
+  }
+
+  async getActiveExitConditionsForUser(userId: string, companyId: string): Promise<AttendanceExitConditionRecord[]> {
+    // Get user's sheet assignments
+    const userSheets = await db.select()
+      .from(dbSchema.sheetUsers)
+      .where(eq(dbSchema.sheetUsers.user_id, userId));
+    const userSheetIds = userSheets.map(su => su.sheet_id);
+
+    // Get all active conditions for this company
+    const conditions = await db.select()
+      .from(dbSchema.attendance_exit_conditions)
+      .where(
+        and(
+          eq(dbSchema.attendance_exit_conditions.company_id, companyId),
+          eq(dbSchema.attendance_exit_conditions.is_active, true)
+        )
+      );
+
+    // Filter conditions that apply to this user
+    return conditions.filter(condition => {
+      if (condition.scope_type === 'all_users') {
+        return true;
+      }
+      if (condition.scope_type === 'specific_users') {
+        return condition.scope_ids?.includes(userId) ?? false;
+      }
+      if (condition.scope_type === 'specific_sheets') {
+        // Check if any of user's sheets match condition's sheets
+        return condition.scope_ids?.some(sheetId => userSheetIds.includes(sheetId)) ?? false;
+      }
+      return false;
+    });
+  }
+
+  async createAttendanceExitCondition(condition: InsertAttendanceExitCondition): Promise<AttendanceExitConditionRecord> {
+    const rows = await db.insert(dbSchema.attendance_exit_conditions).values(condition).returning();
+    return rows[0];
+  }
+
+  async updateAttendanceExitCondition(id: string, updates: Partial<AttendanceExitConditionRecord>): Promise<AttendanceExitConditionRecord | undefined> {
+    const rows = await db.update(dbSchema.attendance_exit_conditions)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.attendance_exit_conditions.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteAttendanceExitCondition(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.attendance_exit_conditions)
+      .where(eq(dbSchema.attendance_exit_conditions.id, id))
+      .returning();
+    return result.length > 0;
   }
 }
 

@@ -9467,7 +9467,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function validateExitRules(userId: string, companyId: string): Promise<{ valid: boolean; blockingReasons: string[]; targetProgress?: { current: number; target: number; percentage: number; targetName: string }; systemError?: boolean }> {
     const blockingReasons: string[] = [];
     
-    // Check if there's a linked Daily Target for attendance exit
+    // First check new multi-condition system
+    const exitConditions = await storage.getActiveExitConditionsForUser(userId, companyId);
+    
+    if (exitConditions.length > 0) {
+      // Use new multi-condition system - sort by priority (specific_users > specific_sheets > all_users)
+      const prioritySortOrder = { 'specific_users': 0, 'specific_sheets': 1, 'all_users': 2 };
+      const sortedConditions = [...exitConditions].sort((a, b) => 
+        (prioritySortOrder[a.scope_type] || 3) - (prioritySortOrder[b.scope_type] || 3)
+      );
+      
+      const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+      
+      // Evaluate ALL matching conditions - user must meet all of them
+      for (const condition of sortedConditions) {
+        const target = await storage.getWorkingTarget(condition.working_target_id);
+        if (!target || !target.is_active) {
+          continue; // Skip inactive or missing targets
+        }
+        
+        try {
+          const result = await evaluateWorkingTarget(target, userId);
+          
+          // Guard against invalid evaluator results
+          if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {
+            console.error("Invalid evaluator result for target", target.id, result);
+            blockingReasons.push(`Unable to verify target "${target.name}". Please contact admin to check target configuration.`);
+            return { valid: false, blockingReasons, systemError: true };
+          }
+          
+          const percentage = Math.round(result.compliancePercentage ?? 0);
+          
+          // Check if user meets the minimum percentage threshold for this condition
+          if (percentage < condition.min_percentage) {
+            const currentVal = result.currentValue ?? 0;
+            const targetVal = result.targetValue ?? 0;
+            blockingReasons.push(`Target "${target.name}" not met: ${currentVal}/${targetVal} (${percentage}% / ${condition.min_percentage}% required)`);
+            return {
+              valid: false,
+              blockingReasons,
+              targetProgress: {
+                current: currentVal,
+                target: targetVal,
+                percentage: percentage,
+                targetName: target.name,
+              }
+            };
+          }
+        } catch (evalError: any) {
+          console.error("Error evaluating working target:", evalError);
+          blockingReasons.push(`Unable to verify target "${target.name}". Error: ${evalError.message || 'Unknown error'}. Please contact admin.`);
+          return { valid: false, blockingReasons, systemError: true };
+        }
+      }
+      
+      // All conditions met
+      return { valid: true, blockingReasons: [] };
+    }
+    
+    // Fall back to legacy system: Check if there's a linked Daily Target for attendance exit
     const company = await storage.getCompany(companyId);
     if (company?.attendance_exit_target_id) {
       const target = await storage.getWorkingTarget(company.attendance_exit_target_id);
@@ -10168,6 +10226,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current user's exit target progress (for attendance screen)
   app.get("/api/attendance/my-exit-progress", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      // First check new multi-condition system
+      const exitConditions = await storage.getActiveExitConditionsForUser(req.userId!, req.companyId!);
+      
+      if (exitConditions.length > 0) {
+        // Use new multi-condition system - return progress for the first unmet condition
+        const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+        
+        let overallProgress = {
+          hasTarget: true,
+          conditions: [] as any[],
+          allMet: true,
+        };
+        
+        for (const condition of exitConditions) {
+          const target = await storage.getWorkingTarget(condition.working_target_id);
+          if (!target || !target.is_active) continue;
+          
+          try {
+            const result = await evaluateWorkingTarget(target, req.userId!);
+            const percentage = Math.round(result.compliancePercentage ?? 0);
+            const meetsThreshold = percentage >= condition.min_percentage;
+            
+            if (!meetsThreshold) {
+              overallProgress.allMet = false;
+              // Return first unmet condition as the primary display
+              return res.json({
+                hasTarget: true,
+                targetName: target.name,
+                targetDescription: target.description,
+                current: result.currentValue ?? 0,
+                target: result.targetValue ?? 0,
+                percentage,
+                minPercentage: condition.min_percentage,
+                isAchieved: meetsThreshold,
+                details: result.details,
+              });
+            }
+          } catch (err) {
+            console.error("Error evaluating condition", condition.id, err);
+          }
+        }
+        
+        // All conditions met
+        return res.json({
+          hasTarget: true,
+          isAchieved: true,
+          allConditionsMet: true,
+        });
+      }
+      
+      // Fall back to legacy system
       const company = await storage.getCompany(req.companyId!);
       if (!company?.attendance_exit_target_id) {
         return res.json({ hasTarget: false });
@@ -10209,6 +10318,224 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Get exit progress error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ATTENDANCE EXIT CONDITIONS (New Multi-Condition System)
+  // ============================================================================
+
+  // Get all exit conditions for the company
+  app.get("/api/attendance/exit-conditions", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const conditions = await storage.getAttendanceExitConditionsByCompany(req.companyId!);
+      
+      // Enrich with target details
+      const enrichedConditions = await Promise.all(conditions.map(async (condition) => {
+        const target = await storage.getWorkingTarget(condition.working_target_id);
+        return {
+          ...condition,
+          target_name: target?.name || 'Unknown Target',
+          target_description: target?.description || null,
+          target_period_type: target?.period_type || null,
+          target_is_active: target?.is_active ?? false,
+        };
+      }));
+      
+      res.json(enrichedConditions);
+    } catch (error: any) {
+      console.error("Get exit conditions error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new exit condition
+  app.post("/api/attendance/exit-conditions", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const createSchema = z.object({
+        working_target_id: z.string().uuid(),
+        scope_type: z.enum(['all_users', 'specific_users', 'specific_sheets']),
+        scope_ids: z.array(z.string()).nullable().optional(),
+        min_percentage: z.number().int().min(1).max(100).default(100),
+        is_active: z.boolean().default(true),
+      });
+      
+      const parseResult = createSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parseResult.error.errors });
+      }
+      
+      const data = parseResult.data;
+      
+      // Validate target exists and is daily
+      const target = await storage.getWorkingTarget(data.working_target_id);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      if (target.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Target does not belong to this company" });
+      }
+      if (target.period_type !== 'daily') {
+        return res.status(400).json({ error: "Only daily targets can be used as exit conditions" });
+      }
+      
+      // Validate scope_ids if specific scope
+      if (data.scope_type === 'specific_users' && (!data.scope_ids || data.scope_ids.length === 0)) {
+        return res.status(400).json({ error: "Please select at least one user" });
+      }
+      if (data.scope_type === 'specific_sheets' && (!data.scope_ids || data.scope_ids.length === 0)) {
+        return res.status(400).json({ error: "Please select at least one sheet" });
+      }
+      
+      const condition = await storage.createAttendanceExitCondition({
+        company_id: req.companyId!,
+        working_target_id: data.working_target_id,
+        scope_type: data.scope_type,
+        scope_ids: data.scope_type === 'all_users' ? null : data.scope_ids,
+        min_percentage: data.min_percentage,
+        is_active: data.is_active,
+      });
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("attendance:exit-conditions-updated");
+      
+      res.json(condition);
+    } catch (error: any) {
+      console.error("Create exit condition error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update an exit condition
+  app.patch("/api/attendance/exit-conditions/:id", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      
+      const updateSchema = z.object({
+        working_target_id: z.string().uuid().optional(),
+        scope_type: z.enum(['all_users', 'specific_users', 'specific_sheets']).optional(),
+        scope_ids: z.array(z.string()).nullable().optional(),
+        min_percentage: z.number().int().min(1).max(100).optional(),
+        is_active: z.boolean().optional(),
+      });
+      
+      const parseResult = updateSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parseResult.error.errors });
+      }
+      
+      // Verify condition exists and belongs to company
+      const existing = await storage.getAttendanceExitCondition(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Exit condition not found" });
+      }
+      if (existing.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Exit condition does not belong to this company" });
+      }
+      
+      const data = parseResult.data;
+      
+      // If changing target, validate it
+      if (data.working_target_id) {
+        const target = await storage.getWorkingTarget(data.working_target_id);
+        if (!target || target.company_id !== req.companyId) {
+          return res.status(400).json({ error: "Invalid target" });
+        }
+        if (target.period_type !== 'daily') {
+          return res.status(400).json({ error: "Only daily targets can be used as exit conditions" });
+        }
+      }
+      
+      const updated = await storage.updateAttendanceExitCondition(id, data);
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("attendance:exit-conditions-updated");
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update exit condition error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete an exit condition
+  app.delete("/api/attendance/exit-conditions/:id", authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Verify condition exists and belongs to company
+      const existing = await storage.getAttendanceExitCondition(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Exit condition not found" });
+      }
+      if (existing.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Exit condition does not belong to this company" });
+      }
+      
+      await storage.deleteAttendanceExitCondition(id);
+      
+      // Emit socket event
+      io.to(`company-${req.companyId}`).emit("attendance:exit-conditions-updated");
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete exit condition error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get current user's exit progress using new conditions system
+  app.get("/api/attendance/my-exit-conditions-progress", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const conditions = await storage.getActiveExitConditionsForUser(req.userId!, req.companyId!);
+      
+      if (conditions.length === 0) {
+        return res.json({ hasConditions: false, conditions: [] });
+      }
+      
+      const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+      
+      const progressResults = await Promise.all(conditions.map(async (condition) => {
+        const target = await storage.getWorkingTarget(condition.working_target_id);
+        if (!target || !target.is_active) {
+          return null;
+        }
+        
+        try {
+          const result = await evaluateWorkingTarget(target, req.userId!);
+          const percentage = Math.round(result.compliancePercentage ?? 0);
+          const meetsThreshold = percentage >= condition.min_percentage;
+          
+          return {
+            conditionId: condition.id,
+            targetId: target.id,
+            targetName: target.name,
+            targetDescription: target.description,
+            minPercentage: condition.min_percentage,
+            scopeType: condition.scope_type,
+            current: result.currentValue ?? 0,
+            target: result.targetValue ?? 0,
+            percentage,
+            meetsThreshold,
+            isAchieved: result.isAchieved ?? false,
+          };
+        } catch (err) {
+          console.error("Error evaluating target for condition", condition.id, err);
+          return null;
+        }
+      }));
+      
+      const validResults = progressResults.filter(r => r !== null);
+      const allMet = validResults.length > 0 && validResults.every(r => r!.meetsThreshold);
+      
+      res.json({
+        hasConditions: validResults.length > 0,
+        allConditionsMet: allMet,
+        conditions: validResults,
+      });
+    } catch (error: any) {
+      console.error("Get exit conditions progress error:", error);
       res.status(500).json({ error: error.message });
     }
   });

@@ -107,6 +107,33 @@ interface ExitProgressResponse {
   details?: Record<string, any>;
 }
 
+interface ExitCondition {
+  id: string;
+  company_id: string;
+  working_target_id: string;
+  scope_type: 'all_users' | 'specific_users' | 'specific_sheets';
+  scope_ids: string[] | null;
+  min_percentage: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  target_name: string;
+  target_description: string | null;
+  target_period_type: string | null;
+  target_is_active: boolean;
+}
+
+interface Sheet {
+  id: string;
+  name: string;
+}
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
 interface ParsedBlockingCondition {
   type: 'leads' | 'hours' | 'updates' | 'nfdt' | 'other';
   label: string;
@@ -224,6 +251,19 @@ export default function Attendance() {
     description: "",
     config: {} as Record<string, any>,
   });
+  
+  // Exit conditions state
+  const [exitConditionDialogOpen, setExitConditionDialogOpen] = useState(false);
+  const [editingCondition, setEditingCondition] = useState<ExitCondition | null>(null);
+  const [deleteConditionDialogOpen, setDeleteConditionDialogOpen] = useState(false);
+  const [conditionToDelete, setConditionToDelete] = useState<ExitCondition | null>(null);
+  const [newCondition, setNewCondition] = useState({
+    working_target_id: "",
+    scope_type: "all_users" as 'all_users' | 'specific_users' | 'specific_sheets',
+    scope_ids: [] as string[],
+    min_percentage: 100,
+    is_active: true,
+  });
 
   const { data: todayEntry, isLoading: loadingToday } = useQuery<AttendanceEntry | null>({
     queryKey: ["/api/attendance/today"],
@@ -261,6 +301,22 @@ export default function Attendance() {
 
   const { data: myExitProgress } = useQuery<ExitProgressResponse>({
     queryKey: ["/api/attendance/my-exit-progress"],
+  });
+
+  // Exit conditions queries
+  const { data: exitConditions = [], isLoading: loadingExitConditions } = useQuery<ExitCondition[]>({
+    queryKey: ["/api/attendance/exit-conditions"],
+    enabled: isAdmin,
+  });
+
+  const { data: companyUsers = [] } = useQuery<User[]>({
+    queryKey: ["/api/users"],
+    enabled: isAdmin,
+  });
+
+  const { data: companySheets = [] } = useQuery<Sheet[]>({
+    queryKey: ["/api/sheets"],
+    enabled: isAdmin,
   });
 
   const entryMutation = useMutation({
@@ -460,6 +516,86 @@ export default function Attendance() {
       toast({
         variant: "destructive",
         title: "Failed to Update Exit Condition",
+        description: error.message,
+      });
+    },
+  });
+
+  // Exit conditions mutations
+  const createExitConditionMutation = useMutation({
+    mutationFn: async (data: typeof newCondition) => {
+      return await apiRequest("POST", "/api/attendance/exit-conditions", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/exit-conditions"] });
+      setExitConditionDialogOpen(false);
+      setNewCondition({
+        working_target_id: "",
+        scope_type: "all_users",
+        scope_ids: [],
+        min_percentage: 100,
+        is_active: true,
+      });
+      toast({
+        title: "Exit Condition Created",
+        description: "New exit condition has been added.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to Create Exit Condition",
+        description: error.message,
+      });
+    },
+  });
+
+  const updateExitConditionMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<typeof newCondition> }) => {
+      return await apiRequest("PATCH", `/api/attendance/exit-conditions/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/exit-conditions"] });
+      setExitConditionDialogOpen(false);
+      setEditingCondition(null);
+      setNewCondition({
+        working_target_id: "",
+        scope_type: "all_users",
+        scope_ids: [],
+        min_percentage: 100,
+        is_active: true,
+      });
+      toast({
+        title: "Exit Condition Updated",
+        description: "Exit condition has been updated.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to Update Exit Condition",
+        description: error.message,
+      });
+    },
+  });
+
+  const deleteExitConditionMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/attendance/exit-conditions/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/exit-conditions"] });
+      setDeleteConditionDialogOpen(false);
+      setConditionToDelete(null);
+      toast({
+        title: "Exit Condition Deleted",
+        description: "Exit condition has been removed.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to Delete Exit Condition",
         description: error.message,
       });
     },
@@ -929,83 +1065,136 @@ export default function Attendance() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Target className="h-5 w-5" />
-                  Exit Condition
-                </CardTitle>
-                <CardDescription>
-                  Link a Daily Target from Working Targets as the exit requirement
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Target className="h-5 w-5" />
+                    Exit Conditions
+                  </CardTitle>
+                  <CardDescription>
+                    Configure multiple conditions users must meet before exiting
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setEditingCondition(null);
+                    setNewCondition({
+                      working_target_id: availableTargets[0]?.id || "",
+                      scope_type: "all_users",
+                      scope_ids: [],
+                      min_percentage: 100,
+                      is_active: true,
+                    });
+                    setExitConditionDialogOpen(true);
+                  }}
+                  disabled={availableTargets.length === 0}
+                  data-testid="button-add-exit-condition"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Condition
+                </Button>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Daily Target for Exit</Label>
-                    <Select
-                      value={exitTargetData?.attendance_exit_target_id || "none"}
-                      onValueChange={(value) => {
-                        setExitTargetMutation.mutate(value === "none" ? null : value);
-                      }}
-                      data-testid="select-exit-target"
-                    >
-                      <SelectTrigger data-testid="trigger-exit-target">
-                        <SelectValue placeholder="Select a daily target..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No exit condition</SelectItem>
-                        {availableTargets.map((target) => (
-                          <SelectItem key={target.id} value={target.id}>
-                            {target.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Users must achieve this target to mark normal exit. Only active daily targets are shown.
-                    </p>
+                {loadingExitConditions ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
-
-                  {exitTargetData?.linked_target && (
-                    <div className="p-4 rounded-lg border bg-muted/50">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="font-medium flex items-center gap-2">
-                            <Target className="h-4 w-4 text-primary" />
-                            {exitTargetData.linked_target.name}
+                ) : exitConditions.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground border rounded-lg border-dashed">
+                    <Target className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                    {availableTargets.length === 0 ? (
+                      <>
+                        <p className="text-sm">No daily targets available</p>
+                        <p className="text-xs mt-1">Create daily targets in Working Targets first</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm">No exit conditions configured</p>
+                        <p className="text-xs mt-1">Add conditions to control when users can mark exit</p>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {exitConditions.map((condition) => (
+                      <div
+                        key={condition.id}
+                        className={`p-4 rounded-lg border ${condition.is_active ? 'bg-card' : 'bg-muted/30 opacity-75'}`}
+                        data-testid={`exit-condition-${condition.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Target className="h-4 w-4 text-primary flex-shrink-0" />
+                              <span className="font-medium truncate">{condition.target_name}</span>
+                              {!condition.target_is_active && (
+                                <Badge variant="outline" className="text-amber-600 border-amber-600">
+                                  Target Inactive
+                                </Badge>
+                              )}
+                            </div>
+                            {condition.target_description && (
+                              <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
+                                {condition.target_description}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 mt-2 flex-wrap">
+                              <Badge variant="outline" className="text-xs">
+                                {condition.scope_type === 'all_users' && (
+                                  <><Users className="h-3 w-3 mr-1" />All Users</>
+                                )}
+                                {condition.scope_type === 'specific_users' && (
+                                  <><Users className="h-3 w-3 mr-1" />{condition.scope_ids?.length || 0} Users</>
+                                )}
+                                {condition.scope_type === 'specific_sheets' && (
+                                  <>Sheets: {condition.scope_ids?.length || 0}</>
+                                )}
+                              </Badge>
+                              <Badge variant="secondary" className="text-xs">
+                                Min {condition.min_percentage}%
+                              </Badge>
+                              <Badge variant={condition.is_active ? "default" : "secondary"} className="text-xs">
+                                {condition.is_active ? "Active" : "Inactive"}
+                              </Badge>
+                            </div>
                           </div>
-                          {exitTargetData.linked_target.description && (
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {exitTargetData.linked_target.description}
-                            </p>
-                          )}
-                          <div className="flex items-center gap-2 mt-2">
-                            <Badge variant="outline">Daily</Badge>
-                            <Badge variant={exitTargetData.linked_target.is_active ? "default" : "secondary"}>
-                              {exitTargetData.linked_target.is_active ? "Active" : "Inactive"}
-                            </Badge>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setEditingCondition(condition);
+                                setNewCondition({
+                                  working_target_id: condition.working_target_id,
+                                  scope_type: condition.scope_type,
+                                  scope_ids: condition.scope_ids || [],
+                                  min_percentage: condition.min_percentage,
+                                  is_active: condition.is_active,
+                                });
+                                setExitConditionDialogOpen(true);
+                              }}
+                              data-testid={`button-edit-condition-${condition.id}`}
+                            >
+                              <Settings className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setConditionToDelete(condition);
+                                setDeleteConditionDialogOpen(true);
+                              }}
+                              data-testid={`button-delete-condition-${condition.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
                           </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setExitTargetMutation.mutate(null)}
-                          data-testid="button-remove-exit-target"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
                       </div>
-                    </div>
-                  )}
-
-                  {!exitTargetData?.linked_target && availableTargets.length === 0 && (
-                    <div className="text-center py-6 text-muted-foreground border rounded-lg">
-                      <Target className="h-10 w-10 mx-auto mb-3 opacity-50" />
-                      <p className="text-sm">No daily targets available</p>
-                      <p className="text-xs mt-1">Create daily targets in Working Targets first</p>
-                    </div>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -1326,6 +1515,240 @@ export default function Attendance() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-testid="button-confirm-delete-entry"
             >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Add/Edit Exit Condition Dialog */}
+      <Dialog open={exitConditionDialogOpen} onOpenChange={setExitConditionDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {editingCondition ? "Edit Exit Condition" : "Add Exit Condition"}
+            </DialogTitle>
+            <DialogDescription>
+              Configure when this condition applies and the minimum achievement required
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Daily Target</Label>
+              <Select
+                value={newCondition.working_target_id}
+                onValueChange={(value) => setNewCondition({ ...newCondition, working_target_id: value })}
+                data-testid="select-condition-target"
+              >
+                <SelectTrigger data-testid="trigger-condition-target">
+                  <SelectValue placeholder="Select a target..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTargets.map((target) => (
+                    <SelectItem key={target.id} value={target.id}>
+                      {target.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Applies To</Label>
+              <Select
+                value={newCondition.scope_type}
+                onValueChange={(value: 'all_users' | 'specific_users' | 'specific_sheets') => 
+                  setNewCondition({ ...newCondition, scope_type: value, scope_ids: [] })
+                }
+                data-testid="select-scope-type"
+              >
+                <SelectTrigger data-testid="trigger-scope-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all_users">All Users</SelectItem>
+                  <SelectItem value="specific_users">Specific Users</SelectItem>
+                  <SelectItem value="specific_sheets">Users in Specific Sheets</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {newCondition.scope_type === 'all_users' && "This condition applies to all users in the company"}
+                {newCondition.scope_type === 'specific_users' && "Select which users this condition applies to"}
+                {newCondition.scope_type === 'specific_sheets' && "Applies to users who have access to selected sheets"}
+              </p>
+            </div>
+
+            {newCondition.scope_type === 'specific_users' && (
+              <div className="space-y-2">
+                <Label>Select Users</Label>
+                <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                  {companyUsers.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-2">No users found</p>
+                  ) : (
+                    companyUsers.map((u) => (
+                      <label
+                        key={u.id}
+                        className="flex items-center gap-2 p-2 rounded hover-elevate cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={newCondition.scope_ids.includes(u.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewCondition({
+                                ...newCondition,
+                                scope_ids: [...newCondition.scope_ids, u.id],
+                              });
+                            } else {
+                              setNewCondition({
+                                ...newCondition,
+                                scope_ids: newCondition.scope_ids.filter((id) => id !== u.id),
+                              });
+                            }
+                          }}
+                          className="rounded border-gray-300"
+                        />
+                        <span className="text-sm">{u.name}</span>
+                        <span className="text-xs text-muted-foreground">({u.email})</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {newCondition.scope_ids.length} user(s) selected
+                </p>
+              </div>
+            )}
+
+            {newCondition.scope_type === 'specific_sheets' && (
+              <div className="space-y-2">
+                <Label>Select Sheets</Label>
+                <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                  {companySheets.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-2">No sheets found</p>
+                  ) : (
+                    companySheets.map((s) => (
+                      <label
+                        key={s.id}
+                        className="flex items-center gap-2 p-2 rounded hover-elevate cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={newCondition.scope_ids.includes(s.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewCondition({
+                                ...newCondition,
+                                scope_ids: [...newCondition.scope_ids, s.id],
+                              });
+                            } else {
+                              setNewCondition({
+                                ...newCondition,
+                                scope_ids: newCondition.scope_ids.filter((id) => id !== s.id),
+                              });
+                            }
+                          }}
+                          className="rounded border-gray-300"
+                        />
+                        <span className="text-sm">{s.name}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {newCondition.scope_ids.length} sheet(s) selected
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="min-percentage">Minimum Achievement (%)</Label>
+              <Input
+                id="min-percentage"
+                type="number"
+                min="1"
+                max="100"
+                value={newCondition.min_percentage}
+                onChange={(e) => setNewCondition({ 
+                  ...newCondition, 
+                  min_percentage: Math.min(100, Math.max(1, parseInt(e.target.value) || 100))
+                })}
+                data-testid="input-min-percentage"
+              />
+              <p className="text-xs text-muted-foreground">
+                Users must achieve at least {newCondition.min_percentage}% of the target to exit normally
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="condition-active">Active</Label>
+                <p className="text-xs text-muted-foreground">Enable or disable this condition</p>
+              </div>
+              <Switch
+                id="condition-active"
+                checked={newCondition.is_active}
+                onCheckedChange={(checked) => setNewCondition({ ...newCondition, is_active: checked })}
+                data-testid="switch-condition-active"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExitConditionDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (editingCondition) {
+                  updateExitConditionMutation.mutate({
+                    id: editingCondition.id,
+                    data: newCondition,
+                  });
+                } else {
+                  createExitConditionMutation.mutate(newCondition);
+                }
+              }}
+              disabled={
+                !newCondition.working_target_id ||
+                (newCondition.scope_type !== 'all_users' && newCondition.scope_ids.length === 0) ||
+                createExitConditionMutation.isPending ||
+                updateExitConditionMutation.isPending
+              }
+              data-testid="button-save-condition"
+            >
+              {(createExitConditionMutation.isPending || updateExitConditionMutation.isPending) && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              {editingCondition ? "Update" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Exit Condition Confirmation */}
+      <AlertDialog open={deleteConditionDialogOpen} onOpenChange={setDeleteConditionDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Exit Condition</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the exit condition for "{conditionToDelete?.target_name}"? 
+              Users will no longer need to meet this condition to exit.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-condition">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (conditionToDelete) {
+                  deleteExitConditionMutation.mutate(conditionToDelete.id);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-condition"
+            >
+              {deleteExitConditionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
