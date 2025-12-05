@@ -89,6 +89,11 @@ const RELATIVE_DATE_OPTIONS = [
   { value: "last_90_days", label: "Last 90 Days" },
 ];
 
+const DATE_VALUE_TYPES = [
+  { value: "relative", label: "Relative Date" },
+  { value: "custom", label: "Custom Date" },
+];
+
 export interface FilterCondition {
   id?: string;
   column_key: string;
@@ -96,6 +101,7 @@ export interface FilterCondition {
   value?: any;
   value2?: any;
   relative_date?: string;
+  date_value_type?: "relative" | "custom";
 }
 
 interface FilterConditionBuilderProps {
@@ -150,12 +156,14 @@ export function FilterConditionBuilder({
       newConditions[index].value = undefined;
       newConditions[index].value2 = undefined;
       newConditions[index].relative_date = undefined;
+      newConditions[index].date_value_type = undefined;
     }
     
     if (updates.operator !== undefined) {
       newConditions[index].value = undefined;
       newConditions[index].value2 = undefined;
       newConditions[index].relative_date = undefined;
+      newConditions[index].date_value_type = undefined;
     }
     
     onChange(newConditions);
@@ -240,7 +248,9 @@ export function FilterConditionBuilder({
         const needsValue = requiresValue(condition.operator);
         const needsSecondValue = requiresSecondValue(condition.operator);
         const dropdownOptions = getDropdownOptions(condition.column_key);
-        const isDateWithRelative = ["date_equals", "date_within"].includes(condition.operator);
+        const isDateOperator = columnType === "date" && condition.operator && !["is_empty", "is_not_empty"].includes(condition.operator);
+        const allowsRelativeDate = isDateOperator && !needsSecondValue;
+        const dateValueType = condition.date_value_type || (condition.relative_date ? "relative" : "custom");
 
         return (
           <div key={condition.id || index}>
@@ -317,31 +327,76 @@ export function FilterConditionBuilder({
 
               {condition.operator && needsValue && (
                 <div className="space-y-2">
-                  {columnType === "date" && isDateWithRelative && (
-                    <div>
-                      <Label className="text-xs mb-1">Value</Label>
-                      <Select
-                        value={condition.relative_date || ""}
-                        onValueChange={(value) => updateCondition(index, { relative_date: value, value: undefined })}
-                      >
-                        <SelectTrigger data-testid={`select-condition-relative-date-${index}`}>
-                          <SelectValue placeholder="Select date" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {RELATIVE_DATE_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
+                  {columnType === "date" && allowsRelativeDate && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs">Value Type</Label>
+                        <ToggleGroup
+                          type="single"
+                          value={dateValueType}
+                          onValueChange={(value) => {
+                            if (value) {
+                              updateCondition(index, { 
+                                date_value_type: value as "relative" | "custom",
+                                relative_date: value === "custom" ? undefined : condition.relative_date,
+                                value: value === "relative" ? undefined : condition.value
+                              });
+                            }
+                          }}
+                          className="border rounded-md"
+                          data-testid={`toggle-date-value-type-${index}`}
+                        >
+                          {DATE_VALUE_TYPES.map((type) => (
+                            <ToggleGroupItem 
+                              key={type.value}
+                              value={type.value} 
+                              size="sm" 
+                              className="px-2 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+                              data-testid={`button-date-type-${type.value}-${index}`}
+                            >
+                              {type.label}
+                            </ToggleGroupItem>
                           ))}
-                        </SelectContent>
-                      </Select>
+                        </ToggleGroup>
+                      </div>
+                      
+                      {dateValueType === "relative" ? (
+                        <div>
+                          <Label className="text-xs mb-1">Select Date</Label>
+                          <Select
+                            value={condition.relative_date || ""}
+                            onValueChange={(value) => updateCondition(index, { relative_date: value, value: undefined })}
+                          >
+                            <SelectTrigger data-testid={`select-condition-relative-date-${index}`}>
+                              <SelectValue placeholder="Select date" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {RELATIVE_DATE_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        <div>
+                          <Label className="text-xs mb-1">Select Date</Label>
+                          <Input
+                            type="date"
+                            value={condition.value || ""}
+                            onChange={(e) => updateCondition(index, { value: e.target.value, relative_date: undefined })}
+                            data-testid={`input-condition-value-${index}`}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {columnType === "date" && !isDateWithRelative && (
-                    <div className={needsSecondValue ? "flex gap-2 items-end" : ""}>
+                  {columnType === "date" && needsSecondValue && (
+                    <div className="flex gap-2 items-end">
                       <div className="flex-1">
-                        <Label className="text-xs mb-1">{needsSecondValue ? "From" : "Value"}</Label>
+                        <Label className="text-xs mb-1">From</Label>
                         <Input
                           type="date"
                           value={condition.value || ""}
@@ -349,17 +404,15 @@ export function FilterConditionBuilder({
                           data-testid={`input-condition-value-${index}`}
                         />
                       </div>
-                      {needsSecondValue && (
-                        <div className="flex-1">
-                          <Label className="text-xs mb-1">To</Label>
-                          <Input
-                            type="date"
-                            value={condition.value2 || ""}
-                            onChange={(e) => updateCondition(index, { value2: e.target.value })}
-                            data-testid={`input-condition-value2-${index}`}
-                          />
-                        </div>
-                      )}
+                      <div className="flex-1">
+                        <Label className="text-xs mb-1">To</Label>
+                        <Input
+                          type="date"
+                          value={condition.value2 || ""}
+                          onChange={(e) => updateCondition(index, { value2: e.target.value })}
+                          data-testid={`input-condition-value2-${index}`}
+                        />
+                      </div>
                     </div>
                   )}
 

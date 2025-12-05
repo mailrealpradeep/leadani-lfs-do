@@ -1553,6 +1553,41 @@ export function SpreadsheetGrid({
           return { from: startOfNextMonth, to: endOfNextMonth };
         }
         
+        case "last_week": {
+          const lastWeekEnd = new Date(today);
+          lastWeekEnd.setDate(today.getDate() - today.getDay() - 1);
+          lastWeekEnd.setHours(23, 59, 59, 999);
+          const lastWeekStart = new Date(lastWeekEnd);
+          lastWeekStart.setDate(lastWeekEnd.getDate() - 6);
+          lastWeekStart.setHours(0, 0, 0, 0);
+          return { from: lastWeekStart, to: lastWeekEnd };
+        }
+        
+        case "last_month": {
+          const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+          lastMonthEnd.setHours(23, 59, 59, 999);
+          const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+          return { from: lastMonthStart, to: lastMonthEnd };
+        }
+        
+        case "last_7_days": {
+          const sevenDaysAgo = new Date(today);
+          sevenDaysAgo.setDate(today.getDate() - 7);
+          return { from: sevenDaysAgo, to: endOfDay };
+        }
+        
+        case "last_30_days": {
+          const thirtyDaysAgo = new Date(today);
+          thirtyDaysAgo.setDate(today.getDate() - 30);
+          return { from: thirtyDaysAgo, to: endOfDay };
+        }
+        
+        case "last_90_days": {
+          const ninetyDaysAgo = new Date(today);
+          ninetyDaysAgo.setDate(today.getDate() - 90);
+          return { from: ninetyDaysAgo, to: endOfDay };
+        }
+        
         default:
           return null;
       }
@@ -1630,24 +1665,60 @@ export function SpreadsheetGrid({
           break;
 
         case "date_before":
-          if (value) {
+          if (relative_date) {
+            const dateRange = getRelativeDate(relative_date);
+            if (dateRange) {
+              // Subtract 1ms from the start to create exclusive upper bound
+              const beforeBound = new Date(dateRange.from.getTime() - 1);
+              newFilters[column_key] = {
+                type: "custom",
+                from: new Date(0), // Beginning of time
+                to: beforeBound, // Before the start of the relative date range (exclusive)
+              };
+            }
+          } else if (value) {
             const beforeDate = new Date(value);
+            beforeDate.setHours(0, 0, 0, 0);
+            // Subtract 1ms to create exclusive upper bound
+            const beforeBound = new Date(beforeDate.getTime() - 1);
             newFilters[column_key] = {
               type: "custom",
               from: new Date(0), // Beginning of time
-              to: beforeDate,
+              to: beforeBound,
             };
           }
           break;
 
         case "date_after":
-          if (value) {
+          if (relative_date) {
+            const dateRange = getRelativeDate(relative_date);
+            if (dateRange) {
+              // Add 1ms to the end to create exclusive lower bound
+              const afterBound = new Date(dateRange.to.getTime() + 1);
+              newFilters[column_key] = {
+                type: "custom",
+                from: afterBound, // After the end of the relative date range (exclusive)
+                to: new Date(2100, 0, 1), // Far future
+              };
+            }
+          } else if (value) {
             const afterDate = new Date(value);
+            afterDate.setHours(23, 59, 59, 999);
+            // Add 1ms to create exclusive lower bound
+            const afterBound = new Date(afterDate.getTime() + 1);
             newFilters[column_key] = {
               type: "custom",
-              from: afterDate,
+              from: afterBound,
               to: new Date(2100, 0, 1), // Far future
             };
+          }
+          break;
+        
+        case "date_not_equals":
+          // For not equals, we can't easily do this with the current filter system
+          // But we'll try to support it by documenting the limitation
+          if (relative_date || value) {
+            unsupportedOperators.push(`date_not_equals on ${column_key}`);
           }
           break;
 
