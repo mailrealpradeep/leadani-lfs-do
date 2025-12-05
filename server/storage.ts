@@ -136,6 +136,11 @@ import type {
   WorkingTargetResult,
   WorkingTargetResultRecord,
   InsertWorkingTargetResult,
+  // Attendance Exit Conditions
+  AttendanceExitCondition,
+  AttendanceExitConditionRecord,
+  InsertAttendanceExitCondition,
+  AttendanceExitScopeType,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -572,6 +577,17 @@ export interface IStorage {
   getWorkingTargetResultsByUser(userId: string, periodStart?: Date, periodEnd?: Date): Promise<WorkingTargetResultRecord[]>;
   getWorkingTargetResultsByTarget(targetId: string): Promise<WorkingTargetResultRecord[]>;
   createOrUpdateWorkingTargetResult(result: InsertWorkingTargetResult): Promise<WorkingTargetResultRecord>;
+
+  // =========================================================================
+  // ATTENDANCE EXIT CONDITIONS
+  // =========================================================================
+  
+  getAttendanceExitCondition(id: string): Promise<AttendanceExitConditionRecord | undefined>;
+  getAttendanceExitConditionsByCompany(companyId: string): Promise<AttendanceExitConditionRecord[]>;
+  getActiveExitConditionsForUser(userId: string, companyId: string): Promise<AttendanceExitConditionRecord[]>;
+  createAttendanceExitCondition(condition: InsertAttendanceExitCondition): Promise<AttendanceExitConditionRecord>;
+  updateAttendanceExitCondition(id: string, updates: Partial<AttendanceExitConditionRecord>): Promise<AttendanceExitConditionRecord | undefined>;
+  deleteAttendanceExitCondition(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {

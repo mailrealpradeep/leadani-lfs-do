@@ -3234,3 +3234,47 @@ export const insertWorkingTargetResultSchema = createInsertSchema(working_target
 });
 
 export type InsertWorkingTargetResultData = z.infer<typeof insertWorkingTargetResultSchema>;
+
+// ============================================================================
+// ATTENDANCE EXIT CONDITIONS
+// ============================================================================
+
+// Scope type for exit conditions
+export type AttendanceExitScopeType = 'all_users' | 'specific_users' | 'specific_sheets';
+
+// Attendance Exit Condition interface
+export interface AttendanceExitCondition {
+  id: string;
+  company_id: string;
+  working_target_id: string;
+  scope_type: AttendanceExitScopeType;
+  scope_ids: string[] | null; // User IDs or Sheet IDs depending on scope_type
+  min_percentage: number; // 1-100, minimum % of target to achieve for exit
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Database table for Attendance Exit Conditions
+export const attendance_exit_conditions = pgTable('attendance_exit_conditions', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  working_target_id: varchar('working_target_id').notNull().references(() => working_targets.id, { onDelete: 'cascade' }),
+  scope_type: varchar('scope_type', { length: 50 }).notNull().$type<AttendanceExitScopeType>(), // 'all_users' | 'specific_users' | 'specific_sheets'
+  scope_ids: text('scope_ids').array(), // User IDs or Sheet IDs depending on scope_type, null for 'all_users'
+  min_percentage: integer('min_percentage').notNull().default(100), // 1-100
+  is_active: boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type AttendanceExitConditionRecord = typeof attendance_exit_conditions.$inferSelect;
+export type InsertAttendanceExitCondition = typeof attendance_exit_conditions.$inferInsert;
+
+export const insertAttendanceExitConditionSchema = createInsertSchema(attendance_exit_conditions).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertAttendanceExitConditionData = z.infer<typeof insertAttendanceExitConditionSchema>;
