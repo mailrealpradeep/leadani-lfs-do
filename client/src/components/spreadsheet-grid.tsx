@@ -107,11 +107,12 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { useTheme } from "@/components/theme-provider";
 import { format, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
-import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRule, UserRowFilterRecord, RowFilterCondition } from "@shared/schema";
+import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRule, UserRowFilterRecord, RowFilterCondition, TransitionExplanationRuleRecord } from "@shared/schema";
 import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { LeadEditDialog } from "./lead-edit-dialog";
+import { TransitionExplanationDialog } from "./transition-explanation-dialog";
 import { MobileFilterSheet } from "./mobile-filter-sheet";
 import { DateRangeFilter, type DateFilterValue } from "./filters/date-range-filter";
 import { DropdownFilter } from "./filters/dropdown-filter";
@@ -383,6 +384,17 @@ export function SpreadsheetGrid({
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
   const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
+  
+  // Transition explanation dialog state
+  const [transitionExplanationDialogOpen, setTransitionExplanationDialogOpen] = useState(false);
+  const [pendingTransition, setPendingTransition] = useState<{
+    leadId: string;
+    columnKey: string;
+    columnName: string;
+    oldValue: string | null | undefined;
+    newValue: string;
+    customFields: Record<string, any>;
+  } | null>(null);
 
   // Column resizing state
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -591,6 +603,11 @@ export function SpreadsheetGrid({
   // Fetch global highlighting rules (apply to all sheets)
   const { data: globalHighlightingRules = [] } = useQuery<HighlightingRule[]>({
     queryKey: ["/api/company/global-highlighting-rules"],
+  });
+  
+  // Fetch active transition explanation rules (company-wide)
+  const { data: transitionExplanationRules = [] } = useQuery<TransitionExplanationRuleRecord[]>({
+    queryKey: ["/api/company/transition-explanations/active"],
   });
 
   // Merge global and sheet-specific rules, sheet-specific take precedence (evaluated first)
@@ -1914,6 +1931,30 @@ export function SpreadsheetGrid({
           }}
         />
       )}
+      
+      {/* Transition Explanation Dialog */}
+      {pendingTransition && (
+        <TransitionExplanationDialog
+          open={transitionExplanationDialogOpen}
+          onOpenChange={(open) => {
+            setTransitionExplanationDialogOpen(open);
+            if (!open) setPendingTransition(null);
+          }}
+          leadId={pendingTransition.leadId}
+          columnName={pendingTransition.columnName}
+          columnKey={pendingTransition.columnKey}
+          oldValue={pendingTransition.oldValue}
+          newValue={pendingTransition.newValue}
+          customFields={pendingTransition.customFields}
+          queryKeysToInvalidate={[
+            ["/api/sheets", activeSheetId, "leads"],
+            ["/api/leads/query"],
+          ]}
+          onComplete={() => {
+            setPendingTransition(null);
+          }}
+        />
+      )}
 
       {/* Toolbar with actions - only render when selections exist */}
       {selectedRows.size > 0 && (
@@ -2521,15 +2562,36 @@ export function SpreadsheetGrid({
                               value={editValue}
                               onValueChange={(val) => {
                                 setEditValue(val);
-                                const updatedFields = {
-                                  ...lead.custom_fields,
-                                  [col.key]: val,
-                                };
-                                updateLeadMutation.mutate({
-                                  leadId: lead.id,
-                                  customFields: updatedFields,
-                                });
-                                setEditingCell(null);
+                                const oldValue = lead.custom_fields?.[col.key] || null;
+                                
+                                // Check if this transition requires an explanation
+                                const requiresExplanation = transitionExplanationRules.some(
+                                  rule => rule.column_key === col.key && rule.dropdown_value === val
+                                );
+                                
+                                if (requiresExplanation) {
+                                  // Show explanation dialog instead of directly updating
+                                  setPendingTransition({
+                                    leadId: lead.id,
+                                    columnKey: col.key,
+                                    columnName: col.label,
+                                    oldValue: oldValue,
+                                    newValue: val,
+                                    customFields: lead.custom_fields || {},
+                                  });
+                                  setTransitionExplanationDialogOpen(true);
+                                  setEditingCell(null);
+                                } else {
+                                  const updatedFields = {
+                                    ...lead.custom_fields,
+                                    [col.key]: val,
+                                  };
+                                  updateLeadMutation.mutate({
+                                    leadId: lead.id,
+                                    customFields: updatedFields,
+                                  });
+                                  setEditingCell(null);
+                                }
                               }}
                               open
                               onOpenChange={(open) => {

@@ -4809,6 +4809,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Create lead update record if transition_note is provided (for transition explanation rules)
+      if (req.body.transition_note && updated) {
+        const transitionNote = req.body.transition_note as string;
+        const currentDate = new Date().toISOString().split('T')[0];
+        await storage.createLeadUpdate({
+          lead_id: req.params.id,
+          update_via: "web",
+          update_on: currentDate,
+          remark: transitionNote,
+          created_by_user_id: req.userId!,
+        });
+      }
+
       // Realtime update
       const io = app.get("io") as SocketIOServer;
       io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", updated);
