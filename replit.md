@@ -78,6 +78,10 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
     - Restore preview showing impact analysis (leads to restore/remove/update)
     - Full restoration with audit logging and real-time Socket.io notifications
     - Located at: Super Admin Console > Recovery tab
+*   **Data Management (Admin Console)**: Company Admin tools for bulk data operations:
+    - **Clear Past Data**: Company-wide lead deletion with optional date filtering. Requires type-to-confirm safety ("DELETE"). Uses soft-delete so leads can be recovered within 30 days.
+    - **Bulk Transfer Leads**: Transfer leads from one sheet to multiple destinations with percentage-based weighted round-robin distribution. Includes duplicate detection before transfer and adds transfer history to lead updates.
+    - Located at: Admin Console → Data Management section (Company Admin only)
 
 ### Security
 

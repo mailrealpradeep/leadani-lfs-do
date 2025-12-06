@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, Database } from "lucide-react";
 import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,7 @@ import { HighlightingRulesManager } from "@/components/highlighting-rules-manage
 import { KpiManagement } from "@/components/kpi-management";
 import { BackupManager } from "@/components/backup-manager";
 import { TransitionExplanationManager } from "@/components/transition-explanation-manager";
+import { DataManagement } from "@/components/data-management";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -968,6 +969,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <BackupManager />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="data-management" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-data-management">
+              <div className="flex items-center gap-3">
+                <Database className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Data Management</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Clear test data or bulk transfer leads between sheets
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <DataManagement />
               </div>
             </AccordionContent>
           </AccordionItem>

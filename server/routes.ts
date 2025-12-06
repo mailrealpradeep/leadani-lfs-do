@@ -15031,6 +15031,340 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // DATA MANAGEMENT - Clear Past Data & Bulk Transfer
+  // ============================================================================
+  
+  // Get preview of leads to clear (company-wide)
+  app.get("/api/admin/data-management/clear-preview", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(400).json({ error: "Company ID required" });
+      }
+
+      const beforeDate = req.query.before_date as string | undefined;
+      
+      // Get all company sheets
+      const sheets = await storage.getSheetsByCompanyId(req.companyId);
+      const activeSheets = sheets.filter(s => !s.deleted_at);
+      
+      const sheetCounts: { sheet_id: string; sheet_name: string; lead_count: number }[] = [];
+      let totalLeads = 0;
+
+      for (const sheet of activeSheets) {
+        // Get lead count for this sheet
+        const result = await storage.getLeadsBySheetIds({
+          sheetIds: [sheet.id],
+          page: 1,
+          limit: 1,
+          filters: beforeDate ? { created_at_before: beforeDate } : undefined,
+        });
+        
+        if (result.total > 0) {
+          sheetCounts.push({
+            sheet_id: sheet.id,
+            sheet_name: sheet.name,
+            lead_count: result.total,
+          });
+          totalLeads += result.total;
+        }
+      }
+
+      res.json({
+        total_leads: totalLeads,
+        sheets: sheetCounts,
+      });
+    } catch (error: any) {
+      console.error("Clear preview error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Clear all leads (company-wide soft delete)
+  app.post("/api/admin/data-management/clear-all", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(400).json({ error: "Company ID and User ID required" });
+      }
+
+      const { before_date } = req.body;
+      
+      // Get all company sheets
+      const sheets = await storage.getSheetsByCompanyId(req.companyId);
+      const activeSheets = sheets.filter(s => !s.deleted_at);
+      
+      let deletedCount = 0;
+      const sheetIds = activeSheets.map(s => s.id);
+
+      // Get all leads matching criteria
+      const allLeadIds: string[] = [];
+      for (const sheetId of sheetIds) {
+        const result = await storage.getLeadsBySheetIds({
+          sheetIds: [sheetId],
+          page: 1,
+          limit: 10000,
+          filters: before_date ? { created_at_before: before_date } : undefined,
+        });
+        allLeadIds.push(...result.leads.map((l: any) => l.id));
+      }
+
+      // Soft delete all leads
+      if (allLeadIds.length > 0) {
+        deletedCount = await storage.deleteLeads(allLeadIds, req.userId);
+      }
+
+      // Log activity
+      const { logActivity } = await import("./activityLogger");
+      const user = await storage.getUser(req.userId);
+      await logActivity({
+        actor: { user: user!, source: "ui" },
+        companyId: req.companyId,
+        action: "lead_deleted",
+        targetType: "leads",
+        bulkMeta: {
+          count: deletedCount,
+        },
+        details: {
+          operation: "bulk_clear",
+          before_date: before_date || null,
+        },
+      });
+
+      // Emit socket event to refresh all affected sheets
+      const io = app.get("io") as SocketIOServer;
+      for (const sheetId of sheetIds) {
+        io.to(`sheet_${sheetId}`).emit("leads_bulk_deleted", { 
+          sheetId, 
+          totalCount: deletedCount,
+          operation: "bulk_clear"
+        });
+      }
+
+      res.json({ deleted_count: deletedCount });
+    } catch (error: any) {
+      console.error("Clear all leads error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get transfer preview (check for duplicates)
+  app.get("/api/admin/data-management/transfer-preview", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(400).json({ error: "Company ID required" });
+      }
+
+      const sourceSheetId = req.query.source_sheet_id as string;
+      const destinationSheetIds = (req.query.destination_sheet_ids as string)?.split(",").filter(Boolean);
+
+      if (!sourceSheetId) {
+        return res.status(400).json({ error: "Source sheet ID required" });
+      }
+
+      // Verify source sheet belongs to company
+      const sourceSheet = await storage.getSheet(sourceSheetId);
+      if (!sourceSheet || sourceSheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied to source sheet" });
+      }
+
+      // Get source leads count
+      const sourceResult = await storage.getLeadsBySheetIds({ sheetIds: [sourceSheetId], page: 1, limit: 1 });
+      
+      // Check for duplicates if destination sheets provided
+      const duplicates: { mobile: string; name: string }[] = [];
+      
+      if (destinationSheetIds && destinationSheetIds.length > 0) {
+        // Get all source leads
+        const sourceLeads = await storage.getLeadsBySheetIds({ sheetIds: [sourceSheetId], page: 1, limit: 10000 });
+        
+        // Get all destination leads
+        const destLeads = await storage.getLeadsBySheetIds({ sheetIds: destinationSheetIds, page: 1, limit: 10000 });
+        
+        // Extract mobile numbers from destination
+        const destMobiles = new Set<string>();
+        for (const lead of destLeads.leads) {
+          const mobile = lead.custom_fields?.mobile_no || lead.custom_fields?.["Mobile No"];
+          if (mobile) {
+            // Normalize: last 10 digits
+            const normalized = String(mobile).replace(/\D/g, "").slice(-10);
+            if (normalized.length === 10) {
+              destMobiles.add(normalized);
+            }
+          }
+        }
+
+        // Check source leads for duplicates
+        for (const lead of sourceLeads.leads) {
+          const mobile = lead.custom_fields?.mobile_no || lead.custom_fields?.["Mobile No"];
+          if (mobile) {
+            const normalized = String(mobile).replace(/\D/g, "").slice(-10);
+            if (normalized.length === 10 && destMobiles.has(normalized)) {
+              duplicates.push({
+                mobile: String(mobile),
+                name: lead.custom_fields?.full_name || lead.custom_fields?.["Full Name"] || "Unknown",
+              });
+            }
+          }
+        }
+      }
+
+      res.json({
+        source_lead_count: sourceResult.total,
+        duplicates,
+      });
+    } catch (error: any) {
+      console.error("Transfer preview error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Bulk transfer leads
+  app.post("/api/admin/data-management/bulk-transfer", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(400).json({ error: "Company ID and User ID required" });
+      }
+
+      const { source_sheet_id, destinations, remark } = req.body;
+
+      if (!source_sheet_id || !destinations || !Array.isArray(destinations) || destinations.length === 0) {
+        return res.status(400).json({ error: "Source sheet and destinations required" });
+      }
+
+      // Validate percentages total 100
+      const totalPercentage = destinations.reduce((sum: number, d: any) => sum + (d.percentage || 0), 0);
+      if (totalPercentage !== 100) {
+        return res.status(400).json({ error: "Destination percentages must total 100%" });
+      }
+
+      // Verify source sheet belongs to company
+      const sourceSheet = await storage.getSheet(source_sheet_id);
+      if (!sourceSheet || sourceSheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied to source sheet" });
+      }
+
+      // Verify all destination sheets belong to company
+      for (const dest of destinations) {
+        const destSheet = await storage.getSheet(dest.sheet_id);
+        if (!destSheet || destSheet.company_id !== req.companyId) {
+          return res.status(403).json({ error: `Access denied to destination sheet ${dest.sheet_id}` });
+        }
+        if (dest.sheet_id === source_sheet_id) {
+          return res.status(400).json({ error: "Cannot transfer to same sheet" });
+        }
+      }
+
+      // Get all source leads
+      const sourceLeads = await storage.getLeadsBySheetIds({ sheetIds: [source_sheet_id], page: 1, limit: 10000 });
+      const leads = sourceLeads.leads;
+
+      if (leads.length === 0) {
+        return res.json({ transferred_count: 0, message: "No leads to transfer" });
+      }
+
+      // Get transfer user info
+      const transferUser = await storage.getUser(req.userId);
+      const transferUserName = transferUser?.name || "Unknown";
+
+      // Prepare weighted distribution
+      // Sort destinations by percentage descending for weighted round-robin
+      const sortedDests = [...destinations].sort((a: any, b: any) => b.percentage - a.percentage);
+      const destCounts: Record<string, number> = {};
+      sortedDests.forEach((d: any) => { destCounts[d.sheet_id] = 0; });
+
+      const io = app.get("io") as SocketIOServer;
+      let transferredCount = 0;
+
+      for (let i = 0; i < leads.length; i++) {
+        const lead = leads[i];
+        
+        // Find which destination should get this lead (weighted round-robin)
+        let targetSheetId = sortedDests[0].sheet_id;
+        let minDeviation = Infinity;
+        
+        for (const dest of sortedDests) {
+          const expectedCount = (dest.percentage / 100) * (i + 1);
+          const actualCount = destCounts[dest.sheet_id];
+          const deviation = actualCount - expectedCount;
+          
+          if (deviation < minDeviation) {
+            minDeviation = deviation;
+            targetSheetId = dest.sheet_id;
+          }
+        }
+
+        // Update lead's sheet_id
+        const targetSheet = await storage.getSheet(targetSheetId);
+        await storage.updateLead(lead.id, { 
+          sheet_id: targetSheetId,
+        });
+
+        // Add update history entry
+        const updateRemark = remark 
+          ? `Transferred from ${sourceSheet.name} to ${targetSheet?.name} by ${transferUserName} - ${remark}`
+          : `Transferred from ${sourceSheet.name} to ${targetSheet?.name} by ${transferUserName}`;
+        
+        const today = new Date().toISOString().split("T")[0];
+        await storage.createLeadUpdate({
+          lead_id: lead.id,
+          update_via: "transfer",
+          update_on: today,
+          remark: updateRemark,
+          created_by_user_id: req.userId,
+        });
+
+        destCounts[targetSheetId]++;
+        transferredCount++;
+      }
+
+      // Log activity
+      const { logActivity } = await import("./activityLogger");
+      await logActivity({
+        actor: { user: transferUser!, source: "ui" },
+        companyId: req.companyId,
+        action: "lead_transferred",
+        targetType: "leads",
+        bulkMeta: {
+          count: transferredCount,
+        },
+        details: {
+          operation: "bulk_transfer",
+          source_sheet: sourceSheet.name,
+          destinations: destinations.map((d: any) => ({
+            sheet_id: d.sheet_id,
+            percentage: d.percentage,
+            count: destCounts[d.sheet_id],
+          })),
+          remark: remark || null,
+        },
+      });
+
+      // Emit socket events
+      io.to(`sheet_${source_sheet_id}`).emit("leads_transferred_out", { 
+        sheetId: source_sheet_id, 
+        count: transferredCount 
+      });
+      
+      for (const dest of destinations) {
+        io.to(`sheet_${dest.sheet_id}`).emit("leads_transferred_in", { 
+          sheetId: dest.sheet_id, 
+          count: destCounts[dest.sheet_id] 
+        });
+      }
+
+      res.json({ 
+        transferred_count: transferredCount,
+        distribution: destinations.map((d: any) => ({
+          sheet_id: d.sheet_id,
+          count: destCounts[d.sheet_id],
+        })),
+      });
+    } catch (error: any) {
+      console.error("Bulk transfer error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
