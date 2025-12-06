@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { TransitionExplanationRuleRecord, CustomColumn, DropdownOption } from "@shared/schema";
+import type { TransitionExplanationRuleRecord, CustomColumn } from "@shared/schema";
 
 interface TransitionExplanationManagerProps {
   headless?: boolean;
@@ -53,14 +53,24 @@ export function TransitionExplanationManager({ headless = false }: TransitionExp
     queryKey: ["/api/company/columns"],
   });
 
-  const { data: dropdownOptions = [] } = useQuery<DropdownOption[]>({
-    queryKey: ["/api/company/dropdown-options"],
-  });
+  // Get unique dropdown columns by column_key (same key can exist in multiple sheets)
+  const dropdownColumns = columns.filter(col => col.type === "dropdown")
+    .filter((col, index, arr) => arr.findIndex(c => c.column_key === col.column_key) === index);
 
-  const dropdownColumns = columns.filter(col => col.type === "dropdown");
-
-  const getOptionsForColumn = (columnKey: string) => {
-    return dropdownOptions.filter(opt => opt.column_key === columnKey);
+  // Extract dropdown options from column config - aggregate from all matching columns
+  // (same column_key can exist in multiple sheets with potentially different options)
+  const getOptionsForColumn = (columnKey: string): string[] => {
+    const matchingColumns = columns.filter(c => c.column_key === columnKey);
+    if (matchingColumns.length === 0) return [];
+    
+    // Collect all unique options from all matching columns
+    const allOptions = new Set<string>();
+    for (const col of matchingColumns) {
+      const config = col.config as { dropdown_options?: string[] } | null;
+      const options = config?.dropdown_options || [];
+      options.forEach(opt => allOptions.add(opt));
+    }
+    return Array.from(allOptions).sort();
   };
 
   const getColumnLabel = (columnKey: string) => {
@@ -265,8 +275,8 @@ export function TransitionExplanationManager({ headless = false }: TransitionExp
                 </SelectTrigger>
                 <SelectContent>
                   {getOptionsForColumn(newColumnKey).map((opt) => (
-                    <SelectItem key={opt.id} value={opt.value}>
-                      {opt.value}
+                    <SelectItem key={opt} value={opt}>
+                      {opt}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -366,8 +376,8 @@ export function TransitionExplanationManager({ headless = false }: TransitionExp
                         </SelectTrigger>
                         <SelectContent>
                           {getOptionsForColumn(editColumnKey).map((opt) => (
-                            <SelectItem key={opt.id} value={opt.value}>
-                              {opt.value}
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
                             </SelectItem>
                           ))}
                         </SelectContent>
