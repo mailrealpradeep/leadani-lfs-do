@@ -3002,7 +3002,8 @@ export class PgStorage implements IStorage {
   }
 
   async getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult> {
-    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters = {} } = options;
+    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters } = options;
+    const safeFilters = filters || {};
     
     if (sheetIds.length === 0) {
       return { leads: [], total: 0, page, limit, totalPages: 0 };
@@ -3015,7 +3016,7 @@ export class PgStorage implements IStorage {
     ];
     
     // Add filter conditions
-    for (const [key, value] of Object.entries(filters)) {
+    for (const [key, value] of Object.entries(safeFilters)) {
       if (value === null || value === undefined || value === '') continue;
       
       // Handle thought filter (meta field)

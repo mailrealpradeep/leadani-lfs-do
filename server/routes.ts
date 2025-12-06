@@ -15037,15 +15037,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get preview of leads to clear (company-wide)
   app.get("/api/admin/data-management/clear-preview", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
+      console.log("[Clear Preview] Starting for company:", req.companyId);
       if (!req.companyId) {
         return res.status(400).json({ error: "Company ID required" });
       }
 
       const beforeDate = req.query.before_date as string | undefined;
+      console.log("[Clear Preview] Before date filter:", beforeDate || "none");
       
       // Get all company sheets
       const sheets = await storage.getSheetsByCompanyId(req.companyId);
       const activeSheets = sheets.filter(s => !s.deleted_at);
+      console.log("[Clear Preview] Found", activeSheets.length, "active sheets");
       
       const sheetCounts: { sheet_id: string; sheet_name: string; lead_count: number }[] = [];
       let totalLeads = 0;
@@ -15056,7 +15059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           sheetIds: [sheet.id],
           page: 1,
           limit: 1,
-          filters: beforeDate ? { created_at_before: beforeDate } : undefined,
+          filters: beforeDate ? { created_at_before: beforeDate } : {},
         });
         
         if (result.total > 0) {
@@ -15069,6 +15072,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      console.log("[Clear Preview] Total leads found:", totalLeads);
       res.json({
         total_leads: totalLeads,
         sheets: sheetCounts,
@@ -15102,7 +15106,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           sheetIds: [sheetId],
           page: 1,
           limit: 10000,
-          filters: before_date ? { created_at_before: before_date } : undefined,
+          filters: before_date ? { created_at_before: before_date } : {},
         });
         allLeadIds.push(...result.leads.map((l: any) => l.id));
       }

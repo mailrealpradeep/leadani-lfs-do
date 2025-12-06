@@ -63,8 +63,12 @@ export function DataManagement() {
       if (useDateFilter && cutoffDate) {
         params.append("before_date", cutoffDate);
       }
+      const token = localStorage.getItem("auth_token");
       const response = await fetch(`/api/admin/data-management/clear-preview?${params.toString()}`, {
         credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!response.ok) throw new Error("Failed to fetch preview");
       return response.json();
@@ -81,8 +85,12 @@ export function DataManagement() {
       const destinationIds = transferMode === "single" 
         ? [singleDestinationId] 
         : multiDestinations.map(d => d.sheet_id);
+      const token = localStorage.getItem("auth_token");
       const response = await fetch(`/api/admin/data-management/transfer-preview?source_sheet_id=${sourceSheetId}&destination_sheet_ids=${destinationIds.join(",")}`, {
         credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!response.ok) throw new Error("Failed to fetch preview");
       return response.json();
