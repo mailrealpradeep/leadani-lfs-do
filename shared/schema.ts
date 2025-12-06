@@ -791,7 +791,7 @@ export const leads = pgTable('leads', {
   custom_fields: json('custom_fields').$type<Record<string, any>>().default({}).notNull(),
   meta: json('meta').$type<Record<string, any>>().default({}).notNull(),
   deleted_at: timestamp('deleted_at'),
-  deleted_by_user_id: varchar('deleted_by_user_id').references(() => users.id),
+  deleted_by_user_id: varchar('deleted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -848,7 +848,7 @@ export const highlighting_rules = pgTable('highlighting_rules', {
   row_color: varchar('row_color', { length: 50 }).notNull(),
   priority: integer('priority').notNull().default(0),
   is_active: boolean('is_active').notNull().default(true),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -861,7 +861,7 @@ export const quick_filters = pgTable('quick_filters', {
   color: varchar('color', { length: 50 }),
   filter_config: json('filter_config').$type<QuickFilterConfig>().notNull(),
   order_index: integer('order_index').notNull().default(0),
-  created_by_user_id: varchar('created_by_user_id').references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -895,7 +895,7 @@ export const lead_updates = pgTable('lead_updates', {
   update_via: varchar('update_via', { length: 50 }).notNull(),
   update_on: varchar('update_on', { length: 255 }).notNull(),
   remark: text('remark').notNull(),
-  created_by_user_id: varchar('created_by_user_id').references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -925,7 +925,7 @@ export const company_webhooks = pgTable('company_webhooks', {
   secret: varchar('secret', { length: 255 }).notNull(),
   is_active: boolean('is_active').notNull().default(true),
   last_allocated_sheet_id: varchar('last_allocated_sheet_id').references(() => sheets.id, { onDelete: 'set null' }),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   // New columns for match-and-update functionality
   match_mode: varchar('match_mode', { length: 50 }).notNull().default('create_only'), // 'create_only', 'match_and_update', 'match_and_add_update', 'match_or_create'
   match_field: varchar('match_field', { length: 255 }).default('mobile_no'), // DEPRECATED: Use match_rules instead
@@ -1045,7 +1045,7 @@ export const outgoing_webhooks = pgTable('outgoing_webhooks', {
   headers: json('headers').$type<Record<string, string>>().default({}),
   is_active: boolean('is_active').notNull().default(true),
   retry_count: integer('retry_count').notNull().default(3),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -1131,7 +1131,7 @@ export const reports = pgTable('reports', {
   }>().default({}).notNull(),
   display_order: integer('display_order').default(0), // For ordering reports in the list
   is_user_report: boolean('is_user_report').default(false).notNull(), // true = visible to all users (filtered by their data), false = admin-only
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -1281,7 +1281,7 @@ export const attendanceEntries = pgTable('attendance_entries', {
   force_exit_reason: text('force_exit_reason'),
   force_exit_blocking_reasons: json('force_exit_blocking_reasons').$type<string[]>(),
   review_status: varchar('review_status', { length: 50 }), // 'pending', 'approved', 'rejected'
-  reviewed_by_user_id: varchar('reviewed_by_user_id').references(() => users.id),
+  reviewed_by_user_id: varchar('reviewed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   reviewed_at: timestamp('reviewed_at'),
   review_notes: text('review_notes'),
   created_at: timestamp('created_at').defaultNow().notNull(),
@@ -1721,7 +1721,7 @@ export const api_keys = pgTable('api_keys', {
   key_hash: varchar('key_hash', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
-  created_by: varchar('created_by').notNull().references(() => users.id),
+  created_by: varchar('created_by').references(() => users.id, { onDelete: 'set null' }),
   is_active: boolean('is_active').notNull().default(true),
   last_used_at: timestamp('last_used_at'),
   created_at: timestamp('created_at').defaultNow().notNull(),
@@ -2239,7 +2239,7 @@ export const targets = pgTable('targets', {
   // Notification settings
   notification_milestones: json('notification_milestones').$type<number[]>().default([20, 40, 60, 80, 100]),
   // Metadata
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -2311,7 +2311,7 @@ export const company_holidays = pgTable('company_holidays', {
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 255 }).notNull(),
   date: timestamp('date').notNull(),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -2489,7 +2489,7 @@ export const backup_configs = pgTable('backup_configs', {
   last_sync_status: varchar('last_sync_status', { length: 50 }).notNull().default('pending'),
   last_sync_rows: integer('last_sync_rows'),
   last_sync_error: text('last_sync_error'),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -2527,7 +2527,7 @@ export const backup_sync_logs = pgTable('backup_sync_logs', {
   error_message: text('error_message'),
   started_at: timestamp('started_at').defaultNow().notNull(),
   completed_at: timestamp('completed_at'),
-  triggered_by_user_id: varchar('triggered_by_user_id').references(() => users.id),
+  triggered_by_user_id: varchar('triggered_by_user_id').references(() => users.id, { onDelete: 'set null' }),
 });
 
 export type BackupSyncLogRecord = typeof backup_sync_logs.$inferSelect;
@@ -2560,7 +2560,7 @@ export const restore_logs = pgTable('restore_logs', {
   updates_added: integer('updates_added').notNull().default(0),
   status: varchar('status', { length: 50 }).notNull(),
   error_message: text('error_message'),
-  restored_by_user_id: varchar('restored_by_user_id').notNull().references(() => users.id),
+  restored_by_user_id: varchar('restored_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -2772,7 +2772,7 @@ export const snapshot_restore_logs = pgTable('snapshot_restore_logs', {
   snapshot_id: varchar('snapshot_id').notNull().references(() => sheet_snapshots.id, { onDelete: 'cascade' }),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
-  restored_by_user_id: varchar('restored_by_user_id').notNull().references(() => users.id),
+  restored_by_user_id: varchar('restored_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   leads_restored: integer('leads_restored').notNull().default(0),
   updates_restored: integer('updates_restored').notNull().default(0),
   restore_type: varchar('restore_type', { length: 50 }).notNull().default('full'),
@@ -2851,7 +2851,7 @@ export const saved_reports = pgTable('saved_reports', {
   config: jsonb('config').notNull(),
   is_template: boolean('is_template').notNull().default(true),
   source_report_id: varchar('source_report_id').references(() => saved_reports.id, { onDelete: 'set null' }),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   is_active: boolean('is_active').notNull().default(true),
   run_count: integer('run_count').notNull().default(0),
   last_run_at: timestamp('last_run_at'),
@@ -2961,7 +2961,7 @@ export const company_kpis = pgTable('company_kpis', {
   
   // Metadata
   is_active: boolean('is_active').notNull().default(true),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -3044,7 +3044,7 @@ export const simple_targets = pgTable('simple_targets', {
   is_active: boolean('is_active').notNull().default(true),
   
   // Metadata
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -3179,7 +3179,7 @@ export const working_targets = pgTable('working_targets', {
   config: jsonb('config').notNull().$type<WorkingTargetConfig>(),
   sheet_ids: text('sheet_ids').array(), // Optional: restrict to specific sheets, null = all sheets
   is_active: boolean('is_active').notNull().default(true),
-  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
