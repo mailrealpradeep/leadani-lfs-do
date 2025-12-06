@@ -83,6 +83,8 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 
 JWT-based authentication with role and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit, password-protected sheet deletion, and comprehensive audit trails.
 
+*   **User Deletion with Audit Preservation**: Users can be safely deleted while preserving audit history. Foreign key constraints use `onDelete: 'set null'` for audit fields (created_by, reviewed_by, etc.) to maintain historical data, and `onDelete: 'cascade'` for user-owned records (like sheet access, quick filters).
+
 ## External Dependencies
 
 ### Required Services
