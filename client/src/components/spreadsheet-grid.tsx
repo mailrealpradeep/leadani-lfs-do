@@ -106,7 +106,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { useTheme } from "@/components/theme-provider";
-import { format, isWithinInterval, parseISO, isBefore, startOfDay } from "date-fns";
+import { format, isWithinInterval, parseISO, isBefore, startOfDay, isValid } from "date-fns";
 import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRule, UserRowFilterRecord, RowFilterCondition, TransitionExplanationRuleRecord } from "@shared/schema";
 import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
@@ -358,6 +358,17 @@ export function SpreadsheetGrid({
   // New features state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnFilters, setColumnFilters] = useState<Record<string, string | DateFilterValue | null>>({});
+  
+  // Quick filter config for client-side evaluation (used when OR logic is needed)
+  const [activeQuickFilterConfig, setActiveQuickFilterConfig] = useState<{
+    conditions: Array<{
+      column_key: string;
+      operator: string;
+      value?: any;
+      relative_date?: string;
+    }>;
+    logical_operator: "and" | "or";
+  } | null>(null);
   
   // Stable callbacks for filter inputs - prevents re-creation on every render
   const handleColumnFilterChange = useCallback((columnKey: string, value: string) => {
@@ -1412,11 +1423,188 @@ export function SpreadsheetGrid({
     }
   };
 
+  // Get timezone-aware utilities from hook
+  const { 
+    getCurrentDate, 
+    getStartOfDay, 
+    getEndOfDay, 
+    isBeforeToday, 
+    isAfterToday, 
+    isSameDay 
+  } = useCompanyTimezone();
+
+  // Helper function to resolve relative dates to a date range (from/to) - timezone aware
+  const resolveRelativeDateRange = useCallback((relativeDate: string): { from: Date; to: Date } => {
+    const today = getCurrentDate();
+    const todayStart = getStartOfDay(today);
+    const todayEnd = getEndOfDay(today);
+
+    switch (relativeDate) {
+      case "today":
+        return { from: todayStart, to: todayEnd };
+      case "tomorrow": {
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return { from: getStartOfDay(tomorrow), to: getEndOfDay(tomorrow) };
+      }
+      case "yesterday": {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        return { from: getStartOfDay(yesterday), to: getEndOfDay(yesterday) };
+      }
+      case "this_week": {
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay());
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        return { from: getStartOfDay(startOfWeek), to: getEndOfDay(endOfWeek) };
+      }
+      case "last_week": {
+        const lastWeekStart = new Date(today);
+        lastWeekStart.setDate(today.getDate() - today.getDay() - 7);
+        const lastWeekEnd = new Date(lastWeekStart);
+        lastWeekEnd.setDate(lastWeekStart.getDate() + 6);
+        return { from: getStartOfDay(lastWeekStart), to: getEndOfDay(lastWeekEnd) };
+      }
+      case "next_week": {
+        const nextWeekStart = new Date(today);
+        nextWeekStart.setDate(today.getDate() + (7 - today.getDay()));
+        const nextWeekEnd = new Date(nextWeekStart);
+        nextWeekEnd.setDate(nextWeekStart.getDate() + 6);
+        return { from: getStartOfDay(nextWeekStart), to: getEndOfDay(nextWeekEnd) };
+      }
+      case "this_month": {
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        return { from: getStartOfDay(startOfMonth), to: getEndOfDay(endOfMonth) };
+      }
+      case "last_month": {
+        const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+        return { from: getStartOfDay(lastMonthStart), to: getEndOfDay(lastMonthEnd) };
+      }
+      case "next_month": {
+        const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        const nextMonthEnd = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+        return { from: getStartOfDay(nextMonthStart), to: getEndOfDay(nextMonthEnd) };
+      }
+      default:
+        return { from: todayStart, to: todayEnd };
+    }
+  }, [getCurrentDate, getStartOfDay, getEndOfDay]);
+
+  // Helper to parse date values consistently (matches highlighting-evaluator pattern)
+  const parseDateValue = useCallback((value: any): Date | null => {
+    if (value === null || value === undefined || value === "") return null;
+    if (value instanceof Date) return value;
+    const date = parseISO(String(value));
+    return isValid(date) ? date : null;
+  }, []);
+
+  // Evaluate a single quick filter condition against a lead (supports relative dates)
+  // Uses the same timezone-aware utilities as highlighting rules for consistency
+  const evaluateQuickFilterCondition = useCallback((
+    lead: Lead,
+    condition: { column_key: string; operator: string; value?: any; relative_date?: string }
+  ): boolean => {
+    const cellValue = getLeadValue(lead, condition.column_key);
+    const { operator, value, relative_date } = condition;
+    
+    // Handle date operators with relative date support
+    if (operator.startsWith("date_") || operator === "before" || operator === "after") {
+      // Parse the cell value using the same method as highlighting evaluator
+      const cellDate = parseDateValue(cellValue);
+      if (!cellDate) return false;
+      
+      // For simple "today" comparisons, use the timezone-aware utilities directly
+      // This matches the behavior of highlighting rules
+      if (relative_date === "today") {
+        switch (operator) {
+          case "date_equals":
+            return isSameDay(cellDate, getCurrentDate());
+          case "date_before":
+          case "before":
+            return isBeforeToday(cellDate);
+          case "date_after":
+          case "after":
+            return isAfterToday(cellDate);
+          case "date_within":
+            return isSameDay(cellDate, getCurrentDate());
+        }
+      }
+      
+      // For other relative dates or specific dates, use range comparison
+      // Get date range (timezone-aware)
+      let dateRange: { from: Date; to: Date };
+      if (relative_date) {
+        dateRange = resolveRelativeDateRange(relative_date);
+      } else if (value) {
+        const specificDate = parseDateValue(value);
+        if (!specificDate) return false;
+        // Use timezone-aware start/end of day
+        dateRange = { 
+          from: getStartOfDay(specificDate), 
+          to: getEndOfDay(specificDate) 
+        };
+      } else {
+        return false;
+      }
+      
+      // Normalize cell date to start of day in timezone for comparison
+      const cellDateStart = getStartOfDay(cellDate);
+      
+      switch (operator) {
+        case "date_equals":
+          // Date equals: cell date's day falls within the range
+          return cellDateStart.getTime() >= dateRange.from.getTime() && 
+                 cellDateStart.getTime() <= dateRange.to.getTime();
+        case "date_before":
+        case "before":
+          // Before: cell date's day is before the start of the range
+          return cellDateStart.getTime() < dateRange.from.getTime();
+        case "date_after":
+        case "after":
+          // After: cell date's day is after the end of the range
+          return cellDateStart.getTime() > dateRange.to.getTime();
+        case "date_within":
+          // Within: cell date falls within the range
+          return cellDateStart.getTime() >= dateRange.from.getTime() && 
+                 cellDateStart.getTime() <= dateRange.to.getTime();
+        default:
+          return false;
+      }
+    }
+    
+    // For non-date operators, use the existing evaluateCondition
+    return evaluateCondition(cellValue, operator, value);
+  }, [parseDateValue, resolveRelativeDateRange, getStartOfDay, getEndOfDay, getCurrentDate, isSameDay, isBeforeToday, isAfterToday]);
+
+  // Evaluate all quick filter conditions against a lead
+  const evaluateQuickFilter = useCallback((lead: Lead): boolean => {
+    if (!activeQuickFilterConfig) return true; // No filter = show all
+    
+    const { conditions, logical_operator } = activeQuickFilterConfig;
+    if (!conditions || conditions.length === 0) return true;
+    
+    if (logical_operator === "or") {
+      // OR: any condition must match
+      return conditions.some(condition => evaluateQuickFilterCondition(lead, condition));
+    } else {
+      // AND: all conditions must match
+      return conditions.every(condition => evaluateQuickFilterCondition(lead, condition));
+    }
+  }, [activeQuickFilterConfig, evaluateQuickFilterCondition]);
+
   // Server handles filtering/sorting for both modes now
   // Only apply user row filters (Hide/Show Rows) client-side as they're per-user settings
+  // Also apply quick filter conditions client-side when OR logic is used
   const filteredAndSortedLeads = leads.filter((lead) => {
     // User row filters - hide rows that match any active filter (client-side only)
     if (!evaluateRowFilters(lead)) {
+      return false;
+    }
+    // Quick filter evaluation (for OR logic support)
+    if (!evaluateQuickFilter(lead)) {
       return false;
     }
     return true;
@@ -1504,9 +1692,12 @@ export function SpreadsheetGrid({
 
   // Quick filter handlers - comprehensive implementation supporting all operators and logical operations
   const applyQuickFilter = useCallback((filterId: string, filterConfig: any) => {
+    // Always start with clean filter state to prevent interference between filter modes
+    setColumnFilters({});
+    setActiveQuickFilterConfig(null);
+    
     if (!filterConfig || !filterConfig.conditions || filterConfig.conditions.length === 0) {
-      // Empty filter - just clear all filters
-      setColumnFilters({});
+      // Empty filter - mark as active but no filtering
       setActiveQuickFilter(filterId);
       return;
     }
@@ -1797,6 +1988,7 @@ export function SpreadsheetGrid({
     // Check if any required columns were missing
     if (missingColumns.length > 0) {
       setActiveQuickFilter(null);
+      setActiveQuickFilterConfig(null);
       toast({
         title: "Columns not found",
         description: `The following columns are missing: ${missingColumns.join(", ")}. Please add them to use this filter.`,
@@ -1805,26 +1997,37 @@ export function SpreadsheetGrid({
       return;
     }
 
-    // Apply the filters (always using AND logic due to column filter limitations)
-    setColumnFilters(newFilters);
+    // Check if OR logic is needed (multiple conditions on same column or explicit OR)
+    const hasOrLogic = filterConfig.logical_operator === "or";
+    const hasSameColumnConditions = filterConfig.conditions.length > 1 && 
+      new Set(filterConfig.conditions.map((c: any) => c.column_key)).size < filterConfig.conditions.length;
+    const useClientSideFiltering = hasOrLogic || hasSameColumnConditions;
+
+    if (useClientSideFiltering) {
+      // Use client-side filtering for OR logic or same-column conditions
+      // (columnFilters already cleared at start of function)
+      setActiveQuickFilterConfig({
+        conditions: filterConfig.conditions.map((c: any) => ({
+          column_key: c.column_key,
+          operator: c.operator,
+          value: c.value,
+          relative_date: c.relative_date,
+        })),
+        logical_operator: hasOrLogic ? "or" : "and",
+      });
+    } else {
+      // Use server-side filtering for simple AND logic
+      // (activeQuickFilterConfig already cleared at start of function)
+      setColumnFilters(newFilters);
+    }
+    
     setActiveQuickFilter(filterId);
 
     // Show warnings AFTER applying filters (non-blocking)
-    if (unsupportedOperators.length > 0) {
+    if (unsupportedOperators.length > 0 && !useClientSideFiltering) {
       toast({
         title: "Some filter conditions skipped",
         description: `The following operators are not supported: ${unsupportedOperators.slice(0, 3).join(", ")}${unsupportedOperators.length > 3 ? ` and ${unsupportedOperators.length - 3} more` : ""}. Supported conditions have been applied.`,
-        variant: "default",
-      });
-    }
-
-    // Note: logical_operator (and/or) limitation
-    // The current column filter system only supports AND logic between conditions
-    // When OR is specified, we still apply all conditions with AND logic and warn the user
-    if (filterConfig.logical_operator === "or" && filterConfig.conditions.length > 1) {
-      toast({
-        title: "OR logic limitation",
-        description: "Multiple conditions are combined with AND logic. Full OR support requires filter system enhancements.",
         variant: "default",
       });
     }
@@ -1832,6 +2035,7 @@ export function SpreadsheetGrid({
 
   const clearAllFilters = useCallback(() => {
     setColumnFilters({});
+    setActiveQuickFilterConfig(null);
     setActiveQuickFilter(null);
   }, [setActiveQuickFilter]);
 
