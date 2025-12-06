@@ -9,7 +9,7 @@ import { authMiddleware, adminMiddleware, generateToken, type AuthRequest, requi
 import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { getCompanyTimezone } from "./timezone-utils";
 import { seedData } from "./seed";
 import { validateLeadAgainstRules } from "@shared/validator";
@@ -7079,18 +7079,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Apply date range filter (from query params or report config)
+      // IMPORTANT: Interpret dates in company timezone and convert to UTC for filtering
       let filteredLeads = allLeads;
       const startDateStr = req.query.start_date as string || report.config?.date_range?.start;
       const endDateStr = req.query.end_date as string || report.config?.date_range?.end;
       
       if (startDateStr || endDateStr) {
         // Parse and validate dates (supports ISO and dd/MM/yy formats)
-        let startDate: Date | null = null;
-        let endDate: Date | null = null;
+        let startDateLocal: Date | null = null;
+        let endDateLocal: Date | null = null;
         
         if (startDateStr) {
-          startDate = parseDateFlexible(startDateStr);
-          if (!startDate) {
+          startDateLocal = parseDateFlexible(startDateStr);
+          if (!startDateLocal) {
             return res.status(422).json({ 
               error: "Invalid start date format. Use ISO format (YYYY-MM-DD) or dd/MM/yy." 
             });
@@ -7098,31 +7099,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         if (endDateStr) {
-          endDate = parseDateFlexible(endDateStr);
-          if (!endDate) {
+          endDateLocal = parseDateFlexible(endDateStr);
+          if (!endDateLocal) {
             return res.status(422).json({ 
               error: "Invalid end date format. Use ISO format (YYYY-MM-DD) or dd/MM/yy." 
             });
           }
         }
         
-        // Validate start <= end
-        if (startDate && endDate && startDate > endDate) {
+        // Validate start <= end (using local dates for comparison)
+        if (startDateLocal && endDateLocal && startDateLocal > endDateLocal) {
           return res.status(422).json({ 
             error: "Start date must be before or equal to end date" 
           });
         }
         
-        // Filter leads by date range
-        // For end date, include the entire day by setting time to end of day
-        if (endDate) {
-          endDate.setHours(23, 59, 59, 999);
+        // Convert dates from company timezone to UTC for database comparison
+        // Example: "2025-12-07" in Asia/Kolkata (IST) becomes:
+        //   Start: 2025-12-06T18:30:00Z (midnight IST = 6:30 PM previous day UTC)
+        //   End: 2025-12-07T18:29:59Z (11:59:59 PM IST = 6:29:59 PM UTC)
+        let startDateUtc: Date | null = null;
+        let endDateUtc: Date | null = null;
+        
+        if (startDateLocal) {
+          // Build timezone-aware string for start of day, then convert to UTC
+          const year = startDateLocal.getFullYear();
+          const month = String(startDateLocal.getMonth() + 1).padStart(2, '0');
+          const day = String(startDateLocal.getDate()).padStart(2, '0');
+          const startOfDayStr = `${year}-${month}-${day}T00:00:00`;
+          startDateUtc = fromZonedTime(startOfDayStr, companyTimezone);
+        }
+        
+        if (endDateLocal) {
+          // Build timezone-aware string for end of day, then convert to UTC
+          const year = endDateLocal.getFullYear();
+          const month = String(endDateLocal.getMonth() + 1).padStart(2, '0');
+          const day = String(endDateLocal.getDate()).padStart(2, '0');
+          const endOfDayStr = `${year}-${month}-${day}T23:59:59.999`;
+          endDateUtc = fromZonedTime(endOfDayStr, companyTimezone);
         }
         
         filteredLeads = allLeads.filter(lead => {
           const leadDate = new Date(lead.created_at);
-          if (startDate && leadDate < startDate) return false;
-          if (endDate && leadDate > endDate) return false;
+          if (startDateUtc && leadDate < startDateUtc) return false;
+          if (endDateUtc && leadDate > endDateUtc) return false;
           return true;
         });
       }
