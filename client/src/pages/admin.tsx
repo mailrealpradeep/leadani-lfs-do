@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore } from "lucide-react";
 import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +32,7 @@ import { NotificationSettings } from "@/components/notification-settings";
 import { HighlightingRulesManager } from "@/components/highlighting-rules-manager";
 import { KpiManagement } from "@/components/kpi-management";
 import { BackupManager } from "@/components/backup-manager";
+import { TransitionExplanationManager } from "@/components/transition-explanation-manager";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -835,6 +836,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <QuickFilterManager headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="transition-explanations" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-transition-explanations">
+              <div className="flex items-center gap-3">
+                <MessageSquareMore className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Transition Explanations</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Require explanations when specific dropdown values are selected
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <TransitionExplanationManager headless />
               </div>
             </AccordionContent>
           </AccordionItem>

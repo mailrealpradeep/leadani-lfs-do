@@ -141,6 +141,11 @@ import type {
   AttendanceExitConditionRecord,
   InsertAttendanceExitCondition,
   AttendanceExitScopeType,
+  // Transition Explanation Rules
+  TransitionExplanationRule,
+  TransitionExplanationRuleRecord,
+  InsertTransitionExplanationRule,
+  transition_explanation_rules,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -588,6 +593,18 @@ export interface IStorage {
   createAttendanceExitCondition(condition: InsertAttendanceExitCondition): Promise<AttendanceExitConditionRecord>;
   updateAttendanceExitCondition(id: string, updates: Partial<AttendanceExitConditionRecord>): Promise<AttendanceExitConditionRecord | undefined>;
   deleteAttendanceExitCondition(id: string): Promise<boolean>;
+
+  // =========================================================================
+  // TRANSITION EXPLANATION RULES
+  // =========================================================================
+  
+  getTransitionExplanationRule(id: string): Promise<TransitionExplanationRuleRecord | undefined>;
+  getTransitionExplanationRulesByCompany(companyId: string): Promise<TransitionExplanationRuleRecord[]>;
+  getActiveTransitionExplanationRules(companyId: string): Promise<TransitionExplanationRuleRecord[]>;
+  createTransitionExplanationRule(rule: InsertTransitionExplanationRule): Promise<TransitionExplanationRuleRecord>;
+  updateTransitionExplanationRule(id: string, updates: Partial<TransitionExplanationRuleRecord>): Promise<TransitionExplanationRuleRecord | undefined>;
+  deleteTransitionExplanationRule(id: string): Promise<boolean>;
+  checkTransitionRequiresExplanation(companyId: string, columnKey: string, newValue: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -2561,6 +2578,29 @@ export class MemStorage implements IStorage {
     return undefined;
   }
   async deleteAttendanceExitCondition(_id: string): Promise<boolean> {
+    return false;
+  }
+
+  // Transition Explanation Rules (not implemented in MemStorage - requires PostgreSQL)
+  async getTransitionExplanationRule(_id: string): Promise<TransitionExplanationRuleRecord | undefined> {
+    return undefined;
+  }
+  async getTransitionExplanationRulesByCompany(_companyId: string): Promise<TransitionExplanationRuleRecord[]> {
+    return [];
+  }
+  async getActiveTransitionExplanationRules(_companyId: string): Promise<TransitionExplanationRuleRecord[]> {
+    return [];
+  }
+  async createTransitionExplanationRule(_rule: InsertTransitionExplanationRule): Promise<TransitionExplanationRuleRecord> {
+    throw new Error("Transition Explanation Rules not implemented in MemStorage");
+  }
+  async updateTransitionExplanationRule(_id: string, _updates: Partial<TransitionExplanationRuleRecord>): Promise<TransitionExplanationRuleRecord | undefined> {
+    return undefined;
+  }
+  async deleteTransitionExplanationRule(_id: string): Promise<boolean> {
+    return false;
+  }
+  async checkTransitionRequiresExplanation(_companyId: string, _columnKey: string, _newValue: string): Promise<boolean> {
     return false;
   }
 }
@@ -6415,6 +6455,69 @@ export class PgStorage implements IStorage {
       .where(eq(dbSchema.attendance_exit_conditions.id, id))
       .returning();
     return result.length > 0;
+  }
+
+  // =========================================================================
+  // TRANSITION EXPLANATION RULES
+  // =========================================================================
+
+  async getTransitionExplanationRule(id: string): Promise<TransitionExplanationRuleRecord | undefined> {
+    const result = await db.select()
+      .from(dbSchema.transition_explanation_rules)
+      .where(eq(dbSchema.transition_explanation_rules.id, id));
+    return result[0];
+  }
+
+  async getTransitionExplanationRulesByCompany(companyId: string): Promise<TransitionExplanationRuleRecord[]> {
+    return await db.select()
+      .from(dbSchema.transition_explanation_rules)
+      .where(eq(dbSchema.transition_explanation_rules.company_id, companyId))
+      .orderBy(desc(dbSchema.transition_explanation_rules.created_at));
+  }
+
+  async getActiveTransitionExplanationRules(companyId: string): Promise<TransitionExplanationRuleRecord[]> {
+    return await db.select()
+      .from(dbSchema.transition_explanation_rules)
+      .where(
+        and(
+          eq(dbSchema.transition_explanation_rules.company_id, companyId),
+          eq(dbSchema.transition_explanation_rules.is_active, true)
+        )
+      );
+  }
+
+  async createTransitionExplanationRule(rule: InsertTransitionExplanationRule): Promise<TransitionExplanationRuleRecord> {
+    const rows = await db.insert(dbSchema.transition_explanation_rules).values(rule).returning();
+    return rows[0];
+  }
+
+  async updateTransitionExplanationRule(id: string, updates: Partial<TransitionExplanationRuleRecord>): Promise<TransitionExplanationRuleRecord | undefined> {
+    const rows = await db.update(dbSchema.transition_explanation_rules)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.transition_explanation_rules.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteTransitionExplanationRule(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.transition_explanation_rules)
+      .where(eq(dbSchema.transition_explanation_rules.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  async checkTransitionRequiresExplanation(companyId: string, columnKey: string, newValue: string): Promise<boolean> {
+    const rules = await db.select()
+      .from(dbSchema.transition_explanation_rules)
+      .where(
+        and(
+          eq(dbSchema.transition_explanation_rules.company_id, companyId),
+          eq(dbSchema.transition_explanation_rules.column_key, columnKey),
+          eq(dbSchema.transition_explanation_rules.dropdown_value, newValue),
+          eq(dbSchema.transition_explanation_rules.is_active, true)
+        )
+      );
+    return rules.length > 0;
   }
 }
 

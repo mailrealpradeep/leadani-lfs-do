@@ -6446,6 +6446,187 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // TRANSITION EXPLANATION RULES
+  // ============================================================================
+
+  // GET /api/company/transition-explanations - Get all rules for company
+  app.get("/api/company/transition-explanations", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      const rules = await storage.getTransitionExplanationRulesByCompany(companyId);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get transition explanation rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/company/transition-explanations/active - Get active rules for company (for frontend check)
+  app.get("/api/company/transition-explanations/active", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      const rules = await storage.getActiveTransitionExplanationRules(companyId);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get active transition explanation rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/company/transition-explanations - Create new rule (Company Admin only)
+  app.post("/api/company/transition-explanations", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { column_key, dropdown_value, is_active = true } = req.body;
+
+      if (!column_key || !dropdown_value) {
+        return res.status(400).json({ error: "column_key and dropdown_value are required" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.body.company_id
+        ? req.body.company_id
+        : req.companyId!;
+
+      // Check if a rule already exists for this column+value combination
+      const existingRules = await storage.getTransitionExplanationRulesByCompany(companyId);
+      const duplicate = existingRules.find(r => 
+        r.column_key === column_key && r.dropdown_value === dropdown_value
+      );
+      if (duplicate) {
+        return res.status(400).json({ error: "A rule for this column and value already exists" });
+      }
+
+      const rule = await storage.createTransitionExplanationRule({
+        company_id: companyId,
+        column_key,
+        dropdown_value,
+        is_active,
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: companyId,
+        action: "create",
+        model: "transition_explanation_rule",
+        model_id: rule.id,
+        payload: { column_key, dropdown_value, is_active },
+      });
+
+      res.status(201).json(rule);
+    } catch (error: any) {
+      console.error("Create transition explanation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // PATCH /api/company/transition-explanations/:ruleId - Update rule (Company Admin only)
+  app.patch("/api/company/transition-explanations/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.getTransitionExplanationRule(req.params.ruleId);
+      if (!rule) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+
+      // Company admins can only update rules in their company
+      if (req.userRole === "company_admin" && rule.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot update rules from other companies" });
+      }
+
+      const { column_key, dropdown_value, is_active } = req.body;
+      const updates: any = {};
+      if (column_key !== undefined) updates.column_key = column_key;
+      if (dropdown_value !== undefined) updates.dropdown_value = dropdown_value;
+      if (is_active !== undefined) updates.is_active = is_active;
+
+      const updated = await storage.updateTransitionExplanationRule(req.params.ruleId, updates);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: rule.company_id,
+        action: "update",
+        model: "transition_explanation_rule",
+        model_id: req.params.ruleId,
+        payload: updates,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update transition explanation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // DELETE /api/company/transition-explanations/:ruleId - Delete rule (Company Admin only)
+  app.delete("/api/company/transition-explanations/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.getTransitionExplanationRule(req.params.ruleId);
+      if (!rule) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+
+      // Company admins can only delete rules in their company
+      if (req.userRole === "company_admin" && rule.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot delete rules from other companies" });
+      }
+
+      await storage.deleteTransitionExplanationRule(req.params.ruleId);
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: rule.company_id,
+        action: "delete",
+        model: "transition_explanation_rule",
+        model_id: req.params.ruleId,
+        payload: {},
+      });
+
+      res.json({ success: true, message: "Rule deleted" });
+    } catch (error: any) {
+      console.error("Delete transition explanation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/company/transition-explanations/check - Check if a transition requires explanation
+  app.post("/api/company/transition-explanations/check", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { column_key, new_value } = req.body;
+
+      if (!column_key || new_value === undefined) {
+        return res.status(400).json({ error: "column_key and new_value are required" });
+      }
+
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.companyId!;
+      const requiresExplanation = await storage.checkTransitionRequiresExplanation(companyId, column_key, new_value);
+
+      res.json({ requires_explanation: requiresExplanation });
+    } catch (error: any) {
+      console.error("Check transition explanation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // REPORTS
   // ============================================================================
   

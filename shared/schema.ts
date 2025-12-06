@@ -3283,3 +3283,42 @@ export const insertAttendanceExitConditionSchema = createInsertSchema(attendance
 });
 
 export type InsertAttendanceExitConditionData = z.infer<typeof insertAttendanceExitConditionSchema>;
+
+// ============================================================================
+// TRANSITION EXPLANATION RULES (Require Explanation for Dropdown Transitions)
+// ============================================================================
+
+// When a user changes a dropdown column to a specific value,
+// the system can require an explanation which is stored in lead_updates
+
+export interface TransitionExplanationRule {
+  id: string;
+  company_id: string;
+  column_key: string; // The dropdown column to monitor
+  dropdown_value: string; // The specific value that triggers explanation requirement
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Database table for Transition Explanation Rules
+export const transition_explanation_rules = pgTable('transition_explanation_rules', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  column_key: varchar('column_key', { length: 255 }).notNull(),
+  dropdown_value: varchar('dropdown_value', { length: 500 }).notNull(),
+  is_active: boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type TransitionExplanationRuleRecord = typeof transition_explanation_rules.$inferSelect;
+export type InsertTransitionExplanationRule = typeof transition_explanation_rules.$inferInsert;
+
+export const insertTransitionExplanationRuleSchema = createInsertSchema(transition_explanation_rules).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertTransitionExplanationRuleData = z.infer<typeof insertTransitionExplanationRuleSchema>;
