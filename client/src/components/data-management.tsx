@@ -57,7 +57,7 @@ export function DataManagement() {
   });
 
   const { data: clearPreview, isLoading: isLoadingClearPreview, refetch: refetchClearPreview } = useQuery<ClearDataPreview>({
-    queryKey: ["/api/admin/data-management/clear-preview", useDateFilter ? cutoffDate : null],
+    queryKey: ["/api/admin/data-management/clear-preview", useDateFilter, cutoffDate],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (useDateFilter && cutoffDate) {
@@ -70,6 +70,8 @@ export function DataManagement() {
       return response.json();
     },
     enabled: clearDialogOpen,
+    refetchOnMount: true,
+    staleTime: 0,
   });
 
   const { data: transferPreview, isLoading: isLoadingTransferPreview } = useQuery<TransferPreview>({
@@ -155,8 +157,12 @@ export function DataManagement() {
     return multiDestinations.reduce((sum, d) => sum + (d.percentage || 0), 0);
   }, [multiDestinations]);
 
-  const canClear = clearConfirmText === "DELETE" && (clearPreview?.total_leads || 0) > 0;
-  const canTransfer = transferConfirmText === "TRANSFER" && 
+  const hasLeadsToClear = (clearPreview?.total_leads || 0) > 0;
+  const isDeleteTyped = clearConfirmText.trim().toUpperCase() === "DELETE";
+  const canClear = isDeleteTyped && hasLeadsToClear;
+  
+  const isTransferTyped = transferConfirmText.trim().toUpperCase() === "TRANSFER";
+  const canTransfer = isTransferTyped && 
     sourceSheetId && 
     (transferMode === "single" ? !!singleDestinationId : (multiDestinations.length > 0 && totalPercentage === 100)) &&
     (transferPreview?.duplicates?.length || 0) === 0;
@@ -305,6 +311,16 @@ export function DataManagement() {
                 placeholder="Type DELETE"
                 data-testid="input-clear-confirm"
               />
+              {isDeleteTyped && !hasLeadsToClear && !isLoadingClearPreview && (
+                <p className="text-sm text-muted-foreground">
+                  No leads to delete{useDateFilter && cutoffDate ? " for the selected date range" : ""}.
+                </p>
+              )}
+              {!isDeleteTyped && clearConfirmText.length > 0 && (
+                <p className="text-sm text-destructive">
+                  Please type DELETE (case insensitive) to confirm.
+                </p>
+              )}
             </div>
           </div>
 
@@ -324,7 +340,7 @@ export function DataManagement() {
                   Clearing...
                 </>
               ) : (
-                "Clear All Leads"
+                `Clear ${hasLeadsToClear ? clearPreview?.total_leads : 0} Leads`
               )}
             </Button>
           </DialogFooter>
