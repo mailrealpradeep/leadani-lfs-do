@@ -6665,7 +6665,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reports = reports.filter(report => report.is_user_report === true);
         
         const userSheets = await storage.getSheetsByUserId(req.userId!);
-        const userSheetIds = userSheets.map(s => s.id);
+        // Exclude deleted sheets
+        const userSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
         
         reports = reports.filter(report => {
           const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
@@ -6722,7 +6723,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // For regular users, verify they have access to at least one sheet in the report
       if (req.userRole === "user") {
         const userSheets = await storage.getSheetsByUserId(req.userId!);
-        const userSheetIds = userSheets.map(s => s.id);
+        // Exclude deleted sheets
+        const userSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
         const reportSheetIds = Array.isArray(report.sheet_ids) ? report.sheet_ids : [];
         
         const hasAccess = reportSheetIds.some(sheetId => userSheetIds.includes(sheetId));
@@ -7247,16 +7249,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (filterSheetIds) {
           const companySheets = await storage.getSheetsByCompanyId(companyId);
-          const companySheetIds = companySheets.map(s => s.id);
-          accessibleSheetIds = filterSheetIds.filter(sheetId => companySheetIds.includes(sheetId));
+          // Exclude deleted sheets
+          const activeCompanySheetIds = companySheets.filter(s => !s.deleted_at).map(s => s.id);
+          accessibleSheetIds = filterSheetIds.filter(sheetId => activeCompanySheetIds.includes(sheetId));
         } else {
-          accessibleSheetIds = Array.isArray(report.sheet_ids) && report.sheet_ids.length > 0
-            ? report.sheet_ids
-            : (await storage.getSheetsByCompanyId(companyId)).map(s => s.id);
+          if (Array.isArray(report.sheet_ids) && report.sheet_ids.length > 0) {
+            // Filter out any deleted sheets from report configuration
+            const companySheets = await storage.getSheetsByCompanyId(companyId);
+            const activeSheetIds = companySheets.filter(s => !s.deleted_at).map(s => s.id);
+            accessibleSheetIds = report.sheet_ids.filter((id: string) => activeSheetIds.includes(id));
+          } else {
+            accessibleSheetIds = (await storage.getSheetsByCompanyId(companyId))
+              .filter(s => !s.deleted_at)
+              .map(s => s.id);
+          }
         }
       } else {
         const userSheets = await storage.getSheetsByUserId(req.userId!);
-        const userSheetIds = userSheets.map(s => s.id);
+        // Exclude deleted sheets
+        const userSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
         
         if (filterSheetIds) {
           accessibleSheetIds = filterSheetIds.filter(sheetId => userSheetIds.includes(sheetId));
@@ -7275,13 +7286,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const needsSheetName = filters.sheet_name !== undefined || filters.sheet !== undefined;
       const needsUserName = filters.user_name !== undefined;
       
-      // Build sheet ID to name map
+      // Build sheet ID to name map (only active sheets)
       const sheetNameMap: Record<string, string> = {};
       const sheetIdByName: Record<string, string> = {};
       if (needsSheetName) {
         const companyId = req.companyId || report.company_id;
         const sheets = await storage.getSheetsByCompanyId(companyId);
-        sheets.forEach(s => { 
+        // Only include active (non-deleted) sheets in the map
+        sheets.filter(s => !s.deleted_at).forEach(s => { 
           sheetNameMap[s.id] = s.name; 
           sheetIdByName[s.name] = s.id;
         });
@@ -7410,12 +7422,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Company access required" });
       }
       
-      // Get accessible sheet IDs for the user
+      // Get accessible sheet IDs for the user (excluding deleted sheets)
       let sheets: any[] = [];
       if (req.userRole === "company_admin" || req.userRole === "super_admin") {
-        sheets = await storage.getSheetsByCompanyId(companyId);
+        const allSheets = await storage.getSheetsByCompanyId(companyId);
+        sheets = allSheets.filter(s => !s.deleted_at);
       } else {
-        sheets = await storage.getSheetsByUserId(req.userId!);
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        sheets = userSheets.filter(s => !s.deleted_at);
       }
       
       if (sheets.length === 0) {
