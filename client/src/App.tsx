@@ -226,6 +226,7 @@ function ImpersonationBanner() {
 
 function AppLayout() {
   const { isAuthenticated, isLoading } = useAuth();
+  const [location] = useLocation();
   const shouldShowInstall = useShouldShowInstallPrompt();
   
   useEffect(() => {
@@ -240,7 +241,11 @@ function AppLayout() {
     );
   }
   
-  if (!isAuthenticated) {
+  // Public pages that should render without sidebar, even when logged in
+  const publicOnlyPages = ['/help', '/features', '/pricing'];
+  const isPublicOnlyPage = publicOnlyPages.some(p => location.startsWith(p));
+  
+  if (!isAuthenticated || isPublicOnlyPage) {
     return <Router />;
   }
 

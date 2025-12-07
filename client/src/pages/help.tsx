@@ -2098,10 +2098,10 @@ export default function Help() {
         </div>
       </header>
 
-      <div className="bg-gradient-to-b from-primary/5 to-background py-8 sm:py-12">
+      <div className="bg-gradient-to-b from-primary/5 to-background py-4 sm:py-6">
         <div className="container mx-auto px-4 text-center">
-          <h2 className="text-2xl sm:text-3xl font-bold mb-2">How can we help you?</h2>
-          <p className="text-muted-foreground mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold mb-1">How can we help you?</h2>
+          <p className="text-muted-foreground text-sm mb-4">
             Search {totalQuestions}+ tutorials and guides
           </p>
           
