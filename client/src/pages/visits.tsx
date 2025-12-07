@@ -163,7 +163,7 @@ export default function Visits() {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="h-full flex flex-col overflow-hidden">
       <div className="border-b px-4 sm:px-6 py-3 flex items-center justify-between gap-4 bg-background shrink-0">
         <div className="flex items-center gap-2">
           <MapPin className="h-5 w-5 text-primary" />
@@ -177,7 +177,7 @@ export default function Visits() {
         </Button>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
         {isMobile ? (
           <MobileLayout
             currentMonth={currentMonth}
@@ -255,7 +255,7 @@ function MobileLayout({
   setSelectedLeadId,
 }: LayoutProps) {
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 pb-24 space-y-4">
       <CompactCalendar
         currentMonth={currentMonth}
         selectedDate={selectedDate}
@@ -273,6 +273,7 @@ function MobileLayout({
         columnsMap={columnsMap}
         dateColumn={dateColumn}
         setSelectedLeadId={setSelectedLeadId}
+        isMobileView={true}
       />
     </div>
   );
@@ -422,10 +423,11 @@ function VisitsList({
   columnsMap,
   dateColumn,
   setSelectedLeadId,
-}: VisitsListProps) {
+  isMobileView = false,
+}: VisitsListProps & { isMobileView?: boolean }) {
   if (!selectedDate) {
     return (
-      <Card className="h-full flex items-center justify-center">
+      <Card className="flex items-center justify-center">
         <CardContent className="py-12 text-center text-muted-foreground">
           <Calendar className="h-10 w-10 mx-auto mb-3 opacity-50" />
           <p>Select a date to view visits</p>
@@ -435,8 +437,8 @@ function VisitsList({
   }
 
   return (
-    <div className="space-y-3 h-full">
-      <div className="flex items-center gap-2 shrink-0">
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
         <Calendar className="h-4 w-4 text-muted-foreground" />
         <h2 className="font-semibold" data-testid="text-selected-date">
           {format(selectedDate, 'EEEE, MMMM d, yyyy')}
@@ -451,8 +453,21 @@ function VisitsList({
             <p>No visits scheduled for this date</p>
           </CardContent>
         </Card>
+      ) : isMobileView ? (
+        <div className="space-y-3">
+          {selectedDateVisits.map(visit => (
+            <VisitCard
+              key={visit.id}
+              visit={visit}
+              cardColumns={cardColumns}
+              columnsMap={columnsMap}
+              dateColumn={dateColumn}
+              onClick={() => setSelectedLeadId(visit.id)}
+            />
+          ))}
+        </div>
       ) : (
-        <ScrollArea className="flex-1">
+        <ScrollArea className="h-[calc(100vh-200px)]">
           <div className="space-y-3 pr-2">
             {selectedDateVisits.map(visit => (
               <VisitCard
