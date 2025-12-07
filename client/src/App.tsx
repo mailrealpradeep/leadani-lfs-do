@@ -38,6 +38,7 @@ import Leaderboard from "@/pages/leaderboard";
 import MyTargets from "@/pages/my-targets";
 import WorkingTarget from "@/pages/working-target";
 import Features from "@/pages/features";
+import Help from "@/pages/help";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -93,6 +94,7 @@ function Router() {
       <Route path="/signup" component={Signup} />
       <Route path="/impersonate" component={Impersonate} />
       <Route path="/features" component={Features} />
+      <Route path="/help" component={Help} />
       
       {/* Landing page - public, but redirect if authenticated */}
       <Route path="/">

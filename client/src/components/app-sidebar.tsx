@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -432,10 +432,20 @@ export function AppSidebar() {
               variant="outline"
               size="sm"
               onClick={logout}
-              className="w-full"
+              className="flex-1"
               data-testid="button-logout"
             >
               {sessionStorage.getItem("impersonating") === "true" ? "End Session" : "Sign out"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              asChild
+              data-testid="button-help"
+            >
+              <a href="/help" target="_blank" rel="noopener noreferrer">
+                <HelpCircle className="h-4 w-4" />
+              </a>
             </Button>
           </div>
         </SidebarFooter>
