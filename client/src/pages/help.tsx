@@ -57,7 +57,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "gs-1",
-        question: "How do I log in to LeadAni?",
+        question: "How to log in to LeadAni?",
         answer: [
           "Go to the LeadAni login page",
           "Enter your email address that was registered by your admin",
@@ -79,7 +79,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gs-3",
-        question: "How do I navigate between different sections?",
+        question: "How to navigate between different sections?",
         answer: [
           "Use the sidebar on the left side of the screen",
           "Click the menu icon (three lines) if the sidebar is collapsed",
@@ -89,7 +89,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gs-4",
-        question: "How do I switch between sheets?",
+        question: "How to switch between sheets?",
         answer: [
           "Look at the top of the Dashboard",
           "You'll see a dropdown or tabs showing available sheets",
@@ -99,7 +99,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gs-5",
-        question: "How do I change my password?",
+        question: "How to change my password?",
         answer: [
           "Click on your profile icon in the sidebar",
           "Select 'Change Password' or 'Profile Settings'",
@@ -120,7 +120,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gs-7",
-        question: "How do I install LeadAni as an app on my phone?",
+        question: "How to install LeadAni as an app on my phone?",
         answer: [
           "Open LeadAni in your mobile browser (Chrome or Safari)",
           "Look for the 'Install' or 'Add to Home Screen' prompt",
@@ -132,7 +132,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gs-8",
-        question: "How do I switch between light and dark mode?",
+        question: "How to switch between light and dark mode?",
         answer: [
           "Look for the sun/moon icon in the header area",
           "Click it to toggle between light and dark themes",
@@ -152,7 +152,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gs-10",
-        question: "How do I log out?",
+        question: "How to log out?",
         answer: [
           "Click on your profile section in the sidebar",
           "Click 'Logout' or 'Sign Out'",
@@ -170,7 +170,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "lm-1",
-        question: "How do I add a new lead?",
+        question: "How to add a new lead?",
         answer: [
           "Go to the Dashboard and select your sheet",
           "Click the '+ Add Lead' button (usually at the top or bottom of the grid)",
@@ -182,7 +182,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-2",
-        question: "How do I edit a lead?",
+        question: "How to edit a lead?",
         answer: [
           "Find the lead in your sheet",
           "Click on the lead row to open the lead details",
@@ -193,7 +193,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-3",
-        question: "How do I delete a lead?",
+        question: "How to delete a lead?",
         answer: [
           "Find the lead you want to delete",
           "Click on the lead to open its details",
@@ -205,7 +205,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-4",
-        question: "How do I recover a deleted lead?",
+        question: "How to recover a deleted lead?",
         answer: [
           "Only admins can recover deleted leads",
           "Go to the Admin Console",
@@ -216,7 +216,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-5",
-        question: "How do I search for a specific lead?",
+        question: "How to search for a specific lead?",
         answer: [
           "Use the search bar at the top of the Dashboard",
           "Type the name, mobile number, or any keyword",
@@ -226,7 +226,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-6",
-        question: "How do I filter leads by status or other fields?",
+        question: "How to filter leads by status or other fields?",
         answer: [
           "Look for the filter options above the lead grid",
           "Click on a filter (like Status, Source, or any custom field)",
@@ -237,7 +237,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-7",
-        question: "How do I sort leads by a column?",
+        question: "How to sort leads by a column?",
         answer: [
           "Click on any column header in the grid",
           "Click once for ascending order (A-Z, oldest first)",
@@ -247,7 +247,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-8",
-        question: "How do I add a follow-up note to a lead?",
+        question: "How to add a follow-up note to a lead?",
         answer: [
           "Click on the lead to open its details",
           "Look for 'Add Update' or 'Add Note' section",
@@ -270,7 +270,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-10",
-        question: "How do I see the history of changes to a lead?",
+        question: "How to see the history of changes to a lead?",
         answer: [
           "Open the lead details by clicking on it",
           "Look for 'Updates' or 'History' tab/section",
@@ -280,7 +280,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-11",
-        question: "How do I set a next follow-up date for a lead?",
+        question: "How to set a next follow-up date for a lead?",
         answer: [
           "Open the lead details",
           "Find the follow-up date field (may be called 'Next Follow-up' or similar)",
@@ -292,7 +292,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-12",
-        question: "How do I view only my leads vs all leads?",
+        question: "How to view only my leads vs all leads?",
         answer: [
           "Look for a filter or toggle at the top of the grid",
           "Options may include 'My Leads', 'All Leads', or similar",
@@ -302,7 +302,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-13",
-        question: "How do I change the status of a lead?",
+        question: "How to change the status of a lead?",
         answer: [
           "Click on the lead to open it, or double-click the status cell",
           "Click on the Status dropdown",
@@ -313,7 +313,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-14",
-        question: "How do I bulk select multiple leads?",
+        question: "How to bulk select multiple leads?",
         answer: [
           "Look for checkboxes on the left side of each lead row",
           "Click the checkbox next to each lead you want to select",
@@ -323,7 +323,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-15",
-        question: "How do I transfer leads to another sheet?",
+        question: "How to transfer leads to another sheet?",
         answer: [
           "Select the leads you want to transfer using checkboxes",
           "Look for 'Transfer' or 'Move' option in the bulk actions toolbar",
@@ -345,7 +345,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-17",
-        question: "How do I copy a lead's information?",
+        question: "How to copy a lead's information?",
         answer: [
           "Open the lead details",
           "Look for a 'Copy' button or right-click for copy options",
@@ -355,7 +355,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-18",
-        question: "How do I see leads that need follow-up today?",
+        question: "How to see leads that need follow-up today?",
         answer: [
           "Use the quick filter options at the top of the grid",
           "Look for 'Today's Follow-ups' or similar filter",
@@ -365,7 +365,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-19",
-        question: "How do I add a lead from the lead queue?",
+        question: "How to add a lead from the lead queue?",
         answer: [
           "Go to the Lead Queue section (if available)",
           "Review the pending leads from webhooks or imports",
@@ -375,7 +375,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "lm-20",
-        question: "How do I see all leads across multiple sheets?",
+        question: "How to see all leads across multiple sheets?",
         answer: [
           "This feature is usually available for Admins only",
           "Go to Reports section",
@@ -393,7 +393,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "ie-1",
-        question: "How do I import leads from an Excel file?",
+        question: "How to import leads from an Excel file?",
         answer: [
           "Go to the Dashboard and select your target sheet",
           "Click 'Import' button (usually at the top)",
@@ -417,7 +417,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ie-3",
-        question: "How do I map columns during import?",
+        question: "How to map columns during import?",
         answer: [
           "After uploading your file, you'll see a column mapping screen",
           "Each column from your file is shown on the left",
@@ -439,7 +439,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ie-5",
-        question: "How do I export leads to Excel?",
+        question: "How to export leads to Excel?",
         answer: [
           "Go to the Dashboard with your sheet selected",
           "Click the 'Export' button",
@@ -460,7 +460,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ie-7",
-        question: "How do I export leads with their update history?",
+        question: "How to export leads with their update history?",
         answer: [
           "During export, look for 'Include Updates' option",
           "Check this option to include follow-up notes in the export",
@@ -481,7 +481,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ie-9",
-        question: "How do I prepare my Excel file for import?",
+        question: "How to prepare my Excel file for import?",
         answer: [
           "Use the first row for column headers",
           "Keep mobile numbers as text to preserve leading zeros",
@@ -503,7 +503,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ie-11",
-        question: "How do I download an import template?",
+        question: "How to download an import template?",
         answer: [
           "Go to the Import section",
           "Look for 'Download Template' link",
@@ -564,7 +564,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "dh-5",
-        question: "How do I merge two duplicate leads?",
+        question: "How to merge two duplicate leads?",
         answer: [
           "When the duplicate detection dialog appears, click 'Merge'",
           "The new data will be added to the existing lead",
@@ -584,7 +584,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "dh-7",
-        question: "How do I find and clean up existing duplicates?",
+        question: "How to find and clean up existing duplicates?",
         answer: [
           "Use Reports to identify leads with similar details",
           "Filter by mobile number to find potential matches",
@@ -612,7 +612,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "sm-1",
-        question: "How do I create a new sheet?",
+        question: "How to create a new sheet?",
         answer: [
           "Only Admins can create new sheets",
           "Go to Admin Console > Sheets section",
@@ -624,7 +624,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-2",
-        question: "How do I rename a sheet?",
+        question: "How to rename a sheet?",
         answer: [
           "Go to Admin Console > Sheets",
           "Find the sheet you want to rename",
@@ -635,7 +635,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-3",
-        question: "How do I delete a sheet?",
+        question: "How to delete a sheet?",
         answer: [
           "Only Admins can delete sheets",
           "Go to Admin Console > Sheets",
@@ -647,7 +647,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-4",
-        question: "How do I add a new column to a sheet?",
+        question: "How to add a new column to a sheet?",
         answer: [
           "Go to Admin Console > Columns or Sheet Settings",
           "Click 'Add Column'",
@@ -672,7 +672,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-6",
-        question: "How do I add options to a dropdown column?",
+        question: "How to add options to a dropdown column?",
         answer: [
           "Go to Admin Console > Dropdown Options",
           "Select the column (e.g., Status, Source)",
@@ -684,7 +684,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-7",
-        question: "How do I reorder columns in the grid?",
+        question: "How to reorder columns in the grid?",
         answer: [
           "Go to Admin Console > Columns",
           "Use drag-and-drop to reorder columns",
@@ -694,7 +694,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-8",
-        question: "How do I hide a column from the grid?",
+        question: "How to hide a column from the grid?",
         answer: [
           "Go to Admin Console > Columns",
           "Find the column you want to hide",
@@ -716,7 +716,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-10",
-        question: "How do I delete a column?",
+        question: "How to delete a column?",
         answer: [
           "Go to Admin Console > Columns",
           "Find the column you want to remove",
@@ -738,7 +738,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-12",
-        question: "How do I copy column configuration to another sheet?",
+        question: "How to copy column configuration to another sheet?",
         answer: [
           "Currently, columns must be configured per sheet",
           "When creating a new sheet, you may have template options",
@@ -748,7 +748,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-13",
-        question: "How do I set column width?",
+        question: "How to set column width?",
         answer: [
           "In the grid view, hover between column headers",
           "Drag the border to resize the column",
@@ -768,7 +768,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "sm-15",
-        question: "How do I edit an existing dropdown option?",
+        question: "How to edit an existing dropdown option?",
         answer: [
           "Go to Admin Console > Dropdown Options",
           "Find the option you want to edit",
@@ -787,7 +787,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "um-1",
-        question: "How do I invite a new user to my company?",
+        question: "How to invite a new user to my company?",
         answer: [
           "Only Admins can invite users",
           "Go to Admin Console > Users",
@@ -817,7 +817,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "um-3",
-        question: "How do I give a user access to a sheet?",
+        question: "How to give a user access to a sheet?",
         answer: [
           "Go to Admin Console > Users",
           "Find the user and click 'Manage' or 'Sheet Access'",
@@ -828,7 +828,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "um-4",
-        question: "How do I remove a user's access to a sheet?",
+        question: "How to remove a user's access to a sheet?",
         answer: [
           "Go to Admin Console > Users",
           "Find the user and open their sheet access",
@@ -839,7 +839,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "um-5",
-        question: "How do I change a user's role?",
+        question: "How to change a user's role?",
         answer: [
           "Go to Admin Console > Users",
           "Find the user",
@@ -851,7 +851,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "um-6",
-        question: "How do I reset a user's password?",
+        question: "How to reset a user's password?",
         answer: [
           "Go to Admin Console > Users",
           "Find the user",
@@ -863,7 +863,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "um-7",
-        question: "How do I delete a user?",
+        question: "How to delete a user?",
         answer: [
           "Go to Admin Console > Users",
           "Find the user you want to remove",
@@ -885,7 +885,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "um-9",
-        question: "How do I see who has access to a sheet?",
+        question: "How to see who has access to a sheet?",
         answer: [
           "Go to Admin Console > Sheets",
           "Click on the sheet to view its details",
@@ -934,7 +934,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "rp-1",
-        question: "How do I create a new report?",
+        question: "How to create a new report?",
         answer: [
           "Go to the Reports section from the sidebar",
           "Click 'Create Report' or '+ New Report'",
@@ -947,7 +947,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rp-2",
-        question: "How do I filter a report by date?",
+        question: "How to filter a report by date?",
         answer: [
           "In the report builder or view, find the date filter",
           "Select a preset range (Today, This Week, This Month, etc.)",
@@ -958,7 +958,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rp-3",
-        question: "How do I group report data?",
+        question: "How to group report data?",
         answer: [
           "In the report builder, look for 'Group By' option",
           "Select the column to group by (e.g., Status, Source, User)",
@@ -978,7 +978,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rp-5",
-        question: "How do I export a report?",
+        question: "How to export a report?",
         answer: [
           "Open the report you want to export",
           "Click the 'Export' or 'Download' button",
@@ -988,7 +988,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rp-6",
-        question: "How do I view Team Performance?",
+        question: "How to view Team Performance?",
         answer: [
           "Go to Team Performance from the sidebar",
           "You'll see performance metrics for all team members",
@@ -1009,7 +1009,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rp-8",
-        question: "How do I share a report with my team?",
+        question: "How to share a report with my team?",
         answer: [
           "Save the report with a descriptive name",
           "Other users with report access can see saved reports",
@@ -1019,7 +1019,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rp-9",
-        question: "How do I compare performance across time periods?",
+        question: "How to compare performance across time periods?",
         answer: [
           "Create a report for the first period and note the metrics",
           "Change the date filter to the second period",
@@ -1057,7 +1057,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-2",
-        question: "How do I create a new webhook?",
+        question: "How to create a new webhook?",
         answer: [
           "Go to Webhooks section (Admin only)",
           "Click 'Create Webhook' or '+ New'",
@@ -1069,7 +1069,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-3",
-        question: "How do I map webhook fields to CRM fields?",
+        question: "How to map webhook fields to CRM fields?",
         answer: [
           "After creating a webhook, go to Field Mapping",
           "You'll see incoming field names on the left",
@@ -1093,7 +1093,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-5",
-        question: "How do I split leads across multiple sheets?",
+        question: "How to split leads across multiple sheets?",
         answer: [
           "In the webhook allocation rules, add multiple sheets",
           "Set a percentage for each sheet (must total 100%)",
@@ -1115,7 +1115,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-7",
-        question: "How do I test my webhook?",
+        question: "How to test my webhook?",
         answer: [
           "Copy the webhook URL",
           "Use a tool like Postman or your form's test feature",
@@ -1126,7 +1126,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-8",
-        question: "How do I view webhook logs?",
+        question: "How to view webhook logs?",
         answer: [
           "Go to Webhooks section",
           "Find your webhook and click to view details",
@@ -1147,7 +1147,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-10",
-        question: "How do I connect Facebook Lead Ads to LeadAni?",
+        question: "How to connect Facebook Lead Ads to LeadAni?",
         answer: [
           "Create a webhook in LeadAni and copy the URL",
           "In Facebook Business Manager, go to Leads Setup",
@@ -1170,7 +1170,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-12",
-        question: "How do I update an existing webhook?",
+        question: "How to update an existing webhook?",
         answer: [
           "Go to Webhooks and find your webhook",
           "Click Edit or the settings icon",
@@ -1191,7 +1191,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-14",
-        question: "How do I delete a webhook?",
+        question: "How to delete a webhook?",
         answer: [
           "Go to Webhooks section",
           "Find the webhook to delete",
@@ -1230,7 +1230,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "tg-2",
-        question: "How do I create a new target?",
+        question: "How to create a new target?",
         answer: [
           "Only Admins can create targets",
           "Go to Admin Console > Targets",
@@ -1255,7 +1255,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "tg-4",
-        question: "How do I assign a target to users?",
+        question: "How to assign a target to users?",
         answer: [
           "When creating or editing a target",
           "Choose 'Single User', 'Multiple Users', or 'All Users'",
@@ -1276,7 +1276,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "tg-6",
-        question: "How do I view my target progress?",
+        question: "How to view my target progress?",
         answer: [
           "Go to My Targets from the sidebar",
           "You'll see all targets assigned to you",
@@ -1318,7 +1318,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "tg-10",
-        question: "How do I edit or delete a target?",
+        question: "How to edit or delete a target?",
         answer: [
           "Go to Admin Console > Targets",
           "Find the target you want to modify",
@@ -1337,7 +1337,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "at-1",
-        question: "How do I check in for the day?",
+        question: "How to check in for the day?",
         answer: [
           "Go to Attendance from the sidebar",
           "Click 'Check In' button",
@@ -1348,7 +1348,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "at-2",
-        question: "How do I check out?",
+        question: "How to check out?",
         answer: [
           "Go to Attendance",
           "Click 'Check Out' button",
@@ -1378,7 +1378,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "at-5",
-        question: "How do I request a Force Exit?",
+        question: "How to request a Force Exit?",
         answer: [
           "Go to Attendance",
           "Click 'Request Force Exit'",
@@ -1401,7 +1401,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "at-7",
-        question: "How do I view my attendance history?",
+        question: "How to view my attendance history?",
         answer: [
           "Go to Attendance",
           "Look for 'History' or 'Past Records' tab",
@@ -1439,7 +1439,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "hr-2",
-        question: "How do I create a highlighting rule?",
+        question: "How to create a highlighting rule?",
         answer: [
           "Go to Admin Console > Highlighting Rules",
           "Click 'Add Rule'",
@@ -1480,7 +1480,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "hr-6",
-        question: "How do I edit or delete a highlighting rule?",
+        question: "How to edit or delete a highlighting rule?",
         answer: [
           "Go to Admin Console > Highlighting Rules",
           "Find the rule you want to modify",
@@ -1509,7 +1509,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rf-2",
-        question: "How do I create a row filter?",
+        question: "How to create a row filter?",
         answer: [
           "Look for 'Hide/Show Rows' in the sidebar or toolbar",
           "Click 'Create Filter'",
@@ -1520,7 +1520,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rf-3",
-        question: "How do I activate a filter?",
+        question: "How to activate a filter?",
         answer: [
           "Go to Hide/Show Rows",
           "Toggle the switch next to the filter you want",
@@ -1530,7 +1530,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rf-4",
-        question: "How do I see hidden rows again?",
+        question: "How to see hidden rows again?",
         answer: [
           "Go to Hide/Show Rows",
           "Deactivate the filter by toggling it off",
@@ -1550,7 +1550,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "rf-6",
-        question: "How do I delete a row filter?",
+        question: "How to delete a row filter?",
         answer: [
           "Go to Hide/Show Rows",
           "Find the filter you want to remove",
@@ -1569,7 +1569,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "as-1",
-        question: "How do I access Admin Console?",
+        question: "How to access Admin Console?",
         answer: [
           "Only Admins see the Admin Console option",
           "Click 'Admin Console' in the sidebar",
@@ -1579,7 +1579,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "as-2",
-        question: "How do I change my company's timezone?",
+        question: "How to change my company's timezone?",
         answer: [
           "Go to Admin Console > General Settings",
           "Find the 'Timezone' setting",
@@ -1601,7 +1601,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "as-4",
-        question: "How do I view the Audit Log?",
+        question: "How to view the Audit Log?",
         answer: [
           "Go to Audit Logs from the sidebar",
           "You'll see a list of all recorded actions",
@@ -1611,7 +1611,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "as-5",
-        question: "How do I clear old data?",
+        question: "How to clear old data?",
         answer: [
           "Go to Admin Console > Data Management",
           "Find 'Clear Past Data' option",
@@ -1623,7 +1623,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "as-6",
-        question: "How do I bulk transfer leads between sheets?",
+        question: "How to bulk transfer leads between sheets?",
         answer: [
           "Go to Admin Console > Data Management",
           "Select 'Bulk Transfer Leads'",
@@ -1646,7 +1646,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "as-8",
-        question: "How do I see activity logs?",
+        question: "How to see activity logs?",
         answer: [
           "Go to Activity Logs from the sidebar",
           "View all user activities in detail",
@@ -1674,7 +1674,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gb-2",
-        question: "How do I set up Google Sheets backup?",
+        question: "How to set up Google Sheets backup?",
         answer: [
           "Go to Admin Console > Sheets",
           "Select a sheet and find 'Google Backup' settings",
@@ -1686,7 +1686,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gb-3",
-        question: "How do I manually trigger a backup?",
+        question: "How to manually trigger a backup?",
         answer: [
           "Go to the sheet's backup settings",
           "Click 'Sync Now' or 'Run Backup'",
@@ -1706,7 +1706,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gb-5",
-        question: "How do I view backup logs?",
+        question: "How to view backup logs?",
         answer: [
           "Go to the sheet's backup settings",
           "Look for 'Sync History' or 'Backup Logs'",
@@ -1734,7 +1734,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "dr-2",
-        question: "How do I restore data from a snapshot?",
+        question: "How to restore data from a snapshot?",
         answer: [
           "Only Super Admins can access Data Recovery",
           "Go to Super Admin Console > Recovery",
@@ -1782,7 +1782,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "ma-1",
-        question: "How do I use LeadAni on my phone?",
+        question: "How to use LeadAni on my phone?",
         answer: [
           "Open your mobile browser (Chrome or Safari)",
           "Go to your LeadAni URL",
@@ -1792,7 +1792,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ma-2",
-        question: "How do I install LeadAni as an app?",
+        question: "How to install LeadAni as an app?",
         answer: [
           "Open LeadAni in your mobile browser",
           "Look for the 'Install' or 'Add to Home Screen' prompt",
@@ -1815,7 +1815,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ma-4",
-        question: "How do I view lead details on mobile?",
+        question: "How to view lead details on mobile?",
         answer: [
           "Tap on any lead in the list",
           "A mobile-friendly detail view opens",
@@ -1825,7 +1825,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ma-5",
-        question: "How do I filter leads on mobile?",
+        question: "How to filter leads on mobile?",
         answer: [
           "Look for the filter icon at the top",
           "Tap to open filter options",
@@ -1835,7 +1835,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ma-6",
-        question: "How do I sort leads on mobile?",
+        question: "How to sort leads on mobile?",
         answer: [
           "Look for the sort icon near filters",
           "Tap to see sort options",
@@ -1855,7 +1855,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "ma-8",
-        question: "How do I get notifications on mobile?",
+        question: "How to get notifications on mobile?",
         answer: [
           "When prompted, allow notifications",
           "Go to your device settings if you missed the prompt",
