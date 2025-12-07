@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Loader2, Sparkles } from "lucide-react";
 import {
   Search,
   ChevronLeft,
@@ -1984,6 +1985,66 @@ export default function Help() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const [aiSearching, setAiSearching] = useState(false);
+  const [aiMatchedIds, setAiMatchedIds] = useState<string[]>([]);
+  const [aiSearchQuery, setAiSearchQuery] = useState("");
+  const [aiSearchError, setAiSearchError] = useState<string | null>(null);
+
+  const allQuestions = useMemo(() => {
+    return faqData.flatMap(cat => cat.questions.map(q => ({ 
+      ...q,
+      categoryId: cat.id,
+      categoryName: cat.name,
+      categoryIcon: cat.icon,
+    })));
+  }, []);
+
+  const performAiSearch = useCallback(async (query: string) => {
+    if (!query.trim() || query.trim().length < 3) return;
+    
+    setAiSearching(true);
+    setAiMatchedIds([]);
+    setAiSearchError(null);
+    
+    try {
+      const faqSummary = allQuestions.map(q => ({ id: q.id, question: q.question }));
+      
+      const response = await fetch("/api/help/ai-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query.trim(), faqSummary }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setAiMatchedIds(data.matchedIds || []);
+        setAiSearchQuery(query.trim());
+        if (data.matchedIds?.length > 0) {
+          setExpandedItems(data.matchedIds);
+        }
+      } else {
+        setAiSearchError("AI search temporarily unavailable. Using keyword search instead.");
+      }
+    } catch (error) {
+      console.error("AI search failed:", error);
+      setAiSearchError("Could not connect to AI search. Using keyword search instead.");
+    } finally {
+      setAiSearching(false);
+    }
+  }, [allQuestions]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && searchQuery.trim().length >= 3) {
+      performAiSearch(searchQuery);
+    }
+  }, [searchQuery, performAiSearch]);
+
+  const aiMatchedQuestions = useMemo(() => {
+    if (aiMatchedIds.length === 0) return [];
+    return aiMatchedIds
+      .map(id => allQuestions.find(q => q.id === id))
+      .filter(Boolean) as (FAQItem & { categoryId: string; categoryName: string; categoryIcon: any })[];
+  }, [aiMatchedIds, allQuestions]);
 
   const filteredData = useMemo(() => {
     if (!searchQuery && !selectedCategory) {
@@ -2044,32 +2105,80 @@ export default function Help() {
             Search {totalQuestions}+ tutorials and guides
           </p>
           
-          <div className="max-w-xl mx-auto relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search for help... (e.g., 'add lead', 'import', 'webhook')"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-10 h-12 text-base"
-              data-testid="input-help-search"
-            />
-            {searchQuery && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
-                onClick={() => setSearchQuery("")}
-                data-testid="button-clear-search"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            )}
+          <div className="max-w-xl mx-auto flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Ask a question... (Press Enter for AI search)"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (!e.target.value) {
+                    setAiMatchedIds([]);
+                    setAiSearchQuery("");
+                    setAiSearchError(null);
+                  }
+                }}
+                onKeyDown={handleKeyDown}
+                className="pl-10 pr-10 h-12 text-base"
+                data-testid="input-help-search"
+              />
+              {searchQuery && !aiSearching && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setAiMatchedIds([]);
+                    setAiSearchQuery("");
+                    setAiSearchError(null);
+                  }}
+                  data-testid="button-clear-search"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+              {aiSearching && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 animate-spin text-primary" />
+              )}
+            </div>
+            <Button
+              onClick={() => performAiSearch(searchQuery)}
+              disabled={searchQuery.trim().length < 3 || aiSearching}
+              className="h-12 px-4 gap-2"
+              data-testid="button-ai-search"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span className="hidden sm:inline">AI Search</span>
+            </Button>
           </div>
 
-          {searchQuery && (
+          {aiSearching && (
+            <p className="text-sm text-muted-foreground mt-3 flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Searching with AI...
+            </p>
+          )}
+          
+          {!aiSearching && aiMatchedIds.length > 0 && (
+            <p className="text-sm text-primary mt-3 flex items-center justify-center gap-2">
+              <Sparkles className="h-4 w-4" />
+              AI found {aiMatchedIds.length} relevant answers for "{aiSearchQuery}"
+            </p>
+          )}
+          
+          {!aiSearching && aiSearchError && (
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-3 flex items-center justify-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              {aiSearchError}
+            </p>
+          )}
+          
+          {!aiSearching && !aiSearchError && searchQuery && aiMatchedIds.length === 0 && (
             <p className="text-sm text-muted-foreground mt-3">
-              Found {visibleQuestions} results
+              Found {visibleQuestions} results (Press Enter or click AI Search for smarter results)
             </p>
           )}
         </div>
@@ -2119,7 +2228,80 @@ export default function Help() {
 
         <ScrollArea className="h-[calc(100vh-300px)]">
           <div className="space-y-6 pr-4">
-            {filteredData.map(category => (
+            {aiMatchedQuestions.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  <h3 className="font-semibold text-lg">AI Recommended Answers</h3>
+                  <Badge variant="default" className="ml-auto bg-primary/10 text-primary">
+                    Top {aiMatchedQuestions.length}
+                  </Badge>
+                </div>
+                <Accordion
+                  type="multiple"
+                  value={expandedItems}
+                  onValueChange={setExpandedItems}
+                  className="space-y-2"
+                >
+                  {aiMatchedQuestions.map((q, index) => (
+                    <AccordionItem
+                      key={q.id}
+                      value={q.id}
+                      className="border-2 border-primary/20 rounded-lg px-4 data-[state=open]:bg-primary/5"
+                      data-testid={`accordion-ai-${q.id}`}
+                    >
+                      <AccordionTrigger className="text-left hover:no-underline py-3">
+                        <div className="flex items-center gap-3 pr-4 w-full">
+                          <span className="flex-shrink-0 h-6 w-6 rounded-full bg-primary text-primary-foreground text-sm flex items-center justify-center font-medium">
+                            {index + 1}
+                          </span>
+                          <span className="flex-1">{q.question}</span>
+                          <Badge variant="outline" className="text-xs flex-shrink-0">
+                            {q.categoryName}
+                          </Badge>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="pb-4">
+                        <div className="space-y-4 ml-9">
+                          <ol className="space-y-2">
+                            {q.answer.map((step, idx) => (
+                              <li key={idx} className="flex gap-3">
+                                {step && (
+                                  <>
+                                    <span className="flex-shrink-0 h-6 w-6 rounded-full bg-primary/10 text-primary text-sm flex items-center justify-center font-medium">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="text-muted-foreground pt-0.5">
+                                      {step}
+                                    </span>
+                                  </>
+                                )}
+                              </li>
+                            ))}
+                          </ol>
+
+                          {q.tips && q.tips.length > 0 && (
+                            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mt-3">
+                              <div className="flex gap-2">
+                                <Lightbulb className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                                <div className="text-sm text-amber-800 dark:text-amber-200">
+                                  <span className="font-medium">Tip: </span>
+                                  {q.tips.map((tip, idx) => (
+                                    <span key={idx}>{tip}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              </div>
+            )}
+
+            {(aiMatchedIds.length === 0 || !searchQuery) && filteredData.map(category => (
               <div key={category.id}>
                 {(searchQuery || !selectedCategory) && (
                   <div className="flex items-center gap-2 mb-3">
@@ -2189,23 +2371,38 @@ export default function Help() {
               </div>
             ))}
 
-            {filteredData.length === 0 && (
+            {filteredData.length === 0 && aiMatchedIds.length === 0 && !aiSearching && (
               <div className="text-center py-12">
                 <HelpCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <h3 className="font-medium text-lg mb-2">No results found</h3>
                 <p className="text-muted-foreground mb-4">
-                  Try different keywords or browse categories
+                  Try different keywords or use AI Search for smarter results
                 </p>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSearchQuery("");
-                    setSelectedCategory(null);
-                  }}
-                  data-testid="button-clear-filters"
-                >
-                  Clear filters
-                </Button>
+                <div className="flex gap-2 justify-center">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setSelectedCategory(null);
+                      setAiMatchedIds([]);
+                      setAiSearchQuery("");
+                    }}
+                    data-testid="button-clear-filters"
+                  >
+                    Clear filters
+                  </Button>
+                  {searchQuery.trim().length >= 3 && (
+                    <Button
+                      onClick={() => performAiSearch(searchQuery)}
+                      disabled={aiSearching}
+                      className="gap-2"
+                      data-testid="button-try-ai-search"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Try AI Search
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
           </div>

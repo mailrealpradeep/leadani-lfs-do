@@ -339,6 +339,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // AI-POWERED HELP SEARCH (Public - uses Sarvam AI)
+  // ============================================================================
+  app.post("/api/help/ai-search", async (req, res) => {
+    try {
+      const { query, faqSummary } = req.body;
+      
+      if (!query || typeof query !== "string" || query.trim().length < 2) {
+        return res.status(400).json({ error: "Query must be at least 2 characters" });
+      }
+      
+      if (!faqSummary || !Array.isArray(faqSummary)) {
+        return res.status(400).json({ error: "FAQ summary required" });
+      }
+      
+      const SARVAM_API_KEY = process.env.SARVAM_API_KEY;
+      if (!SARVAM_API_KEY) {
+        console.error("SARVAM_API_KEY not configured");
+        return res.status(503).json({ error: "AI search service not configured" });
+      }
+      
+      // Build a compact list of questions for the AI
+      const questionsList = faqSummary.map((q: { id: string; question: string }) => 
+        `${q.id}: ${q.question}`
+      ).join("\n");
+      
+      const systemPrompt = `You are a helpful FAQ search assistant. Given a user's question and a list of FAQ entries, identify the most relevant FAQ IDs that would answer the user's question.
+
+Return ONLY a JSON array of the most relevant FAQ IDs (maximum 5), ordered by relevance. If no questions are relevant, return an empty array.
+
+Example response format: ["gs-1", "lm-3", "ie-5"]
+
+FAQ Questions:
+${questionsList}`;
+
+      const response = await fetch("https://api.sarvam.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "api-subscription-key": SARVAM_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "sarvam-m",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Find the most relevant FAQ entries for this question: "${query.trim()}"` }
+          ],
+          temperature: 0.3,
+          max_tokens: 100,
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Sarvam API error:", response.status, errorText);
+        return res.status(502).json({ error: "AI service temporarily unavailable" });
+      }
+      
+      const data = await response.json();
+      const aiResponse = data.choices?.[0]?.message?.content || "[]";
+      
+      // Parse the AI response to extract FAQ IDs
+      let matchedIds: string[] = [];
+      try {
+        // Try to parse as JSON array
+        const parsed = JSON.parse(aiResponse.trim());
+        if (Array.isArray(parsed)) {
+          matchedIds = parsed.filter((id: any) => typeof id === "string");
+        }
+      } catch {
+        // If JSON parsing fails, try to extract IDs using regex
+        const idMatches = aiResponse.match(/[a-z]{2,3}-\d+/g);
+        if (idMatches) {
+          matchedIds = idMatches.slice(0, 5);
+        }
+      }
+      
+      res.json({ 
+        matchedIds,
+        query: query.trim()
+      });
+    } catch (error: any) {
+      console.error("AI search error:", error);
+      res.status(500).json({ error: "Search failed" });
+    }
+  });
+
+  // ============================================================================
   // AUTHENTICATION
   // ============================================================================
   app.post("/api/auth/register", async (req, res) => {
