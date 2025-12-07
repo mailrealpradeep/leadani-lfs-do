@@ -150,7 +150,7 @@ export function FutureImprovements() {
           <Lightbulb className="h-6 w-6 text-amber-500" />
           <div>
             <h2 className="text-xl font-bold" data-testid="text-future-improvements-title">Future Improvements</h2>
-            <p className="text-sm text-muted-foreground">Planned features and enhancements for LeadAni LFS</p>
+            <p className="text-sm text-muted-foreground">Planned features and enhancements for Leadani LFS</p>
           </div>
         </div>
 

@@ -11,7 +11,7 @@ export default function Onboarding() {
   const steps = [
     {
       icon: CheckCircle,
-      title: "Welcome to LeadAni LFS!",
+      title: "Welcome to Leadani LFS!",
       description: "Your company account has been created successfully.",
       content: (
         <div className="space-y-4 text-center">

@@ -29,7 +29,7 @@ const results = [
   {
     metric: "40%",
     label: "More Leads Converted",
-    description: "Teams using LeadAni see higher conversion rates",
+    description: "Teams using Leadani see higher conversion rates",
     icon: TrendingUp,
     gradient: "from-emerald-500 to-teal-600"
   },
@@ -256,7 +256,7 @@ function ResultsSection() {
             Real Results
           </Badge>
           <h2 className="text-3xl md:text-4xl font-bold" data-testid="text-results-heading">
-            What Businesses Achieve With LeadAni
+            What Businesses Achieve With Leadani
           </h2>
           <p className="text-muted-foreground mt-4 max-w-2xl mx-auto text-lg" data-testid="text-results-description">
             These aren't just numbers. They're real outcomes from businesses like yours.
@@ -428,7 +428,7 @@ function TestimonialsSection() {
             Success Stories
           </Badge>
           <h2 className="text-3xl md:text-4xl font-bold" data-testid="text-testimonials-heading">
-            Businesses Growing With LeadAni
+            Businesses Growing With Leadani
           </h2>
         </motion.div>
 
@@ -563,7 +563,7 @@ export default function Landing() {
               <div className="p-2 rounded-lg bg-gradient-to-br from-primary to-blue-600">
                 <Target className="h-5 w-5 text-white" />
               </div>
-              <span className="font-bold text-xl">LeadAni LFS</span>
+              <span className="font-bold text-xl">Leadani LFS</span>
             </motion.div>
           </Link>
           
@@ -596,7 +596,7 @@ export default function Landing() {
               <div className="p-1.5 rounded-lg bg-gradient-to-br from-primary to-blue-600">
                 <Target className="h-4 w-4 text-white" />
               </div>
-              <span className="font-semibold">LeadAni LFS</span>
+              <span className="font-semibold">Leadani LFS</span>
             </div>
             <div className="flex items-center gap-6 text-sm text-muted-foreground">
               <Link href="/features" data-testid="link-footer-features">
@@ -610,7 +610,7 @@ export default function Landing() {
               </Link>
             </div>
             <p className="text-sm text-muted-foreground" data-testid="text-copyright">
-              &copy; {new Date().getFullYear()} LeadAni LFS. All rights reserved.
+              &copy; {new Date().getFullYear()} Leadani LFS. All rights reserved.
             </p>
           </div>
         </div>

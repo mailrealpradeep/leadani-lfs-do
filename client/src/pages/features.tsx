@@ -417,7 +417,7 @@ const features: Feature[] = [
     icon: CloudUpload,
     title: "Auto Google Sheets Backup",
     tagline: "Your data, always accessible",
-    description: "Automatic hourly backup to your Google Sheets. Your data is always accessible even outside LeadAni. Full lead data including all custom columns and update history. Complete ownership of your data.",
+    description: "Automatic hourly backup to your Google Sheets. Your data is always accessible even outside Leadani. Full lead data including all custom columns and update history. Complete ownership of your data.",
     benefits: [
       "Hourly automatic backups",
       "Data always accessible",
@@ -832,7 +832,7 @@ export default function Features() {
               <div className="p-2 rounded-lg bg-gradient-to-br from-primary to-blue-600">
                 <Target className="h-5 w-5 text-white" />
               </div>
-              <span className="font-bold text-xl">LeadAni LFS</span>
+              <span className="font-bold text-xl">Leadani LFS</span>
             </motion.div>
           </Link>
           
@@ -946,7 +946,7 @@ export default function Features() {
 
       <footer className="border-t py-8" data-testid="footer">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p data-testid="text-copyright">&copy; {new Date().getFullYear()} LeadAni LFS. All rights reserved.</p>
+          <p data-testid="text-copyright">&copy; {new Date().getFullYear()} Leadani LFS. All rights reserved.</p>
         </div>
       </footer>
     </div>

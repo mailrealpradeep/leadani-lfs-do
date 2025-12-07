@@ -63,7 +63,7 @@ const guideData: GuideSection[] = [
     items: [
       {
         title: "Company Registration",
-        description: "Get your company set up on LeadAni",
+        description: "Get your company set up on Leadani",
         steps: [
           "Go to the signup page and enter your company details",
           "Create your admin account with email and password",
@@ -106,7 +106,7 @@ const guideData: GuideSection[] = [
         title: "Understanding Roles",
         description: "Three levels of access control",
         steps: [
-          "Super Admin: Platform-level, manages all companies (LeadAni team only)",
+          "Super Admin: Platform-level, manages all companies (Leadani team only)",
           "Company Admin: Full access to your company - settings, users, all sheets, webhooks",
           "User: Access only to assigned sheets, can manage leads within those sheets"
         ]
@@ -330,7 +330,7 @@ const guideData: GuideSection[] = [
     id: "duplicates",
     name: "Preventing Duplicate Customers",
     icon: Copy,
-    description: "How LeadAni prevents duplicate leads everywhere",
+    description: "How Leadani prevents duplicate leads everywhere",
     badge: "Important",
     items: [
       {
@@ -400,7 +400,7 @@ const guideData: GuideSection[] = [
         description: "Automatic lead ingestion from external sources",
         steps: [
           "Webhook = URL that receives data from other systems",
-          "When someone fills a form, data is sent to LeadAni",
+          "When someone fills a form, data is sent to Leadani",
           "Leads created automatically without manual entry",
           "Common sources: Facebook Lead Ads, Google Forms, websites"
         ]
@@ -420,7 +420,7 @@ const guideData: GuideSection[] = [
       },
       {
         title: "Field Mapping",
-        description: "Tell LeadAni how to read incoming data",
+        description: "Tell Leadani how to read incoming data",
         steps: [
           "After creating webhook, go to Field Mapping",
           "Incoming field names shown on left",
@@ -895,7 +895,7 @@ const guideData: GuideSection[] = [
         description: "Connect your Google Sheet",
         steps: [
           "Create a Google Sheet for backup",
-          "Share it with the LeadAni Google account",
+          "Share it with the Leadani Google account",
           "Go to Admin Console → Google Sheets Backup",
           "Enter the Google Sheet URL for your sheet",
           "Save configuration"
@@ -992,13 +992,13 @@ const guideData: GuideSection[] = [
     id: "mobile",
     name: "Mobile Experience",
     icon: Smartphone,
-    description: "LeadAni on your phone",
+    description: "Leadani on your phone",
     items: [
       {
         title: "Install as App (PWA)",
         description: "Add to home screen for app-like experience",
         steps: [
-          "Open LeadAni in mobile browser",
+          "Open Leadani in mobile browser",
           "Android: Menu → Add to Home Screen",
           "iPhone: Share → Add to Home Screen",
           "App icon appears on home screen",
@@ -1099,7 +1099,7 @@ export default function Guide() {
             </Link>
             <div>
               <h1 className="text-lg font-semibold">Business Owner Guide</h1>
-              <p className="text-xs text-muted-foreground">Everything you can do in LeadAni</p>
+              <p className="text-xs text-muted-foreground">Everything you can do in Leadani</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1125,7 +1125,7 @@ export default function Guide() {
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            Explore all LeadAni features organized by what you want to achieve. Click any section to expand.
+            Explore all Leadani features organized by what you want to achieve. Click any section to expand.
           </p>
         </div>
 

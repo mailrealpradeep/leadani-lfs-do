@@ -534,7 +534,7 @@ export function ApiDocumentation() {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>LeadAni LFS - Mobile API Documentation</title>
+  <title>Leadani LFS - Mobile API Documentation</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1a1a1a; padding: 40px; max-width: 800px; margin: 0 auto; }
@@ -567,7 +567,7 @@ export function ApiDocumentation() {
   </style>
 </head>
 <body>
-  <h1>LeadAni LFS - Mobile API Documentation</h1>
+  <h1>Leadani LFS - Mobile API Documentation</h1>
   <p class="subtitle">Base URL: ${baseUrl}/api</p>
   
   <div class="section">
@@ -657,7 +657,7 @@ export function ApiDocumentation() {
   </div>
 
   <p style="margin-top: 40px; color: #94a3b8; font-size: 12px; text-align: center;">
-    Generated on ${new Date().toLocaleDateString()} | LeadAni LFS v1.0
+    Generated on ${new Date().toLocaleDateString()} | Leadani LFS v1.0
   </p>
 </body>
 </html>`;

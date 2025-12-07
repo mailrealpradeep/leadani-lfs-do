@@ -218,7 +218,7 @@ export function AppSidebar() {
         <SidebarContent>
           <SidebarGroup>
             <SidebarGroupLabel className="text-lg font-semibold px-4 py-3">
-              LeadAni LFS
+              Leadani LFS
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>

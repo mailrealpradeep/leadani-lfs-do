@@ -57,9 +57,9 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "gs-1",
-        question: "How to log in to LeadAni?",
+        question: "How to log in to Leadani?",
         answer: [
-          "Go to the LeadAni login page",
+          "Go to the Leadani login page",
           "Enter your email address that was registered by your admin",
           "Enter your password",
           "Click the 'Sign In' button",
@@ -120,9 +120,9 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gs-7",
-        question: "How to install LeadAni as an app on my phone?",
+        question: "How to install Leadani as an app on my phone?",
         answer: [
-          "Open LeadAni in your mobile browser (Chrome or Safari)",
+          "Open Leadani in your mobile browser (Chrome or Safari)",
           "Look for the 'Install' or 'Add to Home Screen' prompt",
           "On Android: Tap the menu (three dots) and select 'Add to Home Screen'",
           "On iPhone: Tap the Share button and select 'Add to Home Screen'",
@@ -141,7 +141,7 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "gs-9",
-        question: "What browsers work best with LeadAni?",
+        question: "What browsers work best with Leadani?",
         answer: [
           "Google Chrome (recommended)",
           "Microsoft Edge",
@@ -522,7 +522,7 @@ const faqData: FAQCategory[] = [
     questions: [
       {
         id: "dh-1",
-        question: "How does LeadAni detect duplicate leads?",
+        question: "How does Leadani detect duplicate leads?",
         answer: [
           "The mobile number is the unique identifier",
           "The system normalizes mobile numbers (removes spaces, dashes, +, country codes)",
@@ -1050,7 +1050,7 @@ const faqData: FAQCategory[] = [
         question: "What is a webhook?",
         answer: [
           "A webhook is a way to automatically receive leads from external sources",
-          "When someone fills a form on your website, the data is sent to LeadAni",
+          "When someone fills a form on your website, the data is sent to Leadani",
           "Leads are created automatically without manual entry",
           "Common sources: Facebook Lead Ads, Google Forms, landing pages"
         ]
@@ -1147,12 +1147,12 @@ const faqData: FAQCategory[] = [
       },
       {
         id: "wh-10",
-        question: "How to connect Facebook Lead Ads to LeadAni?",
+        question: "How to connect Facebook Lead Ads to Leadani?",
         answer: [
-          "Create a webhook in LeadAni and copy the URL",
+          "Create a webhook in Leadani and copy the URL",
           "In Facebook Business Manager, go to Leads Setup",
           "Add a new CRM integration or webhook",
-          "Paste the LeadAni webhook URL",
+          "Paste the Leadani webhook URL",
           "Map Facebook fields to your webhook field names",
           "Test with a sample lead"
         ]
@@ -1778,23 +1778,23 @@ const faqData: FAQCategory[] = [
     id: "mobile-app",
     name: "Mobile App",
     icon: Smartphone,
-    description: "Using LeadAni on your phone",
+    description: "Using Leadani on your phone",
     questions: [
       {
         id: "ma-1",
-        question: "How to use LeadAni on my phone?",
+        question: "How to use Leadani on my phone?",
         answer: [
           "Open your mobile browser (Chrome or Safari)",
-          "Go to your LeadAni URL",
+          "Go to your Leadani URL",
           "Log in with your credentials",
           "The interface adapts automatically for mobile"
         ]
       },
       {
         id: "ma-2",
-        question: "How to install LeadAni as an app?",
+        question: "How to install Leadani as an app?",
         answer: [
-          "Open LeadAni in your mobile browser",
+          "Open Leadani in your mobile browser",
           "Look for the 'Install' or 'Add to Home Screen' prompt",
           "On Android: Tap menu (⋮) > 'Add to Home Screen'",
           "On iPhone: Tap Share > 'Add to Home Screen'",
@@ -1859,7 +1859,7 @@ const faqData: FAQCategory[] = [
         answer: [
           "When prompted, allow notifications",
           "Go to your device settings if you missed the prompt",
-          "Enable notifications for the LeadAni app",
+          "Enable notifications for the Leadani app",
           "You'll receive alerts for important updates"
         ]
       }
@@ -2091,7 +2091,7 @@ export default function Help() {
             </Link>
             <div className="flex items-center gap-2">
               <HelpCircle className="h-6 w-6 text-primary" />
-              <h1 className="text-lg font-semibold">LeadAni Help Center</h1>
+              <h1 className="text-lg font-semibold">Leadani Help Center</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -2420,7 +2420,7 @@ export default function Help() {
       <footer className="border-t py-6 mt-8">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
           <p>Can't find what you're looking for? Contact your company admin for assistance.</p>
-          <p className="mt-2">LeadAni - Lead Management System</p>
+          <p className="mt-2">Leadani - Lead Management System</p>
         </div>
       </footer>
     </div>
