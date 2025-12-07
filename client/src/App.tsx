@@ -39,6 +39,7 @@ import MyTargets from "@/pages/my-targets";
 import WorkingTarget from "@/pages/working-target";
 import Features from "@/pages/features";
 import Help from "@/pages/help";
+import Guide from "@/pages/guide";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -95,6 +96,7 @@ function Router() {
       <Route path="/impersonate" component={Impersonate} />
       <Route path="/features" component={Features} />
       <Route path="/help" component={Help} />
+      <Route path="/guide" component={Guide} />
       
       {/* Landing page - public, but redirect if authenticated */}
       <Route path="/">
@@ -242,7 +244,7 @@ function AppLayout() {
   }
   
   // Public pages that should render without sidebar, even when logged in
-  const publicOnlyPages = ['/help', '/features', '/pricing'];
+  const publicOnlyPages = ['/help', '/features', '/pricing', '/guide'];
   const isPublicOnlyPage = publicOnlyPages.some(p => location.startsWith(p));
   
   if (!isAuthenticated || isPublicOnlyPage) {

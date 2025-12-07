@@ -2094,7 +2094,15 @@ export default function Help() {
               <h1 className="text-lg font-semibold">LeadAni Help Center</h1>
             </div>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <Link href="/guide">
+              <Button variant="outline" size="sm" data-testid="button-go-to-guide">
+                <BookOpen className="h-4 w-4 mr-2" />
+                Guide
+              </Button>
+            </Link>
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
