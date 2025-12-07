@@ -1,8 +1,8 @@
-# LeadAni LFS
+# Leadani LFS
 
 ## Overview
 
-LeadAni LFS is a multi-tenant, spreadsheet-like lead management system designed for efficient lead management and team collaboration. It offers an intuitive Excel-like grid interface, customizable workspaces, dynamic column management, and automated lead creation via webhooks. Key capabilities include comprehensive reporting with drill-down functionality, chronological lead update tracking, robust three-tier role-based access control, data isolation per company, and audit logging. The system supports self-service company signup with admin invitation flows, an attendance system, and is fully mobile-responsive. The business vision is to provide a powerful, user-friendly CRM to enhance lead management efficiency and collaboration for businesses of all sizes.
+Leadani LFS is a multi-tenant, spreadsheet-like lead management system designed for efficient lead management and team collaboration. It offers an intuitive Excel-like grid interface, customizable workspaces, dynamic column management, and automated lead creation via webhooks. Key capabilities include comprehensive reporting with drill-down functionality, chronological lead update tracking, robust three-tier role-based access control, data isolation per company, and audit logging. The system supports self-service company signup with admin invitation flows, an attendance system, and is fully mobile-responsive. The business vision is to provide a powerful, user-friendly CRM to enhance lead management efficiency and collaboration for businesses of all sizes.
 
 ## User Preferences
 
@@ -82,6 +82,14 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
     - **Clear Past Data**: Company-wide lead deletion with optional date filtering. Requires type-to-confirm safety ("DELETE"). Uses soft-delete so leads can be recovered within 30 days.
     - **Bulk Transfer Leads**: Transfer leads from one sheet to multiple destinations with percentage-based weighted round-robin distribution. Includes duplicate detection before transfer and adds transfer history to lead updates.
     - Located at: Admin Console → Data Management section (Company Admin only)
+*   **Visit Schedules**: Calendar-based view for tracking site visits scheduled by team members. Features include:
+    - Calendar view with monthly navigation and date selection
+    - Visit cards showing lead details with configurable columns (like mobile card display)
+    - Click on card to view full lead details with update history
+    - Company configures which status column/value indicates "site visit" and which date column stores the visit date
+    - Regular users see only their accessible sheets; admins see all company visits
+    - Configuration: Admin Console → Site Visits accordion section
+    - Located at: Sidebar → Visit Schedules
 
 ### Security
 

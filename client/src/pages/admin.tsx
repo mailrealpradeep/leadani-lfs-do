@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, Database, CheckCircle2, Loader2 } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, Database, CheckCircle2, Loader2, MapPin } from "lucide-react";
 import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +28,7 @@ import { insertCompanySchema, insertUserSchema } from "@shared/schema";
 import { CompanyColumnManager } from "@/components/company-column-manager";
 import { QuickFilterManager } from "@/components/quick-filter-manager";
 import { MobileCardSettings } from "@/components/mobile-card-settings";
+import { SiteVisitSettings } from "@/components/site-visit-settings";
 import { NotificationSettings } from "@/components/notification-settings";
 import { HighlightingRulesManager } from "@/components/highlighting-rules-manager";
 import { KpiManagement } from "@/components/kpi-management";
@@ -799,6 +800,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <MobileCardSettings headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="site-visits" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-site-visits">
+              <div className="flex items-center gap-3">
+                <MapPin className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Site Visit Schedules</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure how site visits are tracked and displayed
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <SiteVisitSettings headless />
               </div>
             </AccordionContent>
           </AccordionItem>

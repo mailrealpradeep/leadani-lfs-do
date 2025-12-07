@@ -25,6 +25,12 @@ export interface Company {
       times?: string[]; // Array of times in HH:MM format, e.g., ["09:00", "16:00", "18:00"]
       timezone?: string; // IANA timezone, e.g., "Asia/Kolkata"
     };
+    site_visit_config?: {
+      status_column?: string; // column_key that indicates visit type (e.g., "lead_status")
+      status_value?: string; // value that means "site visit scheduled" (e.g., "Site Visit")
+      date_column?: string; // column_key for visit date (e.g., "nfdt")
+      card_columns?: string[]; // column keys to display in visit schedule card
+    };
   };
   status: "active" | "suspended" | "trial";
   attendance_exit_target_id: string | null; // Links to working_targets for attendance exit condition
@@ -51,6 +57,12 @@ export const insertCompanySchema = z.object({
       enabled: z.boolean().optional(),
       times: z.array(z.string()).optional(),
       timezone: z.string().optional(),
+    }).optional(),
+    site_visit_config: z.object({
+      status_column: z.string().optional(),
+      status_value: z.string().optional(),
+      date_column: z.string().optional(),
+      card_columns: z.array(z.string()).optional(),
     }).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),

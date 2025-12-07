@@ -1648,11 +1648,9 @@ ${questionsList}`;
           'Etc/UTC': 'UTC',
         };
         
-        // Check if input is a known legacy alias
+        // Auto-canonicalize known legacy aliases instead of rejecting them
         if (legacyAliasMap[incomingSettings.timezone]) {
-          return res.status(400).json({ 
-            error: `Please use "${legacyAliasMap[incomingSettings.timezone]}" instead of legacy alias "${incomingSettings.timezone}"` 
-          });
+          canonicalTimezone = legacyAliasMap[incomingSettings.timezone];
         }
         
         // Store the canonical form (handles case variations like "asia/kolkata" -> "Asia/Kolkata")
@@ -1660,7 +1658,7 @@ ${questionsList}`;
       }
 
       // Merge new settings with existing settings (only allow known fields)
-      const allowedFields = ['mobile_card_columns', 'timezone'];
+      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config'];
       const sanitizedSettings: Record<string, any> = {};
       for (const field of allowedFields) {
         if (incomingSettings[field] !== undefined) {
@@ -1688,6 +1686,112 @@ ${questionsList}`;
       res.json({ settings: updated?.settings || {} });
     } catch (error: any) {
       console.error("Update company settings error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // VISIT SCHEDULES - Fetch leads that are scheduled for site visits
+  // ============================================================================
+  app.get("/api/visits", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      // Get company settings to find site visit configuration
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      const siteVisitConfig = company.settings?.site_visit_config;
+      if (!siteVisitConfig?.status_column || !siteVisitConfig?.status_value || !siteVisitConfig?.date_column) {
+        return res.json({ 
+          visits: [], 
+          config: null,
+          message: "Site visit configuration not set up. Please configure in Admin Console." 
+        });
+      }
+
+      // Get accessible sheets for this user
+      let accessibleSheetIds: string[] = [];
+      
+      if (req.userRole === "super_admin" || req.userRole === "company_admin") {
+        // Admins can see all company sheets
+        const allSheets = await storage.getSheetsByCompanyId(req.companyId);
+        accessibleSheetIds = allSheets.filter(s => !s.deleted_at).map(s => s.id);
+      } else {
+        // Regular users can only see sheets they have access to
+        const userSheets = await storage.getSheetUsersByUserId(req.userId!);
+        accessibleSheetIds = userSheets.map(su => su.sheet_id);
+      }
+
+      if (accessibleSheetIds.length === 0) {
+        return res.json({ visits: [], config: siteVisitConfig });
+      }
+
+      // Parse date filters from query
+      const startDate = req.query.start_date as string | undefined;
+      const endDate = req.query.end_date as string | undefined;
+
+      // Build filter for site visits
+      const filters: Record<string, any> = {
+        [siteVisitConfig.status_column]: { 
+          value: siteVisitConfig.status_value, 
+          exactMatch: true 
+        },
+      };
+
+      // Add date range filter if provided
+      if (startDate && endDate) {
+        filters[siteVisitConfig.date_column] = {
+          from: startDate,
+          to: endDate,
+        };
+      }
+
+      // Fetch leads matching the site visit criteria
+      const result = await storage.getLeadsBySheetIds({
+        sheetIds: accessibleSheetIds,
+        page: 1,
+        limit: 1000, // Get all visits for the date range
+        sortBy: siteVisitConfig.date_column,
+        sortOrder: 'asc',
+        filters,
+      });
+
+      // Get sheet info for context
+      const allSheets = await storage.getSheetsByCompanyId(req.companyId);
+      const sheetMap: Record<string, string> = {};
+      for (const sheet of allSheets) {
+        sheetMap[sheet.id] = sheet.name;
+      }
+
+      // Get user info for each lead
+      const userIds = [...new Set(result.leads.map(l => l.owner_user_id).filter(Boolean))];
+      const users = await Promise.all(userIds.map(id => storage.getUser(id)));
+      const userMap: Record<string, string> = {};
+      for (const user of users) {
+        if (user) {
+          userMap[user.id] = user.name;
+        }
+      }
+
+      // Enrich leads with sheet name and owner name
+      const enrichedVisits = result.leads.map(lead => ({
+        ...lead,
+        sheet_name: sheetMap[lead.sheet_id] || 'Unknown Sheet',
+        owner_name: lead.owner_user_id ? (userMap[lead.owner_user_id] || 'Unknown') : 'Unassigned',
+      }));
+
+      res.json({ 
+        visits: enrichedVisits, 
+        config: siteVisitConfig,
+        total: result.total,
+      });
+    } catch (error: any) {
+      console.error("Get visits error:", error);
       res.status(500).json({ error: error.message });
     }
   });
