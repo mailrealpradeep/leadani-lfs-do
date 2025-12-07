@@ -6990,21 +6990,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const companyId = req.companyId || report.company_id;
         
         if (filterSheetIds) {
-          // Get all company sheets
+          // Get all company sheets (excluding deleted)
           const companySheets = await storage.getSheetsByCompanyId(companyId);
-          const companySheetIds = companySheets.map(s => s.id);
-          // Only include requested sheets that exist in the company
-          accessibleSheetIds = filterSheetIds.filter(sheetId => companySheetIds.includes(sheetId));
+          const activeCompanySheetIds = companySheets.filter(s => !s.deleted_at).map(s => s.id);
+          // Only include requested sheets that exist in the company and are not deleted
+          accessibleSheetIds = filterSheetIds.filter(sheetId => activeCompanySheetIds.includes(sheetId));
         } else {
-          // No filter - use report's configured sheets or all company sheets
-          accessibleSheetIds = Array.isArray(report.sheet_ids) && report.sheet_ids.length > 0
-            ? report.sheet_ids
-            : (await storage.getSheetsByCompanyId(companyId)).map(s => s.id);
+          // No filter - use report's configured sheets or all company sheets (excluding deleted)
+          if (Array.isArray(report.sheet_ids) && report.sheet_ids.length > 0) {
+            // Filter out any deleted sheets from report configuration
+            const companySheets = await storage.getSheetsByCompanyId(companyId);
+            const activeSheetIds = companySheets.filter(s => !s.deleted_at).map(s => s.id);
+            accessibleSheetIds = report.sheet_ids.filter((id: string) => activeSheetIds.includes(id));
+          } else {
+            accessibleSheetIds = (await storage.getSheetsByCompanyId(companyId))
+              .filter(s => !s.deleted_at)
+              .map(s => s.id);
+          }
         }
       } else {
         // Regular users can only access sheets they have permissions for
         const userSheets = await storage.getSheetsByUserId(req.userId!);
-        const userSheetIds = userSheets.map(s => s.id);
+        // Exclude deleted sheets from user's accessible sheets
+        const userSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
         
         if (filterSheetIds) {
           // Filter to only include requested sheets that the user has access to
