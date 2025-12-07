@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, Database } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, Database, CheckCircle2, Loader2 } from "lucide-react";
 import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1097,6 +1097,8 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
   const [selectedUser, setSelectedUser] = useState<UserAssignment | null>(null);
   const [addSheetDialogOpen, setAddSheetDialogOpen] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>("editor");
+  const [recentlyAddedSheets, setRecentlyAddedSheets] = useState<Map<string, string>>(new Map());
+  const [pendingSheetId, setPendingSheetId] = useState<string | null>(null);
 
   const { data: assignmentsData, isLoading, refetch } = useQuery<AssignmentsResponse>({
     queryKey: ["/api/admin/assignments"],
@@ -1106,19 +1108,33 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
   const availableSheets = assignmentsData?.available_sheets || [];
 
   const addAssignmentMutation = useMutation({
-    mutationFn: async ({ userId, sheetId, role }: { userId: string; sheetId: string; role: string }) => {
+    mutationFn: async ({ userId, sheetId, sheetName, role }: { userId: string; sheetId: string; sheetName: string; role: string }) => {
       return await apiRequest("POST", `/api/admin/assignments/${userId}`, { 
         sheet_id: sheetId, 
         action: "add",
         role 
       });
     },
-    onSuccess: () => {
-      refetch();
+    onMutate: (variables) => {
+      setPendingSheetId(variables.sheetId);
+    },
+    onSuccess: (_data, variables) => {
+      const { sheetId, sheetName } = variables;
+      setRecentlyAddedSheets(prev => new Map(prev).set(sheetId, sheetName));
       toast({
         title: "Sheet assigned",
-        description: "User now has access to this sheet.",
+        description: `${sheetName} has been added to this user.`,
       });
+      setTimeout(() => {
+        refetch();
+      }, 800);
+      setTimeout(() => {
+        setRecentlyAddedSheets(prev => {
+          const next = new Map(prev);
+          next.delete(sheetId);
+          return next;
+        });
+      }, 3500);
     },
     onError: (error: any) => {
       toast({
@@ -1126,6 +1142,9 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
         description: error.message || "Failed to assign sheet",
         variant: "destructive",
       });
+    },
+    onSettled: () => {
+      setPendingSheetId(null);
     },
   });
 
@@ -1313,8 +1332,14 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
         </div>
       )}
 
-      <Dialog open={addSheetDialogOpen} onOpenChange={setAddSheetDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={addSheetDialogOpen} onOpenChange={(open) => {
+        setAddSheetDialogOpen(open);
+        if (!open) {
+          setRecentlyAddedSheets(new Map());
+          setPendingSheetId(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Add Sheet Access</DialogTitle>
             <DialogDescription>
@@ -1322,7 +1347,7 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">Default role:</span>
               <Select value={selectedRole} onValueChange={setSelectedRole}>
@@ -1336,39 +1361,64 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
               </Select>
             </div>
 
-            <ScrollArea className="max-h-[300px]">
+            <ScrollArea className="flex-1 h-[300px]">
               <div className="space-y-2 pr-4">
-                {selectedUser && getUnassignedSheets(selectedUser).length === 0 ? (
+                {selectedUser && getUnassignedSheets(selectedUser).length === 0 && recentlyAddedSheets.size === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     All sheets are already assigned to this user
                   </p>
                 ) : (
-                  selectedUser && getUnassignedSheets(selectedUser).map((sheet) => (
-                    <div
-                      key={sheet.id}
-                      className="flex items-center justify-between gap-2 p-3 border rounded-lg hover-elevate"
-                    >
-                      <div className="flex items-center gap-3">
-                        <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
-                        <span className="text-sm font-medium">{sheet.name}</span>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          addAssignmentMutation.mutate({ 
-                            userId: selectedUser.user_id, 
-                            sheetId: sheet.id,
-                            role: selectedRole
-                          });
-                        }}
-                        disabled={addAssignmentMutation.isPending}
-                        data-testid={`button-assign-sheet-${sheet.id}`}
+                  <>
+                    {Array.from(recentlyAddedSheets.entries()).map(([sheetId, sheetName]) => (
+                      <div
+                        key={sheetId}
+                        className="flex items-center justify-between gap-2 p-3 border-2 border-green-500 bg-green-50 dark:bg-green-900/20 rounded-lg"
                       >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add
-                      </Button>
-                    </div>
-                  ))
+                        <div className="flex items-center gap-3">
+                          <FileSpreadsheet className="h-5 w-5 text-green-600" />
+                          <span className="text-sm font-medium text-green-700 dark:text-green-400">{sheetName}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-green-600">
+                          <CheckCircle2 className="h-5 w-5" />
+                          <span className="text-sm font-medium">Added</span>
+                        </div>
+                      </div>
+                    ))}
+                    {selectedUser && getUnassignedSheets(selectedUser).map((sheet) => (
+                      <div
+                        key={sheet.id}
+                        className="flex items-center justify-between gap-2 p-3 border rounded-lg hover-elevate"
+                      >
+                        <div className="flex items-center gap-3">
+                          <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
+                          <span className="text-sm font-medium">{sheet.name}</span>
+                        </div>
+                        {pendingSheetId === sheet.id ? (
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span className="text-sm">Adding...</span>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              addAssignmentMutation.mutate({ 
+                                userId: selectedUser.user_id, 
+                                sheetId: sheet.id,
+                                sheetName: sheet.name,
+                                role: selectedRole
+                              });
+                            }}
+                            disabled={addAssignmentMutation.isPending}
+                            data-testid={`button-assign-sheet-${sheet.id}`}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Add
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </>
                 )}
               </div>
             </ScrollArea>
