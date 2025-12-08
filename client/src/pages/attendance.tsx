@@ -288,7 +288,7 @@ export default function Attendance() {
   const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
-  const { formatDate, formatTime, formatInTimezone } = useCompanyTimezone();
+  const { formatDate, formatTime, formatInTimezone, getStartOfDay } = useCompanyTimezone();
   const isAdmin = isCompanyAdmin || isSuperAdmin;
 
   const [forceExitDialogOpen, setForceExitDialogOpen] = useState(false);
@@ -315,6 +315,11 @@ export default function Attendance() {
   // Calendar history state
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<Date | null>(null);
+  
+  // Admin calendar state - replaces Today's Attendance
+  const [adminCalendarMonth, setAdminCalendarMonth] = useState(new Date());
+  // Store selected day as string key (yyyy-MM-dd) for timezone-consistent lookups
+  const [adminSelectedDayKey, setAdminSelectedDayKey] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   
   // Admin history table state
   const [adminHistoryDateFilter, setAdminHistoryDateFilter] = useState<'today' | 'week' | 'month' | 'all'>('month');
@@ -408,6 +413,56 @@ export default function Attendance() {
     },
     enabled: isAdmin,
   });
+
+  // Admin calendar: fetch entire month's attendance for the admin calendar view
+  const adminCalendarMonthRange = useMemo(() => {
+    const monthStart = startOfMonth(adminCalendarMonth);
+    const monthEnd = endOfMonth(adminCalendarMonth);
+    return { startDate: monthStart, endDate: monthEnd };
+  }, [adminCalendarMonth]);
+
+  const { data: adminMonthAttendance = [], isLoading: loadingAdminMonthAttendance } = useQuery<AttendanceEntry[]>({
+    queryKey: ["/api/attendance/company", "admin-calendar", adminCalendarMonthRange.startDate.toISOString(), adminCalendarMonthRange.endDate.toISOString()],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.append('startDate', adminCalendarMonthRange.startDate.toISOString());
+      params.append('endDate', adminCalendarMonthRange.endDate.toISOString());
+      const url = `/api/attendance/company?${params.toString()}`;
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch company attendance');
+      return response.json();
+    },
+    enabled: isAdmin,
+  });
+
+  // Admin calendar helper - get days in month grid
+  const adminCalendarDays = useMemo(() => {
+    const monthStart = startOfMonth(adminCalendarMonth);
+    const monthEnd = endOfMonth(adminCalendarMonth);
+    const calendarStart = startOfWeek(monthStart);
+    const calendarEnd = endOfWeek(monthEnd);
+    return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  }, [adminCalendarMonth]);
+
+  // Map admin attendance entries by date with count (using company timezone)
+  const adminAttendanceByDate = useMemo(() => {
+    const map = new Map<string, AttendanceEntry[]>();
+    adminMonthAttendance.forEach(entry => {
+      // Use company timezone to determine the business day
+      const dateKey = formatInTimezone(entry.entry_time, 'yyyy-MM-dd');
+      if (dateKey) {
+        const existing = map.get(dateKey) || [];
+        existing.push(entry);
+        map.set(dateKey, existing);
+      }
+    });
+    return map;
+  }, [adminMonthAttendance, formatInTimezone]);
+
+  // Get attendance entries for admin selected date using the string key
+  const adminSelectedDateEntries = useMemo(() => {
+    return adminAttendanceByDate.get(adminSelectedDayKey) || [];
+  }, [adminSelectedDayKey, adminAttendanceByDate]);
 
   // Calendar helper - get days in month grid
   const calendarDays = useMemo(() => {
@@ -594,7 +649,6 @@ export default function Attendance() {
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
       // Clear any previous error states on success
-      setIsSystemError(false);
       setBlockingReasons([]);
       toast({
         title: "Exit Recorded",
@@ -824,6 +878,7 @@ export default function Attendance() {
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/today/all"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/pending-reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/company"] });
       const titles: Record<string, string> = {
         delete: "Entry Deleted",
         clear_exit: "Exit Cleared",
@@ -1409,117 +1464,206 @@ export default function Attendance() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card data-testid="admin-attendance-calendar-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  Today's Attendance
+                  <Calendar className="h-5 w-5" />
+                  Team Attendance
                 </CardTitle>
-                <CardDescription>View and manage today's attendance entries for all team members</CardDescription>
+                <CardDescription>View and manage attendance for any date</CardDescription>
               </CardHeader>
-              <CardContent>
-                {loadingTodayAll ? (
+              <CardContent className="space-y-4">
+                {/* Calendar Navigation */}
+                <div className="flex items-center justify-between">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setAdminCalendarMonth(subMonths(adminCalendarMonth, 1))}
+                    data-testid="button-admin-calendar-prev"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <h3 className="font-semibold text-lg" data-testid="text-admin-calendar-month">
+                    {format(adminCalendarMonth, 'MMMM yyyy')}
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setAdminCalendarMonth(addMonths(adminCalendarMonth, 1))}
+                    data-testid="button-admin-calendar-next"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Calendar Grid */}
+                {loadingAdminMonthAttendance ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
-                ) : todayAllEntries.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No attendance entries today</p>
-                  </div>
                 ) : (
-                  <div className="space-y-3">
-                    {todayAllEntries.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="p-4 rounded-lg border bg-card"
-                        data-testid={`today-entry-${entry.id}`}
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div>
-                            <div className="font-medium">{entry.user_name}</div>
-                            <div className="text-sm text-muted-foreground">{entry.user_email}</div>
-                          </div>
-                          <Badge variant={entry.exit_time ? "default" : "secondary"}>
-                            {entry.exit_time ? "Completed" : "In Progress"}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-4 text-sm mb-3">
-                          <div className="flex items-center gap-1">
-                            <LogIn className="h-4 w-4 text-green-500" />
-                            Entry: {formatTime(entry.entry_time)}
-                          </div>
-                          {entry.exit_time && (
-                            <div className="flex items-center gap-1">
-                              <LogOut className="h-4 w-4 text-blue-500" />
-                              Exit: {formatTime(entry.exit_time)}
-                              {entry.exit_type === "forced" && (
-                                <Badge variant="secondary" className="ml-1">Force</Badge>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex gap-2 flex-wrap">
-                          {!entry.exit_time && (
-                            <Button
-                              size="sm"
-                              variant="default"
-                              onClick={() => clearAttendanceMutation.mutate({ entryId: entry.id, action: "give_exit" })}
-                              disabled={clearAttendanceMutation.isPending}
-                              data-testid={`button-give-exit-${entry.id}`}
-                            >
-                              {clearAttendanceMutation.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
-                                  <LogOut className="h-4 w-4 mr-1" />
-                                  Give Exit
-                                </>
-                              )}
-                            </Button>
-                          )}
-                          {entry.exit_time && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => clearAttendanceMutation.mutate({ entryId: entry.id, action: "clear_exit" })}
-                              disabled={clearAttendanceMutation.isPending}
-                              data-testid={`button-clear-exit-${entry.id}`}
-                            >
-                              {clearAttendanceMutation.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
-                                  <X className="h-4 w-4 mr-1" />
-                                  Clear Exit
-                                </>
-                              )}
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => {
-                              setEntryToDelete(entry);
-                              setDeleteEntryDialogOpen(true);
-                            }}
-                            disabled={clearAttendanceMutation.isPending}
-                            data-testid={`button-delete-entry-${entry.id}`}
+                  <>
+                    {/* Days of week header */}
+                    <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-muted-foreground">
+                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                        <div key={day} className="py-2">{day}</div>
+                      ))}
+                    </div>
+
+                    {/* Calendar days */}
+                    <div className="grid grid-cols-7 gap-1">
+                      {adminCalendarDays.map((day, idx) => {
+                        // Normalize to company timezone start-of-day, then create key with formatInTimezone
+                        const normalizedDay = getStartOfDay(day);
+                        const dateKey = formatInTimezone(normalizedDay, 'yyyy-MM-dd') || format(day, 'yyyy-MM-dd');
+                        const dayEntries = adminAttendanceByDate.get(dateKey) || [];
+                        const isCurrentMonth = isSameMonth(day, adminCalendarMonth);
+                        // Compare string keys for selection
+                        const isSelected = dateKey === adminSelectedDayKey;
+                        const todayNormalized = getStartOfDay(new Date());
+                        const todayKey = formatInTimezone(todayNormalized, 'yyyy-MM-dd') || format(new Date(), 'yyyy-MM-dd');
+                        const isToday = dateKey === todayKey;
+                        const hasAttendance = dayEntries.length > 0;
+
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => setAdminSelectedDayKey(dateKey)}
+                            className={`relative p-2 min-h-[50px] rounded-md text-sm transition-colors flex flex-col items-center justify-start gap-1
+                              ${!isCurrentMonth ? 'text-muted-foreground/40' : ''}
+                              ${isSelected ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}
+                              ${isToday && !isSelected ? 'ring-1 ring-primary' : ''}
+                            `}
+                            data-testid={`admin-calendar-day-${dateKey}`}
                           >
-                            {clearAttendanceMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <>
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                Delete Entry
-                              </>
+                            <span className="font-medium">{format(day, 'd')}</span>
+                            {hasAttendance && isCurrentMonth && (
+                              <Badge 
+                                variant={isSelected ? "secondary" : "default"} 
+                                className="text-[10px] px-1.5 py-0 min-w-[20px] justify-center"
+                              >
+                                {dayEntries.length}
+                              </Badge>
                             )}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
+
+                {/* Selected Date Attendance */}
+                <div className="border-t pt-4 mt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold flex items-center gap-2" data-testid="text-admin-selected-date">
+                      <Users className="h-4 w-4" />
+                      {/* Parse the key back to Date for display formatting */}
+                      {format(parseISO(adminSelectedDayKey), 'EEEE, MMMM d, yyyy')}
+                    </h4>
+                    <Badge variant="outline" data-testid="text-admin-selected-date-count">
+                      {adminSelectedDateEntries.length} {adminSelectedDateEntries.length === 1 ? 'entry' : 'entries'}
+                    </Badge>
+                  </div>
+
+                  {adminSelectedDateEntries.length === 0 ? (
+                    <div className="text-center py-6 text-muted-foreground border rounded-lg border-dashed">
+                      <Clock className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No attendance on this date</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {adminSelectedDateEntries.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="p-4 rounded-lg border bg-card"
+                          data-testid={`admin-entry-${entry.id}`}
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <div className="font-medium">{entry.user_name}</div>
+                              <div className="text-sm text-muted-foreground">{entry.user_email}</div>
+                            </div>
+                            <Badge variant={entry.exit_time ? "default" : "secondary"}>
+                              {entry.exit_time ? "Completed" : "In Progress"}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm mb-3 flex-wrap">
+                            <div className="flex items-center gap-1">
+                              <LogIn className="h-4 w-4 text-green-500" />
+                              Entry: {formatTime(entry.entry_time)}
+                            </div>
+                            {entry.exit_time && (
+                              <div className="flex items-center gap-1">
+                                <LogOut className="h-4 w-4 text-blue-500" />
+                                Exit: {formatTime(entry.exit_time)}
+                                {entry.exit_type === "forced" && (
+                                  <Badge variant="secondary" className="ml-1">Force</Badge>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            {!entry.exit_time && (
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={() => clearAttendanceMutation.mutate({ entryId: entry.id, action: "give_exit" })}
+                                disabled={clearAttendanceMutation.isPending}
+                                data-testid={`button-give-exit-${entry.id}`}
+                              >
+                                {clearAttendanceMutation.isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <LogOut className="h-4 w-4 mr-1" />
+                                    Give Exit
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                            {entry.exit_time && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => clearAttendanceMutation.mutate({ entryId: entry.id, action: "clear_exit" })}
+                                disabled={clearAttendanceMutation.isPending}
+                                data-testid={`button-clear-exit-${entry.id}`}
+                              >
+                                {clearAttendanceMutation.isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <X className="h-4 w-4 mr-1" />
+                                    Clear Exit
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                setEntryToDelete(entry);
+                                setDeleteEntryDialogOpen(true);
+                              }}
+                              disabled={clearAttendanceMutation.isPending}
+                              data-testid={`button-delete-entry-${entry.id}`}
+                            >
+                              {clearAttendanceMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Trash2 className="h-4 w-4 mr-1" />
+                                  Delete Entry
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
