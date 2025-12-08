@@ -7572,8 +7572,11 @@ ${questionsList}`;
           const owner = await storage.getUser(lead.owner_user_id);
           const assignedUser = lead.assigned_to ? await storage.getUser(lead.assigned_to) : null;
           
+          // Inject created_at into custom_fields for proper display
+          const leadWithCreatedAt = injectCreatedAtToCustomFields(lead);
+          
           return {
-            ...lead,
+            ...leadWithCreatedAt,
             sheet_name: sheet?.name || "Unknown",
             owner_name: owner?.name || "Unknown",
             user_name: assignedUser?.name || assignedUser?.email || "Unassigned",
@@ -7782,8 +7785,12 @@ ${questionsList}`;
       const enrichedLeads = await Promise.all(
         paginatedLeads.map(async (lead) => {
           const owner = await storage.getUser(lead.owner_user_id);
+          
+          // Inject created_at into custom_fields for proper display
+          const leadWithCreatedAt = injectCreatedAtToCustomFields(lead);
+          
           return {
-            ...lead,
+            ...leadWithCreatedAt,
             sheet_name: sheet?.name || "Unknown",
             owner_name: owner?.name || "Unknown",
           };
