@@ -104,6 +104,8 @@ import type {
   // User Row Filters
   UserRowFilterRecord,
   InsertUserRowFilter,
+  UserFilterToggleState,
+  InsertUserFilterToggleState,
   // Sheet Snapshots
   SheetSnapshotRecord,
   InsertSheetSnapshot,
@@ -509,6 +511,12 @@ export interface IStorage {
   updateUserRowFilter(id: string, updates: Partial<UserRowFilterRecord>): Promise<UserRowFilterRecord | undefined>;
   deleteUserRowFilter(id: string): Promise<boolean>;
   toggleUserRowFilter(id: string, isActive: boolean): Promise<UserRowFilterRecord | undefined>;
+  
+  // User Filter Toggle States (per-user preferences for global filters)
+  getUserFilterToggleState(userId: string, filterId: string): Promise<UserFilterToggleState | undefined>;
+  getUserFilterToggleStates(userId: string): Promise<UserFilterToggleState[]>;
+  upsertUserFilterToggleState(userId: string, filterId: string, isActive: boolean): Promise<UserFilterToggleState>;
+  deleteUserFilterToggleState(userId: string, filterId: string): Promise<boolean>;
 
   // =========================================================================
   // SHEET SNAPSHOTS (Point-in-Time Recovery)
@@ -5972,10 +5980,27 @@ export class PgStorage implements IStorage {
     // Deduplicate: applies_to_all_sheets filters may be returned once per company sheet
     // Use filter id to deduplicate
     const seen = new Set<string>();
-    return filters.filter(f => {
+    const deduplicatedFilters = filters.filter(f => {
       if (seen.has(f.id)) return false;
       seen.add(f.id);
       return true;
+    });
+    
+    // Fetch user's personal toggle states for global filters they don't own
+    const userToggleStates = await this.getUserFilterToggleStates(userId);
+    const toggleStateMap = new Map(userToggleStates.map(ts => [ts.filter_id, ts.is_active]));
+    
+    // Apply user's personal toggle states to global filters they don't own
+    return deduplicatedFilters.map(filter => {
+      // For global filters that the user doesn't own, check for personal toggle state
+      if (filter.is_global && filter.user_id !== userId) {
+        const userToggleState = toggleStateMap.get(filter.id);
+        if (userToggleState !== undefined) {
+          // Return a copy with the user's personal toggle state applied
+          return { ...filter, is_active: userToggleState };
+        }
+      }
+      return filter;
     });
   }
 
@@ -6003,6 +6028,48 @@ export class PgStorage implements IStorage {
       .where(eq(dbSchema.user_row_filters.id, id))
       .returning();
     return rows[0];
+  }
+
+  // User Filter Toggle States (per-user preferences for global filters)
+  async getUserFilterToggleState(userId: string, filterId: string): Promise<UserFilterToggleState | undefined> {
+    const rows = await db.select()
+      .from(dbSchema.user_filter_toggle_states)
+      .where(and(
+        eq(dbSchema.user_filter_toggle_states.user_id, userId),
+        eq(dbSchema.user_filter_toggle_states.filter_id, filterId)
+      ));
+    return rows[0];
+  }
+
+  async getUserFilterToggleStates(userId: string): Promise<UserFilterToggleState[]> {
+    return await db.select()
+      .from(dbSchema.user_filter_toggle_states)
+      .where(eq(dbSchema.user_filter_toggle_states.user_id, userId));
+  }
+
+  async upsertUserFilterToggleState(userId: string, filterId: string, isActive: boolean): Promise<UserFilterToggleState> {
+    const existing = await this.getUserFilterToggleState(userId, filterId);
+    if (existing) {
+      const rows = await db.update(dbSchema.user_filter_toggle_states)
+        .set({ is_active: isActive, updated_at: new Date() })
+        .where(eq(dbSchema.user_filter_toggle_states.id, existing.id))
+        .returning();
+      return rows[0];
+    } else {
+      const rows = await db.insert(dbSchema.user_filter_toggle_states)
+        .values({ user_id: userId, filter_id: filterId, is_active: isActive })
+        .returning();
+      return rows[0];
+    }
+  }
+
+  async deleteUserFilterToggleState(userId: string, filterId: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.user_filter_toggle_states)
+      .where(and(
+        eq(dbSchema.user_filter_toggle_states.user_id, userId),
+        eq(dbSchema.user_filter_toggle_states.filter_id, filterId)
+      ));
+    return (result as any).rowCount > 0;
   }
 
   // =========================================================================

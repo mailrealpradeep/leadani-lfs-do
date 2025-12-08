@@ -14383,20 +14383,37 @@ ${questionsList}`;
         return res.status(404).json({ error: "Row filter not found" });
       }
       
-      // Users can toggle their own filters, and can toggle global filters on/off for themselves
-      // But we need to track per-user active state for global filters in the future
-      // For now, allow toggle for own filters only, or admin can toggle global filters
       const isOwnFilter = existingFilter.user_id === req.userId;
       const isAdmin = req.userRole === "super_admin" || req.userRole === "company_admin";
-      const canToggle = isOwnFilter || (isAdmin && existingFilter.is_global);
-      
-      if (!canToggle) {
-        return res.status(403).json({ error: "Cannot toggle this filter" });
-      }
+      const isGlobalFilter = existingFilter.is_global;
       
       const { is_active } = req.body;
-      const filter = await storage.toggleUserRowFilter(req.params.id, is_active);
-      res.json(filter);
+      
+      // Case 1: User owns the filter - update the filter's is_active directly
+      if (isOwnFilter) {
+        const filter = await storage.toggleUserRowFilter(req.params.id, is_active);
+        res.json(filter);
+        return;
+      }
+      
+      // Case 2: Admin toggling a global filter they don't own - update the filter's is_active directly
+      if (isAdmin && isGlobalFilter) {
+        const filter = await storage.toggleUserRowFilter(req.params.id, is_active);
+        res.json(filter);
+        return;
+      }
+      
+      // Case 3: Regular user toggling a global filter they don't own - store their personal preference
+      if (isGlobalFilter) {
+        await storage.upsertUserFilterToggleState(req.userId, req.params.id, is_active);
+        // Return the filter with the user's personal toggle state applied
+        const filter = { ...existingFilter, is_active };
+        res.json(filter);
+        return;
+      }
+      
+      // Case 4: User trying to toggle someone else's non-global filter - not allowed
+      return res.status(403).json({ error: "Cannot toggle this filter" });
     } catch (error: any) {
       console.error("Toggle row filter error:", error);
       res.status(500).json({ error: error.message });
