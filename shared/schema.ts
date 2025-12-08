@@ -2667,6 +2667,20 @@ export const insertUserRowFilterSchema = createInsertSchema(user_row_filters).om
 
 export type InsertUserRowFilterData = z.infer<typeof insertUserRowFilterSchema>;
 
+// User's personal toggle state for global filters they don't own
+// This allows users to toggle admin-created global filters on/off for their own view
+export const user_filter_toggle_states = pgTable('user_filter_toggle_states', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  filter_id: varchar('filter_id').notNull().references(() => user_row_filters.id, { onDelete: 'cascade' }),
+  is_active: boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type UserFilterToggleState = typeof user_filter_toggle_states.$inferSelect;
+export type InsertUserFilterToggleState = typeof user_filter_toggle_states.$inferInsert;
+
 // Helper function to get operators by field type
 export function getOperatorsForFieldType(fieldType: "text" | "number" | "date" | "dropdown"): RowFilterOperator[] {
   switch (fieldType) {
