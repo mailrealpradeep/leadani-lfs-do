@@ -140,6 +140,12 @@ export function ReportDrilldownModal({
       return "-";
     }
 
+    // Special handling for created_at - always format as date regardless of column type
+    // This handles cases where the column type might not be set correctly
+    if (column.column_key === "created_at") {
+      return formatDateForDisplay(value);
+    }
+
     switch (column.type) {
       case "date":
         return formatDateForDisplay(value);
