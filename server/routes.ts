@@ -10687,8 +10687,38 @@ ${questionsList}`;
         });
         
         res.json(updated);
+      } else if (action === "give_exit") {
+        // Admin manually gives exit to a user who hasn't exited yet
+        if (entry.exit_time) {
+          return res.status(400).json({ error: "User has already exited" });
+        }
+        
+        const updated = await storage.updateAttendanceEntry(entryId, {
+          exit_time: new Date() as any,
+          exit_type: "admin_given",
+        });
+        
+        // Log activity
+        const admin = await storage.getUser(req.userId!);
+        const user = await storage.getUser(entry.user_id);
+        if (admin && user) {
+          await logActivity({
+            company_id: req.companyId!,
+            user_id: req.userId!,
+            action_type: "attendance_exit",
+            description: `Admin ${admin.name} marked exit for ${user.name}`,
+          });
+        }
+        
+        // Emit socket event
+        io.to(`company-${req.companyId}`).emit("attendance:exit_given", {
+          entryId,
+          givenBy: req.userId,
+        });
+        
+        res.json(updated);
       } else {
-        return res.status(400).json({ error: "Action must be 'delete' or 'clear_exit'" });
+        return res.status(400).json({ error: "Action must be 'delete', 'clear_exit', or 'give_exit'" });
       }
     } catch (error: any) {
       console.error("Clear attendance error:", error);

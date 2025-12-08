@@ -292,9 +292,7 @@ export default function Attendance() {
   const isAdmin = isCompanyAdmin || isSuperAdmin;
 
   const [forceExitDialogOpen, setForceExitDialogOpen] = useState(false);
-  const [forceExitReason, setForceExitReason] = useState("");
   const [blockingReasons, setBlockingReasons] = useState<string[]>([]);
-  const [isSystemError, setIsSystemError] = useState(false);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [selectedReviewEntry, setSelectedReviewEntry] = useState<AttendanceEntry | null>(null);
   const [reviewNotes, setReviewNotes] = useState("");
@@ -502,8 +500,6 @@ export default function Attendance() {
       if (error instanceof ApiError) {
         // Check for system errors (target evaluation failures)
         if (error.system_error) {
-          // System error - clear states and show alert, don't allow force exit
-          setIsSystemError(true);
           setBlockingReasons([]);
           setForceExitDialogOpen(false);
           toast({
@@ -514,8 +510,7 @@ export default function Attendance() {
           return;
         }
         
-        // Normal blocking - clear system error flag, allow force exit
-        setIsSystemError(false);
+        // Show blocking reasons in informational dialog (users cannot force exit)
         if (error.blocking_reasons && error.blocking_reasons.length > 0) {
           setBlockingReasons(error.blocking_reasons);
           setForceExitDialogOpen(true);
@@ -528,35 +523,6 @@ export default function Attendance() {
         variant: "destructive",
         title: "Exit Failed",
         description: message,
-      });
-    },
-  });
-
-  const forceExitMutation = useMutation({
-    mutationFn: async (reason: string) => {
-      // Don't allow force exit if there was a system error
-      if (isSystemError) {
-        throw new Error("Cannot force exit when there is a system error. Please contact your administrator.");
-      }
-      return await apiRequest("POST", "/api/attendance/force-exit", { reason });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
-      setForceExitDialogOpen(false);
-      setForceExitReason("");
-      setBlockingReasons([]);
-      setIsSystemError(false);
-      toast({
-        title: "Force Exit Recorded",
-        description: "Your exit has been recorded and is pending admin review.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        variant: "destructive",
-        title: "Force Exit Failed",
-        description: error.message,
       });
     },
   });
@@ -745,7 +711,7 @@ export default function Attendance() {
   });
 
   const clearAttendanceMutation = useMutation({
-    mutationFn: async ({ entryId, action }: { entryId: string; action: "delete" | "clear_exit" }) => {
+    mutationFn: async ({ entryId, action }: { entryId: string; action: "delete" | "clear_exit" | "give_exit" }) => {
       return await apiRequest("POST", `/api/attendance/${entryId}/clear`, { action });
     },
     onSuccess: (_, { action }) => {
@@ -753,17 +719,25 @@ export default function Attendance() {
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/today/all"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/pending-reviews"] });
+      const titles: Record<string, string> = {
+        delete: "Entry Deleted",
+        clear_exit: "Exit Cleared",
+        give_exit: "Exit Recorded",
+      };
+      const descriptions: Record<string, string> = {
+        delete: "The attendance entry has been deleted.",
+        clear_exit: "The exit time has been cleared. User can now record exit again.",
+        give_exit: "Exit has been recorded for this user.",
+      };
       toast({
-        title: action === "delete" ? "Entry Deleted" : "Exit Cleared",
-        description: action === "delete" 
-          ? "The attendance entry has been deleted." 
-          : "The exit time has been cleared. User can now record exit again.",
+        title: titles[action],
+        description: descriptions[action],
       });
     },
     onError: (error: any) => {
       toast({
         variant: "destructive",
-        title: "Failed to Clear Attendance",
+        title: "Failed",
         description: error.message,
       });
     },
@@ -775,18 +749,6 @@ export default function Attendance() {
 
   const handleExit = () => {
     exitMutation.mutate();
-  };
-
-  const handleForceExit = () => {
-    if (!forceExitReason.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Reason Required",
-        description: "Please provide a reason for the force exit.",
-      });
-      return;
-    }
-    forceExitMutation.mutate(forceExitReason);
   };
 
   const handleReview = (status: "approved" | "rejected") => {
@@ -1283,7 +1245,25 @@ export default function Attendance() {
                             </div>
                           )}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
+                          {!entry.exit_time && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => clearAttendanceMutation.mutate({ entryId: entry.id, action: "give_exit" })}
+                              disabled={clearAttendanceMutation.isPending}
+                              data-testid={`button-give-exit-${entry.id}`}
+                            >
+                              {clearAttendanceMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <LogOut className="h-4 w-4 mr-1" />
+                                  Give Exit
+                                </>
+                              )}
+                            </Button>
+                          )}
                           {entry.exit_time && (
                             <Button
                               size="sm"
@@ -1329,25 +1309,17 @@ export default function Attendance() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-amber-500" />
-                  Force Exit Review Queue
-                </CardTitle>
-                <CardDescription>Review pending force exit requests from team members</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {loadingReviews ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : pendingReviews.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Check className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No pending reviews</p>
-                  </div>
-                ) : (
+            {/* Force Exit Review Queue - only show if there are pending reviews (legacy) */}
+            {pendingReviews.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-amber-500" />
+                    Pending Force Exit Reviews
+                  </CardTitle>
+                  <CardDescription>Review pending force exit requests from team members</CardDescription>
+                </CardHeader>
+                <CardContent>
                   <div className="space-y-3">
                     {pendingReviews.map((entry) => (
                       <div
@@ -1392,9 +1364,9 @@ export default function Attendance() {
                       </div>
                     ))}
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -1541,7 +1513,7 @@ export default function Attendance() {
               Exit Requirements Not Met
             </DialogTitle>
             <DialogDescription>
-              Please complete the following requirements before exiting, or submit a force exit request for admin review.
+              Please complete the following requirements before you can exit. Contact your admin if you need assistance.
             </DialogDescription>
           </DialogHeader>
           
@@ -1614,47 +1586,15 @@ export default function Attendance() {
                 );
               })}
             </div>
-
-            <div className="border-t pt-4">
-              <div className="text-sm text-muted-foreground mb-3">
-                If you need to exit now, please explain why below. Your request will be reviewed by an admin.
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="force-exit-reason" className="text-sm font-medium">
-                  Reason for Early Exit <span className="text-destructive">*</span>
-                </Label>
-                <Textarea
-                  id="force-exit-reason"
-                  placeholder="Example: I need to leave early for a medical appointment..."
-                  value={forceExitReason}
-                  onChange={(e) => setForceExitReason(e.target.value)}
-                  className="min-h-[80px] resize-none"
-                  data-testid="input-force-exit-reason"
-                />
-              </div>
-            </div>
           </div>
           
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter>
             <Button 
-              variant="outline" 
-              onClick={() => {
-                setForceExitDialogOpen(false);
-                setForceExitReason("");
-              }}
-              data-testid="button-cancel-force-exit"
+              variant="default" 
+              onClick={() => setForceExitDialogOpen(false)}
+              data-testid="button-close-exit-requirements"
             >
               Continue Working
-            </Button>
-            <Button
-              variant="default"
-              onClick={handleForceExit}
-              disabled={forceExitMutation.isPending || !forceExitReason.trim()}
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-              data-testid="button-submit-force-exit"
-            >
-              {forceExitMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Request Force Exit
             </Button>
           </DialogFooter>
         </DialogContent>
