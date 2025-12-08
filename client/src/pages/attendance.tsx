@@ -5,7 +5,7 @@ import { apiRequest, queryClient, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
-import { formatDistanceToNow, differenceInHours, differenceInMinutes, parseISO } from "date-fns";
+import { formatDistanceToNow, differenceInHours, differenceInMinutes, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isSameMonth, addMonths, subMonths, format, startOfDay, subDays, subWeeks } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { AlertCircle, Camera, Check, Clock, LogIn, LogOut, MapPin, AlertTriangle, X, Settings, CheckCircle, XCircle, Loader2, Plus, Trash2, Target, FileEdit, Calendar, Users } from "lucide-react";
+import { AlertCircle, Camera, Check, Clock, LogIn, LogOut, MapPin, AlertTriangle, X, Settings, CheckCircle, XCircle, Loader2, Plus, Trash2, Target, FileEdit, Calendar, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -311,6 +311,14 @@ export default function Attendance() {
   const [editingCondition, setEditingCondition] = useState<ExitCondition | null>(null);
   const [deleteConditionDialogOpen, setDeleteConditionDialogOpen] = useState(false);
   const [conditionToDelete, setConditionToDelete] = useState<ExitCondition | null>(null);
+  
+  // Calendar history state
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState<Date | null>(null);
+  
+  // Admin history table state
+  const [adminHistoryDateFilter, setAdminHistoryDateFilter] = useState<'today' | 'week' | 'month' | 'all'>('month');
+  
   const [newCondition, setNewCondition] = useState({
     working_target_id: "",
     scope_type: "all_users" as 'all_users' | 'specific_users' | 'specific_sheets',
@@ -362,6 +370,95 @@ export default function Attendance() {
     queryKey: ["/api/attendance/team/exit-progress"],
     enabled: isAdmin,
   });
+
+  // Company-wide attendance history (admin only)
+  const adminHistoryQueryParams = useMemo(() => {
+    const now = new Date();
+    let startDate: Date | undefined;
+    let endDate: Date | undefined;
+    
+    if (adminHistoryDateFilter === 'today') {
+      startDate = startOfDay(now);
+      endDate = now;
+    } else if (adminHistoryDateFilter === 'week') {
+      startDate = subWeeks(now, 1);
+      endDate = now;
+    } else if (adminHistoryDateFilter === 'month') {
+      startDate = subMonths(now, 1);
+      endDate = now;
+    }
+    
+    return { startDate, endDate };
+  }, [adminHistoryDateFilter]);
+
+  const { data: companyAttendance = [], isLoading: loadingCompanyAttendance } = useQuery<AttendanceEntry[]>({
+    queryKey: ["/api/attendance/company", adminHistoryQueryParams.startDate?.toISOString(), adminHistoryQueryParams.endDate?.toISOString()],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (adminHistoryQueryParams.startDate) {
+        params.append('startDate', adminHistoryQueryParams.startDate.toISOString());
+      }
+      if (adminHistoryQueryParams.endDate) {
+        params.append('endDate', adminHistoryQueryParams.endDate.toISOString());
+      }
+      const url = `/api/attendance/company${params.toString() ? `?${params.toString()}` : ''}`;
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch company attendance');
+      return response.json();
+    },
+    enabled: isAdmin,
+  });
+
+  // Calendar helper - get days in month grid
+  const calendarDays = useMemo(() => {
+    const monthStart = startOfMonth(calendarMonth);
+    const monthEnd = endOfMonth(calendarMonth);
+    const calendarStart = startOfWeek(monthStart);
+    const calendarEnd = endOfWeek(monthEnd);
+    return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  }, [calendarMonth]);
+
+  // Map attendance entries by date for quick lookup
+  const attendanceByDate = useMemo(() => {
+    const map = new Map<string, AttendanceEntry>();
+    history.forEach(entry => {
+      const dateKey = format(parseISO(entry.entry_time), 'yyyy-MM-dd');
+      map.set(dateKey, entry);
+    });
+    return map;
+  }, [history]);
+
+  // Calculate monthly stats
+  const monthlyStats = useMemo(() => {
+    const monthStart = startOfMonth(calendarMonth);
+    const monthEnd = endOfMonth(calendarMonth);
+    
+    const monthEntries = history.filter(entry => {
+      const entryDate = parseISO(entry.entry_time);
+      return entryDate >= monthStart && entryDate <= monthEnd;
+    });
+    
+    const daysPresent = monthEntries.length;
+    let totalMinutes = 0;
+    
+    monthEntries.forEach(entry => {
+      if (entry.exit_time) {
+        totalMinutes += differenceInMinutes(parseISO(entry.exit_time), parseISO(entry.entry_time));
+      }
+    });
+    
+    const avgHoursPerDay = daysPresent > 0 ? Math.round((totalMinutes / daysPresent / 60) * 10) / 10 : 0;
+    const totalHours = Math.round(totalMinutes / 60);
+    
+    return { daysPresent, avgHoursPerDay, totalHours };
+  }, [history, calendarMonth]);
+
+  // Get selected day's entry
+  const selectedDayEntry = useMemo(() => {
+    if (!selectedCalendarDay) return null;
+    const dateKey = format(selectedCalendarDay, 'yyyy-MM-dd');
+    return attendanceByDate.get(dateKey) || null;
+  }, [selectedCalendarDay, attendanceByDate]);
 
   // Calculate aggregated team exit conditions for admin display
   const aggregatedTeamExitConditions = useMemo(() => {
@@ -1048,57 +1145,166 @@ export default function Attendance() {
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4">
+          {/* Monthly Stats */}
+          <div className="grid grid-cols-3 gap-3">
+            <Card className="text-center">
+              <CardContent className="pt-4 pb-3">
+                <div className="text-2xl font-bold text-green-600" data-testid="stat-days-present">{monthlyStats.daysPresent}</div>
+                <div className="text-xs text-muted-foreground">Days Present</div>
+              </CardContent>
+            </Card>
+            <Card className="text-center">
+              <CardContent className="pt-4 pb-3">
+                <div className="text-2xl font-bold text-blue-600" data-testid="stat-avg-hours">{monthlyStats.avgHoursPerDay}h</div>
+                <div className="text-xs text-muted-foreground">Avg Hours/Day</div>
+              </CardContent>
+            </Card>
+            <Card className="text-center">
+              <CardContent className="pt-4 pb-3">
+                <div className="text-2xl font-bold text-purple-600" data-testid="stat-total-hours">{monthlyStats.totalHours}h</div>
+                <div className="text-xs text-muted-foreground">Total Hours</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Calendar View */}
           <Card>
-            <CardHeader>
-              <CardTitle>Attendance History</CardTitle>
-              <CardDescription>Your recent attendance records</CardDescription>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5" />
+                  Attendance Calendar
+                </CardTitle>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setCalendarMonth(subMonths(calendarMonth, 1))}
+                    data-testid="button-prev-month"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm font-medium min-w-[120px] text-center" data-testid="text-current-month">
+                    {format(calendarMonth, 'MMMM yyyy')}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setCalendarMonth(addMonths(calendarMonth, 1))}
+                    data-testid="button-next-month"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {loadingHistory ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-              ) : history.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  No attendance history found
-                </div>
               ) : (
-                <div className="space-y-3">
-                  {history.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="flex items-center justify-between p-4 rounded-lg bg-muted/50"
-                      data-testid={`attendance-entry-${entry.id}`}
-                    >
-                      <div>
-                        <div className="font-medium">
-                          {formatInTimezone(entry.entry_time, "EEEE, MMM d")}
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          {formatTime(entry.entry_time)}
-                          {entry.exit_time && (
-                            <> - {formatTime(entry.exit_time)}</>
+                <div className="space-y-2">
+                  {/* Day headers */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                      <div key={day} className="text-center text-xs font-medium text-muted-foreground py-2">
+                        {day}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Calendar grid */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {calendarDays.map((day) => {
+                      const dateKey = format(day, 'yyyy-MM-dd');
+                      const entry = attendanceByDate.get(dateKey);
+                      const isCurrentMonth = isSameMonth(day, calendarMonth);
+                      const isToday = isSameDay(day, new Date());
+                      const isSelected = selectedCalendarDay && isSameDay(day, selectedCalendarDay);
+                      const hasAttendance = !!entry;
+                      
+                      return (
+                        <button
+                          key={dateKey}
+                          onClick={() => setSelectedCalendarDay(day)}
+                          className={`
+                            relative aspect-square flex flex-col items-center justify-center rounded-md text-sm transition-colors
+                            ${!isCurrentMonth ? 'text-muted-foreground/50' : ''}
+                            ${isToday ? 'ring-2 ring-primary ring-offset-1' : ''}
+                            ${isSelected ? 'bg-primary text-primary-foreground' : hasAttendance ? 'bg-green-100 dark:bg-green-900/30 hover-elevate' : 'hover-elevate'}
+                          `}
+                          data-testid={`calendar-day-${dateKey}`}
+                        >
+                          <span className={`${hasAttendance && !isSelected ? 'font-medium' : ''}`}>
+                            {format(day, 'd')}
+                          </span>
+                          {hasAttendance && !isSelected && (
+                            <div className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-green-500" />
                           )}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-medium">{formatDuration(entry)}</div>
-                        {entry.exit_type === "forced" && (
-                          <Badge variant={
-                            entry.review_status === "approved" ? "default" :
-                            entry.review_status === "rejected" ? "destructive" :
-                            "secondary"
-                          }>
-                            {entry.review_status || "Pending"}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Selected Day Details */}
+          {selectedCalendarDay && (
+            <Card data-testid="selected-day-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  {format(selectedCalendarDay, 'EEEE, MMMM d, yyyy')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {selectedDayEntry ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 flex-1 p-3 rounded-lg bg-green-50 dark:bg-green-900/20">
+                        <LogIn className="h-4 w-4 text-green-600" />
+                        <div>
+                          <div className="text-xs text-muted-foreground">Entry</div>
+                          <div className="font-medium" data-testid="selected-entry-time">{formatTime(selectedDayEntry.entry_time)}</div>
+                        </div>
+                      </div>
+                      {selectedDayEntry.exit_time && (
+                        <div className="flex items-center gap-2 flex-1 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+                          <LogOut className="h-4 w-4 text-blue-600" />
+                          <div>
+                            <div className="text-xs text-muted-foreground">Exit</div>
+                            <div className="font-medium" data-testid="selected-exit-time">{formatTime(selectedDayEntry.exit_time)}</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Duration</span>
+                      <span className="font-medium" data-testid="selected-duration">{formatDuration(selectedDayEntry)}</span>
+                    </div>
+                    {selectedDayEntry.exit_type === "forced" && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Force Exit Status</span>
+                        <Badge variant={
+                          selectedDayEntry.review_status === "approved" ? "default" :
+                          selectedDayEntry.review_status === "rejected" ? "destructive" :
+                          "secondary"
+                        }>
+                          {selectedDayEntry.review_status || "Pending"}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground">
+                    <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No attendance recorded</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {isAdmin && (
@@ -1497,6 +1703,93 @@ export default function Attendance() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Team Attendance History Table */}
+            <Card data-testid="team-attendance-history-card">
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5" />
+                    Team Attendance History
+                  </CardTitle>
+                  <CardDescription>View attendance records for all team members</CardDescription>
+                </div>
+                <Select
+                  value={adminHistoryDateFilter}
+                  onValueChange={(value: 'today' | 'week' | 'month' | 'all') => setAdminHistoryDateFilter(value)}
+                  data-testid="select-history-date-filter"
+                >
+                  <SelectTrigger className="w-[140px]" data-testid="trigger-history-date-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="week">This Week</SelectItem>
+                    <SelectItem value="month">This Month</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
+                  </SelectContent>
+                </Select>
+              </CardHeader>
+              <CardContent>
+                {loadingCompanyAttendance ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : companyAttendance.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No attendance records found for this period</p>
+                  </div>
+                ) : (
+                  <div className="rounded-md border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>User</TableHead>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Entry</TableHead>
+                          <TableHead>Exit</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {companyAttendance.map((entry) => (
+                          <TableRow key={entry.id} data-testid={`history-row-${entry.id}`}>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium" data-testid={`history-user-${entry.id}`}>{entry.user_name || 'Unknown'}</div>
+                                <div className="text-xs text-muted-foreground">{entry.user_email}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell data-testid={`history-date-${entry.id}`}>
+                              {formatDate(entry.entry_time)}
+                            </TableCell>
+                            <TableCell data-testid={`history-entry-${entry.id}`}>
+                              <div className="flex items-center gap-1">
+                                <LogIn className="h-3 w-3 text-green-500" />
+                                {formatTime(entry.entry_time)}
+                              </div>
+                            </TableCell>
+                            <TableCell data-testid={`history-exit-${entry.id}`}>
+                              {entry.exit_time ? (
+                                <div className="flex items-center gap-1">
+                                  <LogOut className="h-3 w-3 text-blue-500" />
+                                  {formatTime(entry.exit_time)}
+                                  {entry.exit_type === "forced" && (
+                                    <Badge variant="secondary" className="ml-1 text-xs">Force</Badge>
+                                  )}
+                                </div>
+                              ) : (
+                                <Badge variant="outline" className="text-xs">In Progress</Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </CardContent>
