@@ -16,6 +16,7 @@ import { PWAInstallPrompt, useShouldShowInstallPrompt } from "@/components/pwa-i
 import { registerServiceWorker } from "@/hooks/use-push-notifications";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useBackButtonGuard, BackButtonGuardDialog } from "@/hooks/use-back-button-guard";
 import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -234,6 +235,7 @@ function AppLayout() {
   const { isAuthenticated, isLoading } = useAuth();
   const [location] = useLocation();
   const shouldShowInstall = useShouldShowInstallPrompt();
+  const { showExitDialog, handleConfirmExit, handleCancelExit } = useBackButtonGuard();
   
   useEffect(() => {
     registerServiceWorker();
@@ -252,7 +254,16 @@ function AppLayout() {
   const isPublicOnlyPage = publicOnlyPages.some(p => location.startsWith(p));
   
   if (!isAuthenticated || isPublicOnlyPage) {
-    return <Router />;
+    return (
+      <>
+        <Router />
+        <BackButtonGuardDialog
+          open={showExitDialog}
+          onConfirm={handleConfirmExit}
+          onCancel={handleCancelExit}
+        />
+      </>
+    );
   }
 
   const sidebarStyle = {
@@ -276,6 +287,11 @@ function AppLayout() {
           </div>
         </div>
         {shouldShowInstall && <PWAInstallPrompt forceMobile />}
+        <BackButtonGuardDialog
+          open={showExitDialog}
+          onConfirm={handleConfirmExit}
+          onCancel={handleCancelExit}
+        />
       </SidebarProvider>
     </DashboardProvider>
   );
