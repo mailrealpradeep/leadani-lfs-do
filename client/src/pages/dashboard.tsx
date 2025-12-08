@@ -13,7 +13,7 @@ import type { Sheet } from "@shared/schema";
 
 export default function Dashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { selectedSheetId, setSelectedSheetId, selectedSheetIds, isMultiSheetMode, setActions } = useDashboard();
+  const { selectedSheetId, setSelectedSheetId, selectedSheetIds, isMultiSheetMode, setActions, pendingLeadId, setPendingLeadId } = useDashboard();
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
@@ -48,6 +48,16 @@ export default function Dashboard() {
       setSelectedSheetId(sheets[0].id);
     }
   }, [selectedSheetId, sheets, setSelectedSheetId]);
+
+  // Handle pending lead ID from global search
+  useEffect(() => {
+    if (pendingLeadId) {
+      setSelectedLeadId(pendingLeadId);
+      setIsLeadDetailOpen(true);
+      // Clear the pending lead ID after opening
+      setPendingLeadId(null);
+    }
+  }, [pendingLeadId, setPendingLeadId]);
 
   // Clean up app header when leaving dashboard
   useEffect(() => {

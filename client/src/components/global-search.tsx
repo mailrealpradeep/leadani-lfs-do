@@ -14,7 +14,7 @@ interface GlobalSearchProps {
 
 export function GlobalSearch({ onExpandedChange }: GlobalSearchProps) {
   const { user, isSuperAdmin } = useAuth();
-  const { setSelectedSheetId, setIsMultiSheetMode } = useDashboard();
+  const { setSelectedSheetId, setIsMultiSheetMode, setPendingLeadId } = useDashboard();
   const { toast } = useToast();
   
   const [searchQuery, setSearchQuery] = useState("");
@@ -83,15 +83,17 @@ export function GlobalSearch({ onExpandedChange }: GlobalSearchProps) {
 
   // Handle selecting a search result
   const handleSearchResultClick = (result: CompanySearchResult) => {
+    // First switch to the lead's sheet
     setSelectedSheetId(result.sheet_id);
     setIsMultiSheetMode(false);
+    
+    // Set the pending lead ID to open the lead detail drawer
+    setPendingLeadId(result.lead_id);
+    
+    // Clean up search UI
     setSearchQuery("");
     setIsResultsOpen(false);
     setIsExpanded(false);
-    toast({
-      title: "Lead found",
-      description: `${result.full_name} in ${result.sheet_name} (${result.owner_name})`,
-    });
   };
 
   const handleExpand = () => {
