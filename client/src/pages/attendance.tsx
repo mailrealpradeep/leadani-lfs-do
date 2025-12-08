@@ -418,24 +418,31 @@ export default function Attendance() {
     return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
   }, [calendarMonth]);
 
-  // Map attendance entries by date for quick lookup
+  // Map attendance entries by date for quick lookup (using company timezone)
   const attendanceByDate = useMemo(() => {
     const map = new Map<string, AttendanceEntry>();
     history.forEach(entry => {
-      const dateKey = format(parseISO(entry.entry_time), 'yyyy-MM-dd');
-      map.set(dateKey, entry);
+      // Use company timezone to determine the business day
+      const dateKey = formatInTimezone(entry.entry_time, 'yyyy-MM-dd');
+      if (dateKey) {
+        map.set(dateKey, entry);
+      }
     });
     return map;
-  }, [history]);
+  }, [history, formatInTimezone]);
 
-  // Calculate monthly stats
+  // Calculate monthly stats (using company timezone for date grouping)
   const monthlyStats = useMemo(() => {
     const monthStart = startOfMonth(calendarMonth);
     const monthEnd = endOfMonth(calendarMonth);
+    const monthStartKey = format(monthStart, 'yyyy-MM');
     
+    // Filter entries by checking if the entry's business day (in company timezone) falls within the month
     const monthEntries = history.filter(entry => {
-      const entryDate = parseISO(entry.entry_time);
-      return entryDate >= monthStart && entryDate <= monthEnd;
+      const entryDateKey = formatInTimezone(entry.entry_time, 'yyyy-MM-dd');
+      if (!entryDateKey) return false;
+      // Check if entry's month matches the calendar month
+      return entryDateKey.startsWith(monthStartKey);
     });
     
     const daysPresent = monthEntries.length;
@@ -451,11 +458,12 @@ export default function Attendance() {
     const totalHours = Math.round(totalMinutes / 60);
     
     return { daysPresent, avgHoursPerDay, totalHours };
-  }, [history, calendarMonth]);
+  }, [history, calendarMonth, formatInTimezone]);
 
-  // Get selected day's entry
+  // Get selected day's entry (calendar day is already in local view context)
   const selectedDayEntry = useMemo(() => {
     if (!selectedCalendarDay) return null;
+    // The selected calendar day from the grid is a local Date, format to key
     const dateKey = format(selectedCalendarDay, 'yyyy-MM-dd');
     return attendanceByDate.get(dateKey) || null;
   }, [selectedCalendarDay, attendanceByDate]);
