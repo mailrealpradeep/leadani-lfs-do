@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO, isToday } from "date-fns";
-import { ChevronLeft, ChevronRight, Calendar, MapPin, User, Clock, Building2, AlertCircle, Settings, Phone } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar, MapPin, User, Clock, Building2, AlertCircle, Settings, Phone, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -513,6 +513,23 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, onClick }: Visi
   const fullName = visit.custom_fields?.full_name || visit.custom_fields?.["Full Name"] || "Unknown";
   const mobile = visit.custom_fields?.mobile_no || visit.custom_fields?.["Mobile No"] || "";
 
+  const cleanMobile = mobile ? String(mobile).replace(/[^0-9]/g, '') : "";
+  const whatsappNumber = cleanMobile.startsWith('91') ? cleanMobile : `91${cleanMobile}`;
+
+  const handleCall = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (cleanMobile) {
+      window.location.href = `tel:${cleanMobile}`;
+    }
+  };
+
+  const handleWhatsApp = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (cleanMobile) {
+      window.open(`https://wa.me/${whatsappNumber}`, '_blank');
+    }
+  };
+
   return (
     <Card 
       className="cursor-pointer hover-elevate transition-all"
@@ -537,9 +554,6 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, onClick }: Visi
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Building2 className="h-3 w-3 shrink-0" />
           <span className="truncate">{visit.sheet_name}</span>
-          <span className="mx-0.5">•</span>
-          <User className="h-3 w-3 shrink-0" />
-          <span className="truncate">{visit.owner_name}</span>
         </div>
 
         {displayColumns.length > 0 && (
@@ -560,8 +574,37 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, onClick }: Visi
           </div>
         )}
 
-        <div className="text-right">
-          <span className="text-xs text-primary font-medium">
+        <div className="flex items-center justify-between pt-2 border-t">
+          {cleanMobile ? (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCall}
+                className="h-8 px-3"
+                data-testid={`button-call-${visit.id}`}
+              >
+                <Phone className="h-4 w-4 mr-1" />
+                Call
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleWhatsApp}
+                className="h-8 px-3 text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950"
+                data-testid={`button-whatsapp-${visit.id}`}
+              >
+                <MessageCircle className="h-4 w-4 mr-1" />
+                WhatsApp
+              </Button>
+            </div>
+          ) : (
+            <div />
+          )}
+          <span 
+            className="text-xs text-primary font-medium cursor-pointer"
+            onClick={onClick}
+          >
             View Details →
           </span>
         </div>
