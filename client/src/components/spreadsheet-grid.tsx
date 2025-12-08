@@ -396,6 +396,60 @@ export function SpreadsheetGrid({
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
   const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
   
+  // Sticky lead state - keeps a lead visible while editing even if it doesn't match filters
+  const [stickyLeadId, setStickyLeadId] = useState<string | null>(null);
+  const stickyLeadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const STICKY_LEAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+  
+  // Clear sticky lead timeout cleanup
+  useEffect(() => {
+    return () => {
+      if (stickyLeadTimeoutRef.current) {
+        clearTimeout(stickyLeadTimeoutRef.current);
+      }
+    };
+  }, []);
+  
+  // Clear sticky lead when sheet changes
+  useEffect(() => {
+    setStickyLeadId(null);
+    if (stickyLeadTimeoutRef.current) {
+      clearTimeout(stickyLeadTimeoutRef.current);
+      stickyLeadTimeoutRef.current = null;
+    }
+  }, [activeSheetId]);
+  
+  // Set a new sticky lead with timeout auto-clear
+  const setStickyLead = useCallback((leadId: string | null) => {
+    // Clear existing timeout
+    if (stickyLeadTimeoutRef.current) {
+      clearTimeout(stickyLeadTimeoutRef.current);
+      stickyLeadTimeoutRef.current = null;
+    }
+    
+    setStickyLeadId(leadId);
+    
+    // Set new timeout if we have a sticky lead
+    if (leadId) {
+      stickyLeadTimeoutRef.current = setTimeout(() => {
+        setStickyLeadId(null);
+        stickyLeadTimeoutRef.current = null;
+      }, STICKY_LEAD_TIMEOUT_MS);
+    }
+  }, []);
+  
+  // Clear sticky lead when clicking outside grid or on a different lead
+  const clearStickyLeadIfNotEditing = useCallback((clickedLeadId?: string) => {
+    // If clicked on a different lead, that becomes the new sticky lead
+    if (clickedLeadId && clickedLeadId !== stickyLeadId) {
+      setStickyLead(clickedLeadId);
+    }
+    // If clicked outside (no lead id), clear sticky
+    else if (!clickedLeadId) {
+      setStickyLead(null);
+    }
+  }, [stickyLeadId, setStickyLead]);
+  
   // Transition explanation dialog state
   const [transitionExplanationDialogOpen, setTransitionExplanationDialogOpen] = useState(false);
   const [pendingTransition, setPendingTransition] = useState<{
@@ -1081,6 +1135,8 @@ export function SpreadsheetGrid({
     if (columnType === "date") {
       setDatePickerOpen({ leadId: lead.id, field: columnKey });
     }
+    // Set this lead as sticky so it stays visible during editing even if filters would hide it
+    setStickyLead(lead.id);
   };
 
   const handleCellSave = (lead: Lead) => {
@@ -1598,7 +1654,26 @@ export function SpreadsheetGrid({
   // Server handles filtering/sorting for both modes now
   // Only apply user row filters (Hide/Show Rows) client-side as they're per-user settings
   // Also apply quick filter conditions client-side when OR logic is used
+  
+  // Track which sticky leads don't match filters (for visual indicator)
+  const stickyLeadDoesNotMatchFilters = useMemo(() => {
+    if (!stickyLeadId) return false;
+    const stickyLead = leads.find(l => l.id === stickyLeadId);
+    if (!stickyLead) return false;
+    
+    // Check if it would be filtered out
+    const matchesRowFilters = evaluateRowFilters(stickyLead);
+    const matchesQuickFilter = evaluateQuickFilter(stickyLead);
+    
+    return !matchesRowFilters || !matchesQuickFilter;
+  }, [stickyLeadId, leads, evaluateRowFilters, evaluateQuickFilter]);
+  
   const filteredAndSortedLeads = leads.filter((lead) => {
+    // Always keep sticky lead visible while editing
+    if (lead.id === stickyLeadId) {
+      return true;
+    }
+    
     // User row filters - hide rows that match any active filter (client-side only)
     if (!evaluateRowFilters(lead)) {
       return false;
@@ -2369,6 +2444,9 @@ export function SpreadsheetGrid({
                       
                       const mobileHighlightResult = evaluateHighlightingRules(highlightingRules, lead, isDarkMode, timezone);
                       
+                      // Check if this is a sticky lead that doesn't match filters (mobile)
+                      const isMobileStickyButFiltered = lead.id === stickyLeadId && stickyLeadDoesNotMatchFilters;
+                      
                       const getMobileCardStyle = () => {
                         if (invalidLeadIds.has(lead.id)) return {};
                         if (mobileHighlightResult) {
@@ -2378,13 +2456,18 @@ export function SpreadsheetGrid({
                       };
                       
                       const getMobileCardClass = () => {
+                        // Add special styling for sticky cards that don't match filters
+                        const stickyClass = isMobileStickyButFiltered 
+                          ? "border-l-4 border-l-blue-500 dark:border-l-blue-400" 
+                          : "";
+                        
                         if (invalidLeadIds.has(lead.id)) {
-                          return "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800";
+                          return `bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800 ${stickyClass}`;
                         }
                         if (mobileHighlightResult) {
-                          return "border";
+                          return `border ${stickyClass}`;
                         }
-                        return mobileThoughtClass;
+                        return `${mobileThoughtClass} ${stickyClass}`;
                       };
                       
                       return (
@@ -2394,7 +2477,9 @@ export function SpreadsheetGrid({
                         style={getMobileCardStyle()}
                         data-testid={`card-lead-${lead.id}`}
                         onClick={() => onOpenLeadDetail(lead.id)}
-                        title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                        title={isMobileStickyButFiltered
+                          ? "This lead is kept visible for editing (no longer matches current filters)"
+                          : invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
                           ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
                           : mobileHighlightResult
                           ? `Highlighted by rule: ${mobileHighlightResult.ruleName}`
@@ -2403,6 +2488,9 @@ export function SpreadsheetGrid({
                       >
                         <div className="flex items-start justify-between gap-3 mb-3">
                           <div className="flex items-center gap-2 flex-1 min-w-0">
+                            {isMobileStickyButFiltered && (
+                              <Edit2 className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                            )}
                             {mobileLeadThought === "sure" && (
                               <Star className="h-5 w-5 text-emerald-500 fill-emerald-500 flex-shrink-0" />
                             )}
@@ -2453,6 +2541,7 @@ export function SpreadsheetGrid({
                               e.stopPropagation();
                               setSelectedLeadForEdit(lead.id);
                               setEditDialogOpen(true);
+                              setStickyLead(lead.id);
                             }}
                             data-testid={`button-edit-lead-${lead.id}`}
                           >
@@ -2682,6 +2771,9 @@ export function SpreadsheetGrid({
                   
                   const highlightResult = evaluateHighlightingRules(highlightingRules, lead, isDarkMode, timezone);
                   
+                  // Check if this is a sticky lead that doesn't match filters
+                  const isStickyButFiltered = lead.id === stickyLeadId && stickyLeadDoesNotMatchFilters;
+                  
                   const getRowStyle = () => {
                     if (invalidLeadIds.has(lead.id)) {
                       return {};
@@ -2693,13 +2785,18 @@ export function SpreadsheetGrid({
                   };
                   
                   const getRowClass = () => {
+                    // Add special styling for sticky rows that don't match filters
+                    const stickyClass = isStickyButFiltered 
+                      ? "border-l-4 border-l-blue-500 dark:border-l-blue-400" 
+                      : "";
+                    
                     if (invalidLeadIds.has(lead.id)) {
-                      return "bg-red-50 dark:bg-red-950/20";
+                      return `bg-red-50 dark:bg-red-950/20 ${stickyClass}`;
                     }
                     if (highlightResult) {
-                      return "";
+                      return stickyClass;
                     }
-                    return thoughtRowClass;
+                    return `${thoughtRowClass} ${stickyClass}`;
                   };
                   
                   return (
@@ -2712,15 +2809,27 @@ export function SpreadsheetGrid({
                             ...getRowStyle()
                           }}
                           data-testid={`row-lead-${lead.id}`}
-                          title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                          title={isStickyButFiltered
+                            ? "This lead is kept visible for editing (no longer matches current filters)"
+                            : invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
                             ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
                             : highlightResult 
                             ? `Highlighted by rule: ${highlightResult.ruleName}`
                             : undefined
                           }
                         >
-                          {/* Checkbox Cell with Thought Icon */}
+                          {/* Checkbox Cell with Thought Icon and Sticky Indicator */}
                           <div className="border-r px-2 py-2 flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            {isStickyButFiltered && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Edit2 className="h-3 w-3 text-blue-500" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                  <p className="text-xs">Kept visible for editing<br/>(no longer matches filter)</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
                             {leadThought === "sure" && (
                               <Star className="h-4 w-4 text-emerald-500 fill-emerald-500" />
                             )}
