@@ -24,6 +24,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   AlertDialog,
@@ -62,8 +63,16 @@ export function AppSidebar() {
     setIsRowFiltersOpen,
   } = useDashboard();
   const { toast } = useToast();
+  const { setOpenMobile, isMobile } = useSidebar();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
+
+  // Close mobile sidebar when navigating
+  const handleNavClick = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
 
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -236,7 +245,7 @@ export function AppSidebar() {
                       isActive={location === item.url || location.startsWith("/super-admin")}
                       data-testid={item.testId}
                     >
-                      <Link href={item.url}>
+                      <Link href={item.url} onClick={handleNavClick}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                       </Link>
@@ -251,7 +260,7 @@ export function AppSidebar() {
                       isActive={location === item.url}
                       data-testid={item.testId}
                     >
-                      <Link href={item.url}>
+                      <Link href={item.url} onClick={handleNavClick}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                       </Link>
@@ -274,7 +283,7 @@ export function AppSidebar() {
                         isActive={location === item.url}
                         data-testid={item.testId}
                       >
-                        <Link href={item.url}>
+                        <Link href={item.url} onClick={handleNavClick}>
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
                         </Link>
