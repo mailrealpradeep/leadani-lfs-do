@@ -634,8 +634,23 @@ export function SpreadsheetGrid({
     };
   }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
 
-  // Unified data access
-  const leads = isMultiMode ? (multiSheetData?.leads || []) : (singleSheetData?.leads || []);
+  // Fetch sticky lead separately to ensure it's always available even if filtered out
+  const { data: stickyLeadData } = useQuery<Lead>({
+    queryKey: ["/api/leads", stickyLeadId],
+    enabled: !!stickyLeadId,
+    staleTime: 30000,
+  });
+
+  // Unified data access - include sticky lead if it's not in the main results
+  const baseLeads = isMultiMode ? (multiSheetData?.leads || []) : (singleSheetData?.leads || []);
+  const leads = useMemo(() => {
+    if (!stickyLeadId || !stickyLeadData) return baseLeads;
+    // Check if sticky lead is already in the results
+    const existsInResults = baseLeads.some(l => l.id === stickyLeadId);
+    if (existsInResults) return baseLeads;
+    // Add sticky lead to the beginning if it's not in results (filtered out)
+    return [stickyLeadData, ...baseLeads];
+  }, [baseLeads, stickyLeadId, stickyLeadData]);
   const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
   const sheetNamesMap = multiSheetData?.sheetNames || {};
 
