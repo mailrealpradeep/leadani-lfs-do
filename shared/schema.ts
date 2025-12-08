@@ -2636,6 +2636,8 @@ export interface UserRowFilter {
   conditions: RowFilterCondition[];
   logic_operator: "AND" | "OR";
   is_active: boolean;
+  is_global: boolean;
+  applies_to_all_sheets: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -2648,6 +2650,8 @@ export const user_row_filters = pgTable('user_row_filters', {
   conditions: jsonb('conditions').notNull().default([]),
   logic_operator: varchar('logic_operator', { length: 10 }).notNull().default('AND'),
   is_active: boolean('is_active').notNull().default(true),
+  is_global: boolean('is_global').notNull().default(false),
+  applies_to_all_sheets: boolean('applies_to_all_sheets').notNull().default(false),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
