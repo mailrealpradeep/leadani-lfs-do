@@ -174,6 +174,17 @@ async function evaluateSingleColumnTarget(
     };
   }
   
+  // Resolve column_id to column_key for matching in activity_logs
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(column_id);
+  let columnKey: string = column_id;
+  
+  if (isUuid) {
+    const column = await storage.getCustomColumnById(column_id);
+    if (column) {
+      columnKey = column.column_key;
+    }
+  }
+  
   const whereConditions = [
     inArray(dbSchema.leads.sheet_id, sheetIds),
     sql`${dbSchema.leads.deleted_at} IS NULL`
@@ -193,56 +204,112 @@ async function evaluateSingleColumnTarget(
     };
   }
   
-  const periodLeads = allLeads;
+  const totalLeads = allLeads.length;
   
-  const totalLeads = periodLeads.length;
-  let matchingLeads = 0;
+  // Helper function to check if a value matches the operator condition
+  const checkValueMatch = (fieldValue: any): boolean => {
+    if (operator === 'equals') {
+      return String(fieldValue || '') === String(value);
+    } else if (operator === 'not_equals') {
+      return String(fieldValue || '') !== String(value);
+    } else if (operator === 'is_empty') {
+      return fieldValue === null || fieldValue === undefined || fieldValue === '';
+    } else if (operator === 'is_not_empty') {
+      return fieldValue !== null && fieldValue !== undefined && fieldValue !== '';
+    } else if (operator === 'greater_than') {
+      return Number(fieldValue) > Number(value);
+    } else if (operator === 'less_than') {
+      return Number(fieldValue) < Number(value);
+    }
+    return false;
+  };
+  
+  // For daily targets, we track "work done today" vs "work that needs to be done"
+  // Numerator = leads that transitioned to match the condition within the period
+  // Denominator = leads that currently don't match (need work) + leads done today
+  
+  // Get activity logs for field changes within the period
+  const activityLogs = await db.select({
+    id: dbSchema.activity_logs.id,
+    target_id: dbSchema.activity_logs.target_id,
+    details: dbSchema.activity_logs.details,
+    occurred_at: dbSchema.activity_logs.occurred_at,
+  })
+  .from(dbSchema.activity_logs)
+  .where(
+    and(
+      eq(dbSchema.activity_logs.user_id, userId),
+      eq(dbSchema.activity_logs.action, 'lead_updated'),
+      inArray(dbSchema.activity_logs.sheet_id, sheetIds),
+      gte(dbSchema.activity_logs.occurred_at, periodStart),
+      lte(dbSchema.activity_logs.occurred_at, periodEnd)
+    )
+  );
+  
+  // Track lead IDs where the condition was met within the period
+  const leadsMeetingConditionToday = new Set<string>();
+  
+  // Check activity logs for field changes that resulted in the condition being met
+  for (const log of activityLogs) {
+    const details = log.details as { changes?: Array<{ field_key: string; old_value?: any; new_value?: any }> } | null;
+    const changes = details?.changes || [];
+    
+    for (const change of changes) {
+      // Match by column_key (case-insensitive)
+      if (change.field_key.toLowerCase() === columnKey.toLowerCase()) {
+        const oldMatches = checkValueMatch(change.old_value);
+        const newMatches = checkValueMatch(change.new_value);
+        
+        // Condition was met by this change (transitioned from not-matching to matching)
+        if (!oldMatches && newMatches && log.target_id) {
+          leadsMeetingConditionToday.add(log.target_id);
+        }
+      }
+    }
+  }
+  
+  // NOTE: We no longer check lead_created logs because:
+  // 1. lead_created activity logs don't store initial custom_fields data
+  // 2. When a lead is created with a field already set, there's typically a corresponding
+  //    lead_updated log with old_value=empty and new_value=the set value
+  // 3. This prevents incorrect credit when another user updates the field later
+  
+  const matchedTodayCount = leadsMeetingConditionToday.size;
+  
+  // Find non-compliant leads (leads that currently don't match the condition)
   const nonCompliantLeadIds: string[] = [];
-  
-  for (const lead of periodLeads) {
+  for (const lead of allLeads) {
     const customFields = (lead.custom_fields as Record<string, any>) || {};
     const fieldValue = customFields[column_id];
-    
-    let matches = false;
-    
-    if (operator === 'equals') {
-      matches = String(fieldValue || '') === String(value);
-    } else if (operator === 'not_equals') {
-      matches = String(fieldValue || '') !== String(value);
-    } else if (operator === 'is_empty') {
-      matches = fieldValue === null || fieldValue === undefined || fieldValue === '';
-    } else if (operator === 'is_not_empty') {
-      matches = fieldValue !== null && fieldValue !== undefined && fieldValue !== '';
-    } else if (operator === 'greater_than') {
-      matches = Number(fieldValue) > Number(value);
-    } else if (operator === 'less_than') {
-      matches = Number(fieldValue) < Number(value);
-    }
-    
-    if (matches) {
-      matchingLeads++;
-    } else {
+    if (!checkValueMatch(fieldValue)) {
       nonCompliantLeadIds.push(lead.id);
     }
   }
   
-  const compliancePercentage = totalLeads > 0 ? (matchingLeads / totalLeads) * 100 : 0;
-  const isAchieved = compliancePercentage >= target_percentage;
+  // Target value is based on total leads (stable denominator)
+  // At midnight, currentValue resets to 0, targetValue stays the same
+  const targetValue = Math.ceil(totalLeads * target_percentage / 100);
+  
+  const compliancePercentage = targetValue > 0 ? Math.min(100, (matchedTodayCount / targetValue) * 100) : 0;
+  const isAchieved = matchedTodayCount >= targetValue;
   
   return {
-    currentValue: matchingLeads,
-    targetValue: Math.ceil(totalLeads * target_percentage / 100),
+    currentValue: matchedTodayCount,
+    targetValue,
     compliancePercentage,
     isAchieved,
     details: {
       totalLeads,
-      matchingLeads,
-      nonCompliantCount: totalLeads - matchingLeads,
+      matchedTodayCount,
+      nonCompliantCount: nonCompliantLeadIds.length,
       nonCompliantLeadIds: nonCompliantLeadIds.slice(0, 10),
       operator,
       value,
       column_id,
-      target_percentage
+      column_key: columnKey,
+      target_percentage,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString()
     }
   };
 }
@@ -770,7 +837,7 @@ export async function generateLeaderboard(
       regularUsers.forEach(u => targetUserIds.add(u.id));
     }
     
-    for (const userId of targetUserIds) {
+    for (const userId of Array.from(targetUserIds)) {
       const userScore = userScores.get(userId);
       if (!userScore) continue;
       
