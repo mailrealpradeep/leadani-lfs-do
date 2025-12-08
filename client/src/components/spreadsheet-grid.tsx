@@ -1135,7 +1135,8 @@ export function SpreadsheetGrid({
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
     } else {
       setSortColumn(column);
-      setSortDirection("asc");
+      // Default to descending (newest/highest first) when switching to a new column
+      setSortDirection("desc");
     }
   };
 
