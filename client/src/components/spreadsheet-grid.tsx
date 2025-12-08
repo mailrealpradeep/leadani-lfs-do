@@ -1670,18 +1670,66 @@ export function SpreadsheetGrid({
   // Only apply user row filters (Hide/Show Rows) client-side as they're per-user settings
   // Also apply quick filter conditions client-side when OR logic is used
   
+  // Evaluate if a lead matches the column filters (header dropdown/text filters)
+  const evaluateColumnFilters = useCallback((lead: Lead): boolean => {
+    for (const [columnKey, filterValue] of Object.entries(columnFilters)) {
+      if (filterValue === null || filterValue === undefined || filterValue === '') continue;
+      
+      // Get the lead's value for this column
+      const leadValue = lead.custom_fields?.[columnKey] ?? "";
+      const leadValueStr = String(leadValue).toLowerCase();
+      
+      // Handle date range filters
+      if (typeof filterValue === 'object' && 'from' in filterValue && 'to' in filterValue) {
+        const dateFilter = filterValue as DateFilterValue | null;
+        if (dateFilter && dateFilter.from && dateFilter.to && leadValue) {
+          try {
+            const cellDate = new Date(leadValue);
+            if (!isNaN(cellDate.getTime())) {
+              const fromDate = new Date(dateFilter.from);
+              const toDate = new Date(dateFilter.to);
+              toDate.setHours(23, 59, 59, 999);
+              if (cellDate < fromDate || cellDate > toDate) {
+                return false;
+              }
+            }
+          } catch {
+            return false;
+          }
+        }
+      }
+      // Handle dropdown exact match filters
+      else if (typeof filterValue === 'string') {
+        const col = activeColumns.find(c => c.column_key === columnKey);
+        if (col?.type === 'dropdown') {
+          // Exact match for dropdowns
+          if (leadValueStr !== filterValue.toLowerCase()) {
+            return false;
+          }
+        } else {
+          // Contains match for text columns
+          if (!leadValueStr.includes(filterValue.toLowerCase())) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }, [columnFilters, activeColumns]);
+  
   // Track which sticky leads don't match filters (for visual indicator)
   const stickyLeadDoesNotMatchFilters = useMemo(() => {
     if (!stickyLeadId) return false;
     const stickyLead = leads.find(l => l.id === stickyLeadId);
     if (!stickyLead) return false;
     
-    // Check if it would be filtered out
+    // Check if it would be filtered out by any filter type
     const matchesRowFilters = evaluateRowFilters(stickyLead);
     const matchesQuickFilter = evaluateQuickFilter(stickyLead);
+    const matchesColumnFilters = evaluateColumnFilters(stickyLead);
     
-    return !matchesRowFilters || !matchesQuickFilter;
-  }, [stickyLeadId, leads, evaluateRowFilters, evaluateQuickFilter]);
+    return !matchesRowFilters || !matchesQuickFilter || !matchesColumnFilters;
+  }, [stickyLeadId, leads, evaluateRowFilters, evaluateQuickFilter, evaluateColumnFilters]);
   
   const filteredAndSortedLeads = leads.filter((lead) => {
     // Always keep sticky lead visible while editing
