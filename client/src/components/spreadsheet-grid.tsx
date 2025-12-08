@@ -396,60 +396,6 @@ export function SpreadsheetGrid({
   const [selectedTargetSheetId, setSelectedTargetSheetId] = useState<string>("");
   const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
   
-  // Sticky lead state - keeps a lead visible while editing even if it doesn't match filters
-  const [stickyLeadId, setStickyLeadId] = useState<string | null>(null);
-  const stickyLeadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const STICKY_LEAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-  
-  // Clear sticky lead timeout cleanup
-  useEffect(() => {
-    return () => {
-      if (stickyLeadTimeoutRef.current) {
-        clearTimeout(stickyLeadTimeoutRef.current);
-      }
-    };
-  }, []);
-  
-  // Clear sticky lead when sheet changes
-  useEffect(() => {
-    setStickyLeadId(null);
-    if (stickyLeadTimeoutRef.current) {
-      clearTimeout(stickyLeadTimeoutRef.current);
-      stickyLeadTimeoutRef.current = null;
-    }
-  }, [activeSheetId]);
-  
-  // Set a new sticky lead with timeout auto-clear
-  const setStickyLead = useCallback((leadId: string | null) => {
-    // Clear existing timeout
-    if (stickyLeadTimeoutRef.current) {
-      clearTimeout(stickyLeadTimeoutRef.current);
-      stickyLeadTimeoutRef.current = null;
-    }
-    
-    setStickyLeadId(leadId);
-    
-    // Set new timeout if we have a sticky lead
-    if (leadId) {
-      stickyLeadTimeoutRef.current = setTimeout(() => {
-        setStickyLeadId(null);
-        stickyLeadTimeoutRef.current = null;
-      }, STICKY_LEAD_TIMEOUT_MS);
-    }
-  }, []);
-  
-  // Clear sticky lead when clicking outside grid or on a different lead
-  const clearStickyLeadIfNotEditing = useCallback((clickedLeadId?: string) => {
-    // If clicked on a different lead, that becomes the new sticky lead
-    if (clickedLeadId && clickedLeadId !== stickyLeadId) {
-      setStickyLead(clickedLeadId);
-    }
-    // If clicked outside (no lead id), clear sticky
-    else if (!clickedLeadId) {
-      setStickyLead(null);
-    }
-  }, [stickyLeadId, setStickyLead]);
-  
   // Transition explanation dialog state
   const [transitionExplanationDialogOpen, setTransitionExplanationDialogOpen] = useState(false);
   const [pendingTransition, setPendingTransition] = useState<{
@@ -634,23 +580,8 @@ export function SpreadsheetGrid({
     };
   }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
 
-  // Fetch sticky lead separately to ensure it's always available even if filtered out
-  const { data: stickyLeadData } = useQuery<Lead>({
-    queryKey: ["/api/leads", stickyLeadId],
-    enabled: !!stickyLeadId,
-    staleTime: 30000,
-  });
-
-  // Unified data access - include sticky lead if it's not in the main results
-  const baseLeads = isMultiMode ? (multiSheetData?.leads || []) : (singleSheetData?.leads || []);
-  const leads = useMemo(() => {
-    if (!stickyLeadId || !stickyLeadData) return baseLeads;
-    // Check if sticky lead is already in the results
-    const existsInResults = baseLeads.some(l => l.id === stickyLeadId);
-    if (existsInResults) return baseLeads;
-    // Add sticky lead to the beginning if it's not in results (filtered out)
-    return [stickyLeadData, ...baseLeads];
-  }, [baseLeads, stickyLeadId, stickyLeadData]);
+  // Unified data access
+  const leads = isMultiMode ? (multiSheetData?.leads || []) : (singleSheetData?.leads || []);
   const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
   const sheetNamesMap = multiSheetData?.sheetNames || {};
 
@@ -1150,8 +1081,6 @@ export function SpreadsheetGrid({
     if (columnType === "date") {
       setDatePickerOpen({ leadId: lead.id, field: columnKey });
     }
-    // Set this lead as sticky so it stays visible during editing even if filters would hide it
-    setStickyLead(lead.id);
   };
 
   const handleCellSave = (lead: Lead) => {
@@ -1669,74 +1598,7 @@ export function SpreadsheetGrid({
   // Server handles filtering/sorting for both modes now
   // Only apply user row filters (Hide/Show Rows) client-side as they're per-user settings
   // Also apply quick filter conditions client-side when OR logic is used
-  
-  // Evaluate if a lead matches the column filters (header dropdown/text filters)
-  const evaluateColumnFilters = useCallback((lead: Lead): boolean => {
-    for (const [columnKey, filterValue] of Object.entries(columnFilters)) {
-      if (filterValue === null || filterValue === undefined || filterValue === '') continue;
-      
-      // Get the lead's value for this column
-      const leadValue = lead.custom_fields?.[columnKey] ?? "";
-      const leadValueStr = String(leadValue).toLowerCase();
-      
-      // Handle date range filters
-      if (typeof filterValue === 'object' && 'from' in filterValue && 'to' in filterValue) {
-        const dateFilter = filterValue as DateFilterValue | null;
-        if (dateFilter && dateFilter.from && dateFilter.to && leadValue) {
-          try {
-            const cellDate = new Date(leadValue);
-            if (!isNaN(cellDate.getTime())) {
-              const fromDate = new Date(dateFilter.from);
-              const toDate = new Date(dateFilter.to);
-              toDate.setHours(23, 59, 59, 999);
-              if (cellDate < fromDate || cellDate > toDate) {
-                return false;
-              }
-            }
-          } catch {
-            return false;
-          }
-        }
-      }
-      // Handle dropdown exact match filters
-      else if (typeof filterValue === 'string') {
-        const col = activeColumns.find(c => c.column_key === columnKey);
-        if (col?.type === 'dropdown') {
-          // Exact match for dropdowns
-          if (leadValueStr !== filterValue.toLowerCase()) {
-            return false;
-          }
-        } else {
-          // Contains match for text columns
-          if (!leadValueStr.includes(filterValue.toLowerCase())) {
-            return false;
-          }
-        }
-      }
-    }
-    return true;
-  }, [columnFilters, activeColumns]);
-  
-  // Track which sticky leads don't match filters (for visual indicator)
-  const stickyLeadDoesNotMatchFilters = useMemo(() => {
-    if (!stickyLeadId) return false;
-    const stickyLead = leads.find(l => l.id === stickyLeadId);
-    if (!stickyLead) return false;
-    
-    // Check if it would be filtered out by any filter type
-    const matchesRowFilters = evaluateRowFilters(stickyLead);
-    const matchesQuickFilter = evaluateQuickFilter(stickyLead);
-    const matchesColumnFilters = evaluateColumnFilters(stickyLead);
-    
-    return !matchesRowFilters || !matchesQuickFilter || !matchesColumnFilters;
-  }, [stickyLeadId, leads, evaluateRowFilters, evaluateQuickFilter, evaluateColumnFilters]);
-  
   const filteredAndSortedLeads = leads.filter((lead) => {
-    // Always keep sticky lead visible while editing
-    if (lead.id === stickyLeadId) {
-      return true;
-    }
-    
     // User row filters - hide rows that match any active filter (client-side only)
     if (!evaluateRowFilters(lead)) {
       return false;
@@ -2507,9 +2369,6 @@ export function SpreadsheetGrid({
                       
                       const mobileHighlightResult = evaluateHighlightingRules(highlightingRules, lead, isDarkMode, timezone);
                       
-                      // Check if this is a sticky lead that doesn't match filters (mobile)
-                      const isMobileStickyButFiltered = lead.id === stickyLeadId && stickyLeadDoesNotMatchFilters;
-                      
                       const getMobileCardStyle = () => {
                         if (invalidLeadIds.has(lead.id)) return {};
                         if (mobileHighlightResult) {
@@ -2519,18 +2378,13 @@ export function SpreadsheetGrid({
                       };
                       
                       const getMobileCardClass = () => {
-                        // Add special styling for sticky cards that don't match filters
-                        const stickyClass = isMobileStickyButFiltered 
-                          ? "border-l-4 border-l-blue-500 dark:border-l-blue-400" 
-                          : "";
-                        
                         if (invalidLeadIds.has(lead.id)) {
-                          return `bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800 ${stickyClass}`;
+                          return "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800";
                         }
                         if (mobileHighlightResult) {
-                          return `border ${stickyClass}`;
+                          return "border";
                         }
-                        return `${mobileThoughtClass} ${stickyClass}`;
+                        return mobileThoughtClass;
                       };
                       
                       return (
@@ -2539,16 +2393,8 @@ export function SpreadsheetGrid({
                         className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
                         style={getMobileCardStyle()}
                         data-testid={`card-lead-${lead.id}`}
-                        onClick={() => {
-                          // Update sticky state when clicking on a mobile card
-                          if (lead.id !== stickyLeadId) {
-                            clearStickyLeadIfNotEditing(lead.id);
-                          }
-                          onOpenLeadDetail(lead.id);
-                        }}
-                        title={isMobileStickyButFiltered
-                          ? "This lead is kept visible for editing (no longer matches current filters)"
-                          : invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                        onClick={() => onOpenLeadDetail(lead.id)}
+                        title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
                           ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
                           : mobileHighlightResult
                           ? `Highlighted by rule: ${mobileHighlightResult.ruleName}`
@@ -2557,9 +2403,6 @@ export function SpreadsheetGrid({
                       >
                         <div className="flex items-start justify-between gap-3 mb-3">
                           <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {isMobileStickyButFiltered && (
-                              <Edit2 className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                            )}
                             {mobileLeadThought === "sure" && (
                               <Star className="h-5 w-5 text-emerald-500 fill-emerald-500 flex-shrink-0" />
                             )}
@@ -2610,7 +2453,6 @@ export function SpreadsheetGrid({
                               e.stopPropagation();
                               setSelectedLeadForEdit(lead.id);
                               setEditDialogOpen(true);
-                              setStickyLead(lead.id);
                             }}
                             data-testid={`button-edit-lead-${lead.id}`}
                           >
@@ -2840,9 +2682,6 @@ export function SpreadsheetGrid({
                   
                   const highlightResult = evaluateHighlightingRules(highlightingRules, lead, isDarkMode, timezone);
                   
-                  // Check if this is a sticky lead that doesn't match filters
-                  const isStickyButFiltered = lead.id === stickyLeadId && stickyLeadDoesNotMatchFilters;
-                  
                   const getRowStyle = () => {
                     if (invalidLeadIds.has(lead.id)) {
                       return {};
@@ -2854,18 +2693,13 @@ export function SpreadsheetGrid({
                   };
                   
                   const getRowClass = () => {
-                    // Add special styling for sticky rows that don't match filters
-                    const stickyClass = isStickyButFiltered 
-                      ? "border-l-4 border-l-blue-500 dark:border-l-blue-400" 
-                      : "";
-                    
                     if (invalidLeadIds.has(lead.id)) {
-                      return `bg-red-50 dark:bg-red-950/20 ${stickyClass}`;
+                      return "bg-red-50 dark:bg-red-950/20";
                     }
                     if (highlightResult) {
-                      return stickyClass;
+                      return "";
                     }
-                    return `${thoughtRowClass} ${stickyClass}`;
+                    return thoughtRowClass;
                   };
                   
                   return (
@@ -2877,35 +2711,16 @@ export function SpreadsheetGrid({
                             gridTemplateColumns: gridTemplateStyle,
                             ...getRowStyle()
                           }}
-                          onClick={() => {
-                            // When clicking on a row, update sticky state to this lead
-                            // This ensures clicking a different lead swaps the sticky lead
-                            if (lead.id !== stickyLeadId) {
-                              clearStickyLeadIfNotEditing(lead.id);
-                            }
-                          }}
                           data-testid={`row-lead-${lead.id}`}
-                          title={isStickyButFiltered
-                            ? "This lead is kept visible for editing (no longer matches current filters)"
-                            : invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                          title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
                             ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
                             : highlightResult 
                             ? `Highlighted by rule: ${highlightResult.ruleName}`
                             : undefined
                           }
                         >
-                          {/* Checkbox Cell with Thought Icon and Sticky Indicator */}
+                          {/* Checkbox Cell with Thought Icon */}
                           <div className="border-r px-2 py-2 flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            {isStickyButFiltered && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Edit2 className="h-3 w-3 text-blue-500" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                  <p className="text-xs">Kept visible for editing<br/>(no longer matches filter)</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
                             {leadThought === "sure" && (
                               <Star className="h-4 w-4 text-emerald-500 fill-emerald-500" />
                             )}
