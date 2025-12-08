@@ -1259,21 +1259,33 @@ ${questionsList}`;
         if (!skipAllocationOnMatch && targetSheetId && existingLead.sheet_id !== targetSheetId) {
           oldSheetId = existingLead.sheet_id;
           
+          // Get source and target sheet names for the transfer log
+          const sourceSheet = await storage.getSheet(existingLead.sheet_id);
+          const targetSheet = await storage.getSheet(targetSheetId);
+          const sourceSheetName = sourceSheet?.name || "Unknown Sheet";
+          const targetSheetName = targetSheet?.name || "Unknown Sheet";
+          
+          // Determine the new owner for the transferred lead
+          // Use target sheet's owner_id to maintain consistency with sheet ownership
+          const newOwnerId = targetSheet?.owner_id || webhook.created_by_user_id;
+          
+          // Also get previous owner for reference
           const previousOwner = await storage.getUser(existingLead.owner_user_id);
           previousOwnerName = previousOwner?.name || "Unknown";
           
           await storage.updateLead(existingLead.id, {
             sheet_id: targetSheetId,
-            owner_user_id: webhook.created_by_user_id,
+            owner_user_id: newOwnerId,
           });
           
           isTransferred = true;
           
+          // Log the transfer with sheet names and source label
           await storage.createLeadUpdate({
             lead_id: existingLead.id,
             update_via: "transfer",
             update_on: today,
-            remark: `Repeat Lead: Transferred from ${previousOwnerName} to ${webhookCreator.name}`,
+            remark: `Transferred from ${sourceSheetName} to ${targetSheetName} due to Re-application via ${sourceLabel}`,
             created_by_user_id: webhook.created_by_user_id,
           });
           
