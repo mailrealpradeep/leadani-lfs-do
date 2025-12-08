@@ -856,7 +856,60 @@ ${questionsList}`;
         conditionGroupKey = generateConditionGroupKey(applicableRules);
         
         // Get current allocation counts for this webhook
-        const allocationCounts = (webhook.allocation_counts as Record<string, Record<string, number>>) || {};
+        let allocationCounts = (webhook.allocation_counts as Record<string, Record<string, number>>) || {};
+        
+        // MIGRATION: Consolidate legacy JSON-format keys to pipe format
+        // This fixes the issue where old code used JSON.stringify for keys
+        const migrateAllocationCounts = async () => {
+          const allKeys = Object.keys(allocationCounts);
+          const jsonKeys = allKeys.filter(k => k.startsWith('[{'));
+          
+          if (jsonKeys.length === 0) {
+            return allocationCounts; // No migration needed
+          }
+          
+          console.log(`[Webhook Allocation] Found ${jsonKeys.length} JSON-format keys to migrate`);
+          const migratedCounts: Record<string, Record<string, number>> = {};
+          const processedPipeKeys = new Set<string>();
+          
+          // Step 1: Process all JSON keys first, converting to pipe format
+          for (const jsonKey of jsonKeys) {
+            try {
+              const conditions = JSON.parse(jsonKey) as Array<{field: string; operator: string; value?: string}>;
+              const pipeKey = conditions.map(c => `${c.field}|${c.operator}|${c.value || ''}`).join('::');
+              processedPipeKeys.add(pipeKey);
+              
+              // Initialize with existing pipe key counts if they exist
+              if (!migratedCounts[pipeKey]) {
+                migratedCounts[pipeKey] = { ...(allocationCounts[pipeKey] || {}) };
+              }
+              
+              // Add JSON key counts
+              const jsonCounts = allocationCounts[jsonKey];
+              for (const sheetId of Object.keys(jsonCounts)) {
+                migratedCounts[pipeKey][sheetId] = (migratedCounts[pipeKey][sheetId] || 0) + jsonCounts[sheetId];
+              }
+              console.log(`[Webhook Allocation] Migrated "${jsonKey.substring(0, 40)}..." → "${pipeKey}"`);
+            } catch (e) {
+              console.error(`[Webhook Allocation] Failed to migrate key: ${jsonKey}`, e);
+              migratedCounts[jsonKey] = { ...allocationCounts[jsonKey] };
+            }
+          }
+          
+          // Step 2: Copy non-JSON keys that weren't already processed as part of migration
+          for (const key of allKeys) {
+            if (!key.startsWith('[{') && !processedPipeKeys.has(key)) {
+              migratedCounts[key] = { ...allocationCounts[key] };
+            }
+          }
+          
+          console.log(`[Webhook Allocation] Persisting migrated allocation counts for webhook ${webhook.id}`);
+          await storage.updateCompanyWebhook(webhook.id, { allocation_counts: migratedCounts });
+          return migratedCounts;
+        };
+        
+        // Run migration and use the consolidated counts
+        allocationCounts = await migrateAllocationCounts();
         const groupCounts = allocationCounts[conditionGroupKey] || {};
         
         // Calculate total allocated for this group
