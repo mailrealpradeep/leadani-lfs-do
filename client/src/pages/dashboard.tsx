@@ -13,7 +13,7 @@ import type { Sheet } from "@shared/schema";
 
 export default function Dashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { selectedSheetId, setSelectedSheetId, selectedSheetIds, isMultiSheetMode, setActions, pendingLead, setPendingLead } = useDashboard();
+  const { selectedSheetId, setSelectedSheetId, selectedSheetIds, isMultiSheetMode, setActions } = useDashboard();
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
@@ -48,17 +48,6 @@ export default function Dashboard() {
       setSelectedSheetId(sheets[0].id);
     }
   }, [selectedSheetId, sheets, setSelectedSheetId]);
-
-  // Handle pending lead from global search
-  // The LeadDetailDrawer fetches its own lead data independently via API,
-  // so we can open it immediately without waiting for SpreadsheetGrid to load
-  useEffect(() => {
-    if (pendingLead) {
-      setSelectedLeadId(pendingLead.leadId);
-      setIsLeadDetailOpen(true);
-      setPendingLead(null);
-    }
-  }, [pendingLead, setPendingLead]);
 
   // Clean up app header when leaving dashboard
   useEffect(() => {
