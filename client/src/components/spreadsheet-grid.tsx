@@ -2476,7 +2476,13 @@ export function SpreadsheetGrid({
                         className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
                         style={getMobileCardStyle()}
                         data-testid={`card-lead-${lead.id}`}
-                        onClick={() => onOpenLeadDetail(lead.id)}
+                        onClick={() => {
+                          // Update sticky state when clicking on a mobile card
+                          if (lead.id !== stickyLeadId) {
+                            clearStickyLeadIfNotEditing(lead.id);
+                          }
+                          onOpenLeadDetail(lead.id);
+                        }}
                         title={isMobileStickyButFiltered
                           ? "This lead is kept visible for editing (no longer matches current filters)"
                           : invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
@@ -2807,6 +2813,13 @@ export function SpreadsheetGrid({
                           style={{ 
                             gridTemplateColumns: gridTemplateStyle,
                             ...getRowStyle()
+                          }}
+                          onClick={() => {
+                            // When clicking on a row, update sticky state to this lead
+                            // This ensures clicking a different lead swaps the sticky lead
+                            if (lead.id !== stickyLeadId) {
+                              clearStickyLeadIfNotEditing(lead.id);
+                            }
                           }}
                           data-testid={`row-lead-${lead.id}`}
                           title={isStickyButFiltered
