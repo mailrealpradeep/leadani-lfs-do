@@ -5928,13 +5928,55 @@ export class PgStorage implements IStorage {
   }
 
   async getUserRowFiltersByUserAndSheet(userId: string, sheetId: string): Promise<UserRowFilterRecord[]> {
-    return await db.select()
+    // First, get the sheet to find its company_id
+    const sheet = await this.getSheet(sheetId);
+    if (!sheet) {
+      return [];
+    }
+    
+    // Build query to fetch:
+    // 1. User's own filters for this sheet (is_global=false)
+    // 2. Global filters for this sheet (is_global=true, sheet_id matches)
+    // 3. Global filters for all sheets in the company (is_global=true, applies_to_all_sheets=true, same company)
+    
+    // Get all sheets in this company to find "applies_to_all_sheets" filters
+    const companySheetIds = sheet.company_id 
+      ? (await this.getSheetsByCompanyId(sheet.company_id)).map(s => s.id)
+      : [sheetId];
+    
+    const filters = await db.select()
       .from(dbSchema.user_row_filters)
-      .where(and(
-        eq(dbSchema.user_row_filters.user_id, userId),
-        eq(dbSchema.user_row_filters.sheet_id, sheetId)
+      .where(or(
+        // User's own filters for this specific sheet
+        and(
+          eq(dbSchema.user_row_filters.user_id, userId),
+          eq(dbSchema.user_row_filters.sheet_id, sheetId),
+          eq(dbSchema.user_row_filters.is_global, false)
+        ),
+        // Global filters for this specific sheet (created by any admin)
+        and(
+          eq(dbSchema.user_row_filters.sheet_id, sheetId),
+          eq(dbSchema.user_row_filters.is_global, true),
+          eq(dbSchema.user_row_filters.applies_to_all_sheets, false)
+        ),
+        // Global filters that apply to all sheets in the company
+        // These are stored with any sheet_id from the company, with applies_to_all_sheets=true
+        and(
+          eq(dbSchema.user_row_filters.is_global, true),
+          eq(dbSchema.user_row_filters.applies_to_all_sheets, true),
+          inArray(dbSchema.user_row_filters.sheet_id, companySheetIds)
+        )
       ))
       .orderBy(desc(dbSchema.user_row_filters.created_at));
+    
+    // Deduplicate: applies_to_all_sheets filters may be returned once per company sheet
+    // Use filter id to deduplicate
+    const seen = new Set<string>();
+    return filters.filter(f => {
+      if (seen.has(f.id)) return false;
+      seen.add(f.id);
+      return true;
+    });
   }
 
   async createUserRowFilter(filter: InsertUserRowFilter): Promise<UserRowFilterRecord> {

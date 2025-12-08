@@ -14264,7 +14264,7 @@ ${questionsList}`;
   // USER ROW FILTERS (Hide/Show Rows based on conditions)
   // ============================================================================
 
-  // Get user's row filters for a specific sheet
+  // Get user's row filters for a specific sheet (includes their own + admin global filters)
   app.get("/api/sheets/:sheetId/row-filters", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.userId) {
@@ -14272,25 +14272,43 @@ ${questionsList}`;
       }
       
       const filters = await storage.getUserRowFiltersByUserAndSheet(req.userId, req.params.sheetId);
-      res.json(filters);
+      
+      // Enrich with creator info for global filters
+      const userIds = [...new Set(filters.map(f => f.user_id))];
+      const users = await Promise.all(userIds.map(id => storage.getUser(id)));
+      const userMap = new Map(users.filter(Boolean).map(u => [u!.id, { name: u!.name, role: u!.role }]));
+      
+      const enrichedFilters = filters.map(f => ({
+        ...f,
+        creator_name: userMap.get(f.user_id)?.name || "Unknown",
+        creator_role: userMap.get(f.user_id)?.role || "user",
+        is_own: f.user_id === req.userId,
+      }));
+      
+      res.json(enrichedFilters);
     } catch (error: any) {
       console.error("Get row filters error:", error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Create a new row filter
+  // Create a new row filter (admins can create global filters)
   app.post("/api/sheets/:sheetId/row-filters", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.userId) {
         return res.status(403).json({ error: "User context required" });
       }
       
-      const { name, conditions, logic_operator, is_active } = req.body;
+      const { name, conditions, logic_operator, is_active, is_global, applies_to_all_sheets } = req.body;
       
       if (!name || !conditions || !Array.isArray(conditions)) {
         return res.status(400).json({ error: "Name and conditions array are required" });
       }
+      
+      // Only admins can create global filters
+      const isAdmin = req.userRole === "super_admin" || req.userRole === "company_admin";
+      const filterIsGlobal = isAdmin && is_global === true;
+      const filterAppliesToAllSheets = isAdmin && filterIsGlobal && applies_to_all_sheets === true;
       
       const filter = await storage.createUserRowFilter({
         user_id: req.userId,
@@ -14299,6 +14317,8 @@ ${questionsList}`;
         conditions,
         logic_operator: logic_operator || "AND",
         is_active: is_active !== false,
+        is_global: filterIsGlobal,
+        applies_to_all_sheets: filterAppliesToAllSheets,
       });
       
       res.status(201).json(filter);
@@ -14308,7 +14328,7 @@ ${questionsList}`;
     }
   });
 
-  // Update a row filter
+  // Update a row filter (users can edit own filters, admins can edit global filters)
   app.patch("/api/row-filters/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.userId) {
@@ -14316,17 +14336,32 @@ ${questionsList}`;
       }
       
       const existingFilter = await storage.getUserRowFilter(req.params.id);
-      if (!existingFilter || existingFilter.user_id !== req.userId) {
+      if (!existingFilter) {
         return res.status(404).json({ error: "Row filter not found" });
       }
       
-      const { name, conditions, logic_operator, is_active } = req.body;
+      // Check permissions: own filter, or admin editing a global filter
+      const isOwnFilter = existingFilter.user_id === req.userId;
+      const isAdmin = req.userRole === "super_admin" || req.userRole === "company_admin";
+      const canEdit = isOwnFilter || (isAdmin && existingFilter.is_global);
+      
+      if (!canEdit) {
+        return res.status(403).json({ error: "Cannot edit this filter" });
+      }
+      
+      const { name, conditions, logic_operator, is_active, is_global, applies_to_all_sheets } = req.body;
       const updates: any = {};
       
       if (name !== undefined) updates.name = name;
       if (conditions !== undefined) updates.conditions = conditions;
       if (logic_operator !== undefined) updates.logic_operator = logic_operator;
       if (is_active !== undefined) updates.is_active = is_active;
+      
+      // Only admins can update global filter settings
+      if (isAdmin) {
+        if (is_global !== undefined) updates.is_global = is_global;
+        if (applies_to_all_sheets !== undefined) updates.applies_to_all_sheets = applies_to_all_sheets;
+      }
       
       const filter = await storage.updateUserRowFilter(req.params.id, updates);
       res.json(filter);
@@ -14336,7 +14371,7 @@ ${questionsList}`;
     }
   });
 
-  // Toggle a row filter's active state
+  // Toggle a row filter's active state (users can toggle their own + global filters)
   app.patch("/api/row-filters/:id/toggle", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.userId) {
@@ -14344,8 +14379,19 @@ ${questionsList}`;
       }
       
       const existingFilter = await storage.getUserRowFilter(req.params.id);
-      if (!existingFilter || existingFilter.user_id !== req.userId) {
+      if (!existingFilter) {
         return res.status(404).json({ error: "Row filter not found" });
+      }
+      
+      // Users can toggle their own filters, and can toggle global filters on/off for themselves
+      // But we need to track per-user active state for global filters in the future
+      // For now, allow toggle for own filters only, or admin can toggle global filters
+      const isOwnFilter = existingFilter.user_id === req.userId;
+      const isAdmin = req.userRole === "super_admin" || req.userRole === "company_admin";
+      const canToggle = isOwnFilter || (isAdmin && existingFilter.is_global);
+      
+      if (!canToggle) {
+        return res.status(403).json({ error: "Cannot toggle this filter" });
       }
       
       const { is_active } = req.body;
@@ -14357,7 +14403,7 @@ ${questionsList}`;
     }
   });
 
-  // Delete a row filter
+  // Delete a row filter (users delete own filters, admins can delete global filters)
   app.delete("/api/row-filters/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.userId) {
@@ -14365,8 +14411,17 @@ ${questionsList}`;
       }
       
       const existingFilter = await storage.getUserRowFilter(req.params.id);
-      if (!existingFilter || existingFilter.user_id !== req.userId) {
+      if (!existingFilter) {
         return res.status(404).json({ error: "Row filter not found" });
+      }
+      
+      // Check permissions: own filter, or admin deleting a global filter
+      const isOwnFilter = existingFilter.user_id === req.userId;
+      const isAdmin = req.userRole === "super_admin" || req.userRole === "company_admin";
+      const canDelete = isOwnFilter || (isAdmin && existingFilter.is_global);
+      
+      if (!canDelete) {
+        return res.status(403).json({ error: "Cannot delete this filter" });
       }
       
       await storage.deleteUserRowFilter(req.params.id);

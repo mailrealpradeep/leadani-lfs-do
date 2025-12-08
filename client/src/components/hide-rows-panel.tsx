@@ -9,7 +9,9 @@ import {
   Save, 
   X, 
   Loader2,
-  Filter
+  Filter,
+  Shield,
+  Globe
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,7 +36,14 @@ import {
 import { FilterConditionBuilder, FilterCondition } from "./filter-condition-builder";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import type { UserRowFilterRecord, RowFilterCondition } from "@shared/schema";
+
+interface ExtendedRowFilter extends UserRowFilterRecord {
+  creator_name?: string;
+  creator_role?: string;
+  is_own?: boolean;
+}
 
 interface HideRowsPanelProps {
   sheetId: string;
@@ -42,6 +52,9 @@ interface HideRowsPanelProps {
 
 export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "company_admin" || user?.role === "super_admin";
+  
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -49,12 +62,14 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
   const [newFilterName, setNewFilterName] = useState("");
   const [newConditions, setNewConditions] = useState<FilterCondition[]>([]);
   const [newLogicOperator, setNewLogicOperator] = useState<"and" | "or">("and");
+  const [newIsGlobal, setNewIsGlobal] = useState(false);
+  const [newAppliesToAllSheets, setNewAppliesToAllSheets] = useState(false);
   
   const [editFilterName, setEditFilterName] = useState("");
   const [editConditions, setEditConditions] = useState<FilterCondition[]>([]);
   const [editLogicOperator, setEditLogicOperator] = useState<"and" | "or">("and");
 
-  const { data: filters = [], isLoading } = useQuery<UserRowFilterRecord[]>({
+  const { data: filters = [], isLoading } = useQuery<ExtendedRowFilter[]>({
     queryKey: ["/api/sheets", sheetId, "row-filters"],
     enabled: !!sheetId,
   });
@@ -66,7 +81,13 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
   }, [filters, onFiltersChange]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; conditions: RowFilterCondition[]; logic_operator: string }) => {
+    mutationFn: async (data: { 
+      name: string; 
+      conditions: RowFilterCondition[]; 
+      logic_operator: string;
+      is_global?: boolean;
+      applies_to_all_sheets?: boolean;
+    }) => {
       return apiRequest("POST", `/api/sheets/${sheetId}/row-filters`, data);
     },
     onSuccess: () => {
@@ -75,6 +96,8 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
       setNewFilterName("");
       setNewConditions([]);
       setNewLogicOperator("and");
+      setNewIsGlobal(false);
+      setNewAppliesToAllSheets(false);
       toast({
         title: "Filter Created",
         description: "Your row filter has been saved.",
@@ -189,6 +212,8 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
       name: newFilterName.trim(),
       conditions: convertToRowFilterConditions(newConditions),
       logic_operator: newLogicOperator.toUpperCase(),
+      ...(isAdmin && newIsGlobal && { is_global: true }),
+      ...(isAdmin && newIsGlobal && newAppliesToAllSheets && { applies_to_all_sheets: true }),
     });
   };
 
@@ -212,7 +237,7 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
     });
   };
 
-  const startEditing = (filter: UserRowFilterRecord) => {
+  const startEditing = (filter: ExtendedRowFilter) => {
     setEditingId(filter.id);
     setEditFilterName(filter.name);
     setEditConditions(convertFromRowFilterConditions(filter.conditions as RowFilterCondition[]));
@@ -226,7 +251,28 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
     setEditLogicOperator("and");
   };
 
+  const cancelCreating = () => {
+    setIsCreating(false);
+    setNewFilterName("");
+    setNewConditions([]);
+    setNewLogicOperator("and");
+    setNewIsGlobal(false);
+    setNewAppliesToAllSheets(false);
+  };
+
   const activeFiltersCount = filters.filter(f => f.is_active).length;
+  
+  const canEditFilter = (filter: ExtendedRowFilter): boolean => {
+    if (filter.is_own !== false) return true;
+    if (isAdmin && filter.is_global) return true;
+    return false;
+  };
+  
+  const canDeleteFilter = (filter: ExtendedRowFilter): boolean => {
+    if (filter.is_own !== false) return true;
+    if (isAdmin && filter.is_global) return true;
+    return false;
+  };
 
   if (isLoading) {
     return (
@@ -298,17 +344,49 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
                   showLogicalOperator={true}
                 />
 
+                {isAdmin && (
+                  <div className="space-y-3 pt-2 border-t">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="new-is-global"
+                        checked={newIsGlobal}
+                        onCheckedChange={(checked) => {
+                          setNewIsGlobal(checked === true);
+                          if (checked !== true) {
+                            setNewAppliesToAllSheets(false);
+                          }
+                        }}
+                        data-testid="checkbox-is-global"
+                      />
+                      <Label htmlFor="new-is-global" className="text-xs flex items-center gap-1.5 cursor-pointer">
+                        <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+                        Show to all users
+                      </Label>
+                    </div>
+                    
+                    {newIsGlobal && (
+                      <div className="flex items-center gap-2 ml-5">
+                        <Checkbox
+                          id="new-applies-to-all-sheets"
+                          checked={newAppliesToAllSheets}
+                          onCheckedChange={(checked) => setNewAppliesToAllSheets(checked === true)}
+                          data-testid="checkbox-applies-to-all-sheets"
+                        />
+                        <Label htmlFor="new-applies-to-all-sheets" className="text-xs flex items-center gap-1.5 cursor-pointer">
+                          <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                          Apply to all sheets
+                        </Label>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex gap-2 pt-2">
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => {
-                      setIsCreating(false);
-                      setNewFilterName("");
-                      setNewConditions([]);
-                      setNewLogicOperator("and");
-                    }}
+                    onClick={cancelCreating}
                     data-testid="button-cancel-create"
                   >
                     Cancel
@@ -393,12 +471,29 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
                         ) : (
                           <Eye className="h-4 w-4 text-muted-foreground shrink-0" />
                         )}
-                        <div className="min-w-0">
-                          <p className="font-medium text-sm truncate" data-testid={`text-filter-name-${filter.id}`}>
-                            {filter.name}
-                          </p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-medium text-sm truncate" data-testid={`text-filter-name-${filter.id}`}>
+                              {filter.name}
+                            </p>
+                            {filter.is_global && filter.is_own === false && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0" data-testid={`badge-admin-filter-${filter.id}`}>
+                                <Shield className="h-2.5 w-2.5 mr-0.5" />
+                                Admin
+                              </Badge>
+                            )}
+                            {filter.applies_to_all_sheets && (
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 shrink-0" data-testid={`badge-all-sheets-${filter.id}`}>
+                                <Globe className="h-2.5 w-2.5 mr-0.5" />
+                                All Sheets
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground">
                             {(filter.conditions as RowFilterCondition[]).length} condition(s) • {filter.logic_operator}
+                            {filter.is_global && filter.is_own === false && filter.creator_name && (
+                              <span className="ml-1">• by {filter.creator_name}</span>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -411,24 +506,28 @@ export function HideRowsPanel({ sheetId, onFiltersChange }: HideRowsPanelProps) 
                           }
                           data-testid={`switch-filter-${filter.id}`}
                         />
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => startEditing(filter)}
-                          data-testid={`button-edit-filter-${filter.id}`}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => setDeleteConfirmId(filter.id)}
-                          data-testid={`button-delete-filter-${filter.id}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {canEditFilter(filter) && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => startEditing(filter)}
+                            data-testid={`button-edit-filter-${filter.id}`}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canDeleteFilter(filter) && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setDeleteConfirmId(filter.id)}
+                            data-testid={`button-delete-filter-${filter.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
