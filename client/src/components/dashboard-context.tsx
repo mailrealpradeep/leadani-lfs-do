@@ -50,8 +50,8 @@ interface DashboardContextType {
   setIsColumnVisibilityOpen: (open: boolean) => void;
   isRowFiltersOpen: boolean;
   setIsRowFiltersOpen: (open: boolean) => void;
-  pendingLeadId: string | null;
-  setPendingLeadId: (id: string | null) => void;
+  pendingLead: { leadId: string; sheetId: string } | null;
+  setPendingLead: (lead: { leadId: string; sheetId: string } | null) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
@@ -75,7 +75,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [columnVisibilityConfig, setColumnVisibilityConfig] = useState<ColumnVisibilityConfig | null>(null);
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
   const [isRowFiltersOpen, setIsRowFiltersOpen] = useState(false);
-  const [pendingLeadId, setPendingLeadId] = useState<string | null>(null);
+  const [pendingLead, setPendingLead] = useState<{ leadId: string; sheetId: string } | null>(null);
 
   return (
     <DashboardContext.Provider
@@ -106,8 +106,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         setIsColumnVisibilityOpen,
         isRowFiltersOpen,
         setIsRowFiltersOpen,
-        pendingLeadId,
-        setPendingLeadId,
+        pendingLead,
+        setPendingLead,
       }}
     >
       {children}
@@ -145,8 +145,8 @@ export function useDashboard() {
       setIsColumnVisibilityOpen: () => {},
       isRowFiltersOpen: false,
       setIsRowFiltersOpen: () => {},
-      pendingLeadId: null,
-      setPendingLeadId: () => {},
+      pendingLead: null,
+      setPendingLead: () => {},
     };
   }
   return context;
