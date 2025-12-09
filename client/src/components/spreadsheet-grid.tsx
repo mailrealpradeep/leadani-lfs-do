@@ -390,6 +390,18 @@ export function SpreadsheetGrid({
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
+  const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Cleanup highlight timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+    };
+  }, []);
+  
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -2115,9 +2127,26 @@ export function SpreadsheetGrid({
             open={updateHistoryDialogOpen}
             onOpenChange={(open) => {
               setUpdateHistoryDialogOpen(open);
-              // Clear the selected lead when dialog closes to ensure clean state
-              if (!open) {
+              if (open) {
+                // Clear any pending timeout when reopening
+                if (highlightTimeoutRef.current) {
+                  clearTimeout(highlightTimeoutRef.current);
+                  highlightTimeoutRef.current = null;
+                }
+                // Set highlight for current lead
+                setHighlightedLeadId(selectedLeadForUpdate);
+              } else {
+                // Clear the selected lead when dialog closes
+                const closingLeadId = selectedLeadForUpdate;
                 setSelectedLeadForUpdate(null);
+                // Keep highlight for 1.5 seconds after dialog closes
+                if (highlightTimeoutRef.current) {
+                  clearTimeout(highlightTimeoutRef.current);
+                }
+                setHighlightedLeadId(closingLeadId);
+                highlightTimeoutRef.current = setTimeout(() => {
+                  setHighlightedLeadId(null);
+                }, 1500);
               }
             }}
           />
@@ -2486,6 +2515,11 @@ export function SpreadsheetGrid({
                                 e.stopPropagation();
                                 // Prevent switching leads while dialog is already open
                                 if (updateHistoryDialogOpen) return;
+                                // Clear any existing timeout and set highlight
+                                if (highlightTimeoutRef.current) {
+                                  clearTimeout(highlightTimeoutRef.current);
+                                }
+                                setHighlightedLeadId(lead.id);
                                 setSelectedLeadForUpdate(lead.id);
                                 setUpdateHistoryDialogOpen(true);
                               }}
@@ -2694,13 +2728,19 @@ export function SpreadsheetGrid({
                   };
                   
                   const getRowClass = () => {
+                    // Highlight when: dialog is open for this lead OR during delayed fade-out period
+                    const isActiveHighlight = (updateHistoryDialogOpen && selectedLeadForUpdate === lead.id) || 
+                                              highlightedLeadId === lead.id;
+                    const highlightClass = isActiveHighlight
+                      ? "ring-2 ring-primary ring-inset bg-primary/10 transition-all duration-300" 
+                      : "transition-all duration-300";
                     if (invalidLeadIds.has(lead.id)) {
-                      return "bg-red-50 dark:bg-red-950/20";
+                      return `bg-red-50 dark:bg-red-950/20 ${highlightClass}`;
                     }
                     if (highlightResult) {
-                      return "";
+                      return highlightClass;
                     }
-                    return thoughtRowClass;
+                    return `${thoughtRowClass} ${highlightClass}`;
                   };
                   
                   return (
@@ -2969,6 +3009,11 @@ export function SpreadsheetGrid({
                         onClick={() => {
                           // Prevent switching leads while dialog is already open
                           if (updateHistoryDialogOpen) return;
+                          // Clear any existing timeout and set highlight
+                          if (highlightTimeoutRef.current) {
+                            clearTimeout(highlightTimeoutRef.current);
+                          }
+                          setHighlightedLeadId(lead.id);
                           setSelectedLeadForUpdate(lead.id);
                           setUpdateHistoryDialogOpen(true);
                         }}
