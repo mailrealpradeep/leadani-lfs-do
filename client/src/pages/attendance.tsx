@@ -1244,15 +1244,15 @@ export default function Attendance() {
           <div className="grid grid-cols-3 gap-2">
             <div className="text-center p-2.5 rounded-lg bg-green-500/10 border border-green-500/20">
               <div className="text-lg font-bold text-green-600 dark:text-green-400" data-testid="stat-days-present">{monthlyStats.daysPresent}</div>
-              <div className="text-[10px] text-muted-foreground">Days</div>
+              <div className="text-xs text-muted-foreground">Days</div>
             </div>
             <div className="text-center p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
               <div className="text-lg font-bold text-blue-600 dark:text-blue-400" data-testid="stat-avg-hours">{monthlyStats.avgHoursPerDay}h</div>
-              <div className="text-[10px] text-muted-foreground">Avg/Day</div>
+              <div className="text-xs text-muted-foreground">Avg/Day</div>
             </div>
             <div className="text-center p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
               <div className="text-lg font-bold text-purple-600 dark:text-purple-400" data-testid="stat-total-hours">{monthlyStats.totalHours}h</div>
-              <div className="text-[10px] text-muted-foreground">Total</div>
+              <div className="text-xs text-muted-foreground">Total</div>
             </div>
           </div>
 
@@ -1298,7 +1298,7 @@ export default function Attendance() {
                   {/* Day headers - compact */}
                   <div className="grid grid-cols-7 mb-1">
                     {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-                      <div key={i} className="text-center text-[10px] font-medium text-muted-foreground py-1">
+                      <div key={i} className="text-center text-xs font-medium text-muted-foreground py-1">
                         {day}
                       </div>
                     ))}
@@ -1341,11 +1341,11 @@ export default function Attendance() {
                   <div className="flex items-center justify-center gap-4 mt-3 pt-2 border-t">
                     <div className="flex items-center gap-1.5">
                       <div className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className="text-[10px] text-muted-foreground">Present</span>
+                      <span className="text-xs text-muted-foreground">Present</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <div className="w-2 h-2 rounded ring-1 ring-primary" />
-                      <span className="text-[10px] text-muted-foreground">Today</span>
+                      <span className="text-xs text-muted-foreground">Today</span>
                     </div>
                   </div>
                 </div>
