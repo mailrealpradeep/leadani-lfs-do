@@ -224,92 +224,62 @@ async function evaluateSingleColumnTarget(
     return false;
   };
   
-  // For daily targets, we track "work done today" vs "work that needs to be done"
-  // Numerator = leads that transitioned to match the condition within the period
-  // Denominator = leads that currently don't match (need work) + leads done today
+  // Current state compliance calculation:
+  // The semantics depend on the operator:
+  // - For "equals" / "is_empty": matching = pending/undesired state, so compliant = NOT matching
+  //   Example: "Lead Status = New Lead" → leads NOT matching (status changed) are compliant
+  // - For "not_equals" / "is_not_empty" / "greater_than" / "less_than": matching = desired state, so compliant = matching
+  //   Example: "NFDT is_not_empty" → leads matching (NFDT filled) are compliant
   
-  // Get activity logs for field changes within the period
-  const activityLogs = await db.select({
-    id: dbSchema.activity_logs.id,
-    target_id: dbSchema.activity_logs.target_id,
-    details: dbSchema.activity_logs.details,
-    occurred_at: dbSchema.activity_logs.occurred_at,
-  })
-  .from(dbSchema.activity_logs)
-  .where(
-    and(
-      eq(dbSchema.activity_logs.user_id, userId),
-      eq(dbSchema.activity_logs.action, 'lead_updated'),
-      inArray(dbSchema.activity_logs.sheet_id, sheetIds),
-      gte(dbSchema.activity_logs.occurred_at, periodStart),
-      lte(dbSchema.activity_logs.occurred_at, periodEnd)
-    )
-  );
+  // Determine if this operator measures "pending state" (inverted) or "desired state" (normal)
+  const isPendingStateOperator = operator === 'equals' || operator === 'is_empty';
   
-  // Track lead IDs where the condition was met within the period
-  const leadsMeetingConditionToday = new Set<string>();
+  // Count leads matching and not matching the condition
+  const matchingLeadIds: string[] = [];
+  const notMatchingLeadIds: string[] = [];
   
-  // Check activity logs for field changes that resulted in the condition being met
-  for (const log of activityLogs) {
-    const details = log.details as { changes?: Array<{ field_key: string; old_value?: any; new_value?: any }> } | null;
-    const changes = details?.changes || [];
-    
-    for (const change of changes) {
-      // Match by column_key (case-insensitive)
-      if (change.field_key.toLowerCase() === columnKey.toLowerCase()) {
-        const oldMatches = checkValueMatch(change.old_value);
-        const newMatches = checkValueMatch(change.new_value);
-        
-        // Condition was met by this change (transitioned from not-matching to matching)
-        if (!oldMatches && newMatches && log.target_id) {
-          leadsMeetingConditionToday.add(log.target_id);
-        }
-      }
-    }
-  }
-  
-  // NOTE: We no longer check lead_created logs because:
-  // 1. lead_created activity logs don't store initial custom_fields data
-  // 2. When a lead is created with a field already set, there's typically a corresponding
-  //    lead_updated log with old_value=empty and new_value=the set value
-  // 3. This prevents incorrect credit when another user updates the field later
-  
-  const matchedTodayCount = leadsMeetingConditionToday.size;
-  
-  // Find non-compliant leads (leads that currently don't match the condition)
-  const nonCompliantLeadIds: string[] = [];
   for (const lead of allLeads) {
     const customFields = (lead.custom_fields as Record<string, any>) || {};
-    const fieldValue = customFields[column_id];
-    if (!checkValueMatch(fieldValue)) {
-      nonCompliantLeadIds.push(lead.id);
+    // Use columnKey (resolved from UUID) with fallback to column_id for backward compatibility
+    const fieldValue = customFields[columnKey] ?? customFields[column_id];
+    if (checkValueMatch(fieldValue)) {
+      matchingLeadIds.push(lead.id);
+    } else {
+      notMatchingLeadIds.push(lead.id);
     }
   }
   
-  // Target value is based on total leads (stable denominator)
-  // At midnight, currentValue resets to 0, targetValue stays the same
+  // Compliant leads depend on operator type:
+  // - For "equals"/"is_empty": compliant = NOT matching (moved away from pending state)
+  // - For other operators: compliant = matching (in desired state)
+  const compliantCount = isPendingStateOperator ? notMatchingLeadIds.length : matchingLeadIds.length;
+  const pendingCount = isPendingStateOperator ? matchingLeadIds.length : notMatchingLeadIds.length;
+  
+  // Target value is based on total leads with target percentage
   const targetValue = Math.ceil(totalLeads * target_percentage / 100);
   
-  const compliancePercentage = targetValue > 0 ? Math.min(100, (matchedTodayCount / targetValue) * 100) : 0;
-  const isAchieved = matchedTodayCount >= targetValue;
+  // Current value is the count of compliant leads
+  const currentValue = compliantCount;
+  
+  const compliancePercentage = totalLeads > 0 ? Math.min(100, (currentValue / totalLeads) * 100) : 0;
+  const isAchieved = compliancePercentage >= target_percentage;
   
   return {
-    currentValue: matchedTodayCount,
+    currentValue,
     targetValue,
     compliancePercentage,
     isAchieved,
     details: {
       totalLeads,
-      matchedTodayCount,
-      nonCompliantCount: nonCompliantLeadIds.length,
-      nonCompliantLeadIds: nonCompliantLeadIds.slice(0, 10),
+      compliantCount,
+      pendingCount,
+      pendingLeadIds: (isPendingStateOperator ? matchingLeadIds : notMatchingLeadIds).slice(0, 10),
       operator,
       value,
       column_id,
       column_key: columnKey,
       target_percentage,
-      periodStart: periodStart.toISOString(),
-      periodEnd: periodEnd.toISOString()
+      isPendingStateOperator
     }
   };
 }
