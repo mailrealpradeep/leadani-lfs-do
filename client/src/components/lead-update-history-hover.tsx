@@ -111,8 +111,8 @@ export function LeadUpdateHistoryHover({
                         </div>
                       </div>
                       
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
                           {update.update_via === "call" ? (
                             <Phone className="h-3.5 w-3.5 text-blue-500 shrink-0" />
                           ) : update.update_via === "whatsapp" ? (
@@ -120,20 +120,18 @@ export function LeadUpdateHistoryHover({
                           ) : (
                             <ArrowRightLeft className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           )}
-                          <span className="font-medium capitalize text-xs">
+                          <span className="font-semibold capitalize text-sm">
                             {update.update_via}
                           </span>
-                          {update.created_by_first_name && (
-                            <span className="text-xs text-muted-foreground truncate">
-                              by {update.created_by_first_name}
-                            </span>
-                          )}
                         </div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {update.created_by_first_name && (
+                            <span>by {update.created_by_first_name} · </span>
+                          )}
                           {formatInTimezone(update.created_at, "MMM dd, yyyy HH:mm")}
                         </div>
                         {update.remark && (
-                          <p className="text-xs text-foreground line-clamp-2 break-words">
+                          <p className="text-xs text-foreground mt-1.5 leading-relaxed">
                             {update.remark}
                           </p>
                         )}
