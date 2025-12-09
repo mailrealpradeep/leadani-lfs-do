@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient, ApiError } from "@/lib/queryClient";
@@ -318,9 +318,29 @@ export default function Attendance() {
   
   // Admin calendar state - replaces Today's Attendance
   const [adminCalendarMonth, setAdminCalendarMonth] = useState(new Date());
-  // Store selected day as string key (yyyy-MM-dd) for timezone-consistent lookups
-  const [adminSelectedDayKey, setAdminSelectedDayKey] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  // Track if user has manually selected a different date
+  const hasManuallySelectedDate = useRef(false);
+  // Compute today's key using company timezone (with fallback to browser timezone)
+  const todayInCompanyTz = useMemo(() => {
+    const tzKey = formatInTimezone(new Date(), 'yyyy-MM-dd');
+    return tzKey || format(new Date(), 'yyyy-MM-dd');
+  }, [formatInTimezone]);
+  const [adminSelectedDayKey, setAdminSelectedDayKey] = useState<string>(todayInCompanyTz);
   
+  // Reconcile selected day when company timezone changes (e.g., after company data loads)
+  // Only update if the user hasn't manually selected a different date
+  useEffect(() => {
+    if (!hasManuallySelectedDate.current && todayInCompanyTz !== adminSelectedDayKey) {
+      setAdminSelectedDayKey(todayInCompanyTz);
+    }
+  }, [todayInCompanyTz]);
+  
+  // Wrapper to track manual date selection
+  const handleAdminDateSelect = (dateKey: string) => {
+    hasManuallySelectedDate.current = true;
+    setAdminSelectedDayKey(dateKey);
+  };
+
   // Admin history table state
   const [adminHistoryDateFilter, setAdminHistoryDateFilter] = useState<'today' | 'week' | 'month' | 'all'>('month');
   
@@ -1528,7 +1548,7 @@ export default function Attendance() {
                         return (
                           <button
                             key={idx}
-                            onClick={() => setAdminSelectedDayKey(dateKey)}
+                            onClick={() => handleAdminDateSelect(dateKey)}
                             className={`relative p-2 min-h-[50px] rounded-md text-sm transition-colors flex flex-col items-center justify-start gap-1
                               ${!isCurrentMonth ? 'text-muted-foreground/40' : ''}
                               ${isSelected ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}
