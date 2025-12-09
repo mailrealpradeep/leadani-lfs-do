@@ -66,10 +66,10 @@ export function LeadUpdateHistoryHover({
       <HoverCardContent 
         side="left" 
         align="start" 
-        className="w-80 p-0"
+        className="w-[340px] p-0"
         sideOffset={8}
       >
-        <div className="p-3 border-b">
+        <div className="px-4 py-3 border-b bg-muted/50">
           <div className="flex items-center justify-between">
             <h4 className="font-semibold text-sm">Update History</h4>
             {!isLoading && (
@@ -80,61 +80,63 @@ export function LeadUpdateHistoryHover({
           </div>
         </div>
         
-        <ScrollArea className="max-h-64">
-          <div className="p-2">
+        <ScrollArea className="max-h-72">
+          <div className="p-3">
             {isLoading ? (
-              <div className="space-y-2 p-1">
+              <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-16 w-full" />
+                  <Skeleton key={i} className="h-20 w-full" />
                 ))}
               </div>
             ) : updates.length === 0 ? (
-              <div className="text-center py-6 text-muted-foreground text-sm">
+              <div className="text-center py-8 text-muted-foreground text-sm">
                 No updates recorded yet
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {updates.slice(0, 10).map((update, index) => {
                   const serialNo = updates.length - index;
                   
                   return (
                     <div
                       key={update.id}
-                      className="flex gap-2 border rounded-md p-2 bg-muted/30"
+                      className="flex gap-3 border rounded-lg p-3 bg-card shadow-sm"
                       data-testid={`hover-update-item-${update.id}`}
                     >
-                      <div className="shrink-0">
+                      <div className="shrink-0 pt-0.5">
                         <div 
-                          className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold"
+                          className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold"
                         >
                           {serialNo}
                         </div>
                       </div>
                       
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-0.5">
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {update.update_via === "call" ? (
-                            <Phone className="h-3 w-3 text-blue-500 shrink-0" />
+                            <Phone className="h-3.5 w-3.5 text-blue-500 shrink-0" />
                           ) : update.update_via === "whatsapp" ? (
-                            <MessageSquare className="h-3 w-3 text-green-500 shrink-0" />
+                            <MessageSquare className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           ) : (
-                            <ArrowRightLeft className="h-3 w-3 text-orange-500 shrink-0" />
+                            <ArrowRightLeft className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           )}
                           <span className="font-medium capitalize text-xs">
                             {update.update_via}
                           </span>
                           {update.created_by_first_name && (
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-xs text-muted-foreground truncate">
                               by {update.created_by_first_name}
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-muted-foreground mb-0.5">
+                        <div className="text-xs text-muted-foreground">
                           {formatInTimezone(update.created_at, "MMM dd, yyyy HH:mm")}
                         </div>
-                        <p className="text-xs text-foreground line-clamp-2">
-                          {update.remark}
-                        </p>
+                        {update.remark && (
+                          <p className="text-xs text-foreground line-clamp-2 break-words">
+                            {update.remark}
+                          </p>
+                        )}
                       </div>
                     </div>
                   );
