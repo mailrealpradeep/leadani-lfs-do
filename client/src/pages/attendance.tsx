@@ -1239,52 +1239,47 @@ export default function Attendance() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="history" className="space-y-4">
-          {/* Monthly Stats */}
-          <div className="grid grid-cols-3 gap-3">
-            <Card className="text-center">
-              <CardContent className="pt-4 pb-3">
-                <div className="text-2xl font-bold text-green-600" data-testid="stat-days-present">{monthlyStats.daysPresent}</div>
-                <div className="text-xs text-muted-foreground">Days Present</div>
-              </CardContent>
-            </Card>
-            <Card className="text-center">
-              <CardContent className="pt-4 pb-3">
-                <div className="text-2xl font-bold text-blue-600" data-testid="stat-avg-hours">{monthlyStats.avgHoursPerDay}h</div>
-                <div className="text-xs text-muted-foreground">Avg Hours/Day</div>
-              </CardContent>
-            </Card>
-            <Card className="text-center">
-              <CardContent className="pt-4 pb-3">
-                <div className="text-2xl font-bold text-purple-600" data-testid="stat-total-hours">{monthlyStats.totalHours}h</div>
-                <div className="text-xs text-muted-foreground">Total Hours</div>
-              </CardContent>
-            </Card>
+        <TabsContent value="history" className="space-y-3">
+          {/* Compact Monthly Stats */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="text-center p-2.5 rounded-lg bg-green-500/10 border border-green-500/20">
+              <div className="text-lg font-bold text-green-600 dark:text-green-400" data-testid="stat-days-present">{monthlyStats.daysPresent}</div>
+              <div className="text-[10px] text-muted-foreground">Days</div>
+            </div>
+            <div className="text-center p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <div className="text-lg font-bold text-blue-600 dark:text-blue-400" data-testid="stat-avg-hours">{monthlyStats.avgHoursPerDay}h</div>
+              <div className="text-[10px] text-muted-foreground">Avg/Day</div>
+            </div>
+            <div className="text-center p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
+              <div className="text-lg font-bold text-purple-600 dark:text-purple-400" data-testid="stat-total-hours">{monthlyStats.totalHours}h</div>
+              <div className="text-[10px] text-muted-foreground">Total</div>
+            </div>
           </div>
 
-          {/* Calendar View */}
+          {/* Compact Calendar View */}
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="py-3 px-4">
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
-                  Attendance Calendar
-                </CardTitle>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium" data-testid="text-current-month">
+                    {format(calendarMonth, 'MMMM yyyy')}
+                  </span>
+                </div>
+                <div className="flex items-center gap-0.5">
                   <Button
                     variant="ghost"
                     size="icon"
+                    className="h-7 w-7"
                     onClick={() => setCalendarMonth(subMonths(calendarMonth, 1))}
                     data-testid="button-prev-month"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <span className="text-sm font-medium min-w-[120px] text-center" data-testid="text-current-month">
-                    {format(calendarMonth, 'MMMM yyyy')}
-                  </span>
                   <Button
                     variant="ghost"
                     size="icon"
+                    className="h-7 w-7"
                     onClick={() => setCalendarMonth(addMonths(calendarMonth, 1))}
                     data-testid="button-next-month"
                   >
@@ -1293,23 +1288,23 @@ export default function Attendance() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-3 pb-3 pt-0">
               {loadingHistory ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {/* Day headers */}
-                  <div className="grid grid-cols-7 gap-1">
-                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                      <div key={day} className="text-center text-xs font-medium text-muted-foreground py-2">
+                <div>
+                  {/* Day headers - compact */}
+                  <div className="grid grid-cols-7 mb-1">
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
+                      <div key={i} className="text-center text-[10px] font-medium text-muted-foreground py-1">
                         {day}
                       </div>
                     ))}
                   </div>
-                  {/* Calendar grid */}
-                  <div className="grid grid-cols-7 gap-1">
+                  {/* Calendar grid - compact */}
+                  <div className="grid grid-cols-7 gap-0.5">
                     {calendarDays.map((day) => {
                       const dateKey = format(day, 'yyyy-MM-dd');
                       const entry = attendanceByDate.get(dateKey);
@@ -1323,78 +1318,97 @@ export default function Attendance() {
                           key={dateKey}
                           onClick={() => setSelectedCalendarDay(day)}
                           className={`
-                            relative aspect-square flex flex-col items-center justify-center rounded-md text-sm transition-colors
-                            ${!isCurrentMonth ? 'text-muted-foreground/50' : ''}
-                            ${isToday ? 'ring-2 ring-primary ring-offset-1' : ''}
-                            ${isSelected ? 'bg-primary text-primary-foreground' : hasAttendance ? 'bg-green-100 dark:bg-green-900/30 hover-elevate' : 'hover-elevate'}
+                            relative h-8 w-full flex items-center justify-center rounded text-xs transition-all
+                            ${!isCurrentMonth ? 'text-muted-foreground/40' : 'text-foreground'}
+                            ${isToday && !isSelected ? 'ring-1 ring-primary' : ''}
+                            ${isSelected 
+                              ? 'bg-primary text-primary-foreground font-medium' 
+                              : hasAttendance 
+                                ? 'bg-green-500/15 text-green-700 dark:text-green-400 font-medium hover:bg-green-500/25' 
+                                : 'hover:bg-muted'}
                           `}
                           data-testid={`calendar-day-${dateKey}`}
                         >
-                          <span className={`${hasAttendance && !isSelected ? 'font-medium' : ''}`}>
-                            {format(day, 'd')}
-                          </span>
+                          {format(day, 'd')}
                           {hasAttendance && !isSelected && (
-                            <div className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-green-500" />
+                            <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-green-500" />
                           )}
                         </button>
                       );
                     })}
+                  </div>
+                  {/* Legend */}
+                  <div className="flex items-center justify-center gap-4 mt-3 pt-2 border-t">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-green-500" />
+                      <span className="text-[10px] text-muted-foreground">Present</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded ring-1 ring-primary" />
+                      <span className="text-[10px] text-muted-foreground">Today</span>
+                    </div>
                   </div>
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Selected Day Details */}
+          {/* Selected Day Details - Compact */}
           {selectedCalendarDay && (
             <Card data-testid="selected-day-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">
-                  {format(selectedCalendarDay, 'EEEE, MMMM d, yyyy')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium">
+                    {format(selectedCalendarDay, 'EEE, MMM d')}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() => setSelectedCalendarDay(null)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
                 {selectedDayEntry ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 flex-1 p-3 rounded-lg bg-green-50 dark:bg-green-900/20">
-                        <LogIn className="h-4 w-4 text-green-600" />
-                        <div>
-                          <div className="text-xs text-muted-foreground">Entry</div>
-                          <div className="font-medium" data-testid="selected-entry-time">{formatTime(selectedDayEntry.entry_time)}</div>
-                        </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-1 p-2 rounded bg-green-500/10">
+                        <LogIn className="h-3 w-3 text-green-600" />
+                        <span className="text-xs font-medium" data-testid="selected-entry-time">{formatTime(selectedDayEntry.entry_time)}</span>
                       </div>
-                      {selectedDayEntry.exit_time && (
-                        <div className="flex items-center gap-2 flex-1 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20">
-                          <LogOut className="h-4 w-4 text-blue-600" />
-                          <div>
-                            <div className="text-xs text-muted-foreground">Exit</div>
-                            <div className="font-medium" data-testid="selected-exit-time">{formatTime(selectedDayEntry.exit_time)}</div>
-                          </div>
+                      {selectedDayEntry.exit_time ? (
+                        <div className="flex items-center gap-1.5 flex-1 p-2 rounded bg-blue-500/10">
+                          <LogOut className="h-3 w-3 text-blue-600" />
+                          <span className="text-xs font-medium" data-testid="selected-exit-time">{formatTime(selectedDayEntry.exit_time)}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 flex-1 p-2 rounded bg-muted">
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">No exit</span>
                         </div>
                       )}
                     </div>
-                    <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">Duration</span>
                       <span className="font-medium" data-testid="selected-duration">{formatDuration(selectedDayEntry)}</span>
                     </div>
                     {selectedDayEntry.exit_type === "forced" && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Force Exit Status</span>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Force Exit</span>
                         <Badge variant={
                           selectedDayEntry.review_status === "approved" ? "default" :
                           selectedDayEntry.review_status === "rejected" ? "destructive" :
                           "secondary"
-                        }>
+                        } className="text-[10px] h-5">
                           {selectedDayEntry.review_status || "Pending"}
                         </Badge>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="text-center py-4 text-muted-foreground">
-                    <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No attendance recorded</p>
+                  <div className="text-center py-2 text-muted-foreground">
+                    <p className="text-xs">No attendance</p>
                   </div>
                 )}
               </CardContent>
