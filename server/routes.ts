@@ -1133,15 +1133,17 @@ ${questionsList}`;
             
             if (isMobileField) {
               // Normalize and find by mobile number (handles +91, spaces, dashes, etc.)
+              // Pass includeDeleted=true to find soft-deleted leads for restoration
               const normalizedValue = normalizePhoneNumber(String(webhookValue));
-              const found = await storage.findLeadByMobileNo(webhook.company_id, normalizedValue, crmField);
+              const found = await storage.findLeadByMobileNo(webhook.company_id, normalizedValue, crmField, true);
               if (found) {
                 existingLead = found;
                 break;
               }
             } else {
               // Exact match for non-mobile fields
-              const found = await storage.findLeadByField(webhook.company_id, crmField, String(webhookValue));
+              // Pass includeDeleted=true to find soft-deleted leads for restoration
+              const found = await storage.findLeadByField(webhook.company_id, crmField, String(webhookValue), true);
               if (found) {
                 existingLead = found;
                 break;
@@ -2962,7 +2964,8 @@ ${questionsList}`;
       const matchMode = webhook.match_mode || "create_only";
       
       if (matchMode !== "create_only" && normalizedMobile.length >= 10) {
-        const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile);
+        // Pass includeDeleted=true to find soft-deleted leads for potential restoration
+        const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile, 'mobile_no', true);
         
         if (existingLead) {
           // Check force_allocate flag - if true, skip duplicate check
@@ -3123,7 +3126,8 @@ ${questionsList}`;
           const matchMode = webhook.match_mode || "create_only";
           
           if (matchMode !== "create_only" && normalizedMobile.length >= 10) {
-            const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile);
+            // Pass includeDeleted=true to find soft-deleted leads for potential restoration
+            const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile, 'mobile_no', true);
             if (existingLead) {
               results.push({ request_id: requestId, success: false, error: `Duplicate mobile: ${mobileNo}` });
               continue;
@@ -3397,7 +3401,8 @@ ${questionsList}`;
           const matchMode = webhook.match_mode || "create_only";
           
           if (matchMode !== "create_only" && normalizedMobile.length >= 10) {
-            const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile);
+            // Pass includeDeleted=true to find soft-deleted leads for potential restoration
+            const existingLead = await storage.findLeadByMobileNo(webhook.company_id, normalizedMobile, 'mobile_no', true);
             if (existingLead) {
               results.push({ request_id: requestId, success: false, error: `Duplicate mobile: ${mobileNo}` });
               continue;

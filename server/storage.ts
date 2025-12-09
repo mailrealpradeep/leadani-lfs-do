@@ -222,8 +222,8 @@ export interface IStorage {
   getLeadsBySheetId(sheetId: string): Promise<Lead[]>;
   getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult>;
   getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]>;
-  findLeadByMobileNo(companyId: string, mobileNo: string, fieldName?: string): Promise<Lead | undefined>;
-  findLeadByField(companyId: string, fieldKey: string, fieldValue: string): Promise<Lead | undefined>;
+  findLeadByMobileNo(companyId: string, mobileNo: string, fieldName?: string, includeDeleted?: boolean): Promise<Lead | undefined>;
+  findLeadByField(companyId: string, fieldKey: string, fieldValue: string, includeDeleted?: boolean): Promise<Lead | undefined>;
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined>;
   deleteLead(id: string, userId: string): Promise<boolean>;
@@ -1089,26 +1089,32 @@ export class MemStorage implements IStorage {
     return Array.from(this.leads.values()).filter((lead) => lead.sheet_id === sheetId && lead.deleted_at);
   }
 
-  async findLeadByMobileNo(companyId: string, mobileNo: string, fieldName: string = 'mobile_no'): Promise<Lead | undefined> {
+  async findLeadByMobileNo(companyId: string, mobileNo: string, fieldName: string = 'mobile_no', includeDeleted: boolean = false): Promise<Lead | undefined> {
     // Get all sheets for this company
     const companySheets = Array.from(this.sheets.values()).filter((s) => s.company_id === companyId);
     const sheetIds = new Set(companySheets.map((s) => s.id));
     
-    // Search for lead with matching mobile number in the specified field in any of the company's sheets (including soft-deleted)
+    // Search for lead with matching mobile number in the specified field in any of the company's sheets
+    // By default excludes soft-deleted leads so they don't block new lead creation
+    // Set includeDeleted=true to also search deleted leads (for update-only webhook flows)
     return Array.from(this.leads.values()).find((lead) => 
       sheetIds.has(lead.sheet_id) && 
+      (includeDeleted || !lead.deleted_at) &&
       lead.custom_fields?.[fieldName] === mobileNo
     );
   }
 
-  async findLeadByField(companyId: string, fieldKey: string, fieldValue: string): Promise<Lead | undefined> {
+  async findLeadByField(companyId: string, fieldKey: string, fieldValue: string, includeDeleted: boolean = false): Promise<Lead | undefined> {
     // Get all sheets for this company
     const companySheets = Array.from(this.sheets.values()).filter((s) => s.company_id === companyId);
     const sheetIds = new Set(companySheets.map((s) => s.id));
     
-    // Search for lead with matching field value in any of the company's sheets (including soft-deleted)
+    // Search for lead with matching field value in any of the company's sheets
+    // By default excludes soft-deleted leads so they don't block new lead creation
+    // Set includeDeleted=true to also search deleted leads (for update-only webhook flows)
     return Array.from(this.leads.values()).find((lead) => 
       sheetIds.has(lead.sheet_id) && 
+      (includeDeleted || !lead.deleted_at) &&
       lead.custom_fields?.[fieldKey] === fieldValue
     );
   }
@@ -3120,48 +3126,57 @@ export class PgStorage implements IStorage {
     return result.map(this.mapLead);
   }
 
-  async findLeadByMobileNo(companyId: string, mobileNo: string, fieldName: string = 'mobile_no'): Promise<Lead | undefined> {
-    // Find lead by mobile number in the specified field across all sheets in the company (including soft-deleted)
+  async findLeadByMobileNo(companyId: string, mobileNo: string, fieldName: string = 'mobile_no', includeDeleted: boolean = false): Promise<Lead | undefined> {
+    // Find lead by mobile number in the specified field across all sheets in the company
+    // By default excludes soft-deleted leads so they don't block new lead creation
+    // Set includeDeleted=true to also search deleted leads (for update-only webhook flows)
     // Uses normalized comparison: strips spaces, dashes, +, (), and takes last 10 digits
     // This matches leads regardless of how the mobile number was formatted when stored
     // Cast json to jsonb for jsonb_extract_path_text function
+    const conditions = [
+      eq(dbSchema.sheets.company_id, companyId),
+      sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${fieldName}), ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
+    ];
+    
+    if (!includeDeleted) {
+      conditions.push(isNull(dbSchema.leads.deleted_at));
+    }
+    
     const result = await db
       .select({
         lead: dbSchema.leads,
       })
       .from(dbSchema.leads)
       .innerJoin(dbSchema.sheets, eq(dbSchema.leads.sheet_id, dbSchema.sheets.id))
-      .where(
-        and(
-          eq(dbSchema.sheets.company_id, companyId),
-          // Normalize stored value to last 10 digits and compare with input (already normalized)
-          // Use jsonb_extract_path_text for proper key parameterization (handles dynamic field names)
-          // Cast json to jsonb to ensure compatibility
-          sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${fieldName}), ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
-        )
-      )
+      .where(and(...conditions))
       .limit(1);
     
     if (result.length === 0) return undefined;
     return this.mapLead(result[0].lead);
   }
 
-  async findLeadByField(companyId: string, fieldKey: string, fieldValue: string): Promise<Lead | undefined> {
-    // Find lead by any custom field across all sheets in the company (including soft-deleted)
+  async findLeadByField(companyId: string, fieldKey: string, fieldValue: string, includeDeleted: boolean = false): Promise<Lead | undefined> {
+    // Find lead by any custom field across all sheets in the company
+    // By default excludes soft-deleted leads so they don't block new lead creation
+    // Set includeDeleted=true to also search deleted leads (for update-only webhook flows)
     // Use jsonb_extract_path_text for proper key parameterization
     // Cast json to jsonb for jsonb_extract_path_text function
+    const conditions = [
+      eq(dbSchema.sheets.company_id, companyId),
+      sql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${fieldKey}) = ${fieldValue}`
+    ];
+    
+    if (!includeDeleted) {
+      conditions.push(isNull(dbSchema.leads.deleted_at));
+    }
+    
     const result = await db
       .select({
         lead: dbSchema.leads,
       })
       .from(dbSchema.leads)
       .innerJoin(dbSchema.sheets, eq(dbSchema.leads.sheet_id, dbSchema.sheets.id))
-      .where(
-        and(
-          eq(dbSchema.sheets.company_id, companyId),
-          sql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${fieldKey}) = ${fieldValue}`
-        )
-      )
+      .where(and(...conditions))
       .limit(1);
     
     if (result.length === 0) return undefined;
