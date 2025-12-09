@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO, isToday } from "date-fns";
-import { ChevronLeft, ChevronRight, Calendar, MapPin, User, Clock, Building2, AlertCircle, Settings, Phone, MessageCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar, MapPin, User, Clock, Building2, AlertCircle, Settings, Phone, MessageCircle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,25 @@ interface VisitsResponse {
   config: SiteVisitConfig | null;
   total: number;
   message?: string;
+}
+
+const sheetColors = [
+  "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+  "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+  "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+  "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
+];
+
+function getSheetColor(sheetName: string): string {
+  let hash = 0;
+  for (let i = 0; i < sheetName.length; i++) {
+    hash = sheetName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return sheetColors[Math.abs(hash) % sheetColors.length];
 }
 
 export default function Visits() {
@@ -106,7 +125,7 @@ export default function Visits() {
       <div className="flex-1 p-4 sm:p-6 space-y-4 overflow-auto">
         <Skeleton className="h-8 w-48" />
         <div className="flex gap-4">
-          <Skeleton className="h-64 w-full lg:w-80" />
+          <Skeleton className="h-64 w-full lg:w-72" />
           <Skeleton className="h-64 flex-1 hidden lg:block" />
         </div>
       </div>
@@ -169,7 +188,7 @@ export default function Visits() {
           <MapPin className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold">Visit Schedules</h1>
           {data?.total > 0 && (
-            <Badge variant="secondary">{data.total} this month</Badge>
+            <Badge variant="secondary" className="text-xs">{data.total} this month</Badge>
           )}
         </div>
         <Button variant="outline" size="sm" onClick={goToToday} data-testid="button-go-to-today">
@@ -294,8 +313,8 @@ function DesktopLayout({
   setSelectedLeadId,
 }: LayoutProps) {
   return (
-    <div className="h-full flex gap-6 p-6">
-      <div className="w-80 shrink-0">
+    <div className="h-full flex gap-4 p-4">
+      <div className="w-72 shrink-0">
         <CompactCalendar
           currentMonth={currentMonth}
           selectedDate={selectedDate}
@@ -341,24 +360,24 @@ function CompactCalendar({
   setSelectedDate,
 }: CompactCalendarProps) {
   return (
-    <Card>
+    <Card className="shadow-sm">
       <CardHeader className="pb-2 px-3 pt-3">
         <div className="flex items-center justify-between">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goToPreviousMonth} data-testid="button-prev-month">
+          <Button variant="ghost" size="sm" onClick={goToPreviousMonth} data-testid="button-prev-month">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <CardTitle className="text-base" data-testid="text-current-month">
+          <CardTitle className="text-sm font-medium" data-testid="text-current-month">
             {format(currentMonth, 'MMMM yyyy')}
           </CardTitle>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goToNextMonth} data-testid="button-next-month">
+          <Button variant="ghost" size="sm" onClick={goToNextMonth} data-testid="button-next-month">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="px-3 pb-3">
+      <CardContent className="px-2 pb-2">
         <div className="grid grid-cols-7 gap-0.5 mb-1">
           {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-            <div key={`${day}-${i}`} className="text-center text-xs font-medium text-muted-foreground py-1">
+            <div key={`${day}-${i}`} className="text-center text-xs font-medium text-muted-foreground py-0.5">
               {day}
             </div>
           ))}
@@ -366,7 +385,7 @@ function CompactCalendar({
         
         <div className="grid grid-cols-7 gap-0.5">
           {Array.from({ length: startOfMonth(currentMonth).getDay() }).map((_, i) => (
-            <div key={`empty-${i}`} className="h-9" />
+            <div key={`empty-${i}`} className="h-8" />
           ))}
           
           {calendarDays.map(day => {
@@ -379,7 +398,7 @@ function CompactCalendar({
                 key={day.toISOString()}
                 onClick={() => setSelectedDate(day)}
                 className={cn(
-                  "h-9 flex flex-col items-center justify-center rounded-md text-sm transition-colors relative",
+                  "h-8 flex flex-col items-center justify-center rounded-md text-xs transition-colors relative",
                   isSelected && "bg-primary text-primary-foreground",
                   !isSelected && isDayToday && "ring-1 ring-primary",
                   !isSelected && !isDayToday && "hover:bg-muted",
@@ -427,10 +446,10 @@ function VisitsList({
 }: VisitsListProps & { isMobileView?: boolean }) {
   if (!selectedDate) {
     return (
-      <Card className="flex items-center justify-center">
-        <CardContent className="py-12 text-center text-muted-foreground">
-          <Calendar className="h-10 w-10 mx-auto mb-3 opacity-50" />
-          <p>Select a date to view visits</p>
+      <Card className="flex items-center justify-center shadow-sm">
+        <CardContent className="py-8 text-center text-muted-foreground">
+          <Calendar className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">Select a date to view visits</p>
         </CardContent>
       </Card>
     );
@@ -440,21 +459,21 @@ function VisitsList({
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <Calendar className="h-4 w-4 text-muted-foreground" />
-        <h2 className="font-semibold" data-testid="text-selected-date">
-          {format(selectedDate, 'EEEE, MMMM d, yyyy')}
+        <h2 className="font-medium text-sm" data-testid="text-selected-date">
+          {format(selectedDate, 'EEE, MMM d')}
         </h2>
-        <Badge variant="outline">{selectedDateVisits.length} visit{selectedDateVisits.length !== 1 ? 's' : ''}</Badge>
+        <Badge variant="secondary" className="text-xs">{selectedDateVisits.length} visit{selectedDateVisits.length !== 1 ? 's' : ''}</Badge>
       </div>
 
       {selectedDateVisits.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <Calendar className="h-10 w-10 mx-auto mb-3 opacity-50" />
-            <p>No visits scheduled for this date</p>
+        <Card className="shadow-sm">
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <Calendar className="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">No visits scheduled</p>
           </CardContent>
         </Card>
       ) : isMobileView ? (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-2">
           {selectedDateVisits.map(visit => (
             <VisitCard
               key={visit.id}
@@ -467,8 +486,8 @@ function VisitsList({
           ))}
         </div>
       ) : (
-        <ScrollArea className="h-[calc(100vh-200px)]">
-          <div className="space-y-3 pr-2">
+        <ScrollArea className="h-[calc(100vh-180px)]">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 pr-2">
             {selectedDateVisits.map(visit => (
               <VisitCard
                 key={visit.id}
@@ -502,7 +521,7 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, onClick }: Visi
     const column = columnsMap.get(key);
     if (column?.type === 'date' && value) {
       try {
-        return format(parseISO(String(value)), 'MMM d, yyyy');
+        return format(parseISO(String(value)), 'MMM d');
       } catch {
         return String(value);
       }
@@ -530,82 +549,78 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, onClick }: Visi
     }
   };
 
+  const sheetColorClass = getSheetColor(visit.sheet_name);
+
   return (
     <Card 
-      className="cursor-pointer hover-elevate transition-all"
+      className="cursor-pointer hover-elevate transition-all shadow-sm group"
       onClick={onClick}
       data-testid={`card-visit-${visit.id}`}
     >
-      <CardContent className="p-3 space-y-2">
-        <div className="flex items-start justify-between gap-2">
+      <CardContent className="p-3">
+        <div className="flex items-start justify-between gap-2 mb-2">
           <div className="min-w-0 flex-1">
-            <h3 className="font-semibold truncate text-sm" data-testid={`text-visit-name-${visit.id}`}>
+            <h3 className="font-semibold truncate text-sm leading-tight" data-testid={`text-visit-name-${visit.id}`}>
               {fullName}
             </h3>
             {mobile && (
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Phone className="h-3 w-3" />
-                <span>{mobile}</span>
-              </div>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">{mobile}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-0.5 shrink-0">
+            {cleanMobile && (
+              <>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleCall}
+                  data-testid={`button-call-${visit.id}`}
+                >
+                  <Phone className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleWhatsApp}
+                  className="text-green-600"
+                  data-testid={`button-whatsapp-${visit.id}`}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                </Button>
+              </>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Building2 className="h-3 w-3 shrink-0" />
-          <span className="truncate">{visit.sheet_name}</span>
+        <div className={cn(
+          "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
+          sheetColorClass
+        )}>
+          {visit.sheet_name}
         </div>
 
         {displayColumns.length > 0 && (
-          <div className="pt-2 border-t space-y-1">
-            {displayColumns.slice(0, 3).map(colKey => {
+          <div className="mt-2 pt-2 border-t border-dashed space-y-0.5">
+            {displayColumns.slice(0, 2).map(colKey => {
               if (colKey === 'full_name' || colKey === 'mobile_no' || colKey === dateColumn) return null;
               const column = columnsMap.get(colKey);
               const value = visit.custom_fields?.[colKey];
               if (!column || value === undefined || value === null || value === '') return null;
               
               return (
-                <div key={colKey} className="flex items-center justify-between text-xs">
+                <div key={colKey} className="flex items-center justify-between text-xs gap-2">
                   <span className="text-muted-foreground truncate">{column.name}</span>
-                  <span className="font-medium truncate max-w-[60%]">{formatValue(colKey, value)}</span>
+                  <span className="font-medium truncate text-right">{formatValue(colKey, value)}</span>
                 </div>
               );
             })}
           </div>
         )}
 
-        <div className="flex items-center justify-between pt-2 border-t">
-          {cleanMobile ? (
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleCall}
-                className="h-8 px-3"
-                data-testid={`button-call-${visit.id}`}
-              >
-                <Phone className="h-4 w-4 mr-1" />
-                Call
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleWhatsApp}
-                className="h-8 px-3 text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950"
-                data-testid={`button-whatsapp-${visit.id}`}
-              >
-                <MessageCircle className="h-4 w-4 mr-1" />
-                WhatsApp
-              </Button>
-            </div>
-          ) : (
-            <div />
-          )}
-          <span 
-            className="text-xs text-primary font-medium cursor-pointer"
-            onClick={onClick}
-          >
-            View Details →
+        <div className="mt-2 pt-2 border-t flex items-center justify-end">
+          <span className="text-xs text-primary font-medium flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+            Details
+            <ExternalLink className="h-3 w-3" />
           </span>
         </div>
       </CardContent>
