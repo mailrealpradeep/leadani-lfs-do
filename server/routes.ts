@@ -10097,7 +10097,11 @@ ${questionsList}`;
       const start = startDate ? new Date(startDate as string) : undefined;
       const end = endDate ? new Date(endDate as string) : undefined;
       
+      console.log(`[Attendance API] Company: ${req.companyId}, Start: ${start?.toISOString()}, End: ${end?.toISOString()}`);
+      
       const entries = await storage.getAttendanceEntriesByCompanyId(req.companyId!, start, end);
+      
+      console.log(`[Attendance API] Found ${entries.length} entries for company ${req.companyId}`);
       
       // Enrich with user names
       const users = await storage.getUsersByCompanyId(req.companyId!);

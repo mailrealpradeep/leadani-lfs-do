@@ -427,7 +427,13 @@ export default function Attendance() {
         params.append('endDate', adminHistoryQueryParams.endDate.toISOString());
       }
       const url = `/api/attendance/company${params.toString() ? `?${params.toString()}` : ''}`;
-      const response = await fetch(url, { credentials: 'include' });
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(url, { 
+        credentials: 'include',
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
       if (!response.ok) throw new Error('Failed to fetch company attendance');
       return response.json();
     },
@@ -448,7 +454,13 @@ export default function Attendance() {
       params.append('startDate', adminCalendarMonthRange.startDate.toISOString());
       params.append('endDate', adminCalendarMonthRange.endDate.toISOString());
       const url = `/api/attendance/company?${params.toString()}`;
-      const response = await fetch(url, { credentials: 'include' });
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(url, { 
+        credentials: 'include',
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
       if (!response.ok) throw new Error('Failed to fetch company attendance');
       return response.json();
     },
