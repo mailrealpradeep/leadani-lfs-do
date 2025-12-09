@@ -1388,6 +1388,15 @@ ${questionsList}`;
         io.to(`sheet:${targetSheetId}`).emit("lead_created", lead);
       }
 
+      // Trigger outgoing webhooks for lead creation (for new leads only, not updates)
+      if (!isDuplicate && targetSheetId) {
+        triggerOutgoingWebhooks("lead_created", {
+          lead,
+          sheetId: targetSheetId,
+          companyId: webhook.company_id,
+        });
+      }
+
       requestStatus = "success";
       
       // Send webhook received notification
@@ -2998,6 +3007,13 @@ ${questionsList}`;
         io.to(`sheet:${sheet_id}`).emit("lead_created", lead);
       }
 
+      // Trigger outgoing webhooks for lead creation
+      triggerOutgoingWebhooks("lead_created", {
+        lead,
+        sheetId: sheet_id,
+        companyId: req.companyId!,
+      });
+
       // Create audit log
       await storage.createAuditLog({
         company_id: req.companyId,
@@ -3135,6 +3151,13 @@ ${questionsList}`;
           if (io) {
             io.to(`sheet:${sheet_id}`).emit("lead_created", lead);
           }
+
+          // Trigger outgoing webhooks for lead creation
+          triggerOutgoingWebhooks("lead_created", {
+            lead,
+            sheetId: sheet_id,
+            companyId: req.companyId!,
+          });
 
           results.push({ request_id: requestId, success: true, lead_id: lead.id });
         } catch (err: any) {
@@ -3400,6 +3423,13 @@ ${questionsList}`;
           if (io) {
             io.to(`sheet:${selectedSheet}`).emit("lead_created", lead);
           }
+
+          // Trigger outgoing webhooks for lead creation
+          triggerOutgoingWebhooks("lead_created", {
+            lead,
+            sheetId: selectedSheet,
+            companyId: req.companyId!,
+          });
 
           results.push({ request_id: requestId, success: true, lead_id: lead.id, sheet_id: selectedSheet });
         } catch (err: any) {
@@ -8830,6 +8860,13 @@ ${questionsList}`;
       // Realtime notification
       const io = app.get("io") as SocketIOServer;
       io.to(`sheet:${sheet_id}`).emit("lead_created", lead);
+
+      // Trigger outgoing webhooks for lead creation
+      triggerOutgoingWebhooks("lead_created", {
+        lead,
+        sheetId: sheet_id,
+        companyId: companyId,
+      });
 
       // Log success
       await storage.createWebhookLog({
