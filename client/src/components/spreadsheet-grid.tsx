@@ -111,7 +111,6 @@ import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRu
 import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
-import { LeadUpdateHistoryHover } from "./lead-update-history-hover";
 import { LeadEditDialog } from "./lead-edit-dialog";
 import { TransitionExplanationDialog } from "./transition-explanation-dialog";
 import { MobileFilterSheet } from "./mobile-filter-sheet";
@@ -2479,15 +2478,22 @@ export function SpreadsheetGrid({
                               <Edit2 className="h-4 w-4 mr-2" />
                               Update
                             </Button>
-                            <LeadUpdateHistoryHover
-                              leadId={lead.id}
-                              variant="full"
+                            <Button
+                              variant="outline"
+                              size="sm"
                               className="flex-1 min-h-[44px]"
-                              onOpenFullHistory={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Prevent switching leads while dialog is already open
+                                if (updateHistoryDialogOpen) return;
                                 setSelectedLeadForUpdate(lead.id);
                                 setUpdateHistoryDialogOpen(true);
                               }}
-                            />
+                              data-testid={`button-update-history-${lead.id}`}
+                            >
+                              <History className="h-4 w-4 mr-2" />
+                              History
+                            </Button>
                             <Button
                               variant="outline"
                               size="icon"
@@ -2956,15 +2962,21 @@ export function SpreadsheetGrid({
                       >
                         <Edit2 className="h-4 w-4" />
                       </Button>
-                      <LeadUpdateHistoryHover
-                        leadId={lead.id}
-                        variant="icon"
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-8 w-8"
-                        onOpenFullHistory={() => {
+                        onClick={() => {
+                          // Prevent switching leads while dialog is already open
+                          if (updateHistoryDialogOpen) return;
                           setSelectedLeadForUpdate(lead.id);
                           setUpdateHistoryDialogOpen(true);
                         }}
-                      />
+                        data-testid={`button-update-history-${lead.id}`}
+                        title="View update history"
+                      >
+                        <History className="h-4 w-4" />
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
