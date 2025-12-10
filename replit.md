@@ -116,16 +116,25 @@ JWT-based authentication with role and sheet-level permissions, HMAC signature v
 
 ## Future Improvements (Saved for Later)
 
-These ideas are documented in the Super Admin Console > Future tab:
+These ideas are stored in the database and managed via Super Admin Console > Future tab. The system supports full CRUD operations with status tracking (planned/in_progress/ready/completed), priority levels, estimated effort, cost estimates, and detailed technical notes.
 
-### 1. WhatsApp / Instagram Lead Chat Integration
+### Current Items in Database:
+
+### 1. Quick Filter Logic Change: Per-Condition AND/OR Operators
+Allow users to specify AND/OR logic between individual quick filter conditions:
+- Currently all conditions use the same global logic (AND or OR)
+- Requested: Flexible logic like "A OR B OR C AND D" where each condition specifies its relationship to the next
+- Prerequisite: Fix current bug where buildBackendFilters doesn't handle array values from "in" operator
+- Estimated effort: 2-3 days
+
+### 2. WhatsApp / Instagram Lead Chat Integration
 Bidirectional messaging through existing BSP:
 - Inbound: Client WhatsApp/IG → BSP Webhook → LFS Lead Chat (match phone to lead)
 - Outbound: Team reply in Lead Chat → Outgoing Webhook → BSP → Client WhatsApp/IG
 - Estimated effort: 1-2 weeks
 - Cost: Uses existing BSP subscription
 
-### 2. AI Coach for Tele Caller
+### 3. AI Coach for Tele Caller
 Personalized motivational avatar that speaks to users based on lead performance:
 - Generate personalized messages from lead data (e.g., "Ankita, aapki lead to admission ratio kam hai...")
 - Use TTS (ElevenLabs/Azure) for Hindi voice generation (~$5-20/month)
