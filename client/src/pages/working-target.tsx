@@ -618,11 +618,11 @@ export default function WorkingTarget() {
                 <span className="text-muted-foreground">{progress.totalCurrentValue}/{progress.totalTargetValue}</span>
               </div>
 
-              {/* Compact Progress Bar */}
+              {/* Compact Progress Bar - shows average compliance percentage */}
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-green-500 transition-all duration-500 rounded-full"
-                  style={{ width: `${achievedPercentage}%` }}
+                  style={{ width: `${Math.min(100, Math.round(progress.averageCompliancePercentage))}%` }}
                 />
               </div>
 
