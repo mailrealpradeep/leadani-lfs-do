@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { format, parseISO } from "date-fns";
 import {
   Shield,
@@ -400,23 +401,6 @@ function SuperAdminContent() {
 
   const renderDashboard = () => (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold" data-testid="text-dashboard-title">Dashboard</h2>
-          <p className="text-sm text-muted-foreground">System overview and statistics</p>
-        </div>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => {
-            queryClient.invalidateQueries({ queryKey: ["/api/super-admin"] });
-          }}
-          data-testid="button-refresh"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-      </div>
-      
       {statsLoading ? (
         <div className="flex items-center justify-center h-24">
           <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -452,11 +436,6 @@ function SuperAdminContent() {
 
   const renderUsers = () => (
     <div className="flex flex-col h-full space-y-3">
-      <div>
-        <h2 className="text-xl font-bold" data-testid="text-users-title">Users</h2>
-        <p className="text-sm text-muted-foreground">Manage all system users</p>
-      </div>
-
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -611,11 +590,6 @@ function SuperAdminContent() {
 
   const renderCompanies = () => (
     <div className="flex flex-col h-full space-y-3">
-      <div>
-        <h2 className="text-xl font-bold" data-testid="text-companies-title">Companies</h2>
-        <p className="text-sm text-muted-foreground">Manage all registered companies</p>
-      </div>
-
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -715,30 +689,18 @@ function SuperAdminContent() {
       case "recovery":
         return (
           <div className="h-full">
-            <div className="mb-3">
-              <h2 className="text-xl font-bold" data-testid="text-recovery-title">Data Recovery</h2>
-              <p className="text-sm text-muted-foreground">Restore data from point-in-time snapshots</p>
-            </div>
             <DataRecovery />
           </div>
         );
       case "api-docs":
         return (
           <ScrollArea className="h-full">
-            <div className="mb-3">
-              <h2 className="text-xl font-bold" data-testid="text-api-docs-title">API Documentation</h2>
-              <p className="text-sm text-muted-foreground">Reference for API integration</p>
-            </div>
             <ApiDocumentation />
           </ScrollArea>
         );
       case "api-keys":
         return (
           <div className="h-full">
-            <div className="mb-3">
-              <h2 className="text-xl font-bold" data-testid="text-api-keys-title">API Keys</h2>
-              <p className="text-sm text-muted-foreground">Manage API access credentials</p>
-            </div>
             <ApiKeysManager />
           </div>
         );
@@ -749,13 +711,46 @@ function SuperAdminContent() {
     }
   };
 
+  // Get current section info for header
+  const currentSection = menuItems.find(item => item.id === activeSection) || menuItems[0];
+  const sectionDescriptions: Record<Section, string> = {
+    dashboard: "System overview and statistics",
+    users: "Manage all system users",
+    companies: "Manage all registered companies",
+    recovery: "Restore data from point-in-time snapshots",
+    "api-docs": "Reference for API integration",
+    "api-keys": "Manage API access credentials",
+    future: "Planned improvements and features",
+  };
+
   return (
     <div className="flex h-screen w-full">
       <SuperAdminSidebar activeSection={activeSection} setActiveSection={setActiveSection} />
       
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <header className="flex items-center gap-2 px-4 py-2 border-b shrink-0">
+        <header className="flex items-center gap-3 px-4 py-2 border-b shrink-0">
           <SidebarTrigger data-testid="button-sidebar-toggle" />
+          <div className="h-5 w-px bg-border" />
+          <currentSection.icon className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0">
+            <h1 className="text-sm font-semibold leading-none" data-testid={`text-${activeSection}-title`}>
+              {currentSection.title}
+            </h1>
+            <p className="text-xs text-muted-foreground truncate">{sectionDescriptions[activeSection]}</p>
+          </div>
+          {activeSection === "dashboard" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/super-admin"] });
+              }}
+              data-testid="button-refresh"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          )}
+          <ThemeToggle />
         </header>
         
         <div className="flex-1 p-4 overflow-auto">
