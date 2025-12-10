@@ -253,7 +253,10 @@ function AppLayout() {
   const publicOnlyPages = ['/help', '/features', '/pricing', '/guide'];
   const isPublicOnlyPage = publicOnlyPages.some(p => location.startsWith(p));
   
-  if (!isAuthenticated || isPublicOnlyPage) {
+  // Super Admin has its own independent layout with its own sidebar
+  const isSuperAdminPage = location.startsWith('/super-admin');
+  
+  if (!isAuthenticated || isPublicOnlyPage || isSuperAdminPage) {
     return (
       <>
         <Router />

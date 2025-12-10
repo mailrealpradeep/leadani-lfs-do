@@ -399,10 +399,10 @@ function SuperAdminContent() {
   );
 
   const renderDashboard = () => (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold" data-testid="text-dashboard-title">Dashboard</h2>
+          <h2 className="text-xl font-bold" data-testid="text-dashboard-title">Dashboard</h2>
           <p className="text-sm text-muted-foreground">System overview and statistics</p>
         </div>
         <Button
@@ -451,9 +451,9 @@ function SuperAdminContent() {
   );
 
   const renderUsers = () => (
-    <div className="flex flex-col h-full space-y-4">
+    <div className="flex flex-col h-full space-y-3">
       <div>
-        <h2 className="text-2xl font-bold" data-testid="text-users-title">Users</h2>
+        <h2 className="text-xl font-bold" data-testid="text-users-title">Users</h2>
         <p className="text-sm text-muted-foreground">Manage all system users</p>
       </div>
 
@@ -610,9 +610,9 @@ function SuperAdminContent() {
   );
 
   const renderCompanies = () => (
-    <div className="flex flex-col h-full space-y-4">
+    <div className="flex flex-col h-full space-y-3">
       <div>
-        <h2 className="text-2xl font-bold" data-testid="text-companies-title">Companies</h2>
+        <h2 className="text-xl font-bold" data-testid="text-companies-title">Companies</h2>
         <p className="text-sm text-muted-foreground">Manage all registered companies</p>
       </div>
 
@@ -715,8 +715,8 @@ function SuperAdminContent() {
       case "recovery":
         return (
           <div className="h-full">
-            <div className="mb-4">
-              <h2 className="text-2xl font-bold" data-testid="text-recovery-title">Data Recovery</h2>
+            <div className="mb-3">
+              <h2 className="text-xl font-bold" data-testid="text-recovery-title">Data Recovery</h2>
               <p className="text-sm text-muted-foreground">Restore data from point-in-time snapshots</p>
             </div>
             <DataRecovery />
@@ -725,8 +725,8 @@ function SuperAdminContent() {
       case "api-docs":
         return (
           <ScrollArea className="h-full">
-            <div className="mb-4">
-              <h2 className="text-2xl font-bold" data-testid="text-api-docs-title">API Documentation</h2>
+            <div className="mb-3">
+              <h2 className="text-xl font-bold" data-testid="text-api-docs-title">API Documentation</h2>
               <p className="text-sm text-muted-foreground">Reference for API integration</p>
             </div>
             <ApiDocumentation />
@@ -735,8 +735,8 @@ function SuperAdminContent() {
       case "api-keys":
         return (
           <div className="h-full">
-            <div className="mb-4">
-              <h2 className="text-2xl font-bold" data-testid="text-api-keys-title">API Keys</h2>
+            <div className="mb-3">
+              <h2 className="text-xl font-bold" data-testid="text-api-keys-title">API Keys</h2>
               <p className="text-sm text-muted-foreground">Manage API access credentials</p>
             </div>
             <ApiKeysManager />
@@ -754,15 +754,11 @@ function SuperAdminContent() {
       <SuperAdminSidebar activeSection={activeSection} setActiveSection={setActiveSection} />
       
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <header className="flex items-center gap-2 p-4 border-b shrink-0">
+        <header className="flex items-center gap-2 px-4 py-2 border-b shrink-0">
           <SidebarTrigger data-testid="button-sidebar-toggle" />
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold" data-testid="text-super-admin-title">Super Admin Console</h1>
-          </div>
         </header>
         
-        <div className="flex-1 p-6 overflow-auto">
+        <div className="flex-1 p-4 overflow-auto">
           {renderContent()}
         </div>
       </main>
