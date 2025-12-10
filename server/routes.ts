@@ -1799,8 +1799,8 @@ ${questionsList}`;
         accessibleSheetIds = allSheets.filter(s => !s.deleted_at).map(s => s.id);
       } else {
         // Regular users can only see sheets they have access to
-        const userSheets = await storage.getSheetUsersByUserId(req.userId!);
-        accessibleSheetIds = userSheets.map(su => su.sheet_id);
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        accessibleSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
       }
 
       if (accessibleSheetIds.length === 0) {
