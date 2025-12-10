@@ -14,7 +14,6 @@ import {
   UserX,
   RefreshCw,
   TrendingUp,
-  AlertCircle,
   Trash2,
   Key,
   Copy,
@@ -24,6 +23,7 @@ import {
   Code,
   Lightbulb,
   History,
+  LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,12 +63,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Redirect } from "wouter";
 import { ApiDocumentation } from "@/components/api-documentation";
 import { FutureImprovements } from "@/components/future-improvements";
 import { ApiKeysManager } from "@/components/api-keys-manager";
 import { DataRecovery } from "@/components/data-recovery";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from "@/components/ui/sidebar";
 
 interface SuperAdminStats {
   totalCompanies: number;
@@ -102,11 +115,62 @@ interface UserWithCompany {
   company_name: string | null;
 }
 
+type Section = "dashboard" | "users" | "companies" | "recovery" | "api-docs" | "api-keys" | "future";
+
 const SUPER_ADMIN_EMAIL = "adminleadani@leadani.com";
 
-export default function SuperAdmin() {
+const menuItems = [
+  { id: "dashboard" as Section, title: "Dashboard", icon: LayoutDashboard },
+  { id: "users" as Section, title: "Users", icon: Users },
+  { id: "companies" as Section, title: "Companies", icon: Building2 },
+  { id: "recovery" as Section, title: "Recovery", icon: History },
+  { id: "api-docs" as Section, title: "API Docs", icon: Code },
+  { id: "api-keys" as Section, title: "API Keys", icon: Key },
+  { id: "future" as Section, title: "Future", icon: Lightbulb },
+];
+
+function SuperAdminSidebar({ activeSection, setActiveSection }: { 
+  activeSection: Section; 
+  setActiveSection: (section: Section) => void;
+}) {
+  return (
+    <Sidebar collapsible="icon" className="border-r">
+      <SidebarHeader className="p-4">
+        <div className="flex items-center gap-2">
+          <Shield className="h-6 w-6 text-primary shrink-0" />
+          <span className="font-semibold group-data-[collapsible=icon]:hidden">Super Admin</span>
+        </div>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {menuItems.map((item) => (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton
+                    isActive={activeSection === item.id}
+                    onClick={() => setActiveSection(item.id)}
+                    tooltip={item.title}
+                    data-testid={`nav-${item.id}`}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+    </Sidebar>
+  );
+}
+
+function SuperAdminContent() {
   const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const [activeSection, setActiveSection] = useState<Section>("dashboard");
   const [searchQuery, setSearchQuery] = useState("");
   const [userTypeFilter, setUserTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -231,21 +295,15 @@ export default function SuperAdmin() {
   const handleLoginAsUser = async (targetUser: UserWithCompany) => {
     try {
       setIsImpersonating(true);
-      
-      // Step 1: Get impersonation code from backend
       const codeResponse = await apiRequest<{ code: string; user: any }>(
         "POST",
         `/api/super-admin/impersonate/${targetUser.id}`
       );
-      
-      // Step 2: Redeem the code for a token
       const tokenResponse = await apiRequest<{ token: string; user: any; company: any }>(
         "POST",
         "/api/impersonate/redeem",
         { code: codeResponse.code }
       );
-      
-      // Step 3: Clear only auth-related storage, preserve other preferences (theme, etc.)
       localStorage.removeItem("auth_token");
       localStorage.removeItem("impersonating");
       localStorage.removeItem("impersonated_user_name");
@@ -255,8 +313,6 @@ export default function SuperAdmin() {
       sessionStorage.removeItem("impersonated_user_name");
       sessionStorage.removeItem("impersonated_user_email");
       queryClient.clear();
-      
-      // Step 4: Store the new token and impersonation flags in BOTH storages for consistency
       localStorage.setItem("auth_token", tokenResponse.token);
       localStorage.setItem("impersonating", "true");
       localStorage.setItem("impersonated_user_name", targetUser.name);
@@ -264,10 +320,7 @@ export default function SuperAdmin() {
       sessionStorage.setItem("impersonating", "true");
       sessionStorage.setItem("impersonated_user_name", targetUser.name);
       sessionStorage.setItem("impersonated_user_email", targetUser.email);
-      
-      // Step 5: Hard reload the page - this forces complete fresh start
       window.location.href = "/";
-      
     } catch (error: any) {
       setIsImpersonating(false);
       toast({
@@ -293,27 +346,22 @@ export default function SuperAdmin() {
     });
   };
 
-  // Filter users based on search and filters
   const filteredUsers = users.filter(u => {
     const matchesSearch = 
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (u.company_name?.toLowerCase().includes(searchQuery.toLowerCase()));
-    
     const matchesType = 
       userTypeFilter === "all" || 
       (userTypeFilter === "admin" && u.role === "company_admin") ||
       (userTypeFilter === "user" && u.role === "user");
-    
     const matchesStatus = 
       statusFilter === "all" ||
       (statusFilter === "active" && u.is_active) ||
       (statusFilter === "suspended" && !u.is_active);
-    
     return matchesSearch && matchesType && matchesStatus;
   });
 
-  // Filter companies based on search
   const filteredCompanies = companies.filter(c =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -350,319 +398,181 @@ export default function SuperAdmin() {
     </Card>
   );
 
-  return (
-    <div className="h-full flex flex-col">
-      <div className="p-4 md:p-6 space-y-6 flex flex-col flex-1 min-h-0">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Shield className="h-8 w-8 text-primary" />
-            <div>
-              <h1 className="text-2xl font-bold" data-testid="text-super-admin-title">Super Admin Console</h1>
-              <p className="text-sm text-muted-foreground">Manage all companies and users</p>
-            </div>
-          </div>
-          
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/super-admin"] });
-            }}
-            data-testid="button-refresh"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
+  const renderDashboard = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold" data-testid="text-dashboard-title">Dashboard</h2>
+          <p className="text-sm text-muted-foreground">System overview and statistics</p>
         </div>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/super-admin"] });
+          }}
+          data-testid="button-refresh"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+      </div>
+      
+      {statsLoading ? (
+        <div className="flex items-center justify-center h-24">
+          <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Companies"
+            value={companies.length}
+            icon={Building2}
+            description={`${companies.filter(c => c.is_active).length} active`}
+          />
+          <StatCard
+            title="Users"
+            value={stats?.totalUsers || 0}
+            icon={Users}
+            description={`${stats?.activeUsers || 0} active`}
+          />
+          <StatCard
+            title="Sheets"
+            value={stats?.totalSheets || 0}
+            icon={FileSpreadsheet}
+          />
+          <StatCard
+            title="Leads"
+            value={stats?.totalLeads || 0}
+            icon={TrendingUp}
+          />
+        </div>
+      )}
+    </div>
+  );
 
-        {/* Stats Row */}
-        {statsLoading ? (
-          <div className="flex items-center justify-center h-24">
-            <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-            <StatCard
-              title="Companies"
-              value={companies.length}
-              icon={Building2}
-              description={`${companies.filter(c => c.is_active).length} active`}
-            />
-            <StatCard
-              title="Users"
-              value={stats?.totalUsers || 0}
-              icon={Users}
-              description={`${stats?.activeUsers || 0} active`}
-            />
-            <StatCard
-              title="Sheets"
-              value={stats?.totalSheets || 0}
-              icon={FileSpreadsheet}
-            />
-            <StatCard
-              title="Leads"
-              value={stats?.totalLeads || 0}
-              icon={TrendingUp}
-            />
-          </div>
-        )}
+  const renderUsers = () => (
+    <div className="flex flex-col h-full space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold" data-testid="text-users-title">Users</h2>
+        <p className="text-sm text-muted-foreground">Manage all system users</p>
+      </div>
 
-        {/* Tabs for Users, Companies, and API Docs */}
-        <Tabs defaultValue="users" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full max-w-4xl grid-cols-6">
-            <TabsTrigger value="users" data-testid="tab-users">
-              <Users className="h-4 w-4 mr-2" />
-              Users
-            </TabsTrigger>
-            <TabsTrigger value="companies" data-testid="tab-companies">
-              <Building2 className="h-4 w-4 mr-2" />
-              Companies
-            </TabsTrigger>
-            <TabsTrigger value="recovery" data-testid="tab-recovery">
-              <History className="h-4 w-4 mr-2" />
-              Recovery
-            </TabsTrigger>
-            <TabsTrigger value="api-docs" data-testid="tab-api-docs">
-              <Code className="h-4 w-4 mr-2" />
-              API Docs
-            </TabsTrigger>
-            <TabsTrigger value="api-keys" data-testid="tab-api-keys">
-              <Key className="h-4 w-4 mr-2" />
-              API Keys
-            </TabsTrigger>
-            <TabsTrigger value="future" data-testid="tab-future">
-              <Lightbulb className="h-4 w-4 mr-2" />
-              Future
-            </TabsTrigger>
-          </TabsList>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by name, email, or company..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            data-testid="input-search-users"
+          />
+        </div>
+        <Select value={userTypeFilter} onValueChange={setUserTypeFilter}>
+          <SelectTrigger className="w-[140px]" data-testid="select-user-type">
+            <SelectValue placeholder="User Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="admin">Admin</SelectItem>
+            <SelectItem value="user">User</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[140px]" data-testid="select-status">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="suspended">Suspended</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
-          {/* Users Tab */}
-          <TabsContent value="users" className="flex-1 flex flex-col min-h-0 mt-4">
-            {/* Search and Filters */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name, email, or company..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                  data-testid="input-search-users"
-                />
-              </div>
-              <Select value={userTypeFilter} onValueChange={setUserTypeFilter}>
-                <SelectTrigger className="w-[140px]" data-testid="select-user-type">
-                  <SelectValue placeholder="User Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="user">User</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[140px]" data-testid="select-status">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="suspended">Suspended</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Users Table */}
-            <Card className="flex-1 flex flex-col min-h-0">
-              <ScrollArea className="flex-1">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Username</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>User Type</TableHead>
-                      <TableHead>Password</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {usersLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8">
-                          <RefreshCw className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                        </TableCell>
-                      </TableRow>
-                    ) : filteredUsers.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          No users found
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredUsers.map((u) => (
-                        <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
-                          <TableCell className="font-medium">
-                            {u.company_name || "-"}
-                          </TableCell>
-                          <TableCell>{u.name}</TableCell>
-                          <TableCell className="text-muted-foreground">{u.email}</TableCell>
-                          <TableCell>
-                            <Badge variant={u.role === "company_admin" ? "default" : "secondary"}>
-                              {u.role === "super_admin" ? "Super Admin" : u.role === "company_admin" ? "Admin" : "User"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
+      <Card className="flex-1 flex flex-col min-h-0">
+        <ScrollArea className="flex-1">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Company</TableHead>
+                <TableHead>Username</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>User Type</TableHead>
+                <TableHead>Password</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {usersLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                  </TableCell>
+                </TableRow>
+              ) : filteredUsers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    No users found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredUsers.map((u) => (
+                  <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
+                    <TableCell className="font-medium">{u.company_name || "-"}</TableCell>
+                    <TableCell>{u.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{u.email}</TableCell>
+                    <TableCell>
+                      <Badge variant={u.role === "company_admin" ? "default" : "secondary"}>
+                        {u.role === "super_admin" ? "Super Admin" : u.role === "company_admin" ? "Admin" : "User"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedUser(u);
+                          setNewPassword("");
+                          setIsResetPasswordDialogOpen(true);
+                        }}
+                        disabled={u.email === SUPER_ADMIN_EMAIL}
+                        data-testid={`button-reset-password-${u.id}`}
+                      >
+                        <Key className="h-3 w-3 mr-1" />
+                        Reset
+                      </Button>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={u.is_active ? "default" : "destructive"}>
+                        {u.is_active ? "Active" : "Suspended"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {u.email !== SUPER_ADMIN_EMAIL && (
+                          <>
                             <Button
-                              variant="outline"
+                              variant="default"
+                              size="sm"
+                              onClick={() => handleLoginAsUser(u)}
+                              disabled={isImpersonating || !u.is_active}
+                              data-testid={`button-login-as-${u.id}`}
+                            >
+                              <LogIn className="h-3 w-3 mr-1" />
+                              {isImpersonating ? "Logging in..." : "Login As"}
+                            </Button>
+                            <Button
+                              variant={u.is_active ? "outline" : "default"}
                               size="sm"
                               onClick={() => {
                                 setSelectedUser(u);
-                                setNewPassword("");
-                                setIsResetPasswordDialogOpen(true);
+                                setIsSuspendDialogOpen(true);
                               }}
-                              disabled={u.email === SUPER_ADMIN_EMAIL}
-                              data-testid={`button-reset-password-${u.id}`}
+                              data-testid={`button-suspend-${u.id}`}
                             >
-                              <Key className="h-3 w-3 mr-1" />
-                              Reset
-                            </Button>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={u.is_active ? "default" : "destructive"}>
-                              {u.is_active ? "Active" : "Suspended"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {u.email !== SUPER_ADMIN_EMAIL && (
-                                <>
-                                  <Button
-                                    variant="default"
-                                    size="sm"
-                                    onClick={() => handleLoginAsUser(u)}
-                                    disabled={isImpersonating || !u.is_active}
-                                    data-testid={`button-login-as-${u.id}`}
-                                  >
-                                    <LogIn className="h-3 w-3 mr-1" />
-                                    {isImpersonating ? "Logging in..." : "Login As"}
-                                  </Button>
-                                  <Button
-                                    variant={u.is_active ? "outline" : "default"}
-                                    size="sm"
-                                    onClick={() => {
-                                      setSelectedUser(u);
-                                      setIsSuspendDialogOpen(true);
-                                    }}
-                                    data-testid={`button-suspend-${u.id}`}
-                                  >
-                                    {u.is_active ? (
-                                      <>
-                                        <UserX className="h-3 w-3 mr-1" />
-                                        Suspend
-                                      </>
-                                    ) : (
-                                      <>
-                                        <UserCheck className="h-3 w-3 mr-1" />
-                                        Activate
-                                      </>
-                                    )}
-                                  </Button>
-                                  <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={() => {
-                                      setSelectedUser(u);
-                                      setIsDeleteDialogOpen(true);
-                                    }}
-                                    data-testid={`button-delete-${u.id}`}
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
-            </Card>
-          </TabsContent>
-
-          {/* Companies Tab */}
-          <TabsContent value="companies" className="flex-1 flex flex-col min-h-0 mt-4">
-            {/* Search */}
-            <div className="flex gap-3 mb-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search companies..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                  data-testid="input-search-companies"
-                />
-              </div>
-            </div>
-
-            {/* Companies Table */}
-            <Card className="flex-1 flex flex-col min-h-0">
-              <ScrollArea className="flex-1">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Company Name</TableHead>
-                      <TableHead>Users</TableHead>
-                      <TableHead>Sheets</TableHead>
-                      <TableHead>Leads</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {companiesLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8">
-                          <RefreshCw className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                        </TableCell>
-                      </TableRow>
-                    ) : filteredCompanies.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          No companies found
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredCompanies.map((c) => (
-                        <TableRow key={c.id} data-testid={`row-company-${c.id}`}>
-                          <TableCell className="font-medium">{c.name}</TableCell>
-                          <TableCell>{c.userCount}</TableCell>
-                          <TableCell>{c.sheetCount}</TableCell>
-                          <TableCell>{c.leadCount}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {format(parseISO(c.created_at), "MMM d, yyyy")}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={c.is_active ? "default" : "destructive"}>
-                              {c.is_active ? "Active" : "Suspended"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant={c.is_active ? "outline" : "default"}
-                              size="sm"
-                              onClick={() => {
-                                setSelectedCompany(c);
-                                setIsCompanySuspendDialogOpen(true);
-                              }}
-                              data-testid={`button-company-suspend-${c.id}`}
-                            >
-                              {c.is_active ? (
+                              {u.is_active ? (
                                 <>
                                   <UserX className="h-3 w-3 mr-1" />
                                   Suspend
@@ -674,41 +584,189 @@ export default function SuperAdmin() {
                                 </>
                               )}
                             </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
-            </Card>
-          </TabsContent>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedUser(u);
+                                setIsDeleteDialogOpen(true);
+                              }}
+                              data-testid={`button-delete-${u.id}`}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      </Card>
+    </div>
+  );
 
-          {/* Data Recovery Tab */}
-          <TabsContent value="recovery" className="flex-1 min-h-0 mt-4">
-            <DataRecovery />
-          </TabsContent>
-
-          {/* API Documentation Tab */}
-          <TabsContent value="api-docs" className="flex-1 min-h-0 mt-4">
-            <ScrollArea className="h-full">
-              <ApiDocumentation />
-            </ScrollArea>
-          </TabsContent>
-
-          {/* API Keys Tab */}
-          <TabsContent value="api-keys" className="flex-1 min-h-0 mt-4">
-            <ApiKeysManager />
-          </TabsContent>
-
-          {/* Future Improvements Tab */}
-          <TabsContent value="future" className="flex-1 min-h-0 mt-4">
-            <FutureImprovements />
-          </TabsContent>
-        </Tabs>
+  const renderCompanies = () => (
+    <div className="flex flex-col h-full space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold" data-testid="text-companies-title">Companies</h2>
+        <p className="text-sm text-muted-foreground">Manage all registered companies</p>
       </div>
 
-      {/* Suspend User Dialog */}
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search companies..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            data-testid="input-search-companies"
+          />
+        </div>
+      </div>
+
+      <Card className="flex-1 flex flex-col min-h-0">
+        <ScrollArea className="flex-1">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Company Name</TableHead>
+                <TableHead>Users</TableHead>
+                <TableHead>Sheets</TableHead>
+                <TableHead>Leads</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {companiesLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                  </TableCell>
+                </TableRow>
+              ) : filteredCompanies.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    No companies found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredCompanies.map((c) => (
+                  <TableRow key={c.id} data-testid={`row-company-${c.id}`}>
+                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell>{c.userCount}</TableCell>
+                    <TableCell>{c.sheetCount}</TableCell>
+                    <TableCell>{c.leadCount}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {format(parseISO(c.created_at), "MMM d, yyyy")}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={c.is_active ? "default" : "destructive"}>
+                        {c.is_active ? "Active" : "Suspended"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant={c.is_active ? "outline" : "default"}
+                        size="sm"
+                        onClick={() => {
+                          setSelectedCompany(c);
+                          setIsCompanySuspendDialogOpen(true);
+                        }}
+                        data-testid={`button-company-suspend-${c.id}`}
+                      >
+                        {c.is_active ? (
+                          <>
+                            <UserX className="h-3 w-3 mr-1" />
+                            Suspend
+                          </>
+                        ) : (
+                          <>
+                            <UserCheck className="h-3 w-3 mr-1" />
+                            Activate
+                          </>
+                        )}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      </Card>
+    </div>
+  );
+
+  const renderContent = () => {
+    switch (activeSection) {
+      case "dashboard":
+        return renderDashboard();
+      case "users":
+        return renderUsers();
+      case "companies":
+        return renderCompanies();
+      case "recovery":
+        return (
+          <div className="h-full">
+            <div className="mb-4">
+              <h2 className="text-2xl font-bold" data-testid="text-recovery-title">Data Recovery</h2>
+              <p className="text-sm text-muted-foreground">Restore data from point-in-time snapshots</p>
+            </div>
+            <DataRecovery />
+          </div>
+        );
+      case "api-docs":
+        return (
+          <ScrollArea className="h-full">
+            <div className="mb-4">
+              <h2 className="text-2xl font-bold" data-testid="text-api-docs-title">API Documentation</h2>
+              <p className="text-sm text-muted-foreground">Reference for API integration</p>
+            </div>
+            <ApiDocumentation />
+          </ScrollArea>
+        );
+      case "api-keys":
+        return (
+          <div className="h-full">
+            <div className="mb-4">
+              <h2 className="text-2xl font-bold" data-testid="text-api-keys-title">API Keys</h2>
+              <p className="text-sm text-muted-foreground">Manage API access credentials</p>
+            </div>
+            <ApiKeysManager />
+          </div>
+        );
+      case "future":
+        return <FutureImprovements />;
+      default:
+        return renderDashboard();
+    }
+  };
+
+  return (
+    <div className="flex h-screen w-full">
+      <SuperAdminSidebar activeSection={activeSection} setActiveSection={setActiveSection} />
+      
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <header className="flex items-center gap-2 p-4 border-b shrink-0">
+          <SidebarTrigger data-testid="button-sidebar-toggle" />
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            <h1 className="text-lg font-semibold" data-testid="text-super-admin-title">Super Admin Console</h1>
+          </div>
+        </header>
+        
+        <div className="flex-1 p-6 overflow-auto">
+          {renderContent()}
+        </div>
+      </main>
+
       <AlertDialog open={isSuspendDialogOpen} onOpenChange={setIsSuspendDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -741,7 +799,6 @@ export default function SuperAdmin() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete User Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -768,7 +825,6 @@ export default function SuperAdmin() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Reset Password / Get Credentials Dialog */}
       <Dialog open={isResetPasswordDialogOpen} onOpenChange={(open) => {
         setIsResetPasswordDialogOpen(open);
         if (!open) {
@@ -785,7 +841,6 @@ export default function SuperAdmin() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
-            {/* Email - always shown */}
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <Mail className="h-4 w-4 text-muted-foreground" />
@@ -808,7 +863,6 @@ export default function SuperAdmin() {
               </div>
             </div>
 
-            {/* Password - shown after generation */}
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <Key className="h-4 w-4 text-muted-foreground" />
@@ -865,7 +919,6 @@ export default function SuperAdmin() {
         </DialogContent>
       </Dialog>
 
-      {/* Suspend Company Dialog */}
       <AlertDialog open={isCompanySuspendDialogOpen} onOpenChange={setIsCompanySuspendDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -898,5 +951,18 @@ export default function SuperAdmin() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+export default function SuperAdmin() {
+  const sidebarStyle = {
+    "--sidebar-width": "14rem",
+    "--sidebar-width-icon": "3rem",
+  };
+
+  return (
+    <SidebarProvider style={sidebarStyle as React.CSSProperties}>
+      <SuperAdminContent />
+    </SidebarProvider>
   );
 }
