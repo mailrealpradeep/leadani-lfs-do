@@ -64,7 +64,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange }: LeadEdit
       return await apiRequest("PATCH", `/api/leads/${leadId}`, { custom_fields: customFields });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId] });
       toast({ title: "Lead updated successfully" });
       onOpenChange(false);

@@ -52,7 +52,7 @@ export function ColumnsDialog({ sheetId, open, onOpenChange }: ColumnsDialogProp
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "columns"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
       toast({
         title: "Column deleted",
         description: "Custom column has been removed",

@@ -119,10 +119,10 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", duplicateInfo?.sheet_id, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", duplicateInfo?.sheet_id, "leads-infinite"] });
       if (isMultiSheetMode) {
-        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       }
       onOpenChange(false);
       setFormData({});
@@ -151,9 +151,9 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
       if (isMultiSheetMode) {
-        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       }
       onOpenChange(false);
       setFormData({});

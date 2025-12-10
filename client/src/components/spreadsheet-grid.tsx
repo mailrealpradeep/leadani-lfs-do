@@ -818,64 +818,75 @@ export function SpreadsheetGrid({
       return await apiRequest("PATCH", `/api/leads/${leadId}`, { custom_fields: customFields });
     },
     onMutate: async ({ leadId, customFields }) => {
-      // Build the exact paginated query key for single-sheet mode
-      const singleSheetQueryKey = ["/api/sheets", activeSheetId, "leads", pagination.page, pagination.limit, sortColumn, sortDirection, columnFilters, searchQuery, thoughtFilter];
+      // Use query key prefix matching for infinite queries - only match the base key parts
+      const singleSheetQueryKeyPrefix = ["/api/sheets", activeSheetId, "leads-infinite"];
+      const multiSheetQueryKeyPrefix = ["/api/leads/query-infinite"];
       
       // Cancel any outgoing refetches to avoid overwriting our optimistic update
       if (isMultiMode) {
-        await queryClient.cancelQueries({ queryKey: ["/api/leads/query"] });
+        await queryClient.cancelQueries({ queryKey: multiSheetQueryKeyPrefix });
       } else {
-        await queryClient.cancelQueries({ queryKey: singleSheetQueryKey });
+        await queryClient.cancelQueries({ queryKey: singleSheetQueryKeyPrefix });
       }
 
-      // Snapshot the previous value with correct types
-      const previousSingleLeads = queryClient.getQueryData<SingleSheetPaginatedResponse>(singleSheetQueryKey);
-      const previousMultiLeads = queryClient.getQueriesData<PaginatedLeadsResponse>({ queryKey: ["/api/leads/query"] });
+      // Snapshot the previous values for rollback (using prefix matching)
+      const previousSingleLeads = queryClient.getQueriesData({ queryKey: singleSheetQueryKeyPrefix });
+      const previousMultiLeads = queryClient.getQueriesData({ queryKey: multiSheetQueryKeyPrefix });
 
-      // Optimistically update the lead in the cache
+      // Optimistically update the lead in the infinite query cache
       if (isMultiMode) {
-        queryClient.setQueriesData<PaginatedLeadsResponse>(
-          { queryKey: ["/api/leads/query"] },
-          (old) => {
-            if (!old) return old;
+        queryClient.setQueriesData(
+          { queryKey: multiSheetQueryKeyPrefix },
+          (old: any) => {
+            if (!old?.pages) return old;
             return {
               ...old,
-              leads: old.leads.map((lead) =>
-                lead.id === leadId
-                  ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
-                  : lead
-              ),
+              pages: old.pages.map((page: any) => ({
+                ...page,
+                leads: page.leads.map((lead: Lead) =>
+                  lead.id === leadId
+                    ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
+                    : lead
+                ),
+              })),
             };
           }
         );
       } else {
-        // Update the paginated response structure
-        queryClient.setQueryData<SingleSheetPaginatedResponse>(
-          singleSheetQueryKey,
-          (old) => {
-            if (!old) return old;
+        // Update the infinite query pages structure
+        queryClient.setQueriesData(
+          { queryKey: singleSheetQueryKeyPrefix },
+          (old: any) => {
+            if (!old?.pages) return old;
             return {
               ...old,
-              leads: old.leads.map((lead) =>
-                lead.id === leadId
-                  ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
-                  : lead
-              ),
+              pages: old.pages.map((page: any) => ({
+                ...page,
+                leads: page.leads.map((lead: Lead) =>
+                  lead.id === leadId
+                    ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
+                    : lead
+                ),
+              })),
             };
           }
         );
       }
 
       // Return context with previous values for rollback
-      return { previousSingleLeads, previousMultiLeads, singleSheetQueryKey };
+      return { previousSingleLeads, previousMultiLeads };
     },
     onError: (err, variables, context) => {
-      // Rollback to previous value on error
-      if (context?.previousSingleLeads && context?.singleSheetQueryKey) {
-        queryClient.setQueryData(context.singleSheetQueryKey, context.previousSingleLeads);
+      // Rollback to previous values on error
+      if (context?.previousSingleLeads) {
+        context.previousSingleLeads.forEach(([queryKey, data]: [any, any]) => {
+          if (data) {
+            queryClient.setQueryData(queryKey, data);
+          }
+        });
       }
       if (context?.previousMultiLeads) {
-        context.previousMultiLeads.forEach(([queryKey, data]) => {
+        context.previousMultiLeads.forEach(([queryKey, data]: [any, any]) => {
           if (data) {
             queryClient.setQueryData(queryKey, data);
           }
@@ -890,9 +901,9 @@ export function SpreadsheetGrid({
     onSettled: () => {
       // Always refetch after error or success to ensure server state is synced
       if (isMultiMode) {
-        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
-        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
       }
     },
   });
@@ -903,9 +914,9 @@ export function SpreadsheetGrid({
     },
     onSuccess: () => {
       if (isMultiMode) {
-        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
-        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
       }
       setSelectedRows(new Set());
       toast({
@@ -922,11 +933,11 @@ export function SpreadsheetGrid({
     onSuccess: (data: any, variables) => {
       // Invalidate both source and target sheets
       if (isMultiMode) {
-        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
-        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
       }
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", variables.targetSheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", variables.targetSheetId, "leads-infinite"] });
       setSelectedRows(new Set());
       setTransferDialogOpen(false);
       toast({
@@ -950,9 +961,9 @@ export function SpreadsheetGrid({
     },
     onSuccess: () => {
       if (isMultiMode) {
-        queryClient.invalidateQueries({ queryKey: ["/api/leads/query"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
-        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
       }
     },
     onError: (error: any) => {
@@ -1115,11 +1126,11 @@ export function SpreadsheetGrid({
 
     // Listen for realtime events
     const handleLeadCreated = () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
     };
 
     const handleLeadUpdated = () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
     };
 
     const handleHighlightingRulesUpdated = (data: { sheetId: string | null; global?: boolean }) => {
@@ -2247,8 +2258,8 @@ export function SpreadsheetGrid({
           newValue={pendingTransition.newValue}
           customFields={pendingTransition.customFields}
           queryKeysToInvalidate={[
-            ["/api/sheets", activeSheetId, "leads"],
-            ["/api/leads/query"],
+            ["/api/sheets", activeSheetId, "leads-infinite"],
+            ["/api/leads/query-infinite"],
           ]}
           onComplete={() => {
             setPendingTransition(null);

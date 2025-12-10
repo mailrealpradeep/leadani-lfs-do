@@ -38,7 +38,7 @@ export function DeletedLeadsDialog({ sheetId, open, onOpenChange }: DeletedLeads
       return apiRequest("POST", "/api/leads/restore", { leadIds });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "deleted-leads"] });
       setSelectedLeads(new Set());
       toast({

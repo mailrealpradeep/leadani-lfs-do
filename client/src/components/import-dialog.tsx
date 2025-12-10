@@ -130,7 +130,7 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
         });
       }
       
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
     },
     onError: (error: any) => {
       // For validation errors (e.g., unmapped required columns), show detailed message
@@ -158,7 +158,7 @@ export function ImportDialog({ sheetId, open, onOpenChange }: ImportDialogProps)
       });
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
       toast({
         title: "Merge Complete",
         description: result.message || `Merged ${result.merged} leads`,
