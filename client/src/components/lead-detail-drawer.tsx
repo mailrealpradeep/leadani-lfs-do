@@ -299,13 +299,13 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
               {/* Scrollable Content */}
               <ScrollArea className="flex-1">
                 <div className="p-4 space-y-4">
-                  {/* Lead Information */}
+                  {/* Lead Information - All Fields */}
                   <div>
                     <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
-                      Lead Information
+                      Lead Information ({sortedColumns.length} fields)
                     </h3>
                     <div className="grid grid-cols-2 gap-3">
-                      {sortedColumns.slice(0, 8).map((col) => {
+                      {sortedColumns.map((col) => {
                         const value = getLeadValue(lead, col.column_key);
                         const formattedValue = formatValue(value, col.type);
 
@@ -315,24 +315,12 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                             {col.type === "dropdown" ? (
                               <Badge variant="secondary" className="text-xs font-normal">{formattedValue}</Badge>
                             ) : (
-                              <div className="text-sm font-medium truncate">{formattedValue}</div>
+                              <div className="text-sm font-medium break-words">{formattedValue}</div>
                             )}
                           </div>
                         );
                       })}
                     </div>
-                    {sortedColumns.length > 8 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full mt-2 text-muted-foreground"
-                        onClick={() => setEditDialogOpen(true)}
-                        data-testid="button-view-all-fields"
-                      >
-                        View all {sortedColumns.length} fields
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    )}
                   </div>
 
                   <Separator />
