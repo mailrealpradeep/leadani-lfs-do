@@ -173,3 +173,26 @@ export const lead_updates = pgTable('lead_updates', {
   created_by_user_id: varchar('created_by_user_id').references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ============================================================================
+// FUTURE IMPROVEMENTS
+// ============================================================================
+export const future_improvements = pgTable('future_improvements', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('planned'), // planned, in_progress, ready, completed
+  priority: varchar('priority', { length: 50 }).notNull().default('medium'), // high, medium, low
+  estimated_effort: varchar('estimated_effort', { length: 100 }),
+  cost_estimate: varchar('cost_estimate', { length: 100 }),
+  discussion_notes: text('discussion_notes'), // Store all discussion context
+  technical_details: json('technical_details').$type<{
+    affected_files?: string[];
+    architecture_notes?: string;
+    implementation_steps?: string[];
+    dependencies?: string[];
+  }>().default({}),
+  order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});

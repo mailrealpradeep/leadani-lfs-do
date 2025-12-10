@@ -148,6 +148,11 @@ import type {
   TransitionExplanationRuleRecord,
   InsertTransitionExplanationRule,
   transition_explanation_rules,
+  // Future Improvements
+  FutureImprovement,
+  FutureImprovementRecord,
+  InsertFutureImprovement,
+  future_improvements,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -627,6 +632,13 @@ export interface IStorage {
   updateTransitionExplanationRule(id: string, updates: Partial<TransitionExplanationRuleRecord>): Promise<TransitionExplanationRuleRecord | undefined>;
   deleteTransitionExplanationRule(id: string): Promise<boolean>;
   checkTransitionRequiresExplanation(companyId: string, columnKey: string, newValue: string): Promise<boolean>;
+
+  // Future Improvements
+  getFutureImprovements(): Promise<FutureImprovementRecord[]>;
+  getFutureImprovement(id: string): Promise<FutureImprovementRecord | undefined>;
+  createFutureImprovement(improvement: InsertFutureImprovement): Promise<FutureImprovementRecord>;
+  updateFutureImprovement(id: string, updates: Partial<FutureImprovementRecord>): Promise<FutureImprovementRecord | undefined>;
+  deleteFutureImprovement(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -2629,6 +2641,23 @@ export class MemStorage implements IStorage {
     return false;
   }
   async checkTransitionRequiresExplanation(_companyId: string, _columnKey: string, _newValue: string): Promise<boolean> {
+    return false;
+  }
+
+  // Future Improvements (not implemented in MemStorage - requires PostgreSQL)
+  async getFutureImprovements(): Promise<FutureImprovementRecord[]> {
+    return [];
+  }
+  async getFutureImprovement(_id: string): Promise<FutureImprovementRecord | undefined> {
+    return undefined;
+  }
+  async createFutureImprovement(_improvement: InsertFutureImprovement): Promise<FutureImprovementRecord> {
+    throw new Error("Future Improvements not implemented in MemStorage");
+  }
+  async updateFutureImprovement(_id: string, _updates: Partial<FutureImprovementRecord>): Promise<FutureImprovementRecord | undefined> {
+    return undefined;
+  }
+  async deleteFutureImprovement(_id: string): Promise<boolean> {
     return false;
   }
 }
@@ -6802,6 +6831,43 @@ export class PgStorage implements IStorage {
         )
       );
     return rules.length > 0;
+  }
+
+  // =========================================================================
+  // FUTURE IMPROVEMENTS
+  // =========================================================================
+
+  async getFutureImprovements(): Promise<FutureImprovementRecord[]> {
+    return await db.select()
+      .from(future_improvements)
+      .orderBy(asc(future_improvements.order_index), desc(future_improvements.created_at));
+  }
+
+  async getFutureImprovement(id: string): Promise<FutureImprovementRecord | undefined> {
+    const result = await db.select()
+      .from(future_improvements)
+      .where(eq(future_improvements.id, id));
+    return result[0];
+  }
+
+  async createFutureImprovement(improvement: InsertFutureImprovement): Promise<FutureImprovementRecord> {
+    const rows = await db.insert(future_improvements).values(improvement).returning();
+    return rows[0];
+  }
+
+  async updateFutureImprovement(id: string, updates: Partial<FutureImprovementRecord>): Promise<FutureImprovementRecord | undefined> {
+    const rows = await db.update(future_improvements)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(future_improvements.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteFutureImprovement(id: string): Promise<boolean> {
+    const result = await db.delete(future_improvements)
+      .where(eq(future_improvements.id, id))
+      .returning();
+    return result.length > 0;
   }
 }
 

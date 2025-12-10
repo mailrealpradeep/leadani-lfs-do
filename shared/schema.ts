@@ -3352,3 +3352,55 @@ export const insertTransitionExplanationRuleSchema = createInsertSchema(transiti
 });
 
 export type InsertTransitionExplanationRuleData = z.infer<typeof insertTransitionExplanationRuleSchema>;
+
+// ============================================================================
+// FUTURE IMPROVEMENTS (System Backlog for Development)
+// ============================================================================
+
+export interface FutureImprovementTechnicalDetails {
+  affected_files?: string[];
+  architecture_notes?: string;
+  implementation_steps?: string[];
+  dependencies?: string[];
+}
+
+export interface FutureImprovement {
+  id: string;
+  title: string;
+  description: string;
+  status: 'planned' | 'in_progress' | 'ready' | 'completed';
+  priority: 'high' | 'medium' | 'low';
+  estimated_effort: string | null;
+  cost_estimate: string | null;
+  discussion_notes: string | null;
+  technical_details: FutureImprovementTechnicalDetails;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export const future_improvements = pgTable('future_improvements', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('planned'),
+  priority: varchar('priority', { length: 50 }).notNull().default('medium'),
+  estimated_effort: varchar('estimated_effort', { length: 100 }),
+  cost_estimate: varchar('cost_estimate', { length: 100 }),
+  discussion_notes: text('discussion_notes'),
+  technical_details: json('technical_details').$type<FutureImprovementTechnicalDetails>().default({}),
+  order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type FutureImprovementRecord = typeof future_improvements.$inferSelect;
+export type InsertFutureImprovement = typeof future_improvements.$inferInsert;
+
+export const insertFutureImprovementSchema = createInsertSchema(future_improvements).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertFutureImprovementData = z.infer<typeof insertFutureImprovementSchema>;
