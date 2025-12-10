@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
 import {
   DndContext,
@@ -477,7 +477,7 @@ export function SpreadsheetGrid({
     return filters;
   };
 
-  // Single-sheet mode data fetching - now with server-side pagination
+  // Single-sheet mode data fetching - infinite scroll
   interface SingleSheetPaginatedResponse {
     leads: Lead[];
     total: number;
@@ -486,16 +486,21 @@ export function SpreadsheetGrid({
     totalPages: number;
   }
 
+  const INFINITE_SCROLL_LIMIT = 50;
+
   const { 
-    data: singleSheetData, 
+    data: singleSheetInfiniteData, 
     isLoading: isLoadingSingleLeads,
     isFetching: isFetchingSingleLeads,
-  } = useQuery<SingleSheetPaginatedResponse>({
-    queryKey: ["/api/sheets", activeSheetId, "leads", pagination.page, pagination.limit, sortColumn, sortDirection, columnFilters, searchQuery, thoughtFilter, activeQuickFilterConfig],
-    queryFn: async () => {
+    fetchNextPage: fetchNextSinglePage,
+    hasNextPage: hasNextSinglePage,
+    isFetchingNextPage: isFetchingNextSinglePage,
+  } = useInfiniteQuery<SingleSheetPaginatedResponse>({
+    queryKey: ["/api/sheets", activeSheetId, "leads-infinite", sortColumn, sortDirection, columnFilters, searchQuery, thoughtFilter, activeQuickFilterConfig],
+    queryFn: async ({ pageParam = 1 }) => {
       const params = new URLSearchParams({
-        page: String(pagination.page),
-        limit: String(pagination.limit),
+        page: String(pageParam),
+        limit: String(INFINITE_SCROLL_LIMIT),
         sortBy: sortColumn || "created_at",
         sortOrder: sortColumn ? sortDirection : "desc",
         filters: JSON.stringify(buildBackendFilters()),
@@ -516,48 +521,92 @@ export function SpreadsheetGrid({
       }
       return response.json();
     },
+    getNextPageParam: (lastPage, allPages) => {
+      // Calculate total loaded so far
+      const totalLoaded = allPages.reduce((sum, page) => sum + page.leads.length, 0);
+      // Use first page's total as fallback if lastPage.total is missing
+      const total = lastPage.total ?? allPages[0]?.total ?? 0;
+      // Check if there are more leads to load
+      if (total > totalLoaded) {
+        return allPages.length + 1; // Next page number
+      }
+      return undefined;
+    },
+    initialPageParam: 1,
     enabled: !!activeSheetId && !isMultiMode && !isLoadingSingleColumns,
   });
 
-  // Multi-sheet mode data fetching - server-side filtering, sorting, and pagination
+  // Flatten single-sheet infinite data
+  const singleSheetLeads = useMemo(() => {
+    if (!singleSheetInfiniteData?.pages) return [];
+    return singleSheetInfiniteData.pages.flatMap(page => page.leads);
+  }, [singleSheetInfiniteData]);
+
+  const singleSheetTotal = singleSheetInfiniteData?.pages?.[0]?.total ?? 0;
+
+  // Multi-sheet mode data fetching - infinite scroll
   const { 
-    data: multiSheetData, 
+    data: multiSheetInfiniteData, 
     isLoading: isLoadingMultiLeads,
     isFetching: isFetchingMultiLeads,
-  } = useQuery<PaginatedLeadsResponse>({
-    queryKey: ["/api/leads/query", activeSheetIds, pagination.page, pagination.limit, searchQuery, columnFilters, sortColumn, sortDirection, thoughtFilter],
-    queryFn: async () => {
+    fetchNextPage: fetchNextMultiPage,
+    hasNextPage: hasNextMultiPage,
+    isFetchingNextPage: isFetchingNextMultiPage,
+  } = useInfiniteQuery<PaginatedLeadsResponse>({
+    queryKey: ["/api/leads/query-infinite", activeSheetIds, searchQuery, columnFilters, sortColumn, sortDirection, thoughtFilter],
+    queryFn: async ({ pageParam = 1 }) => {
       const response = await apiRequest<PaginatedLeadsResponse>("POST", "/api/leads/query", {
         sheetIds: activeSheetIds,
-        page: pagination.page,
-        limit: pagination.limit,
+        page: pageParam,
+        limit: INFINITE_SCROLL_LIMIT,
         sortBy: sortColumn || "created_at",
         sortOrder: sortColumn ? sortDirection : "desc",
         filters: buildBackendFilters(),
       });
       return response;
     },
+    getNextPageParam: (lastPage, allPages) => {
+      // Calculate total loaded so far
+      const totalLoaded = allPages.reduce((sum, page) => sum + page.leads.length, 0);
+      // Use first page's total as fallback if lastPage.total is missing
+      const total = lastPage.total ?? allPages[0]?.total ?? 0;
+      // Check if there are more leads to load
+      if (total > totalLoaded) {
+        return allPages.length + 1; // Next page number
+      }
+      return undefined;
+    },
+    initialPageParam: 1,
     enabled: isMultiMode && activeSheetIds.length > 0 && companyColumns.length > 0,
   });
 
-  // Update pagination state when data changes (both single and multi-sheet mode)
+  // Flatten multi-sheet infinite data
+  const multiSheetLeads = useMemo(() => {
+    if (!multiSheetInfiniteData?.pages) return [];
+    return multiSheetInfiniteData.pages.flatMap(page => page.leads);
+  }, [multiSheetInfiniteData]);
+
+  const multiSheetTotal = multiSheetInfiniteData?.pages?.[0]?.total ?? 0;
+  const multiSheetNames = multiSheetInfiniteData?.pages?.[0]?.sheetNames ?? {};
+
+  // Update pagination state for display purposes (infinite scroll mode)
   useEffect(() => {
-    if (isMultiMode && multiSheetData) {
+    if (isMultiMode && multiSheetTotal > 0) {
       setPagination({
-        page: multiSheetData.page,
-        limit: multiSheetData.limit,
-        total: multiSheetData.total,
-        totalPages: multiSheetData.totalPages,
+        page: 1,
+        limit: INFINITE_SCROLL_LIMIT,
+        total: multiSheetTotal,
+        totalPages: Math.ceil(multiSheetTotal / INFINITE_SCROLL_LIMIT),
       });
-    } else if (!isMultiMode && singleSheetData) {
+    } else if (!isMultiMode && singleSheetTotal > 0) {
       setPagination({
-        page: singleSheetData.page,
-        limit: singleSheetData.limit,
-        total: singleSheetData.total,
-        totalPages: singleSheetData.totalPages,
+        page: 1,
+        limit: INFINITE_SCROLL_LIMIT,
+        total: singleSheetTotal,
+        totalPages: Math.ceil(singleSheetTotal / INFINITE_SCROLL_LIMIT),
       });
     }
-  }, [multiSheetData, singleSheetData, isMultiMode, setPagination]);
+  }, [multiSheetTotal, singleSheetTotal, isMultiMode, setPagination]);
 
   // Reset to page 1 when sheet selection, search, filters, or sort changes
   // Use JSON.stringify for stable dependency reference of columnFilters
@@ -596,10 +645,16 @@ export function SpreadsheetGrid({
     };
   }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
 
-  // Unified data access
-  const leads = isMultiMode ? (multiSheetData?.leads || []) : (singleSheetData?.leads || []);
+  // Unified data access - using infinite scroll data
+  const leads = isMultiMode ? multiSheetLeads : singleSheetLeads;
   const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
-  const sheetNamesMap = multiSheetData?.sheetNames || {};
+  const sheetNamesMap = multiSheetNames;
+  
+  // Unified infinite scroll helpers
+  const hasNextPage = isMultiMode ? hasNextMultiPage : hasNextSinglePage;
+  const isFetchingNextPage = isMultiMode ? isFetchingNextMultiPage : isFetchingNextSinglePage;
+  const fetchNextPage = isMultiMode ? fetchNextMultiPage : fetchNextSinglePage;
+  const totalLeads = isMultiMode ? multiSheetTotal : singleSheetTotal;
 
   // Debug logging for column rendering issue
   if (isMultiMode) {
@@ -1653,21 +1708,28 @@ export function SpreadsheetGrid({
     return checkboxWidth + columnsWidth + actionsWidth;
   };
 
-  // Pagination handlers for multi-sheet mode
-  const handlePageChange = useCallback((newPage: number) => {
-    setPagination({
-      ...pagination,
-      page: newPage,
-    });
-  }, [pagination, setPagination]);
+  // Infinite scroll handler - load more when near bottom
+  const handleScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    // Trigger loading when 80% scrolled
+    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+    
+    if (scrollPercentage > 0.8 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const handleLimitChange = useCallback((newLimit: number) => {
-    setPagination({
-      ...pagination,
-      page: 1,
-      limit: newLimit,
-    });
-  }, [pagination, setPagination]);
+  // Attach scroll listener
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
 
   // Toggle column visibility and save to backend
   const toggleColumnVisibility = useCallback((columnKey: string) => {
@@ -3092,71 +3154,36 @@ export function SpreadsheetGrid({
             </div>
           </div>
           
-          {/* Pagination controls - show for both single and multi-sheet modes */}
-          {pagination.total > 0 && (
+          {/* Infinite scroll status bar */}
+          {totalLeads > 0 && (
             <div className="flex items-center justify-between border-t bg-background px-4 py-3">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Rows per page:</span>
-                <select
-                  className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-                  value={pagination.limit}
-                  onChange={(e) => handleLimitChange(Number(e.target.value))}
-                  data-testid="select-page-size"
-                >
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                </select>
-                <span className="text-sm text-muted-foreground ml-2">
-                  Showing {((pagination.page - 1) * pagination.limit) + 1}-{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total.toLocaleString()} leads
+                <span className="text-sm text-muted-foreground" data-testid="text-leads-count">
+                  Showing {leads.length.toLocaleString()} of {totalLeads.toLocaleString()} leads
                 </span>
               </div>
               
-              <div className="flex items-center gap-4">
-                {pagination.totalPages > 1 && (
-                  <>
-                    <span className="text-sm text-muted-foreground">
-                      Page {pagination.page} of {pagination.totalPages}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePageChange(1)}
-                        disabled={pagination.page === 1}
-                        data-testid="button-first-page"
-                      >
-                        First
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.page - 1)}
-                        disabled={pagination.page === 1}
-                        data-testid="button-prev-page"
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.page + 1)}
-                        disabled={pagination.page === pagination.totalPages}
-                        data-testid="button-next-page"
-                      >
-                        Next
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePageChange(pagination.totalPages)}
-                        disabled={pagination.page === pagination.totalPages}
-                        data-testid="button-last-page"
-                      >
-                        Last
-                      </Button>
-                    </div>
-                  </>
+              <div className="flex items-center gap-2">
+                {isFetchingNextPage && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="loading-more">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Loading more...</span>
+                  </div>
+                )}
+                {hasNextPage && !isFetchingNextPage && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => fetchNextPage()}
+                    data-testid="button-load-more"
+                  >
+                    Load more
+                  </Button>
+                )}
+                {!hasNextPage && leads.length > 0 && leads.length >= totalLeads && (
+                  <span className="text-sm text-muted-foreground" data-testid="text-all-loaded">
+                    All leads loaded
+                  </span>
                 )}
               </div>
             </div>
