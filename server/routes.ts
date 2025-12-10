@@ -12774,6 +12774,86 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // FUTURE IMPROVEMENTS (Super Admin - Development Backlog)
+  // ============================================================================
+
+  app.get("/api/super-admin/future-improvements", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const improvements = await storage.getFutureImprovements();
+      res.json(improvements);
+    } catch (error: any) {
+      console.error("Get future improvements error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/super-admin/future-improvements/:id", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const improvement = await storage.getFutureImprovement(req.params.id);
+      if (!improvement) {
+        return res.status(404).json({ error: "Improvement not found" });
+      }
+      res.json(improvement);
+    } catch (error: any) {
+      console.error("Get future improvement error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/super-admin/future-improvements", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const { title, description, status, priority, estimated_effort, cost_estimate, discussion_notes, technical_details, order_index } = req.body;
+      
+      if (!title || !description) {
+        return res.status(400).json({ error: "Title and description are required" });
+      }
+
+      const improvement = await storage.createFutureImprovement({
+        title,
+        description,
+        status: status || 'planned',
+        priority: priority || 'medium',
+        estimated_effort: estimated_effort || null,
+        cost_estimate: cost_estimate || null,
+        discussion_notes: discussion_notes || null,
+        technical_details: technical_details || {},
+        order_index: order_index || 0,
+      });
+
+      res.status(201).json(improvement);
+    } catch (error: any) {
+      console.error("Create future improvement error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/super-admin/future-improvements/:id", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const improvement = await storage.updateFutureImprovement(req.params.id, req.body);
+      if (!improvement) {
+        return res.status(404).json({ error: "Improvement not found" });
+      }
+      res.json(improvement);
+    } catch (error: any) {
+      console.error("Update future improvement error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/super-admin/future-improvements/:id", authMiddleware, requireSuperAdminByEmail, async (req: AuthRequest, res) => {
+    try {
+      const deleted = await storage.deleteFutureImprovement(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Improvement not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete future improvement error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // MOBILE CALL INTEGRATION APIs
   // ============================================================================
   
