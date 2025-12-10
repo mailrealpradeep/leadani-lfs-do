@@ -491,7 +491,7 @@ export function SpreadsheetGrid({
     isLoading: isLoadingSingleLeads,
     isFetching: isFetchingSingleLeads,
   } = useQuery<SingleSheetPaginatedResponse>({
-    queryKey: ["/api/sheets", activeSheetId, "leads", pagination.page, pagination.limit, sortColumn, sortDirection, columnFilters, searchQuery, thoughtFilter],
+    queryKey: ["/api/sheets", activeSheetId, "leads", pagination.page, pagination.limit, sortColumn, sortDirection, columnFilters, searchQuery, thoughtFilter, activeQuickFilterConfig],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(pagination.page),
@@ -500,6 +500,10 @@ export function SpreadsheetGrid({
         sortOrder: sortColumn ? sortDirection : "desc",
         filters: JSON.stringify(buildBackendFilters()),
       });
+      // Pass quick filter config to server for proper OR/AND filtering
+      if (activeQuickFilterConfig) {
+        params.append('quickFilter', JSON.stringify(activeQuickFilterConfig));
+      }
       const token = localStorage.getItem("auth_token");
       const response = await fetch(`/api/sheets/${activeSheetId}/leads?${params}`, {
         credentials: 'include',

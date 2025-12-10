@@ -159,6 +159,18 @@ export interface PaginatedLeadsResult {
   totalPages: number;
 }
 
+export interface QuickFilterCondition {
+  column_key: string;
+  operator: string;
+  value?: any;
+  relative_date?: string;
+}
+
+export interface QuickFilterConfig {
+  conditions: QuickFilterCondition[];
+  logical_operator: 'and' | 'or';
+}
+
 export interface LeadsQueryOptions {
   sheetIds: string[];
   page?: number;
@@ -166,6 +178,8 @@ export interface LeadsQueryOptions {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   filters?: Record<string, any>;
+  quickFilter?: QuickFilterConfig;
+  companyTimezone?: string;
 }
 
 export interface IStorage {
@@ -3016,15 +3030,16 @@ export class PgStorage implements IStorage {
   }
 
   async getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult> {
-    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters } = options;
+    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters, quickFilter, companyTimezone } = options;
     const safeFilters = filters || {};
+    const timezone = companyTimezone || 'Asia/Kolkata';
     
     if (sheetIds.length === 0) {
       return { leads: [], total: 0, page, limit, totalPages: 0 };
     }
     
     // Build base conditions
-    const conditions = [
+    const conditions: any[] = [
       inArray(dbSchema.leads.sheet_id, sheetIds),
       isNull(dbSchema.leads.deleted_at)
     ];
@@ -3066,6 +3081,150 @@ export class PgStorage implements IStorage {
       // Handle other values as exact match
       else {
         conditions.push(sql`${dbSchema.leads.custom_fields}->>${key} = ${String(value)}`);
+      }
+    }
+    
+    // Add quick filter conditions with proper OR/AND logic
+    if (quickFilter && quickFilter.conditions && quickFilter.conditions.length > 0) {
+      const quickFilterConditions: any[] = [];
+      
+      // Helper to resolve relative date to actual date string (YYYY-MM-DD)
+      const resolveRelativeDate = (relativeDate: string): string => {
+        const now = new Date();
+        // Convert to timezone-aware date
+        const formatter = new Intl.DateTimeFormat('en-CA', {
+          timeZone: timezone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        });
+        const parts = formatter.formatToParts(now);
+        const year = parseInt(parts.find(p => p.type === 'year')?.value || '2024');
+        const month = parseInt(parts.find(p => p.type === 'month')?.value || '1') - 1;
+        const day = parseInt(parts.find(p => p.type === 'day')?.value || '1');
+        const today = new Date(year, month, day);
+        
+        switch (relativeDate) {
+          case 'today':
+            return today.toISOString().split('T')[0];
+          case 'tomorrow': {
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            return tomorrow.toISOString().split('T')[0];
+          }
+          case 'yesterday': {
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            return yesterday.toISOString().split('T')[0];
+          }
+          case 'this_week': {
+            const startOfWeek = new Date(today);
+            startOfWeek.setDate(today.getDate() - today.getDay());
+            return startOfWeek.toISOString().split('T')[0];
+          }
+          case 'last_week': {
+            const lastWeekStart = new Date(today);
+            lastWeekStart.setDate(today.getDate() - today.getDay() - 7);
+            return lastWeekStart.toISOString().split('T')[0];
+          }
+          case 'this_month': {
+            return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+          }
+          case 'last_month': {
+            return new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
+          }
+          default:
+            return today.toISOString().split('T')[0];
+        }
+      };
+      
+      for (const condition of quickFilter.conditions) {
+        const { column_key, operator, value, relative_date } = condition;
+        
+        // Resolve target date for comparison
+        const targetDate = relative_date ? resolveRelativeDate(relative_date) : (value || '');
+        
+        switch (operator) {
+          case 'is_empty':
+            quickFilterConditions.push(
+              sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} = '')`
+            );
+            break;
+            
+          case 'is_not_empty':
+            quickFilterConditions.push(
+              sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '')`
+            );
+            break;
+            
+          case 'date_before':
+          case 'before':
+            // Date is strictly before the target date
+            quickFilterConditions.push(
+              sql`(${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date`
+            );
+            break;
+            
+          case 'date_after':
+          case 'after':
+            // Date is strictly after the target date
+            quickFilterConditions.push(
+              sql`(${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date`
+            );
+            break;
+            
+          case 'date_equals':
+          case 'equals':
+            if (relative_date || (value && typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
+              // Date comparison
+              quickFilterConditions.push(
+                sql`(${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date`
+              );
+            } else {
+              // String comparison
+              quickFilterConditions.push(
+                sql`${dbSchema.leads.custom_fields}->>${column_key} = ${value}`
+              );
+            }
+            break;
+            
+          case 'contains':
+            quickFilterConditions.push(
+              sql`${dbSchema.leads.custom_fields}->>${column_key} ILIKE ${'%' + value + '%'}`
+            );
+            break;
+            
+          case 'not_contains':
+            quickFilterConditions.push(
+              sql`${dbSchema.leads.custom_fields}->>${column_key} NOT ILIKE ${'%' + value + '%'}`
+            );
+            break;
+            
+          case 'in':
+            if (Array.isArray(value) && value.length > 0) {
+              quickFilterConditions.push(
+                sql`${dbSchema.leads.custom_fields}->>${column_key} = ANY(${value})`
+              );
+            }
+            break;
+            
+          default:
+            // For unknown operators, try basic equals
+            if (value !== undefined && value !== null) {
+              quickFilterConditions.push(
+                sql`${dbSchema.leads.custom_fields}->>${column_key} = ${String(value)}`
+              );
+            }
+        }
+      }
+      
+      // Combine quick filter conditions with specified logic
+      if (quickFilterConditions.length > 0) {
+        if (quickFilter.logical_operator === 'or') {
+          conditions.push(or(...quickFilterConditions));
+        } else {
+          conditions.push(and(...quickFilterConditions));
+        }
       }
     }
     

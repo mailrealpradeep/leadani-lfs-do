@@ -4417,8 +4417,27 @@ ${questionsList}`;
         }
       }
       
+      // Parse quick filter from query string (JSON encoded)
+      let quickFilter: { conditions: any[]; logical_operator: 'and' | 'or' } | undefined;
+      if (req.query.quickFilter) {
+        try {
+          quickFilter = JSON.parse(req.query.quickFilter as string);
+        } catch {
+          // Invalid quick filter, ignore
+        }
+      }
+      
+      // Get company timezone for date comparisons
+      let companyTimezone = 'Asia/Kolkata';
+      if (req.companyId) {
+        const company = await storage.getCompany(req.companyId);
+        if (company?.settings?.timezone) {
+          companyTimezone = company.settings.timezone;
+        }
+      }
+      
       // If pagination params are provided, use paginated query
-      if (page !== undefined || limit !== undefined || sortBy || Object.keys(filters).length > 0) {
+      if (page !== undefined || limit !== undefined || sortBy || Object.keys(filters).length > 0 || quickFilter) {
         const result = await storage.getLeadsBySheetIds({
           sheetIds: [sheetId],
           page: page || 1,
@@ -4426,6 +4445,8 @@ ${questionsList}`;
           sortBy: sortBy || 'created_at',
           sortOrder,
           filters,
+          quickFilter,
+          companyTimezone,
         });
         
         // Inject created_at into custom_fields for each lead
