@@ -6839,33 +6839,33 @@ export class PgStorage implements IStorage {
 
   async getFutureImprovements(): Promise<FutureImprovementRecord[]> {
     return await db.select()
-      .from(future_improvements)
-      .orderBy(asc(future_improvements.order_index), desc(future_improvements.created_at));
+      .from(dbSchema.future_improvements)
+      .orderBy(asc(dbSchema.future_improvements.order_index), desc(dbSchema.future_improvements.created_at));
   }
 
   async getFutureImprovement(id: string): Promise<FutureImprovementRecord | undefined> {
     const result = await db.select()
-      .from(future_improvements)
-      .where(eq(future_improvements.id, id));
+      .from(dbSchema.future_improvements)
+      .where(eq(dbSchema.future_improvements.id, id));
     return result[0];
   }
 
   async createFutureImprovement(improvement: InsertFutureImprovement): Promise<FutureImprovementRecord> {
-    const rows = await db.insert(future_improvements).values(improvement).returning();
+    const rows = await db.insert(dbSchema.future_improvements).values(improvement).returning();
     return rows[0];
   }
 
   async updateFutureImprovement(id: string, updates: Partial<FutureImprovementRecord>): Promise<FutureImprovementRecord | undefined> {
-    const rows = await db.update(future_improvements)
+    const rows = await db.update(dbSchema.future_improvements)
       .set({ ...updates, updated_at: new Date() })
-      .where(eq(future_improvements.id, id))
+      .where(eq(dbSchema.future_improvements.id, id))
       .returning();
     return rows[0];
   }
 
   async deleteFutureImprovement(id: string): Promise<boolean> {
-    const result = await db.delete(future_improvements)
-      .where(eq(future_improvements.id, id))
+    const result = await db.delete(dbSchema.future_improvements)
+      .where(eq(dbSchema.future_improvements.id, id))
       .returning();
     return result.length > 0;
   }
