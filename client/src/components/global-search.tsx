@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useDashboard } from "@/components/dashboard-context";
 import { useAuth } from "@/lib/auth";
-import { LeadEditDialog } from "./lead-edit-dialog";
+import { LeadDetailDrawer } from "./lead-detail-drawer";
 import type { CompanySearchResult } from "@shared/schema";
 
 interface GlobalSearchProps {
@@ -28,7 +28,7 @@ export function GlobalSearch({ onExpandedChange }: GlobalSearchProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   
   const [selectedLead, setSelectedLead] = useState<SelectedLeadInfo | null>(null);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const { data: searchResults = [], isLoading: isSearching } = useQuery<CompanySearchResult[]>({
     queryKey: ["/api/leads/company-search", searchQuery],
@@ -90,15 +90,15 @@ export function GlobalSearch({ onExpandedChange }: GlobalSearchProps) {
 
     setSelectedSheetId(result.sheet_id);
     setIsMultiSheetMode(false);
-    setEditDialogOpen(true);
+    setDrawerOpen(true);
 
     setSearchQuery("");
     setIsResultsOpen(false);
     setIsExpanded(false);
   };
 
-  const handleEditDialogClose = (open: boolean) => {
-    setEditDialogOpen(open);
+  const handleDrawerClose = (open: boolean) => {
+    setDrawerOpen(open);
     if (!open) {
       setSelectedLead(null);
     }
@@ -135,11 +135,11 @@ export function GlobalSearch({ onExpandedChange }: GlobalSearchProps) {
         </Button>
 
         {selectedLead && (
-          <LeadEditDialog
+          <LeadDetailDrawer
             leadId={selectedLead.leadId}
             sheetId={selectedLead.sheetId}
-            open={editDialogOpen}
-            onOpenChange={handleEditDialogClose}
+            open={drawerOpen}
+            onOpenChange={handleDrawerClose}
           />
         )}
       </>
@@ -239,11 +239,11 @@ export function GlobalSearch({ onExpandedChange }: GlobalSearchProps) {
       </div>
 
       {selectedLead && (
-        <LeadEditDialog
+        <LeadDetailDrawer
           leadId={selectedLead.leadId}
           sheetId={selectedLead.sheetId}
-          open={editDialogOpen}
-          onOpenChange={handleEditDialogClose}
+          open={drawerOpen}
+          onOpenChange={handleDrawerClose}
         />
       )}
     </>

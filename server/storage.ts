@@ -5192,13 +5192,22 @@ export class PgStorage implements IStorage {
     // Get all sheets for this company
     const allSheets = await this.getSheetsByCompanyId(companyId);
     
+    // Get sheets the user has explicit access to (for regular users)
+    let userAccessibleSheetIds: Set<string> | null = null;
+    if (requestingUserId && requestingUserRole === "user") {
+      const userSheetAccess = await db.select().from(dbSchema.sheet_users)
+        .where(eq(dbSchema.sheet_users.user_id, requestingUserId));
+      userAccessibleSheetIds = new Set(userSheetAccess.map(a => a.sheet_id));
+    }
+    
     // Filter sheets based on access permissions:
-    // - Company sheets (is_personal = false) are accessible to all company users
-    // - Personal sheets are only accessible to the owner, super admins, or company admins
+    // - Super admins and company admins can access all sheets
+    // - Regular users can only access sheets they have explicit access to via user_sheet_access
     const sheets = allSheets.filter(sheet => {
-      if (!sheet.is_personal) return true; // Company sheets are accessible
-      if (requestingUserRole === "super_admin" || requestingUserRole === "company_admin") return true; // Admins can see all
-      return sheet.owner_id === requestingUserId; // Personal sheets only for owner
+      if (requestingUserRole === "super_admin" || requestingUserRole === "company_admin") return true;
+      if (sheet.owner_id === requestingUserId) return true; // Sheet owner always has access
+      if (userAccessibleSheetIds && userAccessibleSheetIds.has(sheet.id)) return true;
+      return false;
     });
     
     const sheetMap = new Map(sheets.map(s => [s.id, s.name]));
