@@ -950,18 +950,17 @@ export default function Reports() {
           ) : (
             <div className="flex flex-wrap gap-4 md:gap-6">
               {userReports.map((report) => (
-                <div key={report.id} className="w-full md:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]">
-                  <ReportCard
-                    report={report}
-                    onEdit={() => handleEditUserReport(report)}
-                    onDeleteClick={() => {
-                      setUserReportToDelete(report);
-                      setUserReportDeleteDialogOpen(true);
-                    }}
-                    canEdit={true}
-                    canDelete={true}
-                  />
-                </div>
+                <ReportCard
+                  key={report.id}
+                  report={report}
+                  onEdit={() => handleEditUserReport(report)}
+                  onDeleteClick={() => {
+                    setUserReportToDelete(report);
+                    setUserReportDeleteDialogOpen(true);
+                  }}
+                  canEdit={true}
+                  canDelete={true}
+                />
               ))}
             </div>
           )}
