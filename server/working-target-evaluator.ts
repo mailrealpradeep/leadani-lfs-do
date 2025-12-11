@@ -25,7 +25,7 @@ import * as dbSchema from "@shared/schema";
 interface EvaluationResult {
   currentValue: number;
   targetValue: number;
-  compliancePercentage: number;
+  compliancePercentage: number | null;  // null indicates N/A (empty cohort)
   isAchieved: boolean;
   details: Record<string, any>;
 }
@@ -400,17 +400,18 @@ async function evaluatePendingStateCohort(
   const attendedCount = exitedLeadIds.size;
   const stillPendingCount = stillPendingLeadIds.size;
   
-  // If cohort is empty, treat as 100% complete (nothing to do)
+  // If cohort is empty, return N/A (null compliance) - user has no leads to measure
   if (cohortSize === 0) {
     return {
       currentValue: 0,
       targetValue: 0,
-      compliancePercentage: 100,
-      isAchieved: true,
+      compliancePercentage: null,
+      isAchieved: false,  // N/A targets don't count as achieved
       details: {
         cohortSize: 0,
         attendedCount: 0,
         stillPendingCount: 0,
+        isEmptyCohort: true,
         message: "No leads in target state during this period",
         operator,
         value,
@@ -486,9 +487,9 @@ async function evaluateDesiredStateCohort(
     return {
       currentValue: 0,
       targetValue: 0,
-      compliancePercentage: 0,
+      compliancePercentage: null,  // N/A - no leads to measure
       isAchieved: false,
-      details: { noLeads: true, message: "No leads in accessible sheets" }
+      details: { noLeads: true, isEmptyCohort: true, message: "No leads in accessible sheets" }
     };
   }
   
@@ -711,7 +712,7 @@ export async function evaluateAndStoreWorkingTargetResult(
     period_end: periodEnd,
     current_value: result.currentValue,
     target_value: result.targetValue,
-    compliance_percentage: result.compliancePercentage,
+    compliance_percentage: result.compliancePercentage ?? undefined,  // Convert null to undefined for storage
     is_achieved: result.isAchieved,
     details: result.details,
   });
@@ -759,7 +760,7 @@ interface UserProgress {
   userName: string;
   currentValue: number;
   targetValue: number;
-  compliancePercentage: number;
+  compliancePercentage: number | null;  // null indicates N/A (empty cohort)
   isAchieved: boolean;
 }
 
@@ -841,18 +842,29 @@ export async function evaluateTargetForAllUsers(
       userProgress.push(progress);
       totalCurrentValue += result.currentValue;
       totalTargetValue += result.targetValue;
-      totalCompliance += result.compliancePercentage;
+      // Only add to total compliance if not N/A
+      if (result.compliancePercentage !== null) {
+        totalCompliance += result.compliancePercentage;
+      }
       if (result.isAchieved) achievedCount++;
     } catch (error) {
       console.error(`Error evaluating target ${target.id} for user ${userId}:`, error);
     }
   }
   
-  const avgCompliance = userProgress.length > 0 
-    ? totalCompliance / userProgress.length 
+  // Only count users with non-null compliance for average
+  const usersWithCompliance = userProgress.filter(p => p.compliancePercentage !== null);
+  const avgCompliance = usersWithCompliance.length > 0 
+    ? totalCompliance / usersWithCompliance.length 
     : 0;
   
-  userProgress.sort((a, b) => b.compliancePercentage - a.compliancePercentage);
+  // Sort with null values last
+  userProgress.sort((a, b) => {
+    if (a.compliancePercentage === null && b.compliancePercentage === null) return 0;
+    if (a.compliancePercentage === null) return 1;  // null goes last
+    if (b.compliancePercentage === null) return -1;
+    return b.compliancePercentage - a.compliancePercentage;
+  });
   
   return {
     targetId: target.id,
@@ -902,7 +914,7 @@ export interface LeaderboardEntry {
     targetId: string;
     targetName: string;
     targetType: string;
-    compliancePercentage: number;
+    compliancePercentage: number | null;  // null indicates N/A (empty cohort)
     isAchieved: boolean;
     currentValue: number;
     targetValue: number;
@@ -1115,7 +1127,10 @@ export async function generateLeaderboard(
         if (result.details?.noAccess) continue;
         
         userScore.targetCount++;
-        userScore.totalCompliance += result.compliancePercentage;
+        // Only add to totalCompliance if not N/A
+        if (result.compliancePercentage !== null) {
+          userScore.totalCompliance += result.compliancePercentage;
+        }
         userScore.totalCurrentValue += result.currentValue;
         userScore.totalTargetValue += result.targetValue;
         if (result.isAchieved) userScore.achievedCount++;
@@ -1141,9 +1156,19 @@ export async function generateLeaderboard(
   userScores.forEach((score) => {
     if (score.targetCount === 0) return; // Skip users with no targets
     
-    const averageCompliance = score.targetCount > 0 
-      ? Math.round((score.totalCompliance / score.targetCount) * 100) / 100
+    // Only count targets with non-null compliance for average
+    const targetsWithCompliance = score.targetBreakdown.filter(t => t.compliancePercentage !== null);
+    const averageCompliance = targetsWithCompliance.length > 0 
+      ? Math.round((score.totalCompliance / targetsWithCompliance.length) * 100) / 100
       : 0;
+    
+    // Sort target breakdown with null values last
+    const sortedBreakdown = score.targetBreakdown.sort((a, b) => {
+      if (a.compliancePercentage === null && b.compliancePercentage === null) return 0;
+      if (a.compliancePercentage === null) return 1;
+      if (b.compliancePercentage === null) return -1;
+      return b.compliancePercentage - a.compliancePercentage;
+    });
     
     entries.push({
       userId: score.userId,
@@ -1156,7 +1181,7 @@ export async function generateLeaderboard(
       averageCompliance,
       totalCurrentValue: score.totalCurrentValue,
       totalTargetValue: score.totalTargetValue,
-      targetBreakdown: score.targetBreakdown.sort((a, b) => b.compliancePercentage - a.compliancePercentage)
+      targetBreakdown: sortedBreakdown
     });
   });
   

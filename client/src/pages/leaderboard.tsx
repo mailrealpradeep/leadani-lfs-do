@@ -35,7 +35,7 @@ interface TargetBreakdown {
   targetId: string;
   targetName: string;
   targetType: string;
-  compliancePercentage: number;
+  compliancePercentage: number | null;  // null indicates N/A (empty cohort)
   isAchieved: boolean;
   currentValue: number;
   targetValue: number;
@@ -502,17 +502,18 @@ function LeaderboardRow({
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{target.targetName}</p>
                       <p className="text-xs text-muted-foreground">
-                        {target.currentValue} / {target.targetValue}
+                        {target.compliancePercentage === null ? "No leads" : `${target.currentValue} / ${target.targetValue}`}
                       </p>
                     </div>
                   </div>
                   <Badge 
-                    variant={target.isAchieved ? "default" : "outline"}
+                    variant={target.compliancePercentage === null ? "secondary" : (target.isAchieved ? "default" : "outline")}
                     className={cn(
-                      target.isAchieved && "bg-green-600"
+                      target.compliancePercentage !== null && target.isAchieved && "bg-green-600",
+                      target.compliancePercentage === null && "text-muted-foreground"
                     )}
                   >
-                    {Math.round(target.compliancePercentage)}%
+                    {target.compliancePercentage === null ? "N/A" : `${Math.round(target.compliancePercentage)}%`}
                   </Badge>
                 </motion.div>
               ))}
