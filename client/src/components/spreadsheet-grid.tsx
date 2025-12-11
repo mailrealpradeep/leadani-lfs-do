@@ -113,10 +113,11 @@ import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { LeadEditDialog } from "./lead-edit-dialog";
 import { TransitionExplanationDialog } from "./transition-explanation-dialog";
+import { ValidationPromptDialog, useValidationRuleChecker } from "./validation-prompt-dialog";
 import { MobileFilterSheet } from "./mobile-filter-sheet";
 import { DateRangeFilter, type DateFilterValue } from "./filters/date-range-filter";
 import { DropdownFilter } from "./filters/dropdown-filter";
-import { validateLeadAgainstRules } from "@shared/validator";
+import { validateLeadAgainstRules, evaluateCondition } from "@shared/validator";
 import { Pagination } from "./pagination";
 
 // Helper to safely format dates, handling both ISO strings and legacy dd/MM/yy formats
@@ -136,6 +137,7 @@ const safeFormatDate = (value: string | Date | null | undefined, formatPattern: 
   } catch (e) {}
   return String(value);
 };
+
 
 interface SpreadsheetGridProps {
   sheetId?: string;
@@ -428,6 +430,17 @@ export function SpreadsheetGrid({
     oldValue: string | null | undefined;
     newValue: string;
     customFields: Record<string, any>;
+  } | null>(null);
+
+  // Validation prompt dialog state (for field-level validation rules)
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const [pendingValidation, setPendingValidation] = useState<{
+    leadId: string;
+    columnKey: string;
+    oldValue: any;
+    newValue: any;
+    rule: ValidationRule;
+    lead: Lead;
   } | null>(null);
 
   // Column resizing state
@@ -2426,6 +2439,67 @@ export function SpreadsheetGrid({
         />
       )}
 
+      {/* Validation Prompt Dialog */}
+      {pendingValidation && (
+        <ValidationPromptDialog
+          open={validationDialogOpen}
+          onOpenChange={(open) => {
+            setValidationDialogOpen(open);
+            if (!open) setPendingValidation(null);
+          }}
+          rule={pendingValidation.rule}
+          columns={customColumns.map(c => ({
+            id: c.id || c.column_key,
+            column_key: c.column_key,
+            name: c.name || c.column_key,
+            type: c.type || "text",
+            company_id: c.company_id || "",
+            order_index: c.order_index || 0,
+            is_system: false,
+            created_at: "",
+            updated_at: "",
+          })) as any}
+          dropdownOptions={customColumns.reduce((acc, col) => {
+            if (col.type === "dropdown" && col.config?.dropdown_options) {
+              acc[col.column_key] = col.config.dropdown_options.map((opt: string, idx: number) => ({
+                id: `${col.column_key}-${idx}`,
+                value: opt,
+                column_key: col.column_key,
+                company_id: "",
+                sheet_id: null,
+                order_index: idx,
+                created_at: "",
+                updated_at: "",
+              }));
+            }
+            return acc;
+          }, {} as Record<string, any[]>)}
+          currentValues={pendingValidation.lead.custom_fields || {}}
+          triggerChange={{
+            column_key: pendingValidation.columnKey,
+            old_value: pendingValidation.oldValue,
+            new_value: pendingValidation.newValue,
+          }}
+          onConfirm={(fieldValues) => {
+            const updatedFields = {
+              ...pendingValidation.lead.custom_fields,
+              [pendingValidation.columnKey]: pendingValidation.newValue,
+              ...fieldValues,
+            };
+            updateLeadMutation.mutate({
+              leadId: pendingValidation.leadId,
+              customFields: updatedFields,
+            });
+            setValidationDialogOpen(false);
+            setPendingValidation(null);
+          }}
+          onCancel={() => {
+            setValidationDialogOpen(false);
+            setPendingValidation(null);
+          }}
+        />
+      )}
+
       {/* Toolbar with actions - only render when selections exist */}
       {selectedRows.size > 0 && (
         <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
@@ -3069,17 +3143,58 @@ export function SpreadsheetGrid({
                                   });
                                   setTransitionExplanationDialogOpen(true);
                                   setEditingCell(null);
-                                } else {
-                                  const updatedFields = {
-                                    ...lead.custom_fields,
-                                    [col.key]: val,
-                                  };
-                                  updateLeadMutation.mutate({
-                                    leadId: lead.id,
-                                    customFields: updatedFields,
-                                  });
-                                  setEditingCell(null);
+                                  return;
                                 }
+                                
+                                // Check if any validation rule is triggered
+                                const proposedLead = { ...lead, custom_fields: { ...lead.custom_fields, [col.key]: val } };
+                                const triggeredRule = validationRules.find(rule => {
+                                  // Skip if rule is explicitly inactive
+                                  if (rule.is_active === false) return false;
+                                  
+                                  // Check new multi-condition format
+                                  if (rule.conditions && rule.conditions.length > 0) {
+                                    const results = rule.conditions.map(condition => {
+                                      const leadValue = proposedLead.custom_fields?.[condition.column_key];
+                                      return evaluateCondition(leadValue, condition.operator, condition.value, condition.value2);
+                                    });
+                                    const logicalOp = rule.logical_operator || "and";
+                                    return logicalOp === "or" 
+                                      ? results.some(r => r)
+                                      : results.every(r => r);
+                                  }
+                                  
+                                  // Check legacy single-condition format
+                                  if (rule.trigger_column_key === col.key && rule.operator) {
+                                    return evaluateCondition(val, rule.operator, rule.trigger_value);
+                                  }
+                                  return false;
+                                });
+                                
+                                if (triggeredRule) {
+                                  // Show validation dialog to collect required fields
+                                  setPendingValidation({
+                                    leadId: lead.id,
+                                    columnKey: col.key,
+                                    oldValue: oldValue,
+                                    newValue: val,
+                                    rule: triggeredRule,
+                                    lead: lead,
+                                  });
+                                  setValidationDialogOpen(true);
+                                  setEditingCell(null);
+                                  return;
+                                }
+                                
+                                const updatedFields = {
+                                  ...lead.custom_fields,
+                                  [col.key]: val,
+                                };
+                                updateLeadMutation.mutate({
+                                  leadId: lead.id,
+                                  customFields: updatedFields,
+                                });
+                                setEditingCell(null);
                               }}
                               open
                               onOpenChange={(open) => {

@@ -36,7 +36,8 @@ import { BackupManager } from "@/components/backup-manager";
 import { TransitionExplanationManager } from "@/components/transition-explanation-manager";
 import { DataManagement } from "@/components/data-management";
 import { HotLeadsConfigManager } from "@/components/hot-leads-config";
-import { Flame } from "lucide-react";
+import { ValidationRulesManager } from "@/components/validation-rules-manager";
+import { Flame, ClipboardCheck } from "lucide-react";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -446,6 +447,7 @@ function CompanyAdminView() {
   const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
   const [userToReset, setUserToReset] = useState<User | null>(null);
   const [selectedHighlightingSheetId, setSelectedHighlightingSheetId] = useState<string>("");
+  const [selectedValidationSheetId, setSelectedValidationSheetId] = useState<string>("");
   const { toast } = useToast();
 
   const { data: users = [], isLoading } = useQuery<User[]>({
@@ -949,6 +951,56 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <HotLeadsConfigManager />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="validation-rules" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-validation-rules">
+              <div className="flex items-center gap-3">
+                <ClipboardCheck className="h-5 w-5 text-blue-500" />
+                <div className="text-left">
+                  <div className="font-semibold">Validation Rules</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Prompt users to fill required fields when specific conditions are met
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select Sheet</label>
+                  <Select
+                    value={selectedValidationSheetId}
+                    onValueChange={setSelectedValidationSheetId}
+                  >
+                    <SelectTrigger data-testid="select-validation-sheet">
+                      <SelectValue placeholder="Choose a sheet to configure validation rules..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {companySheets.map((sheet) => (
+                        <SelectItem key={sheet.id} value={sheet.id}>
+                          {sheet.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Create rules that prompt users to fill required fields when lead data matches specific conditions.
+                  </p>
+                </div>
+                {selectedValidationSheetId ? (
+                  <ValidationRulesManager sheetId={selectedValidationSheetId} />
+                ) : (
+                  <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                    <ClipboardCheck className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-muted-foreground">Select a sheet to manage validation rules</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Example: When Lead Status = "Visit Scheduled", prompt for Visit Date
+                    </p>
+                  </div>
+                )}
               </div>
             </AccordionContent>
           </AccordionItem>

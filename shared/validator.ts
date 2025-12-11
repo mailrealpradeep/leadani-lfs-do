@@ -104,44 +104,94 @@ function getLeadFieldValue(lead: Lead, fieldKey: string): any {
   return undefined;
 }
 
-function evaluateTriggerCondition(
-  value: any,
+/**
+ * Evaluate a condition against a lead field value.
+ * Supports all operators including text, number, date, and range operators.
+ * Exported for reuse on frontend to ensure parity with server-side validation.
+ */
+export function evaluateCondition(
+  leadValue: any,
   operator: string,
-  triggerValue: any
+  conditionValue: any,
+  conditionValue2?: any
 ): boolean {
-  if (value === null || value === undefined || value === '') {
-    return false;
-  }
-
-  const stringValue = String(value).toLowerCase();
-  const triggerString = String(triggerValue).toLowerCase();
+  const strLeadValue = String(leadValue || "").toLowerCase().trim();
+  const strCondValue = String(conditionValue || "").toLowerCase().trim();
 
   switch (operator) {
+    // Text/dropdown operators
     case 'equals':
-      return stringValue === triggerString;
-    
-    case 'in':
-      if (Array.isArray(triggerValue)) {
-        return triggerValue.some(tv => 
-          String(tv).toLowerCase() === stringValue
-        );
-      }
-      return stringValue.includes(triggerString);
-    
+      return strLeadValue === strCondValue;
     case 'not_equals':
-      return stringValue !== triggerString;
-    
+      return strLeadValue !== strCondValue;
+    case 'contains':
+      return strLeadValue.includes(strCondValue);
+    case 'not_contains':
+      return !strLeadValue.includes(strCondValue);
+    case 'starts_with':
+      return strLeadValue.startsWith(strCondValue);
+    case 'ends_with':
+      return strLeadValue.endsWith(strCondValue);
+    case 'is_empty':
+      // Use isFieldEmpty helper to correctly handle numeric 0 and boolean false as valid values
+      return isFieldEmpty(leadValue);
+    case 'is_not_empty':
+      return !isFieldEmpty(leadValue);
+    case 'in':
+      const inValues = Array.isArray(conditionValue)
+        ? conditionValue.map(v => String(v).toLowerCase().trim())
+        : String(conditionValue).split(",").map(v => v.trim().toLowerCase());
+      return inValues.includes(strLeadValue);
     case 'not_in':
-      if (Array.isArray(triggerValue)) {
-        return !triggerValue.some(tv => 
-          String(tv).toLowerCase() === stringValue
-        );
-      }
-      return !stringValue.includes(triggerString);
+      const notInValues = Array.isArray(conditionValue)
+        ? conditionValue.map(v => String(v).toLowerCase().trim())
+        : String(conditionValue).split(",").map(v => v.trim().toLowerCase());
+      return !notInValues.includes(strLeadValue);
+    
+    // Number operators
+    case 'greater_than':
+      return Number(leadValue) > Number(conditionValue);
+    case 'less_than':
+      return Number(leadValue) < Number(conditionValue);
+    case 'greater_equal':
+      return Number(leadValue) >= Number(conditionValue);
+    case 'less_equal':
+      return Number(leadValue) <= Number(conditionValue);
+    case 'between':
+      const numVal = Number(leadValue);
+      return numVal >= Number(conditionValue) && numVal <= Number(conditionValue2 || conditionValue);
+    
+    // Date operators
+    case 'date_equals':
+      return evaluateDateHelper(leadValue, conditionValue, (a, b) => Math.abs(a - b) < 86400000);
+    case 'date_not_equals':
+      return evaluateDateHelper(leadValue, conditionValue, (a, b) => Math.abs(a - b) >= 86400000);
+    case 'date_before':
+      return evaluateDateHelper(leadValue, conditionValue, (a, b) => a < b);
+    case 'date_after':
+      return evaluateDateHelper(leadValue, conditionValue, (a, b) => a > b);
+    case 'date_between':
+      if (!leadValue || !conditionValue || !conditionValue2) return false;
+      try {
+        const leadDate = new Date(leadValue).getTime();
+        const fromDate = new Date(conditionValue).getTime();
+        const toDate = new Date(conditionValue2).getTime();
+        return !isNaN(leadDate) && !isNaN(fromDate) && !isNaN(toDate) && leadDate >= fromDate && leadDate <= toDate;
+      } catch { return false; }
     
     default:
-      return false;
+      return strLeadValue === strCondValue;
   }
+}
+
+function evaluateDateHelper(leadValue: any, conditionValue: any, compareFn: (a: number, b: number) => boolean): boolean {
+  if (!leadValue || !conditionValue) return false;
+  try {
+    const leadDate = new Date(leadValue).getTime();
+    const condDate = new Date(conditionValue).getTime();
+    if (isNaN(leadDate) || isNaN(condDate)) return false;
+    return compareFn(leadDate, condDate);
+  } catch { return false; }
 }
 
 function isFieldEmpty(value: any): boolean {
@@ -164,13 +214,30 @@ export function validateLead(
   lead: Lead,
   rule: ValidationRule
 ): ValidationResult {
-  const triggerValue = getLeadFieldValue(lead, rule.trigger_column_key);
-  
-  const isTriggered = evaluateTriggerCondition(
-    triggerValue,
-    rule.operator,
-    rule.trigger_value
-  );
+  let isTriggered = false;
+
+  // Skip if rule is explicitly inactive
+  if (rule.is_active === false) {
+    return { isValid: true, missingFields: [] };
+  }
+
+  // Check new multi-condition format first
+  if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+    const results = rule.conditions.map(condition => {
+      const leadValue = getLeadFieldValue(lead, condition.column_key);
+      return evaluateCondition(leadValue, condition.operator, condition.value, condition.value2);
+    });
+    // Default to "and" if logical_operator is undefined
+    const logicalOp = rule.logical_operator || "and";
+    isTriggered = logicalOp === "or" 
+      ? results.some(r => r)
+      : results.every(r => r);
+  } 
+  // Fall back to legacy single-condition format
+  else if (rule.trigger_column_key && rule.operator) {
+    const triggerValue = getLeadFieldValue(lead, rule.trigger_column_key);
+    isTriggered = evaluateCondition(triggerValue, rule.operator, rule.trigger_value);
+  }
 
   if (!isTriggered) {
     return {
