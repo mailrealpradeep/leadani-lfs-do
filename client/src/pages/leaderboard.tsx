@@ -66,14 +66,16 @@ interface LeaderboardResult {
   totalTargets: number;
 }
 
-type DatePreset = 'today' | 'this_week' | 'this_month' | 'last_7_days' | 'last_30_days' | 'custom';
+type DatePreset = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
 
-const datePresets: { value: DatePreset; label: string; icon: any }[] = [
-  { value: 'today', label: 'Today', icon: Zap },
-  { value: 'this_week', label: 'This Week', icon: Calendar },
-  { value: 'this_month', label: 'This Month', icon: Calendar },
-  { value: 'last_7_days', label: 'Last 7 Days', icon: Calendar },
-  { value: 'last_30_days', label: 'Last 30 Days', icon: Calendar },
+// Group presets by target type for visual organization
+const datePresets: { value: DatePreset; label: string; icon: any; targetType: 'daily' | 'weekly' | 'monthly' }[] = [
+  { value: 'today', label: 'Today', icon: Zap, targetType: 'daily' },
+  { value: 'yesterday', label: 'Yesterday', icon: Calendar, targetType: 'daily' },
+  { value: 'this_week', label: 'This Week', icon: Calendar, targetType: 'weekly' },
+  { value: 'last_week', label: 'Last Week', icon: Calendar, targetType: 'weekly' },
+  { value: 'this_month', label: 'This Month', icon: Calendar, targetType: 'monthly' },
+  { value: 'last_month', label: 'Last Month', icon: Calendar, targetType: 'monthly' },
 ];
 
 function CircularProgress({ 
@@ -529,38 +531,56 @@ function DateFilterButtons({
   selected: DatePreset; 
   onSelect: (preset: DatePreset) => void;
 }) {
+  // Group presets by target type
+  const groups = [
+    { label: 'Daily', type: 'daily' as const, presets: datePresets.filter(p => p.targetType === 'daily') },
+    { label: 'Weekly', type: 'weekly' as const, presets: datePresets.filter(p => p.targetType === 'weekly') },
+    { label: 'Monthly', type: 'monthly' as const, presets: datePresets.filter(p => p.targetType === 'monthly') },
+  ];
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex flex-wrap gap-2"
+      className="flex flex-col sm:flex-row gap-3"
       data-testid="date-filters"
     >
-      {datePresets.map((preset) => {
-        const Icon = preset.icon;
-        const isActive = selected === preset.value;
-        return (
-          <motion.div
-            key={preset.value}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <Button
-              variant={isActive ? "default" : "outline"}
-              size="sm"
-              onClick={() => onSelect(preset.value)}
-              className={cn(
-                "gap-1.5 transition-all",
-                isActive && "shadow-md"
-              )}
-              data-testid={`button-filter-${preset.value}`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {preset.label}
-            </Button>
-          </motion.div>
-        );
-      })}
+      {groups.map((group) => (
+        <div key={group.type} className="flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:inline">
+            {group.label}:
+          </span>
+          <div className="flex gap-1">
+            {group.presets.map((preset) => {
+              const Icon = preset.icon;
+              const isActive = selected === preset.value;
+              return (
+                <motion.div
+                  key={preset.value}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Button
+                    variant={isActive ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => onSelect(preset.value)}
+                    className={cn(
+                      "gap-1 transition-all h-8 px-2.5 text-xs",
+                      isActive && "shadow-sm",
+                      !isActive && "hover:bg-muted"
+                    )}
+                    data-testid={`button-filter-${preset.value}`}
+                  >
+                    <Icon className="h-3 w-3" />
+                    <span className="hidden xs:inline sm:inline">{preset.label}</span>
+                    <span className="xs:hidden sm:hidden">{preset.label.split(' ')[0]}</span>
+                  </Button>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </motion.div>
   );
 }

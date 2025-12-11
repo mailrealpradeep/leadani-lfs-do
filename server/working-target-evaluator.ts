@@ -685,15 +685,40 @@ export async function getCustomDateRange(
     case 'today':
       periodStart = getStartOfDayInTimezone(now, timezone);
       break;
+    case 'yesterday':
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      periodStart = getStartOfDayInTimezone(yesterday, timezone);
+      periodEnd = getEndOfDayInTimezone(yesterday, timezone);
+      break;
     case 'this_week':
       const weekRange = getWeekRangeInTimezone(timezone);
       periodStart = weekRange.start;
       periodEnd = weekRange.end;
       break;
+    case 'last_week':
+      const lastWeekEnd = new Date(now);
+      // Go back to the start of this week, then subtract 1 day to get last week
+      const currentWeekRange = getWeekRangeInTimezone(timezone);
+      const lastWeekEndDate = new Date(currentWeekRange.start);
+      lastWeekEndDate.setDate(lastWeekEndDate.getDate() - 1);
+      const lastWeekStartDate = new Date(lastWeekEndDate);
+      lastWeekStartDate.setDate(lastWeekStartDate.getDate() - 6);
+      periodStart = getStartOfDayInTimezone(lastWeekStartDate, timezone);
+      periodEnd = getEndOfDayInTimezone(lastWeekEndDate, timezone);
+      break;
     case 'this_month':
       const monthRange = getMonthRangeInTimezone(timezone);
       periodStart = monthRange.start;
       periodEnd = monthRange.end;
+      break;
+    case 'last_month':
+      const lastMonthDate = new Date(now);
+      lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
+      const lastMonthStart = new Date(lastMonthDate.getFullYear(), lastMonthDate.getMonth(), 1);
+      const lastMonthEnd = new Date(lastMonthDate.getFullYear(), lastMonthDate.getMonth() + 1, 0);
+      periodStart = getStartOfDayInTimezone(lastMonthStart, timezone);
+      periodEnd = getEndOfDayInTimezone(lastMonthEnd, timezone);
       break;
     case 'last_7_days':
       periodStart = new Date(now);
@@ -747,6 +772,23 @@ async function evaluateTargetWithDateRange(
   };
 }
 
+// Map preset to corresponding time_type for filtering targets
+function getTimeTypeForPreset(preset: string): string | null {
+  switch (preset) {
+    case 'today':
+    case 'yesterday':
+      return 'daily';
+    case 'this_week':
+    case 'last_week':
+      return 'weekly';
+    case 'this_month':
+    case 'last_month':
+      return 'monthly';
+    default:
+      return null; // No filtering for custom or legacy presets
+  }
+}
+
 // Generate leaderboard for all users based on working target progress
 export async function generateLeaderboard(
   companyId: string,
@@ -758,7 +800,15 @@ export async function generateLeaderboard(
   
   // Get all active working targets
   const targets = await storage.getWorkingTargetsByCompany(companyId);
-  const activeTargets = targets.filter(t => t.is_active);
+  
+  // Filter by time_type based on preset (daily/weekly/monthly targets)
+  const requiredTimeType = getTimeTypeForPreset(preset);
+  const activeTargets = targets.filter(t => {
+    if (!t.is_active) return false;
+    // If preset maps to a specific time_type, only include matching targets
+    if (requiredTimeType && t.time_type !== requiredTimeType) return false;
+    return true;
+  });
   
   // Get all company users (excluding admins from ranking)
   const companyUsers = await storage.getUsersByCompanyId(companyId);
