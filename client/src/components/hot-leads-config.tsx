@@ -116,20 +116,21 @@ export function HotLeadsConfigManager() {
     queryKey: ["/api/company/hot-lead-config"],
   });
 
-  // Fetch company columns for dropdown options
+  // Fetch company columns (all columns across all sheets in the company)
   const { data: columns = [], isLoading: columnsLoading } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/columns"],
-  });
-
-  // Fetch dropdown options for dropdown columns
-  const { data: dropdownOptions = [] } = useQuery<Array<{ id: string; column_key: string; value: string }>>({
-    queryKey: ["/api/dropdown-options"],
+    queryKey: ["/api/company/columns"],
   });
 
   // Initialize state from config
+  // Normalize legacy column keys (e.g., "lead_thought" -> "thought")
   useEffect(() => {
     if (config) {
-      setConditions(config.conditions || []);
+      const normalizedConditions = (config.conditions || []).map(condition => ({
+        ...condition,
+        // Normalize lead_thought to thought for display consistency
+        column_key: condition.column_key === "lead_thought" ? "thought" : condition.column_key,
+      }));
+      setConditions(normalizedConditions);
       setLogicalOperator(config.logical_operator || "or");
       setIsActive(config.is_active ?? true);
       setHasChanges(false);
@@ -201,10 +202,22 @@ export function HotLeadsConfigManager() {
     });
   };
 
+  // Standard lead fields that are always available
+  const standardFields = [
+    { key: "thought", name: "Lead Thought (Sure/May Be)", type: "thought" },
+    { key: "name", name: "Full Name", type: "text" },
+    { key: "email", name: "Email", type: "text" },
+    { key: "mobile_no", name: "Mobile No", type: "mobile" },
+    { key: "created_at", name: "Created Date", type: "date" },
+  ];
+
   const getColumnType = (columnKey: string): string => {
-    if (columnKey === "thought" || columnKey === "lead_thought") {
-      return "thought";
+    // First check standard fields
+    const standardField = standardFields.find(f => f.key === columnKey);
+    if (standardField) {
+      return standardField.type;
     }
+    // Then check company columns from API
     const column = columns.find(c => c.column_key === columnKey);
     return column?.type || "text";
   };
@@ -214,14 +227,25 @@ export function HotLeadsConfigManager() {
     return OPERATORS_BY_TYPE[type] || OPERATORS_BY_TYPE.text;
   };
 
-  const getDropdownOptionsForColumn = (columnKey: string) => {
-    return dropdownOptions.filter(opt => opt.column_key === columnKey);
+  const getDropdownOptionsForColumn = (columnKey: string): string[] => {
+    const column = columns.find(c => c.column_key === columnKey);
+    if (column?.config?.dropdown_options && Array.isArray(column.config.dropdown_options)) {
+      // Handle both string arrays and object arrays ({ id, value } format)
+      return column.config.dropdown_options.map((opt: string | { id?: string; value: string }) => {
+        if (typeof opt === 'string') return opt;
+        if (typeof opt === 'object' && opt !== null && 'value' in opt) return opt.value;
+        return String(opt);
+      });
+    }
+    return [];
   };
-
-  // Build column options including special "thought" field
+  
+  // Build column options combining standard fields and company columns
   const columnOptions = [
-    { key: "thought", name: "Lead Thought (Sure/May Be)", type: "thought" },
-    ...columns.map(c => ({ key: c.column_key, name: c.name, type: c.type })),
+    ...standardFields,
+    ...columns
+      .filter(c => !standardFields.some(sf => sf.key === c.column_key)) // Avoid duplicates
+      .map(c => ({ key: c.column_key, name: c.name, type: c.type })),
   ];
 
   if (configLoading || columnsLoading) {
@@ -404,8 +428,8 @@ export function HotLeadsConfigManager() {
                             </SelectTrigger>
                             <SelectContent>
                               {dropdownOpts.map((opt) => (
-                                <SelectItem key={opt.id} value={opt.value}>
-                                  {opt.value}
+                                <SelectItem key={opt} value={opt}>
+                                  {opt}
                                 </SelectItem>
                               ))}
                             </SelectContent>
