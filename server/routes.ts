@@ -6489,9 +6489,17 @@ ${questionsList}`;
   });
 
   // Create validation rule (Company Admin only)
+  // Supports both legacy single-condition format and new multi-condition format
   app.post("/api/company/validation-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      const { name, trigger_column_key, operator, trigger_value, required_fields, sheet_id } = req.body;
+      const { 
+        name, 
+        // Legacy fields
+        trigger_column_key, operator, trigger_value, required_fields,
+        // New multi-condition fields
+        conditions, logical_operator, required_columns, is_active,
+        sheet_id 
+      } = req.body;
 
       // Determine company_id
       let companyId: string;
@@ -6507,20 +6515,37 @@ ${questionsList}`;
         companyId = req.companyId;
       }
 
-      // Validate required fields
-      if (!name || !trigger_column_key || !operator || !trigger_value || !required_fields || !Array.isArray(required_fields) || required_fields.length === 0) {
-        return res.status(400).json({ error: "Missing required fields: name, trigger_column_key, operator, trigger_value, required_fields" });
+      // Validate - either new format (conditions + required_columns) or legacy format
+      const hasNewFormat = conditions && Array.isArray(conditions) && conditions.length > 0 && 
+                           required_columns && Array.isArray(required_columns) && required_columns.length > 0;
+      const hasLegacyFormat = trigger_column_key && operator && trigger_value && 
+                              required_fields && Array.isArray(required_fields) && required_fields.length > 0;
+
+      if (!name) {
+        return res.status(400).json({ error: "Rule name is required" });
+      }
+
+      if (!hasNewFormat && !hasLegacyFormat) {
+        return res.status(400).json({ 
+          error: "Must provide either: conditions + required_columns (new format) OR trigger_column_key + operator + trigger_value + required_fields (legacy format)" 
+        });
       }
 
       const rule = await storage.createValidationRule({
         company_id: companyId,
         sheet_id: sheet_id || null,
         name,
-        trigger_column_key,
-        operator,
-        trigger_value,
-        required_fields,
-        logical_operator: "and",
+        // Legacy fields
+        trigger_column_key: trigger_column_key || undefined,
+        operator: operator || undefined,
+        trigger_value: trigger_value || undefined,
+        required_fields: required_fields || [],
+        // New fields
+        conditions: conditions || [],
+        logical_operator: logical_operator || "and",
+        required_columns: required_columns || [],
+        is_active: is_active !== undefined ? is_active : true,
+        created_by_user_id: req.userId,
       });
 
       // Audit log
@@ -6530,7 +6555,7 @@ ${questionsList}`;
         action: "create",
         model: "validation_rule",
         model_id: rule.id,
-        payload: { name, trigger_column_key, operator },
+        payload: { name, conditions_count: conditions?.length || 0, required_columns_count: required_columns?.length || 0 },
       });
 
       res.status(201).json(rule);
@@ -6541,6 +6566,7 @@ ${questionsList}`;
   });
 
   // Update validation rule (Company Admin only)
+  // Supports both legacy and new multi-condition fields
   app.patch("/api/company/validation-rules/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       const rule = await storage.getValidationRuleById(req.params.ruleId);
@@ -6553,13 +6579,26 @@ ${questionsList}`;
         return res.status(403).json({ error: "Cannot update rules from other companies" });
       }
 
-      const { name, trigger_column_key, operator, trigger_value, required_fields } = req.body;
+      const { 
+        name, 
+        // Legacy fields
+        trigger_column_key, operator, trigger_value, required_fields,
+        // New fields
+        conditions, logical_operator, required_columns, is_active
+      } = req.body;
+
       const updates: any = {};
+      // Legacy fields
       if (name !== undefined) updates.name = name;
       if (trigger_column_key !== undefined) updates.trigger_column_key = trigger_column_key;
       if (operator !== undefined) updates.operator = operator;
       if (trigger_value !== undefined) updates.trigger_value = trigger_value;
       if (required_fields !== undefined) updates.required_fields = required_fields;
+      // New fields
+      if (conditions !== undefined) updates.conditions = conditions;
+      if (logical_operator !== undefined) updates.logical_operator = logical_operator;
+      if (required_columns !== undefined) updates.required_columns = required_columns;
+      if (is_active !== undefined) updates.is_active = is_active;
 
       const updated = await storage.updateValidationRule(req.params.ruleId, updates);
 
@@ -6570,7 +6609,7 @@ ${questionsList}`;
         action: "update",
         model: "validation_rule",
         model_id: req.params.ruleId,
-        payload: updates,
+        payload: { name: updates.name, is_active: updates.is_active },
       });
 
       res.json(updated);

@@ -305,19 +305,29 @@ export const validationConditionSchema = z.object({
 
 export type ValidationCondition = z.infer<typeof validationConditionSchema>;
 
+// Zod schema for ValidationRequiredColumn
+export const validationRequiredColumnSchema = z.object({
+  column_key: z.string().min(1, "Column key is required"),
+  is_required: z.boolean().default(true),
+  label: z.string().optional(),
+});
+
 export interface ValidationRule {
   id: string;
   company_id: string; // company-scoped
   sheet_id: string | null; // optional: if specified, rule applies only to specific sheet
   name: string; // descriptive name like "NFDT required when Talked"
   // Legacy single condition fields (deprecated, kept for backward compatibility)
-  trigger_column_key: string; // column that triggers the rule (e.g., "lead_status")
-  operator: "equals" | "in" | "not_equals" | "not_in"; // comparison operator
-  trigger_value: string | string[]; // value(s) that trigger the rule
+  trigger_column_key?: string; // column that triggers the rule (e.g., "lead_status")
+  operator?: "equals" | "in" | "not_equals" | "not_in"; // comparison operator
+  trigger_value?: string | string[]; // value(s) that trigger the rule
+  required_fields: string[]; // Legacy: simple array of field keys
   // New multi-condition support
-  conditions?: ValidationCondition[]; // Multiple conditions
-  logical_operator?: "and" | "or"; // How conditions are combined (default: "and")
-  required_fields: string[]; // fields that become required when triggered
+  conditions: ValidationCondition[]; // Multiple conditions
+  logical_operator: "and" | "or"; // How conditions are combined (default: "and")
+  required_columns: ValidationRequiredColumn[]; // Enhanced: fields with is_required flag
+  is_active: boolean;
+  created_by_user_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -330,13 +340,27 @@ export const insertValidationRuleSchema = z.object({
   trigger_column_key: z.string().optional(),
   operator: z.enum(["equals", "in", "not_equals", "not_in"]).optional(),
   trigger_value: z.union([z.string(), z.array(z.string())]).optional(),
+  required_fields: z.array(z.string()).default([]),
   // New multi-condition support
-  conditions: z.array(validationConditionSchema).optional(),
+  conditions: z.array(validationConditionSchema).default([]),
   logical_operator: z.enum(["and", "or"]).default("and"),
-  required_fields: z.array(z.string()).min(1, "At least one required field must be specified"),
+  required_columns: z.array(validationRequiredColumnSchema).default([]),
+  is_active: z.boolean().default(true),
+  created_by_user_id: z.string().nullable().optional(),
 });
 
 export type InsertValidationRule = z.infer<typeof insertValidationRuleSchema>;
+
+// Form schema for creating/updating validation rules (used by Admin UI)
+export const validationRuleFormSchema = z.object({
+  name: z.string().min(1, "Rule name is required"),
+  conditions: z.array(validationConditionSchema).min(1, "At least one trigger condition is required"),
+  logical_operator: z.enum(["and", "or"]).default("and"),
+  required_columns: z.array(validationRequiredColumnSchema).min(1, "At least one field to prompt is required"),
+  is_active: z.boolean().default(true),
+});
+
+export type ValidationRuleFormData = z.infer<typeof validationRuleFormSchema>;
 
 // ============================================================================
 // HIGHLIGHTING RULES (Row Highlighting based on Conditions)
@@ -835,17 +859,29 @@ export const custom_columns = pgTable('custom_columns', {
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// Enhanced required column structure for validation rules
+export interface ValidationRequiredColumn {
+  column_key: string;
+  is_required: boolean; // true = must fill, false = optional prompt
+  label?: string; // Custom label to show in dialog
+}
+
 export const validation_rules = pgTable('validation_rules', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 255 }).notNull(),
+  // Legacy single condition fields (deprecated, kept for backward compatibility)
   trigger_column_key: varchar('trigger_column_key', { length: 255 }),
   operator: varchar('operator', { length: 50 }),
   trigger_value: json('trigger_value').$type<string | string[]>(),
-  required_fields: json('required_fields').$type<string[]>().notNull(),
-  conditions: json('conditions').$type<ValidationCondition[]>(),
-  logical_operator: varchar('logical_operator', { length: 10 }).default('and'),
+  required_fields: json('required_fields').$type<string[]>().notNull().default([]),
+  // New multi-condition support with enhanced required columns
+  conditions: json('conditions').$type<ValidationCondition[]>().default([]),
+  logical_operator: varchar('logical_operator', { length: 10 }).notNull().default('and'),
+  required_columns: json('required_columns').$type<ValidationRequiredColumn[]>().default([]),
+  is_active: boolean('is_active').notNull().default(true),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

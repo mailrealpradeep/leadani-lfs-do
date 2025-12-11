@@ -1359,9 +1359,19 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const now = new Date().toISOString();
     const rule: ValidationRule = {
-      ...insertRule,
-      sheet_id: insertRule.sheet_id ?? null,
       id,
+      company_id: insertRule.company_id,
+      sheet_id: insertRule.sheet_id ?? null,
+      name: insertRule.name,
+      trigger_column_key: insertRule.trigger_column_key,
+      operator: insertRule.operator as any,
+      trigger_value: insertRule.trigger_value,
+      required_fields: insertRule.required_fields ?? [],
+      conditions: insertRule.conditions ?? [],
+      logical_operator: (insertRule.logical_operator as "and" | "or") ?? "and",
+      required_columns: insertRule.required_columns ?? [],
+      is_active: insertRule.is_active ?? true,
+      created_by_user_id: insertRule.created_by_user_id ?? null,
       created_at: now,
       updated_at: now,
     };
