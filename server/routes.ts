@@ -91,6 +91,22 @@ function evaluateHotLeadConditions(lead: Lead, conditions: HotLeadCondition[], l
   }
 }
 
+// Helper function to evaluate custom view conditions (groups joined by OR, conditions within groups by AND)
+function evaluateCustomViewConditions(lead: Lead, conditionGroups: any[]): boolean {
+  if (!conditionGroups || conditionGroups.length === 0) return false;
+  
+  // Each group must have ALL its conditions match (AND within group)
+  // At least ONE group must match for the lead to be included (OR between groups)
+  return conditionGroups.some(group => {
+    if (!group.conditions || group.conditions.length === 0) return false;
+    
+    return group.conditions.every((condition: any) => {
+      const leadValue = getLeadFieldValue(lead, condition.column_key);
+      return evaluateCondition(condition, leadValue);
+    });
+  });
+}
+
 // Helper function to parse dates in multiple formats (ISO and dd/MM/yy)
 function parseDateFlexible(dateStr: string): Date | null {
   if (!dateStr) return null;
@@ -9054,6 +9070,270 @@ ${questionsList}`;
       res.json({ count });
     } catch (error: any) {
       console.error("Get hot leads count error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // CUSTOM VIEWS (Industry-specific sidebar menu items with filtered leads)
+  // ============================================================================
+
+  // GET /api/custom-views - Get all custom views for company
+  app.get("/api/custom-views", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const views = await storage.getCustomViews(req.companyId!);
+      res.json(views);
+    } catch (error: any) {
+      console.error("Get custom views error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/custom-views/:id - Get single custom view
+  app.get("/api/custom-views/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const view = await storage.getCustomViewById(req.params.id);
+      if (!view) {
+        return res.status(404).json({ error: "Custom view not found" });
+      }
+      if (view.company_id !== req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      res.json(view);
+    } catch (error: any) {
+      console.error("Get custom view error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/custom-views - Create new custom view (Admin only)
+  app.post("/api/custom-views", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, icon, icon_color, show_badge, condition_groups, is_enabled } = req.body;
+      
+      if (!name || !condition_groups || condition_groups.length === 0) {
+        return res.status(400).json({ error: "Name and at least one condition group are required" });
+      }
+
+      // Get current count for order_index
+      const existingViews = await storage.getCustomViews(req.companyId!);
+      
+      const view = await storage.createCustomView({
+        company_id: req.companyId!,
+        name,
+        icon: icon || "star",
+        icon_color: icon_color || "blue",
+        show_badge: show_badge ?? true,
+        condition_groups,
+        is_enabled: is_enabled ?? true,
+        order_index: existingViews.length,
+        created_by_user_id: req.userId!,
+      });
+
+      res.status(201).json(view);
+    } catch (error: any) {
+      console.error("Create custom view error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // PUT /api/custom-views/:id - Update custom view (Admin only)
+  app.put("/api/custom-views/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const view = await storage.getCustomViewById(req.params.id);
+      if (!view) {
+        return res.status(404).json({ error: "Custom view not found" });
+      }
+      if (view.company_id !== req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { name, icon, icon_color, show_badge, condition_groups, is_enabled } = req.body;
+      
+      const updated = await storage.updateCustomView(req.params.id, {
+        ...(name && { name }),
+        ...(icon && { icon }),
+        ...(icon_color && { icon_color }),
+        ...(show_badge !== undefined && { show_badge }),
+        ...(condition_groups && { condition_groups }),
+        ...(is_enabled !== undefined && { is_enabled }),
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update custom view error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // DELETE /api/custom-views/:id - Delete custom view (Admin only)
+  app.delete("/api/custom-views/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const view = await storage.getCustomViewById(req.params.id);
+      if (!view) {
+        return res.status(404).json({ error: "Custom view not found" });
+      }
+      if (view.company_id !== req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.deleteCustomView(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete custom view error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/custom-views/reorder - Reorder custom views (Admin only)
+  app.post("/api/custom-views/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { view_ids } = req.body;
+      if (!view_ids || !Array.isArray(view_ids)) {
+        return res.status(400).json({ error: "view_ids array is required" });
+      }
+
+      await storage.reorderCustomViews(req.companyId!, view_ids);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Reorder custom views error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/custom-views/:id/count - Get matching lead count for a custom view
+  app.get("/api/custom-views/:id/count", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const view = await storage.getCustomViewById(req.params.id);
+      if (!view) {
+        return res.status(404).json({ error: "Custom view not found" });
+      }
+      if (view.company_id !== req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      if (!view.condition_groups || view.condition_groups.length === 0) {
+        return res.json({ count: 0 });
+      }
+
+      // Get user's accessible sheets
+      let sheets: Sheet[];
+      if (req.userRole === "super_admin") {
+        sheets = await storage.getAllSheets();
+      } else if (req.userRole === "company_admin") {
+        sheets = await storage.getSheetsByCompanyId(req.companyId!);
+      } else {
+        sheets = await storage.getSheetsByUserId(req.userId!);
+      }
+
+      if (sheets.length === 0) {
+        return res.json({ count: 0 });
+      }
+
+      let count = 0;
+      for (const sheet of sheets) {
+        const leads = await storage.getLeadsBySheetId(sheet.id);
+        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups));
+        count += matchingLeads.length;
+      }
+
+      res.json({ count });
+    } catch (error: any) {
+      console.error("Get custom view count error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/custom-views/:id/leads - Get leads matching custom view conditions
+  app.get("/api/custom-views/:id/leads", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const view = await storage.getCustomViewById(req.params.id);
+      if (!view) {
+        return res.status(404).json({ error: "Custom view not found" });
+      }
+      if (view.company_id !== req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Get user's accessible sheets
+      let sheets: Sheet[];
+      if (req.userRole === "super_admin") {
+        sheets = await storage.getAllSheets();
+      } else if (req.userRole === "company_admin") {
+        sheets = await storage.getSheetsByCompanyId(req.companyId!);
+      } else {
+        sheets = await storage.getSheetsByUserId(req.userId!);
+      }
+
+      if (sheets.length === 0 || !view.condition_groups || view.condition_groups.length === 0) {
+        return res.json({ leads: [], sheets: [] });
+      }
+
+      const allMatchingLeads: Lead[] = [];
+      const sheetsWithLeads: Sheet[] = [];
+
+      for (const sheet of sheets) {
+        const leads = await storage.getLeadsBySheetId(sheet.id);
+        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups));
+        if (matchingLeads.length > 0) {
+          allMatchingLeads.push(...matchingLeads);
+          sheetsWithLeads.push(sheet);
+        }
+      }
+
+      res.json({ leads: allMatchingLeads, sheets: sheetsWithLeads });
+    } catch (error: any) {
+      console.error("Get custom view leads error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/custom-views/counts - Get counts for all enabled custom views (for sidebar badges)
+  app.get("/api/custom-views-counts", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const views = await storage.getCustomViews(req.companyId!);
+      const enabledViews = views.filter(v => v.is_enabled && v.show_badge);
+
+      if (enabledViews.length === 0) {
+        return res.json({ counts: {} });
+      }
+
+      // Get user's accessible sheets
+      let sheets: Sheet[];
+      if (req.userRole === "super_admin") {
+        sheets = await storage.getAllSheets();
+      } else if (req.userRole === "company_admin") {
+        sheets = await storage.getSheetsByCompanyId(req.companyId!);
+      } else {
+        sheets = await storage.getSheetsByUserId(req.userId!);
+      }
+
+      if (sheets.length === 0) {
+        const counts: Record<string, number> = {};
+        enabledViews.forEach(v => counts[v.id] = 0);
+        return res.json({ counts });
+      }
+
+      // Get all leads once
+      const allLeads: Lead[] = [];
+      for (const sheet of sheets) {
+        const leads = await storage.getLeadsBySheetId(sheet.id);
+        allLeads.push(...leads);
+      }
+
+      // Calculate count for each view
+      const counts: Record<string, number> = {};
+      for (const view of enabledViews) {
+        if (!view.condition_groups || view.condition_groups.length === 0) {
+          counts[view.id] = 0;
+        } else {
+          counts[view.id] = allLeads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups)).length;
+        }
+      }
+
+      res.json({ counts });
+    } catch (error: any) {
+      console.error("Get custom views counts error:", error);
       res.status(500).json({ error: error.message });
     }
   });
