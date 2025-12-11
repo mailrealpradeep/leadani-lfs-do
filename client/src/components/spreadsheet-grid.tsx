@@ -2903,6 +2903,11 @@ export function SpreadsheetGrid({
                                 e.stopPropagation();
                                 // Prevent switching leads while dialog is already open
                                 if (updateDialogOpen) return;
+                                // Clear any existing timeout and set highlight
+                                if (highlightTimeoutRef.current) {
+                                  clearTimeout(highlightTimeoutRef.current);
+                                }
+                                setHighlightedLeadId(lead.id);
                                 setSelectedLeadForUpdate(lead.id);
                                 setUpdateDialogOpen(true);
                               }}
@@ -3453,6 +3458,11 @@ export function SpreadsheetGrid({
                         onClick={() => {
                           // Prevent switching leads while dialog is already open
                           if (updateDialogOpen) return;
+                          // Clear any existing timeout and set highlight
+                          if (highlightTimeoutRef.current) {
+                            clearTimeout(highlightTimeoutRef.current);
+                          }
+                          setHighlightedLeadId(lead.id);
                           setSelectedLeadForUpdate(lead.id);
                           setUpdateDialogOpen(true);
                         }}
