@@ -928,6 +928,22 @@ export function SpreadsheetGrid({
     })
   );
 
+  // isInitialLoading: true only when columns are not yet loaded (show full skeleton)
+  // This prevents the header from unmounting during filter/search operations
+  const isInitialLoading = hotLeadsMode
+    ? isLoadingCompanyColumns
+    : isMultiMode 
+      ? isLoadingCompanyColumns
+      : isLoadingSingleColumns;
+  
+  // isFetchingLeads: true when leads data is being fetched (for row-level loading indicator)
+  const isFetchingLeads = hotLeadsMode
+    ? isFetchingHotLeads
+    : isMultiMode 
+      ? isFetchingMultiLeads
+      : isFetchingSingleLeads;
+  
+  // Legacy isLoading for backward compatibility with other parts of the component
   const isLoading = hotLeadsMode
     ? (isLoadingHotLeads || isLoadingCompanyColumns)
     : isMultiMode 
@@ -2323,7 +2339,9 @@ export function SpreadsheetGrid({
     };
   }, [applyQuickFilter, clearAllFilters, setQuickFilterHandlers, setActiveQuickFilter]);
 
-  if (isLoading) {
+  // Only show full skeleton on initial load (when columns are not yet loaded)
+  // Once columns are loaded, the header stays mounted and only rows show loading state
+  if (isInitialLoading) {
     return (
       <div className="space-y-3">
         <Skeleton className="h-10 w-full" />
@@ -3019,7 +3037,15 @@ export function SpreadsheetGrid({
               </DndContext>
 
               {/* Table Body */}
-              {filteredAndSortedLeads.length === 0 ? (
+              {/* Show loading state while fetching leads (after initial load) */}
+              {isFetchingLeads && filteredAndSortedLeads.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    <span>Loading leads...</span>
+                  </div>
+                </div>
+              ) : filteredAndSortedLeads.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   No leads found. {categoryFilter !== "all" ? `Try changing the filter.` : `Add your first lead to get started.`}
                 </div>
