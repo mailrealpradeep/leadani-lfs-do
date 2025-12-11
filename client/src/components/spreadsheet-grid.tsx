@@ -406,6 +406,10 @@ export function SpreadsheetGrid({
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Cache for the currently editing/highlighted lead - persists even if filters would hide it
+  // This ensures the row stays visible while being edited until user clicks another row
+  const [editingLeadCache, setEditingLeadCache] = useState<Lead | null>(null);
+  
   // Cleanup highlight timeout on unmount
   useEffect(() => {
     return () => {
@@ -1367,6 +1371,11 @@ export function SpreadsheetGrid({
     setEditValue(currentValue || "");
     // Set this row as the active highlighted row
     setHighlightedLeadId(lead.id);
+    // Cache the lead data so it persists even if filters would hide it
+    // Only update cache if clicking a different row (preserve existing cache for same row)
+    if (editingLeadCache?.id !== lead.id) {
+      setEditingLeadCache(lead);
+    }
     // Automatically open date picker for date fields
     if (columnType === "date") {
       setDatePickerOpen({ leadId: lead.id, field: columnKey });
@@ -1889,17 +1898,32 @@ export function SpreadsheetGrid({
   // Server handles filtering/sorting for both modes now
   // Only apply user row filters (Hide/Show Rows) client-side as they're per-user settings
   // Also apply quick filter conditions client-side when OR logic is used
-  const filteredAndSortedLeads = leads.filter((lead) => {
-    // User row filters - hide rows that match any active filter (client-side only)
-    if (!evaluateRowFilters(lead)) {
-      return false;
+  const filteredAndSortedLeads = useMemo(() => {
+    // First apply standard filtering
+    const filtered = leads.filter((lead) => {
+      // User row filters - hide rows that match any active filter (client-side only)
+      if (!evaluateRowFilters(lead)) {
+        return false;
+      }
+      // Quick filter evaluation (for OR logic support)
+      if (!evaluateQuickFilter(lead)) {
+        return false;
+      }
+      return true;
+    });
+    
+    // If there's an editing lead cached and it's not in the filtered results, inject it
+    // This ensures the row stays visible while being edited even if filters would hide it
+    if (editingLeadCache && highlightedLeadId === editingLeadCache.id) {
+      const isInFilteredResults = filtered.some(lead => lead.id === editingLeadCache.id);
+      if (!isInFilteredResults) {
+        // Inject the cached lead at the beginning so it's always visible
+        return [editingLeadCache, ...filtered];
+      }
     }
-    // Quick filter evaluation (for OR logic support)
-    if (!evaluateQuickFilter(lead)) {
-      return false;
-    }
-    return true;
-  });
+    
+    return filtered;
+  }, [leads, evaluateRowFilters, evaluateQuickFilter, editingLeadCache, highlightedLeadId]);
 
   // Use ordered columns for visible columns (respecting user's custom order)
   // Memoize to keep stable reference when only filters change (fixes filter input focus loss)
