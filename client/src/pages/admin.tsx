@@ -35,6 +35,8 @@ import { KpiManagement } from "@/components/kpi-management";
 import { BackupManager } from "@/components/backup-manager";
 import { TransitionExplanationManager } from "@/components/transition-explanation-manager";
 import { DataManagement } from "@/components/data-management";
+import { HotLeadsConfigManager } from "@/components/hot-leads-config";
+import { Flame } from "lucide-react";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -928,6 +930,25 @@ function CompanyAdminView() {
                     <p className="text-muted-foreground">Select a sheet to manage highlighting rules</p>
                   </div>
                 )}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="hot-leads" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-hot-leads">
+              <div className="flex items-center gap-3">
+                <Flame className="h-5 w-5 text-orange-500" />
+                <div className="text-left">
+                  <div className="font-semibold">Hot Leads</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure conditions to identify high-priority leads
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <HotLeadsConfigManager />
               </div>
             </AccordionContent>
           </AccordionItem>
