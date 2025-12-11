@@ -449,6 +449,9 @@ export function SpreadsheetGrid({
   const resizeStartX = useRef<number>(0);
   const resizeStartWidth = useRef<number>(0);
   const hasMovedRef = useRef<boolean>(false);
+  
+  // Persistent columnsReady state - once true, stays true to prevent header unmounting during refetches
+  const [columnsReady, setColumnsReady] = useState(false);
 
   // Column data fetching - needed first for buildBackendFilters
   const { data: singleSheetColumns = [], isLoading: isLoadingSingleColumns } = useQuery<CustomColumn[]>({
@@ -466,6 +469,18 @@ export function SpreadsheetGrid({
 
   // Use appropriate columns based on mode
   const activeColumns = isMultiMode ? companyColumns : singleSheetColumns;
+  
+  // Set columnsReady to true once columns have loaded (stays true to prevent skeleton during refetches)
+  useEffect(() => {
+    if (activeColumns.length > 0 && !columnsReady) {
+      setColumnsReady(true);
+    }
+  }, [activeColumns.length, columnsReady]);
+  
+  // Reset columnsReady when switching modes (so initial skeleton shows when changing to a new mode)
+  useEffect(() => {
+    setColumnsReady(false);
+  }, [isMultiMode, hotLeadsMode, activeSheetId]);
 
   // Build filters object for backend - convert frontend filter format to backend format
   const buildBackendFilters = () => {
@@ -928,13 +943,10 @@ export function SpreadsheetGrid({
     })
   );
 
-  // isInitialLoading: true only when columns are not yet loaded (show full skeleton)
-  // This prevents the header from unmounting during filter/search operations
-  const isInitialLoading = hotLeadsMode
-    ? isLoadingCompanyColumns
-    : isMultiMode 
-      ? isLoadingCompanyColumns
-      : isLoadingSingleColumns;
+  // isInitialLoading: true ONLY when columns have never been loaded (show full skeleton)
+  // Uses persistent columnsReady flag so refetches don't re-trigger the skeleton
+  // Once columns are loaded, the header stays mounted regardless of lead fetching state
+  const isInitialLoading = !columnsReady;
   
   // isFetchingLeads: true when leads data is being fetched (for row-level loading indicator)
   const isFetchingLeads = hotLeadsMode
@@ -3037,6 +3049,12 @@ export function SpreadsheetGrid({
               </DndContext>
 
               {/* Table Body */}
+              {/* Loading indicator bar when refetching with existing data */}
+              {isFetchingLeads && filteredAndSortedLeads.length > 0 && (
+                <div className="h-1 bg-primary/20 overflow-hidden">
+                  <div className="h-full bg-primary animate-pulse w-full" />
+                </div>
+              )}
               {/* Show loading state while fetching leads (after initial load) */}
               {isFetchingLeads && filteredAndSortedLeads.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
@@ -3045,7 +3063,7 @@ export function SpreadsheetGrid({
                     <span>Loading leads...</span>
                   </div>
                 </div>
-              ) : filteredAndSortedLeads.length === 0 ? (
+              ) : filteredAndSortedLeads.length === 0 && !isFetchingLeads ? (
                 <div className="text-center py-12 text-muted-foreground">
                   No leads found. {categoryFilter !== "all" ? `Try changing the filter.` : `Add your first lead to get started.`}
                 </div>
