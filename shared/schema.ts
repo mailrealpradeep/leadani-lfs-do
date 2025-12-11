@@ -3404,3 +3404,51 @@ export const insertFutureImprovementSchema = createInsertSchema(future_improveme
 });
 
 export type InsertFutureImprovementData = z.infer<typeof insertFutureImprovementSchema>;
+
+// ============================================================================
+// HOT LEAD CONDITIONS (Define what makes a lead "hot" for priority attention)
+// ============================================================================
+
+// Hot lead condition uses same structure as highlighting conditions
+export type HotLeadCondition = HighlightingCondition;
+
+export interface HotLeadConfig {
+  id: string;
+  company_id: string;
+  conditions: HotLeadCondition[];
+  logical_operator: "and" | "or"; // How conditions are combined
+  is_active: boolean;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Database table for Hot Lead Configuration (one per company)
+export const hot_lead_config = pgTable('hot_lead_config', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  conditions: json('conditions').$type<HotLeadCondition[]>().notNull().default([]),
+  logical_operator: varchar('logical_operator', { length: 10 }).notNull().default('or'),
+  is_active: boolean('is_active').notNull().default(true),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type HotLeadConfigRecord = typeof hot_lead_config.$inferSelect;
+export type InsertHotLeadConfig = typeof hot_lead_config.$inferInsert;
+
+export const insertHotLeadConfigSchema = createInsertSchema(hot_lead_config).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertHotLeadConfigData = z.infer<typeof insertHotLeadConfigSchema>;
+
+// Schema for updating hot lead config
+export const updateHotLeadConfigSchema = z.object({
+  conditions: z.array(highlightingConditionSchema).min(1, "At least one condition is required"),
+  logical_operator: z.enum(["and", "or"]).default("or"),
+  is_active: z.boolean().optional(),
+});

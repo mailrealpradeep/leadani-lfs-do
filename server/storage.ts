@@ -153,6 +153,11 @@ import type {
   FutureImprovementRecord,
   InsertFutureImprovement,
   future_improvements,
+  // Hot Lead Configuration
+  HotLeadConfig,
+  HotLeadConfigRecord,
+  InsertHotLeadConfig,
+  hot_lead_config,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -284,6 +289,11 @@ export interface IStorage {
   reorderHighlightingRules(sheetId: string, ruleIds: string[]): Promise<boolean>;
   getGlobalHighlightingRules(companyId: string): Promise<HighlightingRule[]>;
   reorderGlobalHighlightingRules(companyId: string, ruleIds: string[]): Promise<boolean>;
+
+  // Hot Lead Configuration (Company-wide Hot Lead Criteria)
+  getHotLeadConfig(companyId: string): Promise<HotLeadConfig | undefined>;
+  createHotLeadConfig(config: InsertHotLeadConfig): Promise<HotLeadConfig>;
+  updateHotLeadConfig(id: string, updates: Partial<HotLeadConfig>): Promise<HotLeadConfig | undefined>;
 
   // Quick Filters (Company-wide Quick Filters)
   getQuickFilters(companyId: string): Promise<QuickFilter[]>;
@@ -1443,6 +1453,38 @@ export class MemStorage implements IStorage {
       }
     });
     return true;
+  }
+
+  // Hot Lead Configuration
+  private hotLeadConfigs = new Map<string, HotLeadConfig>();
+
+  async getHotLeadConfig(companyId: string): Promise<HotLeadConfig | undefined> {
+    return Array.from(this.hotLeadConfigs.values()).find(c => c.company_id === companyId);
+  }
+
+  async createHotLeadConfig(config: InsertHotLeadConfig): Promise<HotLeadConfig> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newConfig: HotLeadConfig = {
+      id,
+      company_id: config.company_id,
+      conditions: config.conditions || [],
+      logical_operator: (config.logical_operator as "and" | "or") || "or",
+      is_active: config.is_active ?? true,
+      created_by_user_id: config.created_by_user_id || null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.hotLeadConfigs.set(id, newConfig);
+    return newConfig;
+  }
+
+  async updateHotLeadConfig(id: string, updates: Partial<HotLeadConfig>): Promise<HotLeadConfig | undefined> {
+    const existing = this.hotLeadConfigs.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
+    this.hotLeadConfigs.set(id, updated);
+    return updated;
   }
 
   // Quick Filters (Company-wide Quick Filters)
@@ -3736,6 +3778,61 @@ export class PgStorage implements IStorage {
         ));
     }
     return true;
+  }
+
+  // Hot Lead Configuration
+  private mapHotLeadConfig(record: HotLeadConfigRecord): HotLeadConfig {
+    return {
+      id: record.id,
+      company_id: record.company_id,
+      conditions: (record.conditions as any) || [],
+      logical_operator: (record.logical_operator as "and" | "or") || "or",
+      is_active: record.is_active,
+      created_by_user_id: record.created_by_user_id,
+      created_at: record.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: record.updated_at?.toISOString() || new Date().toISOString(),
+    };
+  }
+
+  async getHotLeadConfig(companyId: string): Promise<HotLeadConfig | undefined> {
+    const result = await db.select()
+      .from(dbSchema.hot_lead_config)
+      .where(eq(dbSchema.hot_lead_config.company_id, companyId))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapHotLeadConfig(result[0]);
+  }
+
+  async createHotLeadConfig(config: InsertHotLeadConfig): Promise<HotLeadConfig> {
+    const id = randomUUID();
+    const now = new Date();
+    const newConfig = {
+      id,
+      company_id: config.company_id,
+      conditions: config.conditions || [],
+      logical_operator: config.logical_operator || "or",
+      is_active: config.is_active ?? true,
+      created_by_user_id: config.created_by_user_id || null,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.hot_lead_config).values(newConfig);
+    return this.mapHotLeadConfig(newConfig as any);
+  }
+
+  async updateHotLeadConfig(id: string, updates: Partial<HotLeadConfig>): Promise<HotLeadConfig | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    await db.update(dbSchema.hot_lead_config)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.hot_lead_config.id, id));
+    const result = await db.select()
+      .from(dbSchema.hot_lead_config)
+      .where(eq(dbSchema.hot_lead_config.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapHotLeadConfig(result[0]);
   }
 
   // Quick Filters (Company-wide Quick Filters)

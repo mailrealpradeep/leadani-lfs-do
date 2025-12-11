@@ -13,7 +13,8 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { getCompanyTimezone } from "./timezone-utils";
 import { seedData } from "./seed";
 import { validateLeadAgainstRules } from "@shared/validator";
-import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters } from "@shared/schema";
+import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition } from "@shared/schema";
+import { evaluateCondition } from "./target-evaluator";
 import { notifyLeadAssigned, notifyLeadUpdated, notifyWebhookReceived, notifyUserJoined } from "./push-service";
 import { triggerOutgoingWebhooks, getChangedFields, flattenLeadFields } from "./webhook-trigger";
 import { 
@@ -50,6 +51,32 @@ import {
 import { extractGoogleSheetId } from "@shared/schema";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
+
+// Helper function to evaluate hot lead conditions against a lead
+function evaluateHotLeadConditions(lead: Lead, conditions: HotLeadCondition[], logicalOperator: "and" | "or"): boolean {
+  if (!conditions || conditions.length === 0) return false;
+  
+  const results = conditions.map(condition => {
+    // Get lead value from custom_fields or thought
+    let leadValue: any;
+    
+    // Special handling for thought field (lead meta)
+    if (condition.column_key === 'thought' || condition.column_key === 'lead_thought') {
+      leadValue = (lead.meta as any)?.thought || null;
+    } else {
+      leadValue = lead.custom_fields?.[condition.column_key] ?? null;
+    }
+    
+    return evaluateCondition(condition, leadValue);
+  });
+  
+  // Apply logical operator
+  if (logicalOperator === "and") {
+    return results.every(r => r);
+  } else {
+    return results.some(r => r);
+  }
+}
 
 // Helper function to parse dates in multiple formats (ISO and dd/MM/yy)
 function parseDateFlexible(dateStr: string): Date | null {
@@ -8821,6 +8848,160 @@ ${questionsList}`;
       res.json(columns);
     } catch (error: any) {
       console.error("Get company columns error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // HOT LEAD CONFIGURATION
+  // ============================================================================
+
+  // GET /api/company/hot-lead-config - Get hot lead configuration
+  app.get("/api/company/hot-lead-config", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const config = await storage.getHotLeadConfig(req.companyId!);
+      res.json(config || null);
+    } catch (error: any) {
+      console.error("Get hot lead config error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/company/hot-lead-config - Create/Update hot lead configuration (Admin only)
+  app.post("/api/company/hot-lead-config", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { conditions, logical_operator, is_active } = req.body;
+      
+      if (!conditions || !Array.isArray(conditions) || conditions.length === 0) {
+        return res.status(400).json({ error: "At least one condition is required" });
+      }
+      
+      // Check if config already exists
+      const existing = await storage.getHotLeadConfig(req.companyId!);
+      
+      let config;
+      if (existing) {
+        // Update existing
+        config = await storage.updateHotLeadConfig(existing.id, {
+          conditions,
+          logical_operator: logical_operator || "or",
+          is_active: is_active ?? true,
+        });
+      } else {
+        // Create new
+        config = await storage.createHotLeadConfig({
+          company_id: req.companyId!,
+          conditions,
+          logical_operator: logical_operator || "or",
+          is_active: is_active ?? true,
+          created_by_user_id: req.userId!,
+        });
+      }
+      
+      // Emit socket event for real-time updates
+      io.to(`company:${req.companyId}`).emit("hot_lead_config.updated", { companyId: req.companyId });
+      
+      res.json(config);
+    } catch (error: any) {
+      console.error("Save hot lead config error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/hot-leads - Get all hot leads across user's accessible sheets
+  app.get("/api/hot-leads", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const config = await storage.getHotLeadConfig(req.companyId!);
+      
+      if (!config || !config.is_active || !config.conditions || config.conditions.length === 0) {
+        return res.json({ leads: [], count: 0, config: null });
+      }
+      
+      // Get user's accessible sheets
+      let sheets: Sheet[];
+      if (req.userRole === "super_admin") {
+        sheets = await storage.getAllSheets();
+      } else if (req.userRole === "company_admin") {
+        sheets = await storage.getSheetsByCompanyId(req.companyId!);
+      } else {
+        // Regular user - get sheets they have access to
+        sheets = await storage.getSheetsByUserId(req.userId!);
+      }
+      
+      if (sheets.length === 0) {
+        return res.json({ leads: [], count: 0, config });
+      }
+      
+      // Get all leads from accessible sheets and filter by hot lead conditions
+      const allHotLeads: (Lead & { sheet_name: string; sheet_id: string })[] = [];
+      
+      for (const sheet of sheets) {
+        const leads = await storage.getLeadsBySheetId(sheet.id);
+        
+        // Filter leads based on hot lead conditions
+        const hotLeads = leads.filter(lead => {
+          return evaluateHotLeadConditions(lead, config.conditions, config.logical_operator);
+        });
+        
+        // Add sheet info to each lead
+        hotLeads.forEach(lead => {
+          allHotLeads.push({
+            ...lead,
+            sheet_name: sheet.name,
+            sheet_id: sheet.id,
+          });
+        });
+      }
+      
+      // Sort by created_at descending (most recent first)
+      allHotLeads.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
+      res.json({ 
+        leads: allHotLeads, 
+        count: allHotLeads.length,
+        config 
+      });
+    } catch (error: any) {
+      console.error("Get hot leads error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/hot-leads/count - Get count of hot leads (for sidebar badge)
+  app.get("/api/hot-leads/count", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const config = await storage.getHotLeadConfig(req.companyId!);
+      
+      if (!config || !config.is_active || !config.conditions || config.conditions.length === 0) {
+        return res.json({ count: 0 });
+      }
+      
+      // Get user's accessible sheets
+      let sheets: Sheet[];
+      if (req.userRole === "super_admin") {
+        sheets = await storage.getAllSheets();
+      } else if (req.userRole === "company_admin") {
+        sheets = await storage.getSheetsByCompanyId(req.companyId!);
+      } else {
+        sheets = await storage.getSheetsByUserId(req.userId!);
+      }
+      
+      if (sheets.length === 0) {
+        return res.json({ count: 0 });
+      }
+      
+      let count = 0;
+      for (const sheet of sheets) {
+        const leads = await storage.getLeadsBySheetId(sheet.id);
+        const hotLeads = leads.filter(lead => {
+          return evaluateHotLeadConditions(lead, config.conditions, config.logical_operator);
+        });
+        count += hotLeads.length;
+      }
+      
+      res.json({ count });
+    } catch (error: any) {
+      console.error("Get hot leads count error:", error);
       res.status(500).json({ error: error.message });
     }
   });
