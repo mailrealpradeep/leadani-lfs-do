@@ -3488,3 +3488,101 @@ export const updateHotLeadConfigSchema = z.object({
   logical_operator: z.enum(["and", "or"]).default("or"),
   is_active: z.boolean().optional(),
 });
+
+// ============================================================================
+// CUSTOM VIEWS (Industry-specific sidebar menu items with filtered leads)
+// ============================================================================
+
+// Condition group - conditions within a group are joined by AND
+export const customViewConditionGroupSchema = z.object({
+  id: z.string(),
+  conditions: z.array(highlightingConditionSchema),
+});
+
+export type CustomViewConditionGroup = z.infer<typeof customViewConditionGroupSchema>;
+
+// Available icon colors for custom views
+export const customViewIconColors = [
+  { id: "red", label: "Red", color: "hsl(0, 84%, 60%)" },
+  { id: "orange", label: "Orange", color: "hsl(24, 95%, 53%)" },
+  { id: "amber", label: "Amber", color: "hsl(45, 93%, 47%)" },
+  { id: "green", label: "Green", color: "hsl(142, 71%, 45%)" },
+  { id: "teal", label: "Teal", color: "hsl(174, 72%, 40%)" },
+  { id: "blue", label: "Blue", color: "hsl(210, 100%, 50%)" },
+  { id: "indigo", label: "Indigo", color: "hsl(239, 84%, 67%)" },
+  { id: "purple", label: "Purple", color: "hsl(270, 70%, 60%)" },
+  { id: "pink", label: "Pink", color: "hsl(330, 80%, 60%)" },
+  { id: "gray", label: "Gray", color: "hsl(220, 9%, 46%)" },
+] as const;
+
+export type CustomViewIconColorId = typeof customViewIconColors[number]["id"];
+
+// Available icons for custom views (subset of Lucide icons)
+export const customViewIcons = [
+  "flame", "star", "heart", "zap", "target", "trophy", "flag", "bookmark",
+  "bell", "calendar", "clock", "check-circle", "alert-circle", "info",
+  "user", "users", "briefcase", "building", "home", "map-pin",
+  "phone", "mail", "message-circle", "send", "inbox",
+  "dollar-sign", "credit-card", "shopping-cart", "package", "gift",
+  "file", "folder", "clipboard", "list", "grid", "layers",
+  "trending-up", "bar-chart", "pie-chart", "activity",
+  "eye", "search", "filter", "settings", "tool", "wrench",
+] as const;
+
+export type CustomViewIconId = typeof customViewIcons[number];
+
+// Custom View interface
+export interface CustomView {
+  id: string;
+  company_id: string;
+  name: string;
+  icon: CustomViewIconId;
+  icon_color: CustomViewIconColorId;
+  show_badge: boolean; // Show count badge in sidebar
+  condition_groups: CustomViewConditionGroup[]; // Groups joined by OR, conditions within AND
+  is_enabled: boolean;
+  order_index: number;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Database table for Custom Views
+export const custom_views = pgTable('custom_views', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  icon: varchar('icon', { length: 50 }).notNull().default('star'),
+  icon_color: varchar('icon_color', { length: 20 }).notNull().default('blue'),
+  show_badge: boolean('show_badge').notNull().default(true),
+  condition_groups: json('condition_groups').$type<CustomViewConditionGroup[]>().notNull().default([]),
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  order_index: integer('order_index').notNull().default(0),
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type CustomViewRecord = typeof custom_views.$inferSelect;
+export type InsertCustomView = typeof custom_views.$inferInsert;
+
+export const insertCustomViewSchema = createInsertSchema(custom_views).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertCustomViewData = z.infer<typeof insertCustomViewSchema>;
+
+// Schema for creating/updating custom views
+export const customViewFormSchema = z.object({
+  name: z.string().min(1, "Name is required").max(100, "Name too long"),
+  icon: z.enum(customViewIcons).default("star"),
+  icon_color: z.enum(customViewIconColors.map(c => c.id) as [string, ...string[]]).default("blue"),
+  show_badge: z.boolean().default(true),
+  condition_groups: z.array(customViewConditionGroupSchema).min(1, "At least one condition group is required"),
+  is_enabled: z.boolean().default(true),
+  order_index: z.number().int().default(0),
+});
+
+export type CustomViewFormData = z.infer<typeof customViewFormSchema>;

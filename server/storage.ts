@@ -158,6 +158,12 @@ import type {
   HotLeadConfigRecord,
   InsertHotLeadConfig,
   hot_lead_config,
+  // Custom Views
+  CustomView,
+  CustomViewRecord,
+  InsertCustomView,
+  custom_views,
+  CustomViewConditionGroup,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -294,6 +300,14 @@ export interface IStorage {
   getHotLeadConfig(companyId: string): Promise<HotLeadConfig | undefined>;
   createHotLeadConfig(config: InsertHotLeadConfig): Promise<HotLeadConfig>;
   updateHotLeadConfig(id: string, updates: Partial<HotLeadConfig>): Promise<HotLeadConfig | undefined>;
+
+  // Custom Views (Industry-specific sidebar menu items with filtered leads)
+  getCustomViews(companyId: string): Promise<CustomView[]>;
+  getCustomViewById(id: string): Promise<CustomView | undefined>;
+  createCustomView(view: InsertCustomView): Promise<CustomView>;
+  updateCustomView(id: string, updates: Partial<CustomView>): Promise<CustomView | undefined>;
+  deleteCustomView(id: string): Promise<boolean>;
+  reorderCustomViews(companyId: string, viewIds: string[]): Promise<boolean>;
 
   // Quick Filters (Company-wide Quick Filters)
   getQuickFilters(companyId: string): Promise<QuickFilter[]>;
@@ -1495,6 +1509,64 @@ export class MemStorage implements IStorage {
     const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
     this.hotLeadConfigs.set(id, updated);
     return updated;
+  }
+
+  // Custom Views (Industry-specific sidebar menu items)
+  private customViews = new Map<string, CustomView>();
+
+  async getCustomViews(companyId: string): Promise<CustomView[]> {
+    return Array.from(this.customViews.values())
+      .filter(v => v.company_id === companyId)
+      .sort((a, b) => a.order_index - b.order_index);
+  }
+
+  async getCustomViewById(id: string): Promise<CustomView | undefined> {
+    return this.customViews.get(id);
+  }
+
+  async createCustomView(view: InsertCustomView): Promise<CustomView> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const newView: CustomView = {
+      id,
+      company_id: view.company_id,
+      name: view.name,
+      icon: (view.icon as any) || "star",
+      icon_color: (view.icon_color as any) || "blue",
+      show_badge: view.show_badge ?? true,
+      condition_groups: view.condition_groups || [],
+      is_enabled: view.is_enabled ?? true,
+      order_index: view.order_index ?? 0,
+      created_by_user_id: view.created_by_user_id || null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.customViews.set(id, newView);
+    return newView;
+  }
+
+  async updateCustomView(id: string, updates: Partial<CustomView>): Promise<CustomView | undefined> {
+    const existing = this.customViews.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
+    this.customViews.set(id, updated);
+    return updated;
+  }
+
+  async deleteCustomView(id: string): Promise<boolean> {
+    return this.customViews.delete(id);
+  }
+
+  async reorderCustomViews(companyId: string, viewIds: string[]): Promise<boolean> {
+    viewIds.forEach((id, index) => {
+      const view = this.customViews.get(id);
+      if (view && view.company_id === companyId) {
+        view.order_index = index;
+        view.updated_at = new Date().toISOString();
+        this.customViews.set(id, view);
+      }
+    });
+    return true;
   }
 
   // Quick Filters (Company-wide Quick Filters)
@@ -3843,6 +3915,94 @@ export class PgStorage implements IStorage {
       .limit(1);
     if (result.length === 0) return undefined;
     return this.mapHotLeadConfig(result[0]);
+  }
+
+  // Custom Views (Industry-specific sidebar menu items)
+  private mapCustomView(record: CustomViewRecord): CustomView {
+    return {
+      id: record.id,
+      company_id: record.company_id,
+      name: record.name,
+      icon: record.icon as any,
+      icon_color: record.icon_color as any,
+      show_badge: record.show_badge,
+      condition_groups: (record.condition_groups as any) || [],
+      is_enabled: record.is_enabled,
+      order_index: record.order_index,
+      created_by_user_id: record.created_by_user_id,
+      created_at: record.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: record.updated_at?.toISOString() || new Date().toISOString(),
+    };
+  }
+
+  async getCustomViews(companyId: string): Promise<CustomView[]> {
+    const result = await db.select()
+      .from(dbSchema.custom_views)
+      .where(eq(dbSchema.custom_views.company_id, companyId))
+      .orderBy(dbSchema.custom_views.order_index);
+    return result.map(r => this.mapCustomView(r));
+  }
+
+  async getCustomViewById(id: string): Promise<CustomView | undefined> {
+    const result = await db.select()
+      .from(dbSchema.custom_views)
+      .where(eq(dbSchema.custom_views.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapCustomView(result[0]);
+  }
+
+  async createCustomView(view: InsertCustomView): Promise<CustomView> {
+    const id = randomUUID();
+    const now = new Date();
+    const newView = {
+      id,
+      company_id: view.company_id,
+      name: view.name,
+      icon: view.icon || "star",
+      icon_color: view.icon_color || "blue",
+      show_badge: view.show_badge ?? true,
+      condition_groups: view.condition_groups || [],
+      is_enabled: view.is_enabled ?? true,
+      order_index: view.order_index ?? 0,
+      created_by_user_id: view.created_by_user_id || null,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.custom_views).values(newView);
+    return this.mapCustomView(newView as any);
+  }
+
+  async updateCustomView(id: string, updates: Partial<CustomView>): Promise<CustomView | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    await db.update(dbSchema.custom_views)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.custom_views.id, id));
+    const result = await db.select()
+      .from(dbSchema.custom_views)
+      .where(eq(dbSchema.custom_views.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapCustomView(result[0]);
+  }
+
+  async deleteCustomView(id: string): Promise<boolean> {
+    await db.delete(dbSchema.custom_views).where(eq(dbSchema.custom_views.id, id));
+    return true;
+  }
+
+  async reorderCustomViews(companyId: string, viewIds: string[]): Promise<boolean> {
+    for (let i = 0; i < viewIds.length; i++) {
+      await db.update(dbSchema.custom_views)
+        .set({ order_index: i, updated_at: new Date() })
+        .where(and(
+          eq(dbSchema.custom_views.id, viewIds[i]),
+          eq(dbSchema.custom_views.company_id, companyId)
+        ));
+    }
+    return true;
   }
 
   // Quick Filters (Company-wide Quick Filters)
