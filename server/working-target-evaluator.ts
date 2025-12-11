@@ -801,12 +801,12 @@ export async function generateLeaderboard(
   // Get all active working targets
   const targets = await storage.getWorkingTargetsByCompany(companyId);
   
-  // Filter by time_type based on preset (daily/weekly/monthly targets)
-  const requiredTimeType = getTimeTypeForPreset(preset);
+  // Filter by period_type based on preset (daily/weekly/monthly targets)
+  const requiredPeriodType = getTimeTypeForPreset(preset);
   const activeTargets = targets.filter(t => {
     if (!t.is_active) return false;
-    // If preset maps to a specific time_type, only include matching targets
-    if (requiredTimeType && t.time_type !== requiredTimeType) return false;
+    // If preset maps to a specific period_type, only include matching targets
+    if (requiredPeriodType && t.period_type !== requiredPeriodType) return false;
     return true;
   });
   

@@ -729,30 +729,70 @@ export default function Leaderboard() {
     setExpandedRows(new Set());
   };
 
+  // Get the current target type label based on selected preset
+  const getTargetTypeLabel = () => {
+    const preset = datePresets.find(p => p.value === datePreset);
+    if (!preset) return 'Targets';
+    switch (preset.targetType) {
+      case 'daily': return 'Daily Targets';
+      case 'weekly': return 'Weekly Targets';
+      case 'monthly': return 'Monthly Targets';
+      default: return 'Targets';
+    }
+  };
+
+  const getTargetTypeColor = () => {
+    const preset = datePresets.find(p => p.value === datePreset);
+    if (!preset) return 'bg-muted';
+    switch (preset.targetType) {
+      case 'daily': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
+      case 'weekly': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
+      case 'monthly': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+      default: return 'bg-muted';
+    }
+  };
+
   return (
     <div className="h-full p-4 md:p-6 space-y-6 overflow-auto">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+        className="flex flex-col gap-4"
       >
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
+        {/* Header Row */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
             <motion.div
               initial={{ rotate: -20, scale: 0 }}
               animate={{ rotate: 0, scale: 1 }}
               transition={{ type: "spring", stiffness: 300 }}
-              className="p-2 rounded-xl bg-gradient-to-br from-yellow-400 to-amber-500 text-white shadow-lg"
+              className="p-2.5 rounded-xl bg-gradient-to-br from-yellow-400 to-amber-500 text-white shadow-lg"
             >
               <Trophy className="h-6 w-6" />
             </motion.div>
-            Leaderboard
-          </h1>
-          <p className="text-muted-foreground mt-1 ml-14">
-            Track team performance and celebrate achievements
-          </p>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold">Leaderboard</h1>
+              <p className="text-sm text-muted-foreground">
+                Team performance rankings
+              </p>
+            </div>
+          </div>
+          
+          {/* Target Type Badge */}
+          <motion.div
+            key={datePreset}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex items-center gap-2"
+          >
+            <Badge className={cn("text-sm px-3 py-1", getTargetTypeColor())} variant="outline">
+              <Target className="h-3.5 w-3.5 mr-1.5" />
+              {getTargetTypeLabel()}
+            </Badge>
+          </motion.div>
         </div>
         
+        {/* Filter Buttons Row */}
         <DateFilterButtons selected={datePreset} onSelect={handlePresetChange} />
       </motion.div>
 
