@@ -296,7 +296,7 @@ function PodiumCard({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: config.delay + 0.4 }}
-        className="text-center mb-2"
+        className="text-center mb-4"
       >
         <p className="font-semibold text-sm truncate max-w-[90px] sm:max-w-[120px]">{entry.userName}</p>
         <p className="text-xs text-muted-foreground truncate max-w-[90px] sm:max-w-[120px]">{entry.userEmail}</p>
@@ -313,7 +313,7 @@ function PodiumCard({
           `bg-gradient-to-t ${config.bgGradient}`
         )}
       >
-        <div className="py-3 text-center">
+        <div className="py-4 pt-5 text-center">
           <CircularProgress 
             value={entry.averageCompliance} 
             size={56} 
