@@ -419,6 +419,12 @@ export function SpreadsheetGrid({
     };
   }, []);
   
+  // Clear editingLeadCache when sheet/mode changes (not during filter changes)
+  useEffect(() => {
+    setEditingLeadCache(null);
+    setHighlightedLeadId(null);
+  }, [activeSheetId, isMultiMode, hotLeadsMode]);
+  
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -1933,6 +1939,24 @@ export function SpreadsheetGrid({
     
     return filtered;
   }, [leads, evaluateRowFilters, evaluateQuickFilter, editingLeadCache, highlightedLeadId]);
+
+  // Sync editingLeadCache with latest data from server (websocket updates trigger query refetch)
+  // This ensures the pinned row shows fresh data when the backend updates
+  useEffect(() => {
+    if (editingLeadCache && highlightedLeadId === editingLeadCache.id) {
+      // Look for the updated version of this lead in the leads array
+      const updatedLead = leads.find(lead => lead.id === editingLeadCache.id);
+      if (updatedLead) {
+        // Compare entire lead objects to catch all field changes (not just custom_fields)
+        // Using JSON stringify for deep comparison - includes all rendered fields
+        const cachedStr = JSON.stringify(editingLeadCache);
+        const updatedStr = JSON.stringify(updatedLead);
+        if (cachedStr !== updatedStr) {
+          setEditingLeadCache(updatedLead);
+        }
+      }
+    }
+  }, [leads, editingLeadCache, highlightedLeadId]);
 
   // Use ordered columns for visible columns (respecting user's custom order)
   // Memoize to keep stable reference when only filters change (fixes filter input focus loss)
