@@ -74,6 +74,9 @@ export function AppSidebar() {
     }
   };
 
+  // Check if the current user is the dedicated Super Admin account - must be before any useQuery that depends on it
+  const isSuperAdminAccount = user?.email === "adminleadani@leadani.com";
+
   const { data: sheets } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
   });
@@ -128,9 +131,6 @@ export function AppSidebar() {
       });
     },
   });
-
-  // Check if the current user is the dedicated Super Admin account
-  const isSuperAdminAccount = user?.email === "adminleadani@leadani.com";
 
   // Super Admin has a completely different, focused sidebar
   const superAdminItems = [

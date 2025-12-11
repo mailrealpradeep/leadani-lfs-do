@@ -52,21 +52,34 @@ import { extractGoogleSheetId } from "@shared/schema";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
+// Helper function to get value from a lead's field (standard or custom)
+function getLeadFieldValue(lead: Lead, columnKey: string): any {
+  // Special handling for thought field (lead meta)
+  if (columnKey === 'thought' || columnKey === 'lead_thought') {
+    return (lead.meta as any)?.thought || null;
+  }
+  
+  // Check standard lead fields first
+  const standardFields = ['id', 'name', 'email', 'mobile', 'status', 'address', 
+    'created_at', 'updated_at', 'assigned_to', 'company_id', 'sheet_id', 'deleted_at'];
+  if (standardFields.includes(columnKey) || columnKey in lead) {
+    return (lead as any)[columnKey] ?? null;
+  }
+  
+  // Then check custom_fields
+  if (lead.custom_fields && columnKey in lead.custom_fields) {
+    return lead.custom_fields[columnKey];
+  }
+  
+  return null;
+}
+
 // Helper function to evaluate hot lead conditions against a lead
 function evaluateHotLeadConditions(lead: Lead, conditions: HotLeadCondition[], logicalOperator: "and" | "or"): boolean {
   if (!conditions || conditions.length === 0) return false;
   
   const results = conditions.map(condition => {
-    // Get lead value from custom_fields or thought
-    let leadValue: any;
-    
-    // Special handling for thought field (lead meta)
-    if (condition.column_key === 'thought' || condition.column_key === 'lead_thought') {
-      leadValue = (lead.meta as any)?.thought || null;
-    } else {
-      leadValue = lead.custom_fields?.[condition.column_key] ?? null;
-    }
-    
+    const leadValue = getLeadFieldValue(lead, condition.column_key);
     return evaluateCondition(condition, leadValue);
   });
   

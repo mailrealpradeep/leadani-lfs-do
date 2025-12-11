@@ -55,6 +55,46 @@ export function evaluateCondition(condition: TargetCondition, leadValue: any): b
     return false;
   }
 
+  // Handle array leadValue (multi-select dropdowns) specially
+  // Arrays should check if any element matches the condition
+  if (Array.isArray(leadValue)) {
+    // Normalize condition values - could be a single value, array, or comma-separated string
+    let condValues: string[];
+    if (Array.isArray(value)) {
+      condValues = value.map(v => String(v).toLowerCase().trim());
+    } else if (value !== null && value !== undefined) {
+      const valStr = String(value).toLowerCase().trim();
+      condValues = valStr.includes(',') ? valStr.split(',').map(v => v.trim()) : [valStr];
+    } else {
+      condValues = [];
+    }
+    
+    const leadValues = leadValue.map(v => String(v).toLowerCase().trim());
+    
+    switch (operator) {
+      case 'equals':
+        // For arrays, equals checks if any condition value is in the selected values
+        return condValues.length > 0 && condValues.some(cv => leadValues.includes(cv));
+      case 'not_equals':
+        // For arrays, not_equals checks if NONE of the condition values are in the selected values
+        return condValues.length === 0 || condValues.every(cv => !leadValues.includes(cv));
+      case 'contains':
+        // For arrays, contains checks if any lead element contains any condition value
+        return condValues.some(cv => leadValues.some(lv => lv.includes(cv)));
+      case 'not_contains':
+        return !condValues.some(cv => leadValues.some(lv => lv.includes(cv)));
+      case 'in':
+        // For arrays, in checks if any lead value is in the condition values
+        return leadValues.some(v => condValues.includes(v));
+      case 'not_in':
+        // For arrays, not_in checks if none of the lead values are in the condition values
+        return !leadValues.some(v => condValues.includes(v));
+      default:
+        // For other operators on arrays, join and treat as string
+        return evaluateCondition({ ...condition }, leadValue.join(', '));
+    }
+  }
+
   const strValue = String(leadValue).toLowerCase().trim();
   const condValue = value !== null && value !== undefined ? String(value).toLowerCase().trim() : '';
   
