@@ -31,6 +31,7 @@ import {
   CheckCircle2,
   Lightbulb,
   X,
+  Flame,
 } from "lucide-react";
 
 interface FAQItem {
@@ -1975,6 +1976,86 @@ const faqData: FAQCategory[] = [
           "Clear browser cache",
           "Update your browser to latest version",
           "Try reinstalling as a PWA"
+        ]
+      }
+    ]
+  },
+  {
+    id: "hot-leads",
+    name: "Hot Leads",
+    icon: Flame,
+    description: "Priority lead identification and management",
+    questions: [
+      {
+        id: "hl-1",
+        question: "What are Hot Leads?",
+        answer: [
+          "Hot Leads is a feature that automatically identifies high-priority leads",
+          "Based on conditions you configure (status, visit, custom fields)",
+          "Shows all matching leads from ALL sheets in one view",
+          "Uses the same spreadsheet grid as regular sheets"
+        ]
+      },
+      {
+        id: "hl-2",
+        question: "How to configure Hot Leads?",
+        answer: [
+          "Go to Admin Console (Admin only)",
+          "Find 'Hot Leads Configuration' section",
+          "Add conditions (e.g., Status equals 'Hot')",
+          "Choose AND/OR logic for multiple conditions",
+          "Enable the feature and save"
+        ],
+        tips: ["Start with simple conditions and refine over time"]
+      },
+      {
+        id: "hl-3",
+        question: "How to view Hot Leads?",
+        answer: [
+          "Click 'Hot Leads' in the sidebar",
+          "See all priority leads in a spreadsheet grid",
+          "The 'Sheet' column shows which sheet each lead belongs to",
+          "Count badge shows total hot leads"
+        ]
+      },
+      {
+        id: "hl-4",
+        question: "Can I edit leads in Hot Leads view?",
+        answer: [
+          "Yes! Hot Leads uses the same grid as regular sheets",
+          "Click any cell to edit inline",
+          "Sort, filter, and search work the same way",
+          "All changes sync in real-time"
+        ]
+      },
+      {
+        id: "hl-5",
+        question: "What happens when a lead no longer matches conditions?",
+        answer: [
+          "The lead automatically disappears from Hot Leads",
+          "It's still in its original sheet",
+          "If it matches conditions again, it reappears",
+          "Updates happen in real-time"
+        ]
+      },
+      {
+        id: "hl-6",
+        question: "Can I use custom columns in Hot Leads conditions?",
+        answer: [
+          "Yes, any column can be used in conditions",
+          "Standard fields: Status, Visit, Follow-up date",
+          "Custom columns: Any field you've created",
+          "Works with dropdown, text, date, and number columns"
+        ]
+      },
+      {
+        id: "hl-7",
+        question: "How to disable Hot Leads?",
+        answer: [
+          "Go to Admin Console > Hot Leads Configuration",
+          "Toggle the 'Enable Hot Leads' switch off",
+          "The feature is disabled but configuration is saved",
+          "Turn it back on anytime"
         ]
       }
     ]

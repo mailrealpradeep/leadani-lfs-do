@@ -36,6 +36,7 @@ import {
   UserCheck,
   Bell,
   HelpCircle,
+  Flame,
 } from "lucide-react";
 
 interface GuideStep {
@@ -1078,6 +1079,58 @@ const guideData: GuideSection[] = [
           "Sheet deletion requires password confirmation",
           "Critical operations have type-to-confirm",
           "Prevents accidental data loss"
+        ]
+      }
+    ]
+  },
+  {
+    id: "hot-leads",
+    name: "Hot Leads Dashboard",
+    icon: Flame,
+    description: "Identify and prioritize high-value leads across all sheets",
+    badge: "New",
+    items: [
+      {
+        title: "What are Hot Leads?",
+        description: "Automatic priority lead identification",
+        steps: [
+          "Hot Leads automatically identifies high-priority leads",
+          "Based on configurable conditions you define",
+          "Shows leads from ALL sheets in one unified view",
+          "Uses the same spreadsheet grid as regular sheets"
+        ]
+      },
+      {
+        title: "Configure Hot Leads",
+        description: "Set up conditions to identify priority leads",
+        steps: [
+          "Go to Admin Console → Hot Leads Configuration",
+          "Add conditions (e.g., Status = 'Hot', Visit = 'Scheduled')",
+          "Use AND/OR logic for complex rules",
+          "Works with any column - standard or custom",
+          "Enable/disable the feature anytime"
+        ],
+        tips: ["Start simple with 1-2 conditions, then refine based on results"]
+      },
+      {
+        title: "Using the Hot Leads Grid",
+        description: "Full spreadsheet functionality for priority leads",
+        steps: [
+          "Click 'Hot Leads' in sidebar to view",
+          "See leads from all sheets with 'Sheet' column",
+          "Inline edit any field directly in the grid",
+          "Sort, filter, and search just like regular sheets",
+          "Bulk actions (delete, transfer, mark thoughts) available"
+        ]
+      },
+      {
+        title: "Real-Time Updates",
+        description: "Hot Leads stay current automatically",
+        steps: [
+          "When lead data changes, Hot Leads updates instantly",
+          "If a lead no longer matches conditions, it disappears",
+          "New matching leads appear automatically",
+          "Count badge in sidebar shows current total"
         ]
       }
     ]

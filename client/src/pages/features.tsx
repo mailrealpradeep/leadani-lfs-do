@@ -57,6 +57,7 @@ import {
   Briefcase,
   Car,
   Plane,
+  Flame,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -524,6 +525,26 @@ const features: Feature[] = [
     ],
     gradient: "from-sky-400 to-blue-500",
     iconBg: "bg-sky-400/10",
+  },
+  {
+    id: "hot-leads",
+    icon: Flame,
+    title: "Hot Leads Dashboard",
+    tagline: "Priority leads, one powerful view",
+    description: "Automatically identify high-priority leads based on configurable conditions - visit status, lead status, custom markers, or any column. View all hot leads across all sheets in one unified spreadsheet grid with full inline editing, sorting, filtering, and real-time updates. Never miss a high-value opportunity.",
+    benefits: [
+      "Unified view across all sheets",
+      "Full spreadsheet grid with inline editing",
+      "Configurable AND/OR conditions",
+      "Real-time updates via Socket.io"
+    ],
+    sectors: [
+      { name: "Sales", icon: TrendingUp, useCase: "Focus on high-conversion leads instantly" },
+      { name: "Real Estate", icon: Home, useCase: "Track site visit-ready prospects" },
+      { name: "Education", icon: GraduationCap, useCase: "Prioritize ready-to-enroll students" },
+    ],
+    gradient: "from-orange-500 to-red-600",
+    iconBg: "bg-orange-500/10",
   },
 ];
 
