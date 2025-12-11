@@ -141,8 +141,15 @@ interface SpreadsheetGridProps {
   sheetId?: string;
   sheetIds?: string[];
   onOpenLeadDetail: (leadId: string) => void;
-  onOpenDropdownManager: (columnKey: string) => void;
+  onOpenDropdownManager?: (columnKey: string) => void; // Optional for hot leads mode
   onScroll?: (scrollTop: number, scrollingDown: boolean) => void;
+  hotLeadsMode?: boolean;
+}
+
+interface HotLeadsResponse {
+  leads: (Lead & { sheet_name: string; sheet_id: string })[];
+  count: number;
+  config: any;
 }
 
 interface PaginatedLeadsResponse {
@@ -325,6 +332,7 @@ export function SpreadsheetGrid({
   onOpenLeadDetail,
   onOpenDropdownManager,
   onScroll,
+  hotLeadsMode = false,
 }: SpreadsheetGridProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -344,9 +352,12 @@ export function SpreadsheetGrid({
     setColumnVisibilityConfig,
   } = useDashboard();
   
-  const isMultiMode = isMultiSheetMode && selectedSheetIds.length > 0;
+  // Hot leads mode acts like multi-mode (shows sheet column, uses company columns)
+  // But hot leads doesn't rely on selectedSheetIds - it uses its own data source
+  const isMultiMode = hotLeadsMode || (isMultiSheetMode && selectedSheetIds.length > 0);
   const activeSheetId = sheetId || "";
-  const activeSheetIds = isMultiMode ? selectedSheetIds : [];
+  // For hot leads mode, we don't need activeSheetIds - data comes from hot leads API
+  const activeSheetIds = hotLeadsMode ? [] : (isMultiSheetMode ? selectedSheetIds : []);
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [sortColumn, setSortColumn] = useState<string | null>("created_at");
@@ -432,10 +443,10 @@ export function SpreadsheetGrid({
     enabled: !!activeSheetId && !isMultiMode,
   });
 
-  // Company-level columns for multi-sheet mode
+  // Company-level columns for multi-sheet mode (includes hot leads mode)
   const { data: companyColumns = [], isLoading: isLoadingCompanyColumns, error: companyColumnsError } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
-    enabled: isMultiMode,
+    enabled: isMultiMode, // isMultiMode already includes hotLeadsMode
     staleTime: 30000,
     retry: 2,
   });
@@ -577,7 +588,7 @@ export function SpreadsheetGrid({
       return undefined;
     },
     initialPageParam: 1,
-    enabled: isMultiMode && activeSheetIds.length > 0 && companyColumns.length > 0,
+    enabled: isMultiMode && !hotLeadsMode && activeSheetIds.length > 0 && companyColumns.length > 0,
   });
 
   // Flatten multi-sheet infinite data
@@ -589,9 +600,102 @@ export function SpreadsheetGrid({
   const multiSheetTotal = multiSheetInfiniteData?.pages?.[0]?.total ?? 0;
   const multiSheetNames = multiSheetInfiniteData?.pages?.[0]?.sheetNames ?? {};
 
+  // Hot leads mode data fetching - uses /api/hot-leads endpoint
+  const { 
+    data: hotLeadsData,
+    isLoading: isLoadingHotLeads,
+    isFetching: isFetchingHotLeads,
+    refetch: refetchHotLeads,
+  } = useQuery<HotLeadsResponse>({
+    queryKey: ["/api/hot-leads"],
+    enabled: hotLeadsMode,
+  });
+
+  // Process hot leads data with client-side filtering/sorting
+  const hotLeadsProcessed = useMemo(() => {
+    if (!hotLeadsData?.leads) return [];
+    let filtered = [...hotLeadsData.leads];
+    
+    // Apply search filter
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      filtered = filtered.filter(lead => {
+        const name = lead.custom_fields?.full_name?.toString().toLowerCase() || "";
+        const mobile = lead.custom_fields?.mobile_no?.toString().toLowerCase() || "";
+        const sheetName = lead.sheet_name?.toLowerCase() || "";
+        return name.includes(searchLower) || mobile.includes(searchLower) || sheetName.includes(searchLower);
+      });
+    }
+    
+    // Apply column filters
+    for (const [key, value] of Object.entries(columnFilters)) {
+      if (!value) continue;
+      if (typeof value === 'string' && value.trim()) {
+        const filterLower = value.toLowerCase();
+        filtered = filtered.filter(lead => {
+          const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
+          return fieldValue.includes(filterLower);
+        });
+      }
+    }
+    
+    // Apply thought filter
+    if (thoughtFilter) {
+      filtered = filtered.filter(lead => {
+        const thought = (lead.meta as any)?.thought;
+        return thought === thoughtFilter;
+      });
+    }
+    
+    // Apply sorting
+    if (sortColumn) {
+      filtered.sort((a, b) => {
+        let aVal: any, bVal: any;
+        
+        if (sortColumn === "__sheet_name__") {
+          aVal = a.sheet_name || "";
+          bVal = b.sheet_name || "";
+        } else if (sortColumn === "created_at") {
+          aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
+          bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+        } else {
+          aVal = a.custom_fields?.[sortColumn] || "";
+          bVal = b.custom_fields?.[sortColumn] || "";
+        }
+        
+        if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+        if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+        
+        if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+    
+    return filtered;
+  }, [hotLeadsData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection]);
+
+  const hotLeadsSheetNames = useMemo(() => {
+    if (!hotLeadsData?.leads) return {};
+    const names: Record<string, string> = {};
+    hotLeadsData.leads.forEach(lead => {
+      if (lead.sheet_id && lead.sheet_name) {
+        names[lead.sheet_id] = lead.sheet_name;
+      }
+    });
+    return names;
+  }, [hotLeadsData?.leads]);
+
   // Update pagination state for display purposes (infinite scroll mode)
   useEffect(() => {
-    if (isMultiMode && multiSheetTotal > 0) {
+    if (hotLeadsMode && hotLeadsProcessed.length >= 0) {
+      setPagination({
+        page: 1,
+        limit: hotLeadsProcessed.length || 50,
+        total: hotLeadsProcessed.length,
+        totalPages: 1,
+      });
+    } else if (isMultiMode && multiSheetTotal > 0) {
       setPagination({
         page: 1,
         limit: INFINITE_SCROLL_LIMIT,
@@ -606,7 +710,7 @@ export function SpreadsheetGrid({
         totalPages: Math.ceil(singleSheetTotal / INFINITE_SCROLL_LIMIT),
       });
     }
-  }, [multiSheetTotal, singleSheetTotal, isMultiMode, setPagination]);
+  }, [multiSheetTotal, singleSheetTotal, isMultiMode, hotLeadsMode, hotLeadsProcessed.length, setPagination]);
 
   // Reset to page 1 when sheet selection, search, filters, or sort changes
   // Use JSON.stringify for stable dependency reference of columnFilters
@@ -645,16 +749,18 @@ export function SpreadsheetGrid({
     };
   }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
 
-  // Unified data access - using infinite scroll data
-  const leads = isMultiMode ? multiSheetLeads : singleSheetLeads;
+  // Unified data access - using infinite scroll data or hot leads data
+  const leads = hotLeadsMode 
+    ? hotLeadsProcessed 
+    : (isMultiMode ? multiSheetLeads : singleSheetLeads);
   const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
-  const sheetNamesMap = multiSheetNames;
+  const sheetNamesMap = hotLeadsMode ? hotLeadsSheetNames : multiSheetNames;
   
-  // Unified infinite scroll helpers
-  const hasNextPage = isMultiMode ? hasNextMultiPage : hasNextSinglePage;
-  const isFetchingNextPage = isMultiMode ? isFetchingNextMultiPage : isFetchingNextSinglePage;
-  const fetchNextPage = isMultiMode ? fetchNextMultiPage : fetchNextSinglePage;
-  const totalLeads = isMultiMode ? multiSheetTotal : singleSheetTotal;
+  // Unified infinite scroll helpers (hot leads mode doesn't use infinite scroll)
+  const hasNextPage = hotLeadsMode ? false : (isMultiMode ? hasNextMultiPage : hasNextSinglePage);
+  const isFetchingNextPage = hotLeadsMode ? false : (isMultiMode ? isFetchingNextMultiPage : isFetchingNextSinglePage);
+  const fetchNextPage = hotLeadsMode ? (() => Promise.resolve()) : (isMultiMode ? fetchNextMultiPage : fetchNextSinglePage);
+  const totalLeads = hotLeadsMode ? hotLeadsProcessed.length : (isMultiMode ? multiSheetTotal : singleSheetTotal);
 
   // Debug logging for column rendering issue
   if (isMultiMode) {
@@ -809,9 +915,11 @@ export function SpreadsheetGrid({
     })
   );
 
-  const isLoading = isMultiMode 
-    ? (isLoadingMultiLeads || isLoadingCompanyColumns)
-    : (isLoadingSingleLeads || isLoadingSingleColumns);
+  const isLoading = hotLeadsMode
+    ? (isLoadingHotLeads || isLoadingCompanyColumns)
+    : isMultiMode 
+      ? (isLoadingMultiLeads || isLoadingCompanyColumns)
+      : (isLoadingSingleLeads || isLoadingSingleColumns);
 
   const updateLeadMutation = useMutation({
     mutationFn: async ({ leadId, customFields }: { leadId: string; customFields: Record<string, any> }) => {
@@ -821,9 +929,12 @@ export function SpreadsheetGrid({
       // Use query key prefix matching for infinite queries - only match the base key parts
       const singleSheetQueryKeyPrefix = ["/api/sheets", activeSheetId, "leads-infinite"];
       const multiSheetQueryKeyPrefix = ["/api/leads/query-infinite"];
+      const hotLeadsQueryKey = ["/api/hot-leads"];
       
       // Cancel any outgoing refetches to avoid overwriting our optimistic update
-      if (isMultiMode) {
+      if (hotLeadsMode) {
+        await queryClient.cancelQueries({ queryKey: hotLeadsQueryKey });
+      } else if (isMultiMode) {
         await queryClient.cancelQueries({ queryKey: multiSheetQueryKeyPrefix });
       } else {
         await queryClient.cancelQueries({ queryKey: singleSheetQueryKeyPrefix });
@@ -832,9 +943,22 @@ export function SpreadsheetGrid({
       // Snapshot the previous values for rollback (using prefix matching)
       const previousSingleLeads = queryClient.getQueriesData({ queryKey: singleSheetQueryKeyPrefix });
       const previousMultiLeads = queryClient.getQueriesData({ queryKey: multiSheetQueryKeyPrefix });
+      const previousHotLeads = queryClient.getQueryData(hotLeadsQueryKey);
 
-      // Optimistically update the lead in the infinite query cache
-      if (isMultiMode) {
+      // Optimistically update the lead in the appropriate cache
+      if (hotLeadsMode) {
+        queryClient.setQueryData(hotLeadsQueryKey, (old: HotLeadsResponse | undefined) => {
+          if (!old?.leads) return old;
+          return {
+            ...old,
+            leads: old.leads.map((lead) =>
+              lead.id === leadId
+                ? { ...lead, custom_fields: { ...lead.custom_fields, ...customFields } }
+                : lead
+            ),
+          };
+        });
+      } else if (isMultiMode) {
         queryClient.setQueriesData(
           { queryKey: multiSheetQueryKeyPrefix },
           (old: any) => {
@@ -874,10 +998,13 @@ export function SpreadsheetGrid({
       }
 
       // Return context with previous values for rollback
-      return { previousSingleLeads, previousMultiLeads };
+      return { previousSingleLeads, previousMultiLeads, previousHotLeads };
     },
     onError: (err, variables, context) => {
       // Rollback to previous values on error
+      if (context?.previousHotLeads) {
+        queryClient.setQueryData(["/api/hot-leads"], context.previousHotLeads);
+      }
       if (context?.previousSingleLeads) {
         context.previousSingleLeads.forEach(([queryKey, data]: [any, any]) => {
           if (data) {
@@ -900,7 +1027,10 @@ export function SpreadsheetGrid({
     },
     onSettled: () => {
       // Always refetch after error or success to ensure server state is synced
-      if (isMultiMode) {
+      if (hotLeadsMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+      } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
         queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
@@ -913,7 +1043,10 @@ export function SpreadsheetGrid({
       await Promise.all(leadIds.map((id) => apiRequest("DELETE", `/api/leads/${id}`, {})));
     },
     onSuccess: () => {
-      if (isMultiMode) {
+      if (hotLeadsMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+      } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
         queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
@@ -932,7 +1065,10 @@ export function SpreadsheetGrid({
     },
     onSuccess: (data: any, variables) => {
       // Invalidate both source and target sheets
-      if (isMultiMode) {
+      if (hotLeadsMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+      } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
         queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
@@ -960,7 +1096,10 @@ export function SpreadsheetGrid({
       return await apiRequest("PATCH", `/api/leads/${leadId}/thought`, { thought });
     },
     onSuccess: () => {
-      if (isMultiMode) {
+      if (hotLeadsMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+      } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
         queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
@@ -1156,6 +1295,30 @@ export function SpreadsheetGrid({
       socket.off("highlighting_rules.updated", handleHighlightingRulesUpdated);
     };
   }, [sheetId]);
+
+  // Socket.io realtime updates for hot leads mode
+  useEffect(() => {
+    if (!hotLeadsMode) return;
+    
+    const socket = getSocket();
+
+    const handleHotLeadUpdate = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+    };
+
+    socket.on("lead.created", handleHotLeadUpdate);
+    socket.on("lead.updated", handleHotLeadUpdate);
+    socket.on("lead.deleted", handleHotLeadUpdate);
+    socket.on("hot_lead_config.updated", handleHotLeadUpdate);
+
+    return () => {
+      socket.off("lead.created", handleHotLeadUpdate);
+      socket.off("lead.updated", handleHotLeadUpdate);
+      socket.off("lead.deleted", handleHotLeadUpdate);
+      socket.off("hot_lead_config.updated", handleHotLeadUpdate);
+    };
+  }, [hotLeadsMode]);
 
   const handleCellClick = (lead: Lead, columnKey: string, currentValue: any, columnType?: string) => {
     setEditingCell({ leadId: lead.id, field: columnKey, originalValue: currentValue });
