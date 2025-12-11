@@ -1042,6 +1042,15 @@ export function SpreadsheetGrid({
         );
       }
 
+      // Also update the editingLeadCache if the lead being updated is the cached one
+      // This ensures the pinned row shows the updated data immediately
+      if (editingLeadCache && editingLeadCache.id === leadId) {
+        setEditingLeadCache({
+          ...editingLeadCache,
+          custom_fields: { ...editingLeadCache.custom_fields, ...customFields }
+        });
+      }
+
       // Return context with previous values for rollback
       return { previousSingleLeads, previousMultiLeads, previousHotLeads };
     },
