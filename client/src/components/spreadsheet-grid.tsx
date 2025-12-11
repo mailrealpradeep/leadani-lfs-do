@@ -1059,6 +1059,8 @@ export function SpreadsheetGrid({
     // Default sort: created_at descending (newest leads first)
     setSortColumn("created_at");
     setSortDirection("desc");
+    // Clear active row highlight when switching sheets
+    setHighlightedLeadId(null);
   }, [activeSheetId, isMultiMode]);
 
   // Reset view-specific state when switching between mobile and desktop
@@ -1159,6 +1161,8 @@ export function SpreadsheetGrid({
     setEditingCell({ leadId: lead.id, field: columnKey, originalValue: currentValue });
     // For percentage fields, show the raw number without % symbol
     setEditValue(currentValue || "");
+    // Set this row as the active highlighted row
+    setHighlightedLeadId(lead.id);
     // Automatically open date picker for date fields
     if (columnType === "date") {
       setDatePickerOpen({ leadId: lead.id, field: columnKey });
@@ -2214,16 +2218,8 @@ export function SpreadsheetGrid({
                 setHighlightedLeadId(selectedLeadForUpdate);
               } else {
                 // Clear the selected lead when dialog closes
-                const closingLeadId = selectedLeadForUpdate;
+                // Keep highlightedLeadId - it will persist until user edits another row
                 setSelectedLeadForUpdate(null);
-                // Keep highlight for 1.5 seconds after dialog closes
-                if (highlightTimeoutRef.current) {
-                  clearTimeout(highlightTimeoutRef.current);
-                }
-                setHighlightedLeadId(closingLeadId);
-                highlightTimeoutRef.current = setTimeout(() => {
-                  setHighlightedLeadId(null);
-                }, 1500);
               }
             }}
           />
@@ -2485,13 +2481,17 @@ export function SpreadsheetGrid({
                       };
                       
                       const getMobileCardClass = () => {
+                        // Active row highlight takes priority for border styling
+                        const isActiveHighlight = highlightedLeadId === lead.id;
+                        const activeClass = isActiveHighlight ? "ring-2 ring-primary ring-inset bg-primary/10" : "";
+                        
                         if (invalidLeadIds.has(lead.id)) {
-                          return "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800";
+                          return `bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800 ${activeClass}`;
                         }
                         if (mobileHighlightResult) {
-                          return "border";
+                          return `border ${activeClass}`;
                         }
-                        return mobileThoughtClass;
+                        return `${mobileThoughtClass} ${activeClass}`;
                       };
                       
                       return (
@@ -2500,7 +2500,10 @@ export function SpreadsheetGrid({
                         className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
                         style={getMobileCardStyle()}
                         data-testid={`card-lead-${lead.id}`}
-                        onClick={() => onOpenLeadDetail(lead.id)}
+                        onClick={() => {
+                          setHighlightedLeadId(lead.id);
+                          onOpenLeadDetail(lead.id);
+                        }}
                         title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
                           ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
                           : mobileHighlightResult
