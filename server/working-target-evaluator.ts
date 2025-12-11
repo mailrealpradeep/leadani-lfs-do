@@ -13,7 +13,10 @@ import {
   getWeekRangeInTimezone,
   getMonthRangeInTimezone,
   getStartOfDayInTimezone,
-  getEndOfDayInTimezone
+  getEndOfDayInTimezone,
+  getYesterdayRangeInTimezone,
+  getLastWeekRangeInTimezone,
+  getLastMonthRangeInTimezone
 } from "./timezone-utils";
 import { db } from "./db";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
@@ -676,20 +679,20 @@ export async function getCustomDateRange(
 ): Promise<{ periodStart: Date; periodEnd: Date }> {
   const company = await storage.getCompany(companyId);
   const timezone = getCompanyTimezone(company as Company);
-  const now = getCurrentDateInTimezone(timezone);
+  const now = new Date();
   
   let periodStart: Date;
-  let periodEnd: Date = getEndOfDayInTimezone(now, timezone);
+  let periodEnd: Date;
   
   switch (preset) {
     case 'today':
       periodStart = getStartOfDayInTimezone(now, timezone);
+      periodEnd = getEndOfDayInTimezone(now, timezone);
       break;
     case 'yesterday':
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      periodStart = getStartOfDayInTimezone(yesterday, timezone);
-      periodEnd = getEndOfDayInTimezone(yesterday, timezone);
+      const yesterdayRange = getYesterdayRangeInTimezone(timezone);
+      periodStart = yesterdayRange.start;
+      periodEnd = yesterdayRange.end;
       break;
     case 'this_week':
       const weekRange = getWeekRangeInTimezone(timezone);
@@ -697,15 +700,9 @@ export async function getCustomDateRange(
       periodEnd = weekRange.end;
       break;
     case 'last_week':
-      const lastWeekEnd = new Date(now);
-      // Go back to the start of this week, then subtract 1 day to get last week
-      const currentWeekRange = getWeekRangeInTimezone(timezone);
-      const lastWeekEndDate = new Date(currentWeekRange.start);
-      lastWeekEndDate.setDate(lastWeekEndDate.getDate() - 1);
-      const lastWeekStartDate = new Date(lastWeekEndDate);
-      lastWeekStartDate.setDate(lastWeekStartDate.getDate() - 6);
-      periodStart = getStartOfDayInTimezone(lastWeekStartDate, timezone);
-      periodEnd = getEndOfDayInTimezone(lastWeekEndDate, timezone);
+      const lastWeekRange = getLastWeekRangeInTimezone(timezone);
+      periodStart = lastWeekRange.start;
+      periodEnd = lastWeekRange.end;
       break;
     case 'this_month':
       const monthRange = getMonthRangeInTimezone(timezone);
@@ -713,12 +710,9 @@ export async function getCustomDateRange(
       periodEnd = monthRange.end;
       break;
     case 'last_month':
-      const lastMonthDate = new Date(now);
-      lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
-      const lastMonthStart = new Date(lastMonthDate.getFullYear(), lastMonthDate.getMonth(), 1);
-      const lastMonthEnd = new Date(lastMonthDate.getFullYear(), lastMonthDate.getMonth() + 1, 0);
-      periodStart = getStartOfDayInTimezone(lastMonthStart, timezone);
-      periodEnd = getEndOfDayInTimezone(lastMonthEnd, timezone);
+      const lastMonthRange = getLastMonthRangeInTimezone(timezone);
+      periodStart = lastMonthRange.start;
+      periodEnd = lastMonthRange.end;
       break;
     case 'last_7_days':
       periodStart = new Date(now);
