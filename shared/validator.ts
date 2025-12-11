@@ -105,6 +105,26 @@ function getLeadFieldValue(lead: Lead, fieldKey: string): any {
 }
 
 /**
+ * Helper to check if a field value is empty.
+ * Correctly treats numeric 0 and boolean false as valid (non-empty) values.
+ */
+function isFieldEmpty(value: any): boolean {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  
+  if (typeof value === 'string' && value.trim() === '') {
+    return true;
+  }
+  
+  if (Array.isArray(value) && value.length === 0) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
  * Evaluate a condition against a lead field value.
  * Supports all operators including text, number, date, and range operators.
  * Exported for reuse on frontend to ensure parity with server-side validation.
@@ -192,22 +212,6 @@ function evaluateDateHelper(leadValue: any, conditionValue: any, compareFn: (a: 
     if (isNaN(leadDate) || isNaN(condDate)) return false;
     return compareFn(leadDate, condDate);
   } catch { return false; }
-}
-
-function isFieldEmpty(value: any): boolean {
-  if (value === null || value === undefined) {
-    return true;
-  }
-  
-  if (typeof value === 'string' && value.trim() === '') {
-    return true;
-  }
-  
-  if (Array.isArray(value) && value.length === 0) {
-    return true;
-  }
-  
-  return false;
 }
 
 export function validateLead(

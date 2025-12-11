@@ -46,6 +46,7 @@ The system features a customizable grid interface with dynamic column management
 *   **Data Management (Admin Console)**: Company Admin tools for bulk operations like clearing past data and bulk transferring leads with weighted distribution.
 *   **Visit Schedules**: Calendar-based view for tracking site visits, configurable by company to link specific lead statuses and date columns.
 *   **Hot Leads**: Company-wide feature to identify and prioritize high-value leads based on configurable conditions, displayed in a unified view with real-time updates and a sidebar badge.
+*   **Validation Rules**: Configurable rules that prompt users to update related fields when specific conditions are met during lead editing. Supports multi-condition logic with AND/OR operators, a beautiful mobile-responsive dialog for field updates, and server-side enforcement for imports/webhooks/API calls.
 
 ### Security
 
