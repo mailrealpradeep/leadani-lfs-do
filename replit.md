@@ -62,6 +62,10 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 *   **Attendance System**: Mobile-first PWA for daily entry/exit tracking with configurable exit rules (e.g., minimum leads/hours/updates, NFDT compliance), force exit requests with admin review, and attendance history.
 *   **Mandatory System Columns**: Protected "Full Name" and "Mobile No" columns with enforced configurations.
 *   **Target Management System (TMS)**: Comprehensive performance tracking with multi-goal targets (count, sum, average, percentage, updates, conversion, compliance), flexible assignment (single/multiple/all users), scope options (sheet-specific/company-wide/multiple sheets), time types (one-time/recurring), leaderboard rankings with time period filters (daily/weekly/monthly/all-time), and user progress views with achievement tracking.
+    - **Cohort-based Calculation**: Uses activity_logs for accurate historical tracking. Timezone-aware date ranges ensure daily targets reset at midnight in company timezone.
+    - **Pending State Operators** (equals, is_empty): Cohort = leads in target state at period start + leads created during period + transitions INTO target state. Progress = leads that exited target state / cohort size.
+    - **Desired State Operators** (is_not_empty, not_equals): Progress = leads currently in desired state / total leads.
+    - **Key files**: `server/working-target-evaluator.ts`, `server/timezone-utils.ts`
 *   **User Row Filters (Hide/Show Rows)**: Per-user row filtering system that persists to database. Users can create named filters with multiple conditions (text, number, date operators) and AND/OR logic. Active filters hide matching rows from view. Accessible via sidebar "Hide/Show Rows" button. Features include filter creation/edit/delete, toggle activation, and active filter count display.
 *   **Google Sheets Backup System**: Automatic backup of lead data to Google Sheets with hourly scheduling. Features include:
     - Integration with Google Sheets API via Replit connector

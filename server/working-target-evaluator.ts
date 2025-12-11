@@ -236,12 +236,23 @@ async function evaluateSingleColumnTarget(
 }
 
 /**
+ * Helper to check if a field_key from activity_logs matches the target column
+ * Activity logs may store the field_key as UUID (column_id), column_key, or display label
+ */
+function fieldKeyMatches(fieldKey: string, columnKey: string, column_id: string): boolean {
+  if (!fieldKey) return false;
+  const lowerFieldKey = fieldKey.toLowerCase();
+  return lowerFieldKey === columnKey.toLowerCase() || 
+         lowerFieldKey === column_id.toLowerCase();
+}
+
+/**
  * Evaluate pending state cohort (e.g., "Lead Status = New Lead")
  * 
  * Calculation:
  * 1. Build cohort = leads that had target value during the period
+ *    - Leads that existed at period start with target value (seeded from current state + history)
  *    - Leads created during period with target value
- *    - Leads that existed at period start with target value
  *    - Leads that transitioned INTO target value during period
  * 2. Count attended = leads that transitioned AWAY from target value during period
  * 3. Progress = attended / cohort size
@@ -265,28 +276,38 @@ async function evaluatePendingStateCohort(
   // Set to track leads that are still in target state at period end
   const stillPendingLeadIds = new Set<string>();
   
-  // 1. Get all leads created during the period with the target value
-  const leadsCreatedDuringPeriod = await db.select()
+  // 1. Get current state of all leads first
+  const allLeads = await db.select()
     .from(dbSchema.leads)
     .where(
       and(
         inArray(dbSchema.leads.sheet_id, sheetIds),
-        sql`${dbSchema.leads.deleted_at} IS NULL`,
-        gte(dbSchema.leads.created_at, periodStart),
-        lte(dbSchema.leads.created_at, periodEnd)
+        sql`${dbSchema.leads.deleted_at} IS NULL`
       )
     );
   
-  for (const lead of leadsCreatedDuringPeriod) {
+  // Map of lead ID -> lead data for quick lookup
+  const leadsMap = new Map(allLeads.map(l => [l.id, l]));
+  
+  // 2. Seed cohort with leads that were in target state at period start
+  // This includes:
+  // A) Leads created before period start that currently have target value (and no exit during period)
+  // B) Leads created before period start that exited during period (we'll detect via activity logs)
+  
+  // First, add all leads that currently have target value and were created before period start
+  for (const lead of allLeads) {
     const customFields = (lead.custom_fields as Record<string, any>) || {};
     const fieldValue = customFields[columnKey] ?? customFields[column_id];
+    const createdAt = lead.created_at ? new Date(lead.created_at) : new Date(0);
     
-    // Check if lead was created with the target value
-    // We need to check activity_logs to see the initial value
-    // For now, if current value matches, we'll use activity_logs to verify initial state
+    if (createdAt < periodStart && checkValueMatch(fieldValue)) {
+      // Lead existed before period start and still has target value
+      cohortLeadIds.add(lead.id);
+      stillPendingLeadIds.add(lead.id);
+    }
   }
   
-  // 2. Get activity logs for field changes during the period
+  // 3. Get activity logs for field changes during the period
   const activityLogs = await db.select({
     id: dbSchema.activity_logs.id,
     details: dbSchema.activity_logs.details,
@@ -310,7 +331,7 @@ async function evaluatePendingStateCohort(
     if (!leadId) continue;
     
     if (log.action === 'lead_created') {
-      // Check if lead was created with target value
+      // Lead created during period - check if it was created with target value
       const details = log.details as { 
         lead_data?: Record<string, any>;
         custom_fields?: Record<string, any>;
@@ -321,6 +342,15 @@ async function evaluatePendingStateCohort(
       
       if (checkValueMatch(fieldValue)) {
         cohortLeadIds.add(leadId);
+        // Check if still has target value (add to pending if so)
+        const lead = leadsMap.get(leadId);
+        if (lead) {
+          const currentFields = (lead.custom_fields as Record<string, any>) || {};
+          const currentValue = currentFields[columnKey] ?? currentFields[column_id];
+          if (checkValueMatch(currentValue) && !exitedLeadIds.has(leadId)) {
+            stillPendingLeadIds.add(leadId);
+          }
+        }
       }
     } else if (log.action === 'lead_updated') {
       // Check for transitions in/out of target value
@@ -330,7 +360,8 @@ async function evaluatePendingStateCohort(
       const changes = details?.changes || [];
       
       for (const change of changes) {
-        if (change.field_key.toLowerCase() === columnKey.toLowerCase()) {
+        // Match field_key against both columnKey and column_id
+        if (fieldKeyMatches(change.field_key, columnKey, column_id)) {
           const oldVal = change.old_value;
           const newVal = change.new_value;
           
@@ -341,45 +372,28 @@ async function evaluatePendingStateCohort(
             // Lead exited target state (attended!)
             cohortLeadIds.add(leadId);
             exitedLeadIds.add(leadId);
+            stillPendingLeadIds.delete(leadId);
           } else if (!oldMatches && newMatches) {
             // Lead entered target state during period
             cohortLeadIds.add(leadId);
+            // Check if still pending
+            const lead = leadsMap.get(leadId);
+            if (lead) {
+              const currentFields = (lead.custom_fields as Record<string, any>) || {};
+              const currentValue = currentFields[columnKey] ?? currentFields[column_id];
+              if (checkValueMatch(currentValue) && !exitedLeadIds.has(leadId)) {
+                stillPendingLeadIds.add(leadId);
+              }
+            }
           }
         }
       }
     }
   }
   
-  // 3. Get current state of all leads to find those still pending
-  const allLeads = await db.select()
-    .from(dbSchema.leads)
-    .where(
-      and(
-        inArray(dbSchema.leads.sheet_id, sheetIds),
-        sql`${dbSchema.leads.deleted_at} IS NULL`
-      )
-    );
-  
-  // Check which leads currently have the target value and were created before period end
-  for (const lead of allLeads) {
-    const customFields = (lead.custom_fields as Record<string, any>) || {};
-    const fieldValue = customFields[columnKey] ?? customFields[column_id];
-    
-    if (checkValueMatch(fieldValue)) {
-      // Lead currently has target value
-      const createdAt = lead.created_at ? new Date(lead.created_at) : new Date(0);
-      
-      // If created before or during period, add to cohort
-      if (createdAt <= periodEnd) {
-        cohortLeadIds.add(lead.id);
-        
-        // If not already marked as exited, it's still pending
-        if (!exitedLeadIds.has(lead.id)) {
-          stillPendingLeadIds.add(lead.id);
-        }
-      }
-    }
-  }
+  // 4. Also seed cohort with leads that exited during period but we may have missed
+  // (This handles leads that were in target state at period start but exited)
+  // We already handle this above via activity logs showing old_value matching
   
   // Calculate results
   const cohortSize = cohortLeadIds.size;
@@ -438,7 +452,13 @@ async function evaluatePendingStateCohort(
 
 /**
  * Evaluate desired state cohort (e.g., "NFDT is_not_empty")
- * For these operators, we count leads that achieved the desired state during the period
+ * For these operators, we measure current state compliance:
+ * - Count leads that currently have the desired state
+ * - Progress = leads in desired state / total leads
+ * 
+ * This is "current state" compliance, not period-based transition tracking,
+ * because for desired state operators, what matters is whether leads are
+ * currently compliant, not when they became compliant.
  */
 async function evaluateDesiredStateCohort(
   sheetIds: string[],
@@ -472,61 +492,23 @@ async function evaluateDesiredStateCohort(
     };
   }
   
-  // Count leads that transitioned into desired state during the period
-  const activityLogs = await db.select({
-    id: dbSchema.activity_logs.id,
-    details: dbSchema.activity_logs.details,
-    target_id: dbSchema.activity_logs.target_id,
-  })
-  .from(dbSchema.activity_logs)
-  .where(
-    and(
-      inArray(dbSchema.activity_logs.sheet_id, sheetIds),
-      eq(dbSchema.activity_logs.action, 'lead_updated'),
-      gte(dbSchema.activity_logs.occurred_at, periodStart),
-      lte(dbSchema.activity_logs.occurred_at, periodEnd)
-    )
-  );
+  // Count leads that currently have the desired state
+  const compliantLeadIds: string[] = [];
+  const nonCompliantLeadIds: string[] = [];
   
-  const achievedDuringPeriod = new Set<string>();
-  
-  for (const log of activityLogs) {
-    const leadId = log.target_id;
-    if (!leadId) continue;
-    
-    const details = log.details as { 
-      changes?: Array<{ field_key: string; old_value?: any; new_value?: any }> 
-    } | null;
-    const changes = details?.changes || [];
-    
-    for (const change of changes) {
-      if (change.field_key.toLowerCase() === columnKey.toLowerCase()) {
-        const oldMatches = checkValueMatch(change.old_value);
-        const newMatches = checkValueMatch(change.new_value);
-        
-        if (!oldMatches && newMatches) {
-          // Lead achieved desired state during period
-          achievedDuringPeriod.add(leadId);
-        }
-      }
-    }
-  }
-  
-  // Also count leads created during period that already have desired state
   for (const lead of allLeads) {
-    const createdAt = lead.created_at ? new Date(lead.created_at) : new Date(0);
-    if (createdAt >= periodStart && createdAt <= periodEnd) {
-      const customFields = (lead.custom_fields as Record<string, any>) || {};
-      const fieldValue = customFields[columnKey] ?? customFields[column_id];
-      
-      if (checkValueMatch(fieldValue)) {
-        achievedDuringPeriod.add(lead.id);
-      }
+    const customFields = (lead.custom_fields as Record<string, any>) || {};
+    const fieldValue = customFields[columnKey] ?? customFields[column_id];
+    
+    if (checkValueMatch(fieldValue)) {
+      compliantLeadIds.push(lead.id);
+    } else {
+      nonCompliantLeadIds.push(lead.id);
     }
   }
   
   const totalLeads = allLeads.length;
-  const currentValue = achievedDuringPeriod.size;
+  const currentValue = compliantLeadIds.length;
   const targetValue = Math.ceil(totalLeads * target_percentage / 100);
   
   const compliancePercentage = totalLeads > 0 ? Math.min(100, (currentValue / totalLeads) * 100) : 0;
@@ -539,8 +521,10 @@ async function evaluateDesiredStateCohort(
     isAchieved,
     details: {
       totalLeads,
-      achievedDuringPeriod: currentValue,
-      achievedLeadIds: Array.from(achievedDuringPeriod).slice(0, 10),
+      compliantCount: currentValue,
+      nonCompliantCount: nonCompliantLeadIds.length,
+      compliantLeadIds: compliantLeadIds.slice(0, 10),
+      nonCompliantLeadIds: nonCompliantLeadIds.slice(0, 10),
       operator,
       value,
       column_id,
