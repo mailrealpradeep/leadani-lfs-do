@@ -42,6 +42,7 @@ import Features from "@/pages/features";
 import Help from "@/pages/help";
 import Guide from "@/pages/guide";
 import Visits from "@/pages/visits";
+import HotLeads from "@/pages/hot-leads";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -126,6 +127,9 @@ function Router() {
       </Route>
       <Route path="/visits">
         {() => <ProtectedRoute component={Visits} />}
+      </Route>
+      <Route path="/hot-leads">
+        {() => <ProtectedRoute component={HotLeads} />}
       </Route>
       <Route path="/webhooks">
         {() => <ProtectedRoute component={Webhooks} />}

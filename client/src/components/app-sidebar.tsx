@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, Flame } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -85,6 +85,15 @@ export function AppSidebar() {
   });
 
   const activeRowFiltersCount = rowFilters.filter(f => f.is_active).length;
+
+  // Fetch hot leads count for badge
+  const { data: hotLeadsData } = useQuery<{ count: number }>({
+    queryKey: ["/api/hot-leads/count"],
+    enabled: !isSuperAdminAccount,
+    refetchInterval: 60000, // Refresh every minute
+  });
+
+  const hotLeadsCount = hotLeadsData?.count || 0;
 
   const selectedSheet = sheets?.find(s => s.id === selectedSheetId);
 
@@ -200,6 +209,13 @@ export function AppSidebar() {
       icon: MapPin,
       testId: "link-visits",
     },
+    {
+      title: "Hot Leads",
+      url: "/hot-leads",
+      icon: Flame,
+      testId: "link-hot-leads",
+      badge: hotLeadsCount,
+    },
     // Webhooks - admin only
     ...((isCompanyAdmin || isSuperAdmin) ? [{
       title: "Webhooks",
@@ -261,8 +277,13 @@ export function AppSidebar() {
                       data-testid={item.testId}
                     >
                       <Link href={item.url} onClick={handleNavClick}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                        <item.icon className={item.url === "/hot-leads" ? "h-4 w-4 text-orange-500" : "h-4 w-4"} />
+                        <span className="flex-1">{item.title}</span>
+                        {"badge" in item && (item as any).badge > 0 && (
+                          <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-medium text-white animate-pulse">
+                            {(item as any).badge}
+                          </span>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
