@@ -30,6 +30,8 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 
 The system features a customizable grid interface with dynamic column management, conditional validation, and "Next Follow-up Date Time" (NFDT) highlighting. It includes a robust highlighting rules engine for conditional row highlighting based on multi-condition logic. The design is mobile-first, offering specific layouts, configurable mobile lead cards, and mobile sorting/filtering.
 
+**Editing Row Persistence**: When a user starts editing a row (indicated by blue border highlight), that row remains visible even if the edited values would cause it to be filtered out. For example, if filtering by "Lead Status = Talked" and the user changes a lead's status to "Visit Scheduled", the row stays visible until the user clicks another row or the sheet reloads. This is achieved through a cached lead mechanism that re-injects the editing row into filtered results.
+
 ### Key Features
 
 *   **Lead Management**: Includes chronological lead update tracking, Excel/CSV import/export, bulk lead transfer, soft-delete, and duplicate lead prevention across all entry points (Add Lead, Bulk Import, Webhooks, Push to CRM).
