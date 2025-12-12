@@ -3220,9 +3220,11 @@ export class PgStorage implements IStorage {
         const dateFilter = value as { from: string; to: string; type?: string };
         if (dateFilter.from && dateFilter.to) {
           // Handle created_at as native column on leads table - convert to company timezone before comparing dates
+          // Note: created_at is stored as "timestamp without time zone" but contains UTC values
+          // We must first interpret it as UTC, then convert to company timezone
           if (key === 'created_at') {
-            conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
-            conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
+            conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
+            conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
           } else {
             conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
             conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
