@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, Flame } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -97,6 +97,78 @@ export function AppSidebar() {
   });
 
   const hotLeadsCount = hotLeadsData?.count || 0;
+
+  // Fetch custom views for sidebar
+  interface CustomView {
+    id: string;
+    name: string;
+    icon: string;
+    icon_color: string;
+    show_badge: boolean;
+    is_enabled: boolean;
+  }
+
+  const { data: customViews = [] } = useQuery<CustomView[]>({
+    queryKey: ["/api/custom-views"],
+    enabled: !isSuperAdminAccount,
+  });
+
+  const enabledViews = customViews.filter(v => v.is_enabled);
+
+  // Fetch custom views counts for badges
+  const { data: customViewsCounts } = useQuery<{ counts: Record<string, number> }>({
+    queryKey: ["/api/custom-views-counts"],
+    enabled: !isSuperAdminAccount && enabledViews.some(v => v.show_badge),
+    refetchInterval: 60000,
+  });
+
+  // Icon mapping for custom views
+  const ICON_MAP: Record<string, LucideIcon> = {
+    star: Star,
+    zap: Zap,
+    target: Target,
+    flag: Flag,
+    award: Award,
+    heart: Heart,
+    bell: Bell,
+    bookmark: Bookmark,
+    check: Check,
+    clock: Clock,
+    flame: Flame,
+    users: Users,
+    "trending-up": TrendingUp,
+    "alert-triangle": AlertTriangle,
+  };
+
+  // Color mapping for custom views
+  const COLOR_MAP: Record<string, string> = {
+    blue: "text-blue-500",
+    green: "text-green-500",
+    orange: "text-orange-500",
+    red: "text-red-500",
+    purple: "text-purple-500",
+    pink: "text-pink-500",
+    yellow: "text-yellow-500",
+    teal: "text-teal-500",
+    indigo: "text-indigo-500",
+    gray: "text-gray-500",
+  };
+
+  const getBadgeColor = (color: string): string => {
+    const bgMap: Record<string, string> = {
+      blue: "bg-blue-500",
+      green: "bg-green-500",
+      orange: "bg-orange-500",
+      red: "bg-red-500",
+      purple: "bg-purple-500",
+      pink: "bg-pink-500",
+      yellow: "bg-yellow-500",
+      teal: "bg-teal-500",
+      indigo: "bg-indigo-500",
+      gray: "bg-gray-500",
+    };
+    return bgMap[color] || "bg-blue-500";
+  };
 
   const selectedSheet = sheets?.find(s => s.id === selectedSheetId);
 
@@ -291,6 +363,43 @@ export function AppSidebar() {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+
+          {/* Custom Views Section */}
+          {!isSuperAdminAccount && enabledViews.length > 0 && (
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-4">Custom Views</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {enabledViews.map((view) => {
+                    const IconComponent = ICON_MAP[view.icon] || Star;
+                    const colorClass = COLOR_MAP[view.icon_color] || "text-blue-500";
+                    const count = customViewsCounts?.counts?.[view.id] || 0;
+                    const viewUrl = `/custom-view/${view.id}`;
+                    
+                    return (
+                      <SidebarMenuItem key={view.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={location === viewUrl}
+                          data-testid={`link-custom-view-${view.id}`}
+                        >
+                          <Link href={viewUrl} onClick={handleNavClick}>
+                            <IconComponent className={`h-4 w-4 ${colorClass}`} />
+                            <span className="flex-1">{view.name}</span>
+                            {view.show_badge && count > 0 && (
+                              <span className={`ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full ${getBadgeColor(view.icon_color)} px-1.5 text-xs font-medium text-white`}>
+                                {count}
+                              </span>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
 
           {adminItems.length > 0 && (
             <SidebarGroup>
