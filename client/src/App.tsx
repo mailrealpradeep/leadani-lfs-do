@@ -43,6 +43,7 @@ import Help from "@/pages/help";
 import Guide from "@/pages/guide";
 import Visits from "@/pages/visits";
 import HotLeads from "@/pages/hot-leads";
+import CustomViewPage from "@/pages/custom-view";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -130,6 +131,9 @@ function Router() {
       </Route>
       <Route path="/hot-leads">
         {() => <ProtectedRoute component={HotLeads} />}
+      </Route>
+      <Route path="/custom-view/:viewId">
+        {() => <ProtectedRoute component={CustomViewPage} />}
       </Route>
       <Route path="/webhooks">
         {() => <ProtectedRoute component={Webhooks} />}
