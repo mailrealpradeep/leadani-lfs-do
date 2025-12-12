@@ -92,6 +92,7 @@ interface CustomViewCondition {
 interface CustomViewConditionGroup {
   id: string;
   conditions: CustomViewCondition[];
+  operator?: "and" | "or"; // AND = all conditions must match, OR = any condition matches
 }
 
 interface CustomView {
@@ -102,6 +103,7 @@ interface CustomView {
   icon_color: string;
   show_badge: boolean;
   condition_groups: CustomViewConditionGroup[];
+  groups_operator?: "and" | "or"; // AND = all groups must match, OR = any group matches
   sheet_ids: string[] | null; // null = all sheets, array = selected sheets
   is_enabled: boolean;
   order_index: number;
@@ -317,8 +319,9 @@ export function CustomViewsManager() {
   const [showBadge, setShowBadge] = useState(true);
   const [isEnabled, setIsEnabled] = useState(true);
   const [conditionGroups, setConditionGroups] = useState<CustomViewConditionGroup[]>([
-    { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }] }
+    { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }], operator: "and" }
   ]);
+  const [groupsOperator, setGroupsOperator] = useState<"and" | "or">("or");
   const [sheetMode, setSheetMode] = useState<"all" | "selected">("all");
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
 
@@ -444,8 +447,9 @@ export function CustomViewsManager() {
     setShowBadge(true);
     setIsEnabled(true);
     setConditionGroups([
-      { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }] }
+      { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }], operator: "and" }
     ]);
+    setGroupsOperator("or");
     setSheetMode("all");
     setSelectedSheetIds([]);
     setEditingView(null);
@@ -459,9 +463,10 @@ export function CustomViewsManager() {
     setShowBadge(view.show_badge);
     setIsEnabled(view.is_enabled);
     setConditionGroups(view.condition_groups.length > 0 
-      ? view.condition_groups 
-      : [{ id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }] }]
+      ? view.condition_groups.map(g => ({ ...g, operator: g.operator || "and" }))
+      : [{ id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }], operator: "and" }]
     );
+    setGroupsOperator(view.groups_operator || "or");
     // Set sheet selection state
     if (view.sheet_ids && view.sheet_ids.length > 0) {
       setSheetMode("selected");
@@ -500,6 +505,7 @@ export function CustomViewsManager() {
       show_badge: showBadge,
       is_enabled: isEnabled,
       condition_groups: validGroups,
+      groups_operator: groupsOperator,
       sheet_ids: sheetMode === "selected" ? selectedSheetIds : null,
     };
 
@@ -513,8 +519,14 @@ export function CustomViewsManager() {
   const addGroup = () => {
     setConditionGroups([
       ...conditionGroups,
-      { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }] }
+      { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }], operator: "and" }
     ]);
+  };
+
+  const updateGroupOperator = (groupIndex: number, operator: "and" | "or") => {
+    const updated = [...conditionGroups];
+    updated[groupIndex].operator = operator;
+    setConditionGroups(updated);
   };
 
   const removeGroup = (groupIndex: number) => {
@@ -835,12 +847,24 @@ export function CustomViewsManager() {
                 {conditionGroups.map((group, groupIndex) => (
                   <Card key={group.id} className="border-dashed">
                     <CardContent className="pt-4">
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                         <div className="flex items-center gap-2">
                           <Badge variant="secondary">Group {groupIndex + 1}</Badge>
-                          <span className="text-xs text-muted-foreground">
-                            All conditions must match (AND)
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-muted-foreground">Conditions match:</span>
+                            <Select
+                              value={group.operator || "and"}
+                              onValueChange={(value) => updateGroupOperator(groupIndex, value as "and" | "or")}
+                            >
+                              <SelectTrigger className="h-7 w-20 text-xs" data-testid={`select-group-operator-${groupIndex}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="and">All (AND)</SelectItem>
+                                <SelectItem value="or">Any (OR)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                         {conditionGroups.length > 1 && (
                           <Button
@@ -953,8 +977,23 @@ export function CustomViewsManager() {
                 ))}
 
                 {conditionGroups.length > 1 && (
-                  <div className="text-center text-sm text-muted-foreground">
-                    Groups are combined with <Badge variant="outline">OR</Badge> - leads matching ANY group are shown
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <span>Groups are combined with:</span>
+                    <Select
+                      value={groupsOperator}
+                      onValueChange={(value) => setGroupsOperator(value as "and" | "or")}
+                    >
+                      <SelectTrigger className="h-8 w-24" data-testid="select-groups-operator">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="or">OR</SelectItem>
+                        <SelectItem value="and">AND</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs">
+                      ({groupsOperator === "or" ? "any group matches" : "all groups must match"})
+                    </span>
                   </div>
                 )}
               </div>
