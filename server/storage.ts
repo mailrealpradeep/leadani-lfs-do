@@ -3219,10 +3219,10 @@ export class PgStorage implements IStorage {
       if (typeof value === 'object' && value !== null && 'from' in value && 'to' in value) {
         const dateFilter = value as { from: string; to: string; type?: string };
         if (dateFilter.from && dateFilter.to) {
-          // Handle created_at as native column on leads table
+          // Handle created_at as native column on leads table - convert to company timezone before comparing dates
           if (key === 'created_at') {
-            conditions.push(sql`${dbSchema.leads.created_at}::date >= ${dateFilter.from}::date`);
-            conditions.push(sql`${dbSchema.leads.created_at}::date <= ${dateFilter.to}::date`);
+            conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
+            conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
           } else {
             conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
             conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
