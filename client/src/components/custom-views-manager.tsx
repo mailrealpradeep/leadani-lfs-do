@@ -90,11 +90,6 @@ interface CustomViewCondition {
   next_operator?: "and" | "or"; // Operator connecting to the next condition (undefined for last)
 }
 
-interface CustomViewConditionGroup {
-  id: string;
-  conditions: CustomViewCondition[];
-}
-
 interface CustomView {
   id: string;
   company_id: string;
@@ -102,7 +97,7 @@ interface CustomView {
   icon: string;
   icon_color: string;
   show_badge: boolean;
-  condition_groups: CustomViewConditionGroup[];
+  conditions: CustomViewCondition[]; // Flat list of conditions with per-condition AND/OR operators
   sheet_ids: string[] | null; // null = all sheets, array = selected sheets
   is_enabled: boolean;
   order_index: number;
@@ -273,8 +268,7 @@ function SortableViewItem({
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          {view.condition_groups.length} group{view.condition_groups.length !== 1 ? "s" : ""} • 
-          {view.condition_groups.reduce((sum, g) => sum + g.conditions.length, 0)} condition{view.condition_groups.reduce((sum, g) => sum + g.conditions.length, 0) !== 1 ? "s" : ""}
+          {view.conditions.length} condition{view.conditions.length !== 1 ? "s" : ""}
         </p>
       </div>
 
@@ -317,8 +311,8 @@ export function CustomViewsManager() {
   const [iconColor, setIconColor] = useState("blue");
   const [showBadge, setShowBadge] = useState(true);
   const [isEnabled, setIsEnabled] = useState(true);
-  const [conditionGroups, setConditionGroups] = useState<CustomViewConditionGroup[]>([
-    { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "", next_operator: "and" }] }
+  const [conditions, setConditions] = useState<CustomViewCondition[]>([
+    { column_key: "", operator: "equals", value: "", next_operator: "and" }
   ]);
   const [sheetMode, setSheetMode] = useState<"all" | "selected">("all");
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
@@ -444,9 +438,7 @@ export function CustomViewsManager() {
     setIconColor("blue");
     setShowBadge(true);
     setIsEnabled(true);
-    setConditionGroups([
-      { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "", next_operator: "and" }] }
-    ]);
+    setConditions([{ column_key: "", operator: "equals", value: "", next_operator: "and" }]);
     setSheetMode("all");
     setSelectedSheetIds([]);
     setEditingView(null);
@@ -459,16 +451,13 @@ export function CustomViewsManager() {
     setIconColor(view.icon_color);
     setShowBadge(view.show_badge);
     setIsEnabled(view.is_enabled);
-    // Load condition groups, ensuring each condition has a next_operator (default to "and")
-    setConditionGroups(view.condition_groups.length > 0 
-      ? view.condition_groups.map(g => ({
-          ...g,
-          conditions: g.conditions.map((c, idx, arr) => ({
-            ...c,
-            next_operator: c.next_operator || (idx < arr.length - 1 ? "and" : undefined)
-          }))
+    // Load conditions, ensuring each condition has a next_operator (default to "and")
+    setConditions(view.conditions.length > 0 
+      ? view.conditions.map((c, idx, arr) => ({
+          ...c,
+          next_operator: c.next_operator || (idx < arr.length - 1 ? "and" : undefined)
         }))
-      : [{ id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "", next_operator: "and" }] }]
+      : [{ column_key: "", operator: "equals", value: "", next_operator: "and" }]
     );
     // Set sheet selection state
     if (view.sheet_ids && view.sheet_ids.length > 0) {
@@ -487,11 +476,9 @@ export function CustomViewsManager() {
       return;
     }
 
-    const validGroups = conditionGroups.filter(group => 
-      group.conditions.some(c => c.column_key && c.operator)
-    );
+    const validConditions = conditions.filter(c => c.column_key && c.operator);
 
-    if (validGroups.length === 0) {
+    if (validConditions.length === 0) {
       toast({ variant: "destructive", title: "At least one condition is required" });
       return;
     }
@@ -507,7 +494,7 @@ export function CustomViewsManager() {
       icon_color: iconColor,
       show_badge: showBadge,
       is_enabled: isEnabled,
-      condition_groups: validGroups,
+      conditions: validConditions,
       sheet_ids: sheetMode === "selected" ? selectedSheetIds : null,
     };
 
@@ -518,52 +505,53 @@ export function CustomViewsManager() {
     }
   };
 
-  const addConditionToGroup = (groupIndex: number) => {
-    const updated = [...conditionGroups];
+  const addCondition = () => {
+    const updated = [...conditions];
     // Set next_operator on the previous last condition
-    const lastIdx = updated[groupIndex].conditions.length - 1;
-    if (lastIdx >= 0 && !updated[groupIndex].conditions[lastIdx].next_operator) {
-      updated[groupIndex].conditions[lastIdx].next_operator = "and";
+    const lastIdx = updated.length - 1;
+    if (lastIdx >= 0 && !updated[lastIdx].next_operator) {
+      updated[lastIdx].next_operator = "and";
     }
-    updated[groupIndex].conditions.push({ column_key: "", operator: "equals", value: "" });
-    setConditionGroups(updated);
+    updated.push({ column_key: "", operator: "equals", value: "" });
+    setConditions(updated);
   };
 
-  const updateConditionNextOperator = (groupIndex: number, condIndex: number, nextOp: "and" | "or") => {
-    const updated = [...conditionGroups];
-    updated[groupIndex].conditions[condIndex].next_operator = nextOp;
-    setConditionGroups(updated);
+  const updateConditionNextOperator = (condIndex: number, nextOp: "and" | "or") => {
+    const updated = [...conditions];
+    updated[condIndex].next_operator = nextOp;
+    setConditions(updated);
   };
 
-  const removeConditionFromGroup = (groupIndex: number, condIndex: number) => {
-    const updated = [...conditionGroups];
-    if (updated[groupIndex].conditions.length > 1) {
-      updated[groupIndex].conditions.splice(condIndex, 1);
-      setConditionGroups(updated);
+  const removeCondition = (condIndex: number) => {
+    if (conditions.length > 1) {
+      const updated = [...conditions];
+      updated.splice(condIndex, 1);
+      setConditions(updated);
     }
   };
 
-  const updateCondition = (groupIndex: number, condIndex: number, updates: Partial<CustomViewCondition>) => {
-    const updated = [...conditionGroups];
-    const condition = updated[groupIndex].conditions[condIndex];
+  const updateConditionField = (condIndex: number, updates: Partial<CustomViewCondition>) => {
+    const updated = [...conditions];
+    const condition = updated[condIndex];
     
     if (updates.column_key !== undefined && updates.column_key !== condition.column_key) {
-      updated[groupIndex].conditions[condIndex] = {
+      updated[condIndex] = {
         column_key: updates.column_key,
         operator: "equals",
         value: "",
+        next_operator: condition.next_operator,
       };
     } else if (updates.operator !== undefined && NO_VALUE_OPERATORS.includes(updates.operator)) {
-      updated[groupIndex].conditions[condIndex] = {
+      updated[condIndex] = {
         ...condition,
         operator: updates.operator,
         value: "",
       };
     } else {
-      updated[groupIndex].conditions[condIndex] = { ...condition, ...updates };
+      updated[condIndex] = { ...condition, ...updates };
     }
     
-    setConditionGroups(updated);
+    setConditions(updated);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -616,8 +604,7 @@ export function CustomViewsManager() {
                 <p className="font-medium mb-1">How Custom Views Work</p>
                 <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-300">
                   <li>Views appear as menu items in the sidebar with custom icons</li>
-                  <li>Groups are joined by OR - leads matching ANY group are shown</li>
-                  <li>Conditions within a group are joined by AND - ALL must match</li>
+                  <li>Conditions are evaluated left-to-right using AND/OR operators you choose</li>
                   <li>Enable badge to show matching lead count next to the menu item</li>
                 </ul>
               </div>
@@ -834,14 +821,14 @@ export function CustomViewsManager() {
               <Card className="border-dashed">
                 <CardContent className="pt-4">
                   <div className="space-y-2">
-                    {conditionGroups[0]?.conditions.map((condition, condIndex) => (
+                    {conditions.map((condition, condIndex) => (
                       <div key={condIndex}>
                         <div className="flex items-center gap-2 flex-wrap">
                           <Select
                             value={condition.column_key}
-                            onValueChange={(value) => updateCondition(0, condIndex, { column_key: value })}
+                            onValueChange={(value) => updateConditionField(condIndex, { column_key: value })}
                           >
-                            <SelectTrigger className="w-40" data-testid={`select-column-0-${condIndex}`}>
+                            <SelectTrigger className="w-40" data-testid={`select-column-${condIndex}`}>
                               <SelectValue placeholder="Column" />
                             </SelectTrigger>
                             <SelectContent>
@@ -853,9 +840,9 @@ export function CustomViewsManager() {
 
                           <Select
                             value={condition.operator}
-                            onValueChange={(value) => updateCondition(0, condIndex, { operator: value })}
+                            onValueChange={(value) => updateConditionField(condIndex, { operator: value })}
                           >
-                            <SelectTrigger className="w-36" data-testid={`select-operator-0-${condIndex}`}>
+                            <SelectTrigger className="w-36" data-testid={`select-operator-${condIndex}`}>
                               <SelectValue placeholder="Operator" />
                             </SelectTrigger>
                             <SelectContent>
@@ -869,9 +856,9 @@ export function CustomViewsManager() {
                             getColumnType(condition.column_key) === 'dropdown' ? (
                               <Select
                                 value={condition.value || ""}
-                                onValueChange={(value) => updateCondition(0, condIndex, { value })}
+                                onValueChange={(value) => updateConditionField(condIndex, { value })}
                               >
-                                <SelectTrigger className="flex-1 min-w-32" data-testid={`select-value-0-${condIndex}`}>
+                                <SelectTrigger className="flex-1 min-w-32" data-testid={`select-value-${condIndex}`}>
                                   <SelectValue placeholder="Select value" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -883,9 +870,9 @@ export function CustomViewsManager() {
                             ) : getColumnType(condition.column_key) === 'thought' ? (
                               <Select
                                 value={condition.value || ""}
-                                onValueChange={(value) => updateCondition(0, condIndex, { value })}
+                                onValueChange={(value) => updateConditionField(condIndex, { value })}
                               >
-                                <SelectTrigger className="flex-1 min-w-32" data-testid={`select-value-0-${condIndex}`}>
+                                <SelectTrigger className="flex-1 min-w-32" data-testid={`select-value-${condIndex}`}>
                                   <SelectValue placeholder="Select value" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -896,20 +883,20 @@ export function CustomViewsManager() {
                             ) : (
                               <Input
                                 value={condition.value || ""}
-                                onChange={(e) => updateCondition(0, condIndex, { value: e.target.value })}
+                                onChange={(e) => updateConditionField(condIndex, { value: e.target.value })}
                                 placeholder="Value"
                                 className="flex-1 min-w-32"
-                                data-testid={`input-value-0-${condIndex}`}
+                                data-testid={`input-value-${condIndex}`}
                               />
                             )
                           )}
 
-                          {conditionGroups[0].conditions.length > 1 && (
+                          {conditions.length > 1 && (
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => removeConditionFromGroup(0, condIndex)}
-                              data-testid={`remove-condition-0-${condIndex}`}
+                              onClick={() => removeCondition(condIndex)}
+                              data-testid={`remove-condition-${condIndex}`}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -917,30 +904,30 @@ export function CustomViewsManager() {
                         </div>
 
                         {/* AND/OR toggle between conditions (not shown for last condition) */}
-                        {condIndex < conditionGroups[0].conditions.length - 1 && (
+                        {condIndex < conditions.length - 1 && (
                           <div className="flex items-center justify-center my-2">
                             <div className="flex items-center gap-1 bg-muted rounded-md p-1">
                               <button
                                 type="button"
-                                onClick={() => updateConditionNextOperator(0, condIndex, "and")}
+                                onClick={() => updateConditionNextOperator(condIndex, "and")}
                                 className={`px-3 py-1 text-xs font-medium rounded transition-all ${
                                   condition.next_operator === "and" || !condition.next_operator
                                     ? "bg-primary text-primary-foreground"
                                     : "hover:bg-muted-foreground/10"
                                 }`}
-                                data-testid={`toggle-and-0-${condIndex}`}
+                                data-testid={`toggle-and-${condIndex}`}
                               >
                                 AND
                               </button>
                               <button
                                 type="button"
-                                onClick={() => updateConditionNextOperator(0, condIndex, "or")}
+                                onClick={() => updateConditionNextOperator(condIndex, "or")}
                                 className={`px-3 py-1 text-xs font-medium rounded transition-all ${
                                   condition.next_operator === "or"
                                     ? "bg-primary text-primary-foreground"
                                     : "hover:bg-muted-foreground/10"
                                 }`}
-                                data-testid={`toggle-or-0-${condIndex}`}
+                                data-testid={`toggle-or-${condIndex}`}
                               >
                                 OR
                               </button>
@@ -953,9 +940,9 @@ export function CustomViewsManager() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => addConditionToGroup(0)}
+                      onClick={addCondition}
                       className="w-full border-dashed border mt-2"
-                      data-testid="add-condition-0"
+                      data-testid="button-add-condition"
                     >
                       <Plus className="h-4 w-4 mr-1" />
                       Add Condition
