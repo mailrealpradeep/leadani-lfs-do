@@ -87,12 +87,12 @@ interface CustomViewCondition {
   column_key: string;
   operator: string;
   value?: any;
+  next_operator?: "and" | "or"; // Operator connecting to the next condition (undefined for last)
 }
 
 interface CustomViewConditionGroup {
   id: string;
   conditions: CustomViewCondition[];
-  operator?: "and" | "or"; // AND = all conditions must match, OR = any condition matches
 }
 
 interface CustomView {
@@ -103,7 +103,6 @@ interface CustomView {
   icon_color: string;
   show_badge: boolean;
   condition_groups: CustomViewConditionGroup[];
-  groups_operator?: "and" | "or"; // AND = all groups must match, OR = any group matches
   sheet_ids: string[] | null; // null = all sheets, array = selected sheets
   is_enabled: boolean;
   order_index: number;
@@ -319,9 +318,8 @@ export function CustomViewsManager() {
   const [showBadge, setShowBadge] = useState(true);
   const [isEnabled, setIsEnabled] = useState(true);
   const [conditionGroups, setConditionGroups] = useState<CustomViewConditionGroup[]>([
-    { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }], operator: "and" }
+    { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "", next_operator: "and" }] }
   ]);
-  const [groupsOperator, setGroupsOperator] = useState<"and" | "or">("or");
   const [sheetMode, setSheetMode] = useState<"all" | "selected">("all");
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
 
@@ -447,9 +445,8 @@ export function CustomViewsManager() {
     setShowBadge(true);
     setIsEnabled(true);
     setConditionGroups([
-      { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }], operator: "and" }
+      { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "", next_operator: "and" }] }
     ]);
-    setGroupsOperator("or");
     setSheetMode("all");
     setSelectedSheetIds([]);
     setEditingView(null);
@@ -462,11 +459,17 @@ export function CustomViewsManager() {
     setIconColor(view.icon_color);
     setShowBadge(view.show_badge);
     setIsEnabled(view.is_enabled);
+    // Load condition groups, ensuring each condition has a next_operator (default to "and")
     setConditionGroups(view.condition_groups.length > 0 
-      ? view.condition_groups.map(g => ({ ...g, operator: g.operator || "and" }))
-      : [{ id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }], operator: "and" }]
+      ? view.condition_groups.map(g => ({
+          ...g,
+          conditions: g.conditions.map((c, idx, arr) => ({
+            ...c,
+            next_operator: c.next_operator || (idx < arr.length - 1 ? "and" : undefined)
+          }))
+        }))
+      : [{ id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "", next_operator: "and" }] }]
     );
-    setGroupsOperator(view.groups_operator || "or");
     // Set sheet selection state
     if (view.sheet_ids && view.sheet_ids.length > 0) {
       setSheetMode("selected");
@@ -505,7 +508,6 @@ export function CustomViewsManager() {
       show_badge: showBadge,
       is_enabled: isEnabled,
       condition_groups: validGroups,
-      groups_operator: groupsOperator,
       sheet_ids: sheetMode === "selected" ? selectedSheetIds : null,
     };
 
@@ -516,28 +518,20 @@ export function CustomViewsManager() {
     }
   };
 
-  const addGroup = () => {
-    setConditionGroups([
-      ...conditionGroups,
-      { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }], operator: "and" }
-    ]);
-  };
-
-  const updateGroupOperator = (groupIndex: number, operator: "and" | "or") => {
+  const addConditionToGroup = (groupIndex: number) => {
     const updated = [...conditionGroups];
-    updated[groupIndex].operator = operator;
+    // Set next_operator on the previous last condition
+    const lastIdx = updated[groupIndex].conditions.length - 1;
+    if (lastIdx >= 0 && !updated[groupIndex].conditions[lastIdx].next_operator) {
+      updated[groupIndex].conditions[lastIdx].next_operator = "and";
+    }
+    updated[groupIndex].conditions.push({ column_key: "", operator: "equals", value: "" });
     setConditionGroups(updated);
   };
 
-  const removeGroup = (groupIndex: number) => {
-    if (conditionGroups.length > 1) {
-      setConditionGroups(conditionGroups.filter((_, i) => i !== groupIndex));
-    }
-  };
-
-  const addConditionToGroup = (groupIndex: number) => {
+  const updateConditionNextOperator = (groupIndex: number, condIndex: number, nextOp: "and" | "or") => {
     const updated = [...conditionGroups];
-    updated[groupIndex].conditions.push({ column_key: "", operator: "equals", value: "" });
+    updated[groupIndex].conditions[condIndex].next_operator = nextOp;
     setConditionGroups(updated);
   };
 
@@ -835,168 +829,140 @@ export function CustomViewsManager() {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label className="text-base font-medium">Condition Groups</Label>
-                <Button variant="outline" size="sm" onClick={addGroup} data-testid="button-add-group">
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Group
-                </Button>
-              </div>
+              <Label className="text-base font-medium">Conditions</Label>
 
-              <div className="space-y-4">
-                {conditionGroups.map((group, groupIndex) => (
-                  <Card key={group.id} className="border-dashed">
-                    <CardContent className="pt-4">
-                      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary">Group {groupIndex + 1}</Badge>
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-muted-foreground">Conditions match:</span>
-                            <Select
-                              value={group.operator || "and"}
-                              onValueChange={(value) => updateGroupOperator(groupIndex, value as "and" | "or")}
-                            >
-                              <SelectTrigger className="h-7 w-20 text-xs" data-testid={`select-group-operator-${groupIndex}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="and">All (AND)</SelectItem>
-                                <SelectItem value="or">Any (OR)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        {conditionGroups.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeGroup(groupIndex)}
-                            data-testid={`remove-group-${groupIndex}`}
+              <Card className="border-dashed">
+                <CardContent className="pt-4">
+                  <div className="space-y-2">
+                    {conditionGroups[0]?.conditions.map((condition, condIndex) => (
+                      <div key={condIndex}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Select
+                            value={condition.column_key}
+                            onValueChange={(value) => updateCondition(0, condIndex, { column_key: value })}
                           >
-                            <X className="h-4 w-4" />
-                          </Button>
+                            <SelectTrigger className="w-40" data-testid={`select-column-0-${condIndex}`}>
+                              <SelectValue placeholder="Column" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {columnOptions.map((col) => (
+                                <SelectItem key={col.key} value={col.key}>{col.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          <Select
+                            value={condition.operator}
+                            onValueChange={(value) => updateCondition(0, condIndex, { operator: value })}
+                          >
+                            <SelectTrigger className="w-36" data-testid={`select-operator-0-${condIndex}`}>
+                              <SelectValue placeholder="Operator" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getOperatorsForColumn(condition.column_key).map((op) => (
+                                <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          {!NO_VALUE_OPERATORS.includes(condition.operator) && (
+                            getColumnType(condition.column_key) === 'dropdown' ? (
+                              <Select
+                                value={condition.value || ""}
+                                onValueChange={(value) => updateCondition(0, condIndex, { value })}
+                              >
+                                <SelectTrigger className="flex-1 min-w-32" data-testid={`select-value-0-${condIndex}`}>
+                                  <SelectValue placeholder="Select value" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {getDropdownOptions(condition.column_key).map((opt) => (
+                                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : getColumnType(condition.column_key) === 'thought' ? (
+                              <Select
+                                value={condition.value || ""}
+                                onValueChange={(value) => updateCondition(0, condIndex, { value })}
+                              >
+                                <SelectTrigger className="flex-1 min-w-32" data-testid={`select-value-0-${condIndex}`}>
+                                  <SelectValue placeholder="Select value" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Sure">Sure</SelectItem>
+                                  <SelectItem value="May Be">May Be</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                value={condition.value || ""}
+                                onChange={(e) => updateCondition(0, condIndex, { value: e.target.value })}
+                                placeholder="Value"
+                                className="flex-1 min-w-32"
+                                data-testid={`input-value-0-${condIndex}`}
+                              />
+                            )
+                          )}
+
+                          {conditionGroups[0].conditions.length > 1 && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeConditionFromGroup(0, condIndex)}
+                              data-testid={`remove-condition-0-${condIndex}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* AND/OR toggle between conditions (not shown for last condition) */}
+                        {condIndex < conditionGroups[0].conditions.length - 1 && (
+                          <div className="flex items-center justify-center my-2">
+                            <div className="flex items-center gap-1 bg-muted rounded-md p-1">
+                              <button
+                                type="button"
+                                onClick={() => updateConditionNextOperator(0, condIndex, "and")}
+                                className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                                  condition.next_operator === "and" || !condition.next_operator
+                                    ? "bg-primary text-primary-foreground"
+                                    : "hover:bg-muted-foreground/10"
+                                }`}
+                                data-testid={`toggle-and-0-${condIndex}`}
+                              >
+                                AND
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateConditionNextOperator(0, condIndex, "or")}
+                                className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                                  condition.next_operator === "or"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "hover:bg-muted-foreground/10"
+                                }`}
+                                data-testid={`toggle-or-0-${condIndex}`}
+                              >
+                                OR
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
+                    ))}
 
-                      <div className="space-y-2">
-                        {group.conditions.map((condition, condIndex) => (
-                          <div key={condIndex} className="flex items-center gap-2 flex-wrap">
-                            <Select
-                              value={condition.column_key}
-                              onValueChange={(value) => updateCondition(groupIndex, condIndex, { column_key: value })}
-                            >
-                              <SelectTrigger className="w-40" data-testid={`select-column-${groupIndex}-${condIndex}`}>
-                                <SelectValue placeholder="Column" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {columnOptions.map((col) => (
-                                  <SelectItem key={col.key} value={col.key}>{col.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-
-                            <Select
-                              value={condition.operator}
-                              onValueChange={(value) => updateCondition(groupIndex, condIndex, { operator: value })}
-                            >
-                              <SelectTrigger className="w-36" data-testid={`select-operator-${groupIndex}-${condIndex}`}>
-                                <SelectValue placeholder="Operator" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {getOperatorsForColumn(condition.column_key).map((op) => (
-                                  <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-
-                            {!NO_VALUE_OPERATORS.includes(condition.operator) && (
-                              getColumnType(condition.column_key) === 'dropdown' ? (
-                                <Select
-                                  value={condition.value || ""}
-                                  onValueChange={(value) => updateCondition(groupIndex, condIndex, { value })}
-                                >
-                                  <SelectTrigger className="flex-1 min-w-32" data-testid={`select-value-${groupIndex}-${condIndex}`}>
-                                    <SelectValue placeholder="Select value" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {getDropdownOptions(condition.column_key).map((opt) => (
-                                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              ) : getColumnType(condition.column_key) === 'thought' ? (
-                                <Select
-                                  value={condition.value || ""}
-                                  onValueChange={(value) => updateCondition(groupIndex, condIndex, { value })}
-                                >
-                                  <SelectTrigger className="flex-1 min-w-32" data-testid={`select-value-${groupIndex}-${condIndex}`}>
-                                    <SelectValue placeholder="Select value" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="Sure">Sure</SelectItem>
-                                    <SelectItem value="May Be">May Be</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              ) : (
-                                <Input
-                                  value={condition.value || ""}
-                                  onChange={(e) => updateCondition(groupIndex, condIndex, { value: e.target.value })}
-                                  placeholder="Value"
-                                  className="flex-1 min-w-32"
-                                  data-testid={`input-value-${groupIndex}-${condIndex}`}
-                                />
-                              )
-                            )}
-
-                            {group.conditions.length > 1 && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => removeConditionFromGroup(groupIndex, condIndex)}
-                                data-testid={`remove-condition-${groupIndex}-${condIndex}`}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        ))}
-
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => addConditionToGroup(groupIndex)}
-                          className="w-full border-dashed border"
-                          data-testid={`add-condition-${groupIndex}`}
-                        >
-                          <Plus className="h-4 w-4 mr-1" />
-                          Add Condition
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-
-                {conditionGroups.length > 1 && (
-                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <span>Groups are combined with:</span>
-                    <Select
-                      value={groupsOperator}
-                      onValueChange={(value) => setGroupsOperator(value as "and" | "or")}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => addConditionToGroup(0)}
+                      className="w-full border-dashed border mt-2"
+                      data-testid="add-condition-0"
                     >
-                      <SelectTrigger className="h-8 w-24" data-testid="select-groups-operator">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="or">OR</SelectItem>
-                        <SelectItem value="and">AND</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <span className="text-xs">
-                      ({groupsOperator === "or" ? "any group matches" : "all groups must match"})
-                    </span>
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add Condition
+                    </Button>
                   </div>
-                )}
-              </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
 
