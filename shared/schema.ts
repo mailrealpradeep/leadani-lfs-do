@@ -3493,10 +3493,11 @@ export const updateHotLeadConfigSchema = z.object({
 // CUSTOM VIEWS (Industry-specific sidebar menu items with filtered leads)
 // ============================================================================
 
-// Condition group - conditions within a group are joined by AND
+// Condition group - conditions within a group use configurable AND/OR logic
 export const customViewConditionGroupSchema = z.object({
   id: z.string(),
   conditions: z.array(highlightingConditionSchema),
+  operator: z.enum(["and", "or"]).default("and"), // Operator for conditions within this group
 });
 
 export type CustomViewConditionGroup = z.infer<typeof customViewConditionGroupSchema>;
@@ -3539,7 +3540,8 @@ export interface CustomView {
   icon: CustomViewIconId;
   icon_color: CustomViewIconColorId;
   show_badge: boolean; // Show count badge in sidebar
-  condition_groups: CustomViewConditionGroup[]; // Groups joined by OR, conditions within AND
+  condition_groups: CustomViewConditionGroup[]; // Groups with configurable AND/OR logic
+  groups_operator: "and" | "or"; // Operator between groups (AND = all groups must match, OR = any group)
   sheet_ids: string[] | null; // null = all sheets, array = selected sheets only
   is_enabled: boolean;
   order_index: number;
@@ -3557,6 +3559,7 @@ export const custom_views = pgTable('custom_views', {
   icon_color: varchar('icon_color', { length: 20 }).notNull().default('blue'),
   show_badge: boolean('show_badge').notNull().default(true),
   condition_groups: json('condition_groups').$type<CustomViewConditionGroup[]>().notNull().default([]),
+  groups_operator: varchar('groups_operator', { length: 10 }).notNull().default('or'), // 'and' or 'or' between groups
   sheet_ids: json('sheet_ids').$type<string[] | null>().default(null), // null = all sheets, array = selected sheets
   is_enabled: boolean('is_enabled').notNull().default(true),
   order_index: integer('order_index').notNull().default(0),
@@ -3583,6 +3586,7 @@ export const customViewFormSchema = z.object({
   icon_color: z.enum(customViewIconColors.map(c => c.id) as [string, ...string[]]).default("blue"),
   show_badge: z.boolean().default(true),
   condition_groups: z.array(customViewConditionGroupSchema).min(1, "At least one condition group is required"),
+  groups_operator: z.enum(["and", "or"]).default("or"), // Operator between groups
   sheet_ids: z.array(z.string()).nullable().default(null), // null = all sheets, array = selected sheets
   is_enabled: z.boolean().default(true),
   order_index: z.number().int().default(0),

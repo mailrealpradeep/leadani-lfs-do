@@ -91,20 +91,34 @@ function evaluateHotLeadConditions(lead: Lead, conditions: HotLeadCondition[], l
   }
 }
 
-// Helper function to evaluate custom view conditions (groups joined by OR, conditions within groups by AND)
-function evaluateCustomViewConditions(lead: Lead, conditionGroups: any[]): boolean {
+// Helper function to evaluate custom view conditions with flexible AND/OR logic
+function evaluateCustomViewConditions(lead: Lead, conditionGroups: any[], groupsOperator: "and" | "or" = "or"): boolean {
   if (!conditionGroups || conditionGroups.length === 0) return false;
   
-  // Each group must have ALL its conditions match (AND within group)
-  // At least ONE group must match for the lead to be included (OR between groups)
-  return conditionGroups.some(group => {
+  // Evaluate each group based on its operator (default to AND for backward compatibility)
+  const groupResults = conditionGroups.map(group => {
     if (!group.conditions || group.conditions.length === 0) return false;
     
-    return group.conditions.every((condition: any) => {
+    const groupOperator = group.operator || "and"; // Default to AND for backward compatibility
+    const conditionResults = group.conditions.map((condition: any) => {
       const leadValue = getLeadFieldValue(lead, condition.column_key);
       return evaluateCondition(condition, leadValue);
     });
+    
+    // Apply group's operator to conditions within the group
+    if (groupOperator === "and") {
+      return conditionResults.every(r => r);
+    } else {
+      return conditionResults.some(r => r);
+    }
   });
+  
+  // Apply groups_operator to combine group results
+  if (groupsOperator === "and") {
+    return groupResults.every(r => r); // ALL groups must match
+  } else {
+    return groupResults.some(r => r); // ANY group must match
+  }
 }
 
 // Helper function to parse dates in multiple formats (ISO and dd/MM/yy)
@@ -9238,7 +9252,7 @@ ${questionsList}`;
       let count = 0;
       for (const sheet of sheets) {
         const leads = await storage.getLeadsBySheetId(sheet.id);
-        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups));
+        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups, view.groups_operator || "or"));
         count += matchingLeads.length;
       }
 
@@ -9284,7 +9298,7 @@ ${questionsList}`;
 
       for (const sheet of sheets) {
         const leads = await storage.getLeadsBySheetId(sheet.id);
-        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups));
+        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups, view.groups_operator || "or"));
         if (matchingLeads.length > 0) {
           // Add sheet_name to each lead for display in the grid
           const leadsWithSheetName = matchingLeads.map(lead => ({
@@ -9355,7 +9369,7 @@ ${questionsList}`;
             }
           }
           
-          counts[view.id] = viewLeads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups)).length;
+          counts[view.id] = viewLeads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups, view.groups_operator || "or")).length;
         }
       }
 
