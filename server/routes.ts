@@ -9266,7 +9266,7 @@ ${questionsList}`;
       }
 
       if (sheets.length === 0 || !view.condition_groups || view.condition_groups.length === 0) {
-        return res.json({ leads: [], sheets: [] });
+        return res.json({ leads: [], sheets: [], count: 0, view });
       }
 
       const allMatchingLeads: Lead[] = [];
@@ -9281,7 +9281,7 @@ ${questionsList}`;
         }
       }
 
-      res.json({ leads: allMatchingLeads, sheets: sheetsWithLeads });
+      res.json({ leads: allMatchingLeads, sheets: sheetsWithLeads, count: allMatchingLeads.length, view });
     } catch (error: any) {
       console.error("Get custom view leads error:", error);
       res.status(500).json({ error: error.message });
