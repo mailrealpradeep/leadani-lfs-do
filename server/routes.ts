@@ -91,34 +91,47 @@ function evaluateHotLeadConditions(lead: Lead, conditions: HotLeadCondition[], l
   }
 }
 
-// Helper function to evaluate custom view conditions with flexible AND/OR logic
+// Helper function to evaluate custom view conditions with per-condition AND/OR operators
+// Conditions are evaluated left-to-right using each condition's next_operator
 function evaluateCustomViewConditions(lead: Lead, conditionGroups: any[], groupsOperator: "and" | "or" = "or"): boolean {
   if (!conditionGroups || conditionGroups.length === 0) return false;
   
-  // Evaluate each group based on its operator (default to AND for backward compatibility)
-  const groupResults = conditionGroups.map(group => {
-    if (!group.conditions || group.conditions.length === 0) return false;
-    
-    const groupOperator = group.operator || "and"; // Default to AND for backward compatibility
-    const conditionResults = group.conditions.map((condition: any) => {
-      const leadValue = getLeadFieldValue(lead, condition.column_key);
-      return evaluateCondition(condition, leadValue);
-    });
-    
-    // Apply group's operator to conditions within the group
-    if (groupOperator === "and") {
-      return conditionResults.every(r => r);
-    } else {
-      return conditionResults.some(r => r);
+  // Flatten all conditions from all groups into a single list
+  const allConditions: any[] = [];
+  for (const group of conditionGroups) {
+    if (group.conditions && group.conditions.length > 0) {
+      allConditions.push(...group.conditions);
     }
-  });
-  
-  // Apply groups_operator to combine group results
-  if (groupsOperator === "and") {
-    return groupResults.every(r => r); // ALL groups must match
-  } else {
-    return groupResults.some(r => r); // ANY group must match
   }
+  
+  if (allConditions.length === 0) return false;
+  
+  // Evaluate conditions sequentially with per-condition operators
+  // Each condition has a next_operator that connects it to the next condition
+  let result = false;
+  
+  for (let i = 0; i < allConditions.length; i++) {
+    const condition = allConditions[i];
+    const leadValue = getLeadFieldValue(lead, condition.column_key);
+    const conditionResult = evaluateCondition(condition, leadValue);
+    
+    if (i === 0) {
+      // First condition sets the initial result
+      result = conditionResult;
+    } else {
+      // Get the operator from the previous condition that connects to this one
+      const prevCondition = allConditions[i - 1];
+      const operator = prevCondition.next_operator || "and"; // Default to AND for backward compatibility
+      
+      if (operator === "and") {
+        result = result && conditionResult;
+      } else {
+        result = result || conditionResult;
+      }
+    }
+  }
+  
+  return result;
 }
 
 // Helper function to parse dates in multiple formats (ISO and dd/MM/yy)
