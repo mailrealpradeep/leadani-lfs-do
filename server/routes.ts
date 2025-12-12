@@ -9226,6 +9226,11 @@ ${questionsList}`;
         sheets = await storage.getSheetsByUserId(req.userId!);
       }
 
+      // Filter sheets by view's sheet_ids if specified (null = all sheets)
+      if (view.sheet_ids && view.sheet_ids.length > 0) {
+        sheets = sheets.filter(sheet => view.sheet_ids!.includes(sheet.id));
+      }
+
       if (sheets.length === 0) {
         return res.json({ count: 0 });
       }
@@ -9265,18 +9270,28 @@ ${questionsList}`;
         sheets = await storage.getSheetsByUserId(req.userId!);
       }
 
+      // Filter sheets by view's sheet_ids if specified (null = all sheets)
+      if (view.sheet_ids && view.sheet_ids.length > 0) {
+        sheets = sheets.filter(sheet => view.sheet_ids!.includes(sheet.id));
+      }
+
       if (sheets.length === 0 || !view.condition_groups || view.condition_groups.length === 0) {
         return res.json({ leads: [], sheets: [], count: 0, view });
       }
 
-      const allMatchingLeads: Lead[] = [];
+      const allMatchingLeads: (Lead & { sheet_name: string })[] = [];
       const sheetsWithLeads: Sheet[] = [];
 
       for (const sheet of sheets) {
         const leads = await storage.getLeadsBySheetId(sheet.id);
         const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups));
         if (matchingLeads.length > 0) {
-          allMatchingLeads.push(...matchingLeads);
+          // Add sheet_name to each lead for display in the grid
+          const leadsWithSheetName = matchingLeads.map(lead => ({
+            ...lead,
+            sheet_name: sheet.name
+          }));
+          allMatchingLeads.push(...leadsWithSheetName);
           sheetsWithLeads.push(sheet);
         }
       }
@@ -9314,20 +9329,33 @@ ${questionsList}`;
         return res.json({ counts });
       }
 
-      // Get all leads once
-      const allLeads: Lead[] = [];
+      // Get all leads with their sheet_id for filtering
+      const leadsBySheet: Record<string, Lead[]> = {};
       for (const sheet of sheets) {
         const leads = await storage.getLeadsBySheetId(sheet.id);
-        allLeads.push(...leads);
+        leadsBySheet[sheet.id] = leads;
       }
 
-      // Calculate count for each view
+      // Calculate count for each view (respecting view's sheet_ids filter)
       const counts: Record<string, number> = {};
       for (const view of enabledViews) {
         if (!view.condition_groups || view.condition_groups.length === 0) {
           counts[view.id] = 0;
         } else {
-          counts[view.id] = allLeads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups)).length;
+          // Filter to view's allowed sheets (null = all sheets)
+          const viewSheets = view.sheet_ids && view.sheet_ids.length > 0 
+            ? sheets.filter(s => view.sheet_ids!.includes(s.id))
+            : sheets;
+          
+          // Get leads only from allowed sheets
+          const viewLeads: Lead[] = [];
+          for (const sheet of viewSheets) {
+            if (leadsBySheet[sheet.id]) {
+              viewLeads.push(...leadsBySheet[sheet.id]);
+            }
+          }
+          
+          counts[view.id] = viewLeads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups)).length;
         }
       }
 

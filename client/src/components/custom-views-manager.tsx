@@ -102,9 +102,16 @@ interface CustomView {
   icon_color: string;
   show_badge: boolean;
   condition_groups: CustomViewConditionGroup[];
+  sheet_ids: string[] | null; // null = all sheets, array = selected sheets
   is_enabled: boolean;
   order_index: number;
   created_at: string;
+}
+
+interface Sheet {
+  id: string;
+  name: string;
+  company_id: string;
 }
 
 const ICON_OPTIONS = [
@@ -312,6 +319,8 @@ export function CustomViewsManager() {
   const [conditionGroups, setConditionGroups] = useState<CustomViewConditionGroup[]>([
     { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }] }
   ]);
+  const [sheetMode, setSheetMode] = useState<"all" | "selected">("all");
+  const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -326,6 +335,10 @@ export function CustomViewsManager() {
 
   const { data: columns = [], isLoading: columnsLoading } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
+  });
+
+  const { data: sheets = [] } = useQuery<Sheet[]>({
+    queryKey: ["/api/sheets"],
   });
 
   const standardFields = [
@@ -433,6 +446,8 @@ export function CustomViewsManager() {
     setConditionGroups([
       { id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }] }
     ]);
+    setSheetMode("all");
+    setSelectedSheetIds([]);
     setEditingView(null);
   };
 
@@ -447,6 +462,14 @@ export function CustomViewsManager() {
       ? view.condition_groups 
       : [{ id: crypto.randomUUID(), conditions: [{ column_key: "", operator: "equals", value: "" }] }]
     );
+    // Set sheet selection state
+    if (view.sheet_ids && view.sheet_ids.length > 0) {
+      setSheetMode("selected");
+      setSelectedSheetIds(view.sheet_ids);
+    } else {
+      setSheetMode("all");
+      setSelectedSheetIds([]);
+    }
     setDialogOpen(true);
   };
 
@@ -465,6 +488,11 @@ export function CustomViewsManager() {
       return;
     }
 
+    if (sheetMode === "selected" && selectedSheetIds.length === 0) {
+      toast({ variant: "destructive", title: "Please select at least one sheet" });
+      return;
+    }
+
     const payload = {
       name: name.trim(),
       icon,
@@ -472,6 +500,7 @@ export function CustomViewsManager() {
       show_badge: showBadge,
       is_enabled: isEnabled,
       condition_groups: validGroups,
+      sheet_ids: sheetMode === "selected" ? selectedSheetIds : null,
     };
 
     if (editingView) {
@@ -718,6 +747,79 @@ export function CustomViewsManager() {
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* Sheet Selection */}
+            <div className="space-y-3">
+              <Label className="text-base font-medium">Sheet Scope</Label>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    id="sheet-all"
+                    name="sheet-mode"
+                    checked={sheetMode === "all"}
+                    onChange={() => {
+                      setSheetMode("all");
+                      setSelectedSheetIds([]);
+                    }}
+                    className="h-4 w-4"
+                    data-testid="radio-all-sheets"
+                  />
+                  <Label htmlFor="sheet-all" className="text-sm font-normal cursor-pointer">
+                    All Sheets
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    id="sheet-selected"
+                    name="sheet-mode"
+                    checked={sheetMode === "selected"}
+                    onChange={() => setSheetMode("selected")}
+                    className="h-4 w-4"
+                    data-testid="radio-selected-sheets"
+                  />
+                  <Label htmlFor="sheet-selected" className="text-sm font-normal cursor-pointer">
+                    Selected Sheets
+                  </Label>
+                </div>
+              </div>
+              
+              {sheetMode === "selected" && (
+                <div className="pl-6 space-y-2">
+                  {sheets.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No sheets available</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {sheets.map((sheet) => (
+                        <button
+                          key={sheet.id}
+                          onClick={() => {
+                            if (selectedSheetIds.includes(sheet.id)) {
+                              setSelectedSheetIds(selectedSheetIds.filter(id => id !== sheet.id));
+                            } else {
+                              setSelectedSheetIds([...selectedSheetIds, sheet.id]);
+                            }
+                          }}
+                          className={`px-3 py-1.5 text-sm rounded-md border transition-all ${
+                            selectedSheetIds.includes(sheet.id)
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-muted hover:border-primary/50"
+                          }`}
+                          type="button"
+                          data-testid={`sheet-toggle-${sheet.id}`}
+                        >
+                          {sheet.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {sheetMode === "selected" && selectedSheetIds.length === 0 && sheets.length > 0 && (
+                    <p className="text-xs text-amber-600">Please select at least one sheet</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="space-y-4">

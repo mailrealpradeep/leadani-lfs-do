@@ -3540,6 +3540,7 @@ export interface CustomView {
   icon_color: CustomViewIconColorId;
   show_badge: boolean; // Show count badge in sidebar
   condition_groups: CustomViewConditionGroup[]; // Groups joined by OR, conditions within AND
+  sheet_ids: string[] | null; // null = all sheets, array = selected sheets only
   is_enabled: boolean;
   order_index: number;
   created_by_user_id: string | null;
@@ -3556,6 +3557,7 @@ export const custom_views = pgTable('custom_views', {
   icon_color: varchar('icon_color', { length: 20 }).notNull().default('blue'),
   show_badge: boolean('show_badge').notNull().default(true),
   condition_groups: json('condition_groups').$type<CustomViewConditionGroup[]>().notNull().default([]),
+  sheet_ids: json('sheet_ids').$type<string[] | null>().default(null), // null = all sheets, array = selected sheets
   is_enabled: boolean('is_enabled').notNull().default(true),
   order_index: integer('order_index').notNull().default(0),
   created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
@@ -3581,6 +3583,7 @@ export const customViewFormSchema = z.object({
   icon_color: z.enum(customViewIconColors.map(c => c.id) as [string, ...string[]]).default("blue"),
   show_badge: z.boolean().default(true),
   condition_groups: z.array(customViewConditionGroupSchema).min(1, "At least one condition group is required"),
+  sheet_ids: z.array(z.string()).nullable().default(null), // null = all sheets, array = selected sheets
   is_enabled: z.boolean().default(true),
   order_index: z.number().int().default(0),
 });

@@ -491,16 +491,35 @@ export function SpreadsheetGrid({
   const activeColumns = isMultiMode ? companyColumns : singleSheetColumns;
   
   // Set columnsReady to true once columns have loaded (stays true to prevent skeleton during refetches)
+  // Also immediately set to true if columns are already available (cached)
   useEffect(() => {
-    if (activeColumns.length > 0 && !columnsReady) {
+    if (activeColumns.length > 0) {
       setColumnsReady(true);
     }
-  }, [activeColumns.length, columnsReady]);
+  }, [activeColumns.length]);
   
-  // Reset columnsReady when switching modes (so initial skeleton shows when changing to a new mode)
+  // Reset columnsReady ONLY when switching to a mode with different column source
+  // Don't reset if columns are already available for the new mode
+  const prevModeRef = useRef({ isMultiMode: false, activeSheetId: "" });
   useEffect(() => {
-    setColumnsReady(false);
-  }, [isMultiMode, hotLeadsMode, customViewMode, activeSheetId]);
+    const prev = prevModeRef.current;
+    const modeChanged = prev.isMultiMode !== isMultiMode;
+    const sheetChanged = !isMultiMode && prev.activeSheetId !== activeSheetId;
+    
+    // Only reset if mode or sheet actually changed AND columns for new mode aren't already loaded
+    if (modeChanged || sheetChanged) {
+      // Check if we already have columns for the new mode
+      const newModeColumns = isMultiMode ? companyColumns : singleSheetColumns;
+      if (newModeColumns.length === 0) {
+        setColumnsReady(false);
+      } else {
+        // Columns already available, keep columnsReady true
+        setColumnsReady(true);
+      }
+    }
+    
+    prevModeRef.current = { isMultiMode, activeSheetId };
+  }, [isMultiMode, activeSheetId, companyColumns.length, singleSheetColumns.length]);
 
   // Build filters object for backend - convert frontend filter format to backend format
   const buildBackendFilters = () => {
