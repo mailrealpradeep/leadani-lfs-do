@@ -3494,20 +3494,12 @@ export const updateHotLeadConfigSchema = z.object({
 // ============================================================================
 
 // Custom View condition with per-condition operator for chaining
+// Each condition can have next_operator to connect it to the following condition
 export const customViewConditionSchema = highlightingConditionSchema.extend({
   next_operator: z.enum(["and", "or"]).optional(), // Operator connecting this condition to the next (undefined for last condition)
 });
 
 export type CustomViewCondition = z.infer<typeof customViewConditionSchema>;
-
-// Condition group - legacy structure, now each condition has its own next_operator
-export const customViewConditionGroupSchema = z.object({
-  id: z.string(),
-  conditions: z.array(customViewConditionSchema), // Now uses customViewConditionSchema with next_operator
-  operator: z.enum(["and", "or"]).default("and").optional(), // Legacy field, kept for backward compatibility
-});
-
-export type CustomViewConditionGroup = z.infer<typeof customViewConditionGroupSchema>;
 
 // Available icon colors for custom views
 export const customViewIconColors = [
