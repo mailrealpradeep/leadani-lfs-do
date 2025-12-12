@@ -3539,8 +3539,7 @@ export interface CustomView {
   icon: CustomViewIconId;
   icon_color: CustomViewIconColorId;
   show_badge: boolean; // Show count badge in sidebar
-  condition_groups: CustomViewConditionGroup[]; // Groups with configurable AND/OR logic
-  groups_operator: "and" | "or"; // Operator between groups (AND = all groups must match, OR = any group)
+  conditions: CustomViewCondition[]; // Flat list of conditions with per-condition AND/OR operators
   sheet_ids: string[] | null; // null = all sheets, array = selected sheets only
   is_enabled: boolean;
   order_index: number;
@@ -3557,8 +3556,7 @@ export const custom_views = pgTable('custom_views', {
   icon: varchar('icon', { length: 50 }).notNull().default('star'),
   icon_color: varchar('icon_color', { length: 20 }).notNull().default('blue'),
   show_badge: boolean('show_badge').notNull().default(true),
-  condition_groups: json('condition_groups').$type<CustomViewConditionGroup[]>().notNull().default([]),
-  groups_operator: varchar('groups_operator', { length: 10 }).notNull().default('or'), // 'and' or 'or' between groups
+  conditions: json('conditions').$type<CustomViewCondition[]>().notNull().default([]),
   sheet_ids: json('sheet_ids').$type<string[] | null>().default(null), // null = all sheets, array = selected sheets
   is_enabled: boolean('is_enabled').notNull().default(true),
   order_index: integer('order_index').notNull().default(0),
@@ -3584,8 +3582,7 @@ export const customViewFormSchema = z.object({
   icon: z.enum(customViewIcons).default("star"),
   icon_color: z.enum(customViewIconColors.map(c => c.id) as [string, ...string[]]).default("blue"),
   show_badge: z.boolean().default(true),
-  condition_groups: z.array(customViewConditionGroupSchema).min(1, "At least one condition group is required"),
-  groups_operator: z.enum(["and", "or"]).default("or"), // Operator between groups
+  conditions: z.array(customViewConditionSchema).min(1, "At least one condition is required"),
   sheet_ids: z.array(z.string()).nullable().default(null), // null = all sheets, array = selected sheets
   is_enabled: z.boolean().default(true),
   order_index: z.number().int().default(0),
