@@ -14,10 +14,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Filter, X, CalendarIcon } from "lucide-react";
-import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, addDays, startOfDay, endOfDay } from "date-fns";
+import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, startOfDay, endOfDay } from "date-fns";
 
 export type DateFilterValue = {
-  type: "today" | "tomorrow" | "thisWeek" | "thisMonth" | "last7Days" | "last30Days" | "custom";
+  type: "today" | "yesterday" | "thisWeek" | "thisMonth" | "last7Days" | "last30Days" | "custom" | "tomorrow";
   from?: Date;
   to?: Date;
 } | null;
@@ -45,9 +45,9 @@ export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: 
         onChange({ type: "today", from: startOfToday(), to: endOfToday() });
         break;
       }
-      case "tomorrow": {
-        const tomorrow = addDays(new Date(), 1);
-        onChange({ type: "tomorrow", from: startOfDay(tomorrow), to: endOfDay(tomorrow) });
+      case "yesterday": {
+        const yesterday = subDays(new Date(), 1);
+        onChange({ type: "yesterday", from: startOfDay(yesterday), to: endOfDay(yesterday) });
         break;
       }
       case "thisWeek": {
@@ -107,6 +107,8 @@ export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: 
     switch (value.type) {
       case "today":
         return "Today";
+      case "yesterday":
+        return "Yesterday";
       case "tomorrow":
         return "Tomorrow";
       case "thisWeek":
@@ -149,7 +151,7 @@ export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: 
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="tomorrow">Tomorrow</SelectItem>
+                <SelectItem value="yesterday">Yesterday</SelectItem>
                 <SelectItem value="thisWeek">This Week</SelectItem>
                 <SelectItem value="thisMonth">This Month</SelectItem>
                 <SelectItem value="last7Days">Last 7 Days</SelectItem>
