@@ -1618,10 +1618,14 @@ export function SpreadsheetGrid({
     }
   };
 
-  // Get value from lead's custom_fields (or sheet name for multi-mode)
+  // Get value from lead's custom_fields (or sheet name for multi-mode, or system fields)
   const getLeadValue = (lead: Lead, columnKey: string) => {
     if (columnKey === "__sheet_name__") {
       return sheetNamesMap[lead.sheet_id] || "Unknown";
+    }
+    // Handle system columns that are direct properties on the lead object
+    if (columnKey === "created_at") {
+      return lead.created_at;
     }
     return lead.custom_fields[columnKey];
   };
@@ -1713,7 +1717,7 @@ export function SpreadsheetGrid({
   // Convert CustomColumn to display columns (must be before filteredAndSortedLeads)
   // Memoize to prevent re-creating array on every render (fixes filter input focus loss)
   const baseColumns = useMemo(() => {
-    return [...customColumns]
+    const customCols = [...customColumns]
       .sort((a, b) => a.order_index - b.order_index)
       .map((col) => ({
         key: col.column_key,
@@ -1724,6 +1728,19 @@ export function SpreadsheetGrid({
         type: col.type,
         config: col.config,
       }));
+    
+    // Add created_at as a system column with date type for filtering
+    const createdAtColumn = {
+      key: "created_at",
+      label: "Created Date",
+      width: getColumnWidth("created_at", "date"),
+      sortable: true,
+      dropdown: false,
+      type: "date" as const,
+      config: {},
+    };
+    
+    return [...customCols, createdAtColumn];
   }, [customColumns, columnWidths]);
 
   // Add Sheet column as first column in multi-mode

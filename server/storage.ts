@@ -3219,8 +3219,14 @@ export class PgStorage implements IStorage {
       if (typeof value === 'object' && value !== null && 'from' in value && 'to' in value) {
         const dateFilter = value as { from: string; to: string; type?: string };
         if (dateFilter.from && dateFilter.to) {
-          conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
-          conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
+          // Handle created_at as native column on leads table
+          if (key === 'created_at') {
+            conditions.push(sql`${dbSchema.leads.created_at}::date >= ${dateFilter.from}::date`);
+            conditions.push(sql`${dbSchema.leads.created_at}::date <= ${dateFilter.to}::date`);
+          } else {
+            conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
+            conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
+          }
         }
       }
       // Handle dropdown exact match (object with exactMatch flag)
