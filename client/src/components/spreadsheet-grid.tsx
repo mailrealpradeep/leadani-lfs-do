@@ -1729,14 +1729,14 @@ export function SpreadsheetGrid({
         config: col.config,
       }));
     
-    // Add created_at as a system column with date type for filtering
+    // Add created_at as a system column with datetime type for filtering
     const createdAtColumn = {
       key: "created_at",
       label: "Created Date",
-      width: getColumnWidth("created_at", "date"),
+      width: getColumnWidth("created_at", "datetime"),
       sortable: true,
       dropdown: false,
-      type: "date" as const,
+      type: "datetime" as const,
       config: {},
     };
     
@@ -3251,7 +3251,7 @@ export function SpreadsheetGrid({
                           </div>
                           {/* Column filters - works in both single and multi-sheet mode */}
                           <div className="relative">
-                            {col.type === "date" ? (
+                            {(col.type === "date" || col.type === "datetime") ? (
                               <DateRangeFilter
                                 value={columnFilters[col.key] as DateFilterValue}
                                 onChange={(value) =>
