@@ -48,6 +48,7 @@ The system features a customizable grid interface with dynamic column management
 *   **Data Management (Admin Console)**: Company Admin tools for bulk operations like clearing past data and bulk transferring leads with weighted distribution.
 *   **Visit Schedules**: Calendar-based view for tracking site visits, configurable by company to link specific lead statuses and date columns.
 *   **Hot Leads**: Company-wide feature to identify and prioritize high-value leads based on configurable conditions, displayed in a unified view with real-time updates and a sidebar badge.
+*   **Custom Views**: Configurable sidebar menu items that display filtered leads based on group-based conditions. Supports AND logic within condition groups and OR logic between groups (e.g., "(A AND B) OR C OR D"). Features include customizable icons from lucide-react, icon colors, optional badge counts showing matching lead counts, and a dedicated view page with SpreadsheetGrid integration.
 *   **Validation Rules**: Configurable rules that prompt users to update related fields when specific conditions are met during lead editing. Supports multi-condition logic with AND/OR operators, a beautiful mobile-responsive dialog for field updates, and server-side enforcement for imports/webhooks/API calls.
 
 ### Security
