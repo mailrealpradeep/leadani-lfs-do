@@ -527,11 +527,18 @@ export function SpreadsheetGrid({
     for (const [key, value] of Object.entries(columnFilters)) {
       if (value === null || value === undefined || value === '') continue;
       
-      // Handle date range filters
+      // Handle date range filters - format as YYYY-MM-DD strings to avoid timezone issues
       if (typeof value === 'object' && 'from' in value && 'to' in value) {
         const dateFilter = value as DateFilterValue | null;
         if (dateFilter && dateFilter.from && dateFilter.to) {
-          filters[key] = { from: dateFilter.from, to: dateFilter.to, type: 'date_range' };
+          // Format dates as YYYY-MM-DD strings (local timezone dates, not UTC ISO strings)
+          const fromStr = dateFilter.from instanceof Date 
+            ? `${dateFilter.from.getFullYear()}-${String(dateFilter.from.getMonth() + 1).padStart(2, '0')}-${String(dateFilter.from.getDate()).padStart(2, '0')}`
+            : String(dateFilter.from);
+          const toStr = dateFilter.to instanceof Date 
+            ? `${dateFilter.to.getFullYear()}-${String(dateFilter.to.getMonth() + 1).padStart(2, '0')}-${String(dateFilter.to.getDate()).padStart(2, '0')}`
+            : String(dateFilter.to);
+          filters[key] = { from: fromStr, to: toStr, type: 'date_range' };
         }
       } 
       // Handle dropdown exact match filters
