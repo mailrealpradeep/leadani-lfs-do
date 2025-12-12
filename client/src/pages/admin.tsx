@@ -37,7 +37,8 @@ import { TransitionExplanationManager } from "@/components/transition-explanatio
 import { DataManagement } from "@/components/data-management";
 import { HotLeadsConfigManager } from "@/components/hot-leads-config";
 import { ValidationRulesManager } from "@/components/validation-rules-manager";
-import { Flame, ClipboardCheck } from "lucide-react";
+import { CustomViewsManager } from "@/components/custom-views-manager";
+import { Flame, ClipboardCheck, Eye } from "lucide-react";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -951,6 +952,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <HotLeadsConfigManager />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="custom-views" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-custom-views">
+              <div className="flex items-center gap-3">
+                <Eye className="h-5 w-5 text-blue-500" />
+                <div className="text-left">
+                  <div className="font-semibold">Custom Views</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Create filtered sidebar menu items for quick access to specific leads
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <CustomViewsManager />
               </div>
             </AccordionContent>
           </AccordionItem>
