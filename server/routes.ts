@@ -92,72 +92,34 @@ function evaluateHotLeadConditions(lead: Lead, conditions: HotLeadCondition[], l
 }
 
 // Helper function to evaluate custom view conditions with per-condition AND/OR operators
-// Supports both new per-condition operators and legacy group-based operators
-function evaluateCustomViewConditions(lead: Lead, conditionGroups: any[], groupsOperator: "and" | "or" = "or"): boolean {
-  if (!conditionGroups || conditionGroups.length === 0) return false;
+// Conditions are evaluated left-to-right: each condition's next_operator connects it to the next
+function evaluateCustomViewConditions(lead: Lead, conditions: any[]): boolean {
+  if (!conditions || conditions.length === 0) return false;
   
-  // Check if this is a new-style view (conditions have next_operator) or legacy view (group-based)
-  const hasPerConditionOperators = conditionGroups.some(group => 
-    group.conditions?.some((c: any) => c.next_operator !== undefined)
-  );
+  let result = false;
   
-  if (hasPerConditionOperators) {
-    // New style: Flatten all conditions and evaluate sequentially with per-condition operators
-    const allConditions: any[] = [];
-    for (const group of conditionGroups) {
-      if (group.conditions && group.conditions.length > 0) {
-        allConditions.push(...group.conditions);
-      }
-    }
+  for (let i = 0; i < conditions.length; i++) {
+    const condition = conditions[i];
+    const leadValue = getLeadFieldValue(lead, condition.column_key);
+    const conditionResult = evaluateCondition(condition, leadValue);
     
-    if (allConditions.length === 0) return false;
-    
-    let result = false;
-    
-    for (let i = 0; i < allConditions.length; i++) {
-      const condition = allConditions[i];
-      const leadValue = getLeadFieldValue(lead, condition.column_key);
-      const conditionResult = evaluateCondition(condition, leadValue);
-      
-      if (i === 0) {
-        result = conditionResult;
-      } else {
-        const prevCondition = allConditions[i - 1];
-        const operator = prevCondition.next_operator || "and";
-        
-        if (operator === "and") {
-          result = result && conditionResult;
-        } else {
-          result = result || conditionResult;
-        }
-      }
-    }
-    
-    return result;
-  } else {
-    // Legacy style: Evaluate groups with group operators (backward compatibility)
-    const groupResults = conditionGroups.map(group => {
-      if (!group.conditions || group.conditions.length === 0) return false;
-      
-      const groupOperator = group.operator || "and";
-      const conditionResults = group.conditions.map((condition: any) => {
-        const leadValue = getLeadFieldValue(lead, condition.column_key);
-        return evaluateCondition(condition, leadValue);
-      });
-      
-      if (groupOperator === "and") {
-        return conditionResults.every((r: boolean) => r);
-      } else {
-        return conditionResults.some((r: boolean) => r);
-      }
-    });
-    
-    if (groupsOperator === "and") {
-      return groupResults.every(r => r);
+    if (i === 0) {
+      // First condition sets the initial result
+      result = conditionResult;
     } else {
-      return groupResults.some(r => r);
+      // Use the previous condition's next_operator to combine with current result
+      const prevCondition = conditions[i - 1];
+      const operator = prevCondition.next_operator || "and";
+      
+      if (operator === "and") {
+        result = result && conditionResult;
+      } else {
+        result = result || conditionResult;
+      }
     }
   }
+  
+  return result;
 }
 
 // Helper function to parse dates in multiple formats (ISO and dd/MM/yy)
@@ -9162,10 +9124,10 @@ ${questionsList}`;
   // POST /api/custom-views - Create new custom view (Admin only)
   app.post("/api/custom-views", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      const { name, icon, icon_color, show_badge, condition_groups, is_enabled } = req.body;
+      const { name, icon, icon_color, show_badge, conditions, is_enabled } = req.body;
       
-      if (!name || !condition_groups || condition_groups.length === 0) {
-        return res.status(400).json({ error: "Name and at least one condition group are required" });
+      if (!name || !conditions || conditions.length === 0) {
+        return res.status(400).json({ error: "Name and at least one condition are required" });
       }
 
       // Get current count for order_index
@@ -9177,7 +9139,7 @@ ${questionsList}`;
         icon: icon || "star",
         icon_color: icon_color || "blue",
         show_badge: show_badge ?? true,
-        condition_groups,
+        conditions,
         is_enabled: is_enabled ?? true,
         order_index: existingViews.length,
         created_by_user_id: req.userId!,
@@ -9201,14 +9163,14 @@ ${questionsList}`;
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const { name, icon, icon_color, show_badge, condition_groups, is_enabled } = req.body;
+      const { name, icon, icon_color, show_badge, conditions, is_enabled } = req.body;
       
       const updated = await storage.updateCustomView(req.params.id, {
         ...(name && { name }),
         ...(icon && { icon }),
         ...(icon_color && { icon_color }),
         ...(show_badge !== undefined && { show_badge }),
-        ...(condition_groups && { condition_groups }),
+        ...(conditions && { conditions }),
         ...(is_enabled !== undefined && { is_enabled }),
       });
 
@@ -9265,7 +9227,7 @@ ${questionsList}`;
         return res.status(403).json({ error: "Access denied" });
       }
 
-      if (!view.condition_groups || view.condition_groups.length === 0) {
+      if (!view.conditions || view.conditions.length === 0) {
         return res.json({ count: 0 });
       }
 
@@ -9291,7 +9253,7 @@ ${questionsList}`;
       let count = 0;
       for (const sheet of sheets) {
         const leads = await storage.getLeadsBySheetId(sheet.id);
-        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups, view.groups_operator || "or"));
+        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.conditions));
         count += matchingLeads.length;
       }
 
@@ -9328,7 +9290,7 @@ ${questionsList}`;
         sheets = sheets.filter(sheet => view.sheet_ids!.includes(sheet.id));
       }
 
-      if (sheets.length === 0 || !view.condition_groups || view.condition_groups.length === 0) {
+      if (sheets.length === 0 || !view.conditions || view.conditions.length === 0) {
         return res.json({ leads: [], sheets: [], count: 0, view });
       }
 
@@ -9337,7 +9299,7 @@ ${questionsList}`;
 
       for (const sheet of sheets) {
         const leads = await storage.getLeadsBySheetId(sheet.id);
-        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups, view.groups_operator || "or"));
+        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.conditions));
         if (matchingLeads.length > 0) {
           // Add sheet_name to each lead for display in the grid
           const leadsWithSheetName = matchingLeads.map(lead => ({
@@ -9392,7 +9354,7 @@ ${questionsList}`;
       // Calculate count for each view (respecting view's sheet_ids filter)
       const counts: Record<string, number> = {};
       for (const view of enabledViews) {
-        if (!view.condition_groups || view.condition_groups.length === 0) {
+        if (!view.conditions || view.conditions.length === 0) {
           counts[view.id] = 0;
         } else {
           // Filter to view's allowed sheets (null = all sheets)
@@ -9408,7 +9370,7 @@ ${questionsList}`;
             }
           }
           
-          counts[view.id] = viewLeads.filter(lead => evaluateCustomViewConditions(lead, view.condition_groups, view.groups_operator || "or")).length;
+          counts[view.id] = viewLeads.filter(lead => evaluateCustomViewConditions(lead, view.conditions)).length;
         }
       }
 
