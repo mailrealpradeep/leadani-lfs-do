@@ -93,7 +93,7 @@ export const leads = pgTable('leads', {
   custom_fields: json('custom_fields').$type<Record<string, any>>().default({}).notNull(),
   meta: json('meta').$type<Record<string, any>>().default({}).notNull(),
   attended_at: timestamp('attended_at'), // First user action timestamp (nullable until attended)
-  attended_by: varchar('attended_by').references(() => users.id, { onDelete: 'set null' }), // User who first attended (nullable)
+  attended_by_user_id: varchar('attended_by_user_id').references(() => users.id, { onDelete: 'set null' }), // User who first attended (nullable)
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

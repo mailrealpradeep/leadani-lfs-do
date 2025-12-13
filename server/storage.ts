@@ -1201,10 +1201,10 @@ export class MemStorage implements IStorage {
   async markLeadAttended(leadId: string, userId: string): Promise<boolean> {
     const lead = this.leads.get(leadId);
     if (!lead) return false;
-    // Only set if not already attended (first-write-wins)
-    if (!lead.attended_at) {
+    // Only set if not already attended (first-write-wins) - check BOTH fields are null
+    if (!lead.attended_at && !lead.attended_by_user_id) {
       lead.attended_at = new Date().toISOString();
-      lead.attended_by = userId;
+      lead.attended_by_user_id = userId;
       lead.updated_at = new Date().toISOString();
       this.leads.set(leadId, lead);
       return true;
@@ -3568,18 +3568,19 @@ export class PgStorage implements IStorage {
   }
 
   async markLeadAttended(leadId: string, userId: string): Promise<boolean> {
-    // Only set attended_at/by if not already set (first-write-wins)
+    // Only set attended_at/by if BOTH are not already set (first-write-wins)
     // Using a conditional update to avoid race conditions
     const result = await db.update(dbSchema.leads)
       .set({
         attended_at: new Date(),
-        attended_by: userId,
+        attended_by_user_id: userId,
         updated_at: new Date(),
       })
       .where(
         and(
           eq(dbSchema.leads.id, leadId),
-          isNull(dbSchema.leads.attended_at)
+          isNull(dbSchema.leads.attended_at),
+          isNull(dbSchema.leads.attended_by_user_id)
         )
       );
     return true;
@@ -4269,7 +4270,7 @@ export class PgStorage implements IStorage {
       deleted_at: row.deleted_at?.toISOString() || row.deleted_at,
       deleted_by_user_id: row.deleted_by_user_id || null,
       attended_at: row.attended_at?.toISOString() || row.attended_at || null,
-      attended_by: row.attended_by || null,
+      attended_by_user_id: row.attended_by_user_id || null,
       created_at: row.created_at?.toISOString() || row.created_at,
       updated_at: row.updated_at?.toISOString() || row.updated_at,
     };

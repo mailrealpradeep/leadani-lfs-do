@@ -1634,6 +1634,9 @@ export function SpreadsheetGrid({
     if (columnKey === "created_at") {
       return lead.created_at;
     }
+    if (columnKey === "attended_at") {
+      return lead.attended_at;
+    }
     return lead.custom_fields[columnKey];
   };
 
@@ -1747,7 +1750,18 @@ export function SpreadsheetGrid({
       config: {},
     };
     
-    return [...customCols, createdAtColumn];
+    // Add attended_at as a system column with datetime type for filtering
+    const attendedAtColumn = {
+      key: "attended_at",
+      label: "Attended At",
+      width: getColumnWidth("attended_at", "datetime"),
+      sortable: true,
+      dropdown: false,
+      type: "datetime" as const,
+      config: {},
+    };
+    
+    return [...customCols, createdAtColumn, attendedAtColumn];
   }, [customColumns, columnWidths]);
 
   // Add Sheet column as first column in multi-mode

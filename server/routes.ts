@@ -4910,6 +4910,12 @@ ${questionsList}`;
       const updatedLead = await storage.updateLead(existingLead.id, {
         custom_fields: mergedFields,
       });
+
+      // Mark lead as attended (first user action sets attended_at/attended_by)
+      await storage.markLeadAttended(existingLead.id, req.userId!);
+
+      // Refetch lead to get updated attended_at value
+      const finalLead = await storage.getLead(existingLead.id) || updatedLead;
       
       // Create an update entry to track the merge
       await storage.createLeadUpdate({
@@ -4932,11 +4938,11 @@ ${questionsList}`;
       
       // Realtime update
       const io = app.get("io") as SocketIOServer;
-      io.to(`sheet:${existingLead.sheet_id}`).emit("lead_updated", updatedLead);
+      io.to(`sheet:${existingLead.sheet_id}`).emit("lead_updated", finalLead);
       
       res.json({ 
         success: true, 
-        lead: updatedLead,
+        lead: finalLead,
         message: "Lead data has been merged successfully"
       });
     } catch (error: any) {
@@ -5127,6 +5133,12 @@ ${questionsList}`;
 
       const updated = await storage.updateLead(req.params.id, req.body);
 
+      // Mark lead as attended (first user action sets attended_at/attended_by)
+      await storage.markLeadAttended(req.params.id, req.userId!);
+
+      // Refetch lead to get updated attended_at value
+      const finalLead = await storage.getLead(req.params.id) || updated;
+
       // Audit log with company_id
       await storage.createAuditLog({
         user_id: req.userId!,
@@ -5138,7 +5150,7 @@ ${questionsList}`;
       });
 
       // Activity log for lead update (capture all field-level changes)
-      if (updated) {
+      if (finalLead) {
         const user = await storage.getUser(req.userId!);
         if (user) {
           const customColumns = await storage.getCustomColumns(lead.sheet_id);
@@ -5157,7 +5169,7 @@ ${questionsList}`;
           if (req.body.owner_user_id && req.body.owner_user_id !== lead.owner_user_id) {
             const oldOwner = await storage.getUser(lead.owner_user_id);
             const newOwner = await storage.getUser(req.body.owner_user_id);
-            const leadName = updated.custom_fields?.full_name || updated.custom_fields?.name || "Lead";
+            const leadName = finalLead.custom_fields?.full_name || finalLead.custom_fields?.name || "Lead";
             await logActivity({
               actor: { user, source: "ui" },
               companyId: sheet.company_id,
@@ -5179,7 +5191,7 @@ ${questionsList}`;
       // Send notification to lead owner if updated by someone else
       if (lead.owner_user_id && lead.owner_user_id !== req.userId) {
         const updater = await storage.getUser(req.userId!);
-        const leadName = updated?.custom_fields?.name || updated?.custom_fields?.full_name || "Lead";
+        const leadName = finalLead?.custom_fields?.name || finalLead?.custom_fields?.full_name || "Lead";
         notifyLeadUpdated(
           lead.owner_user_id,
           updater?.name || "Someone",
@@ -5193,7 +5205,7 @@ ${questionsList}`;
       }
 
       // Create lead update record if transition_note is provided (for transition explanation rules)
-      if (req.body.transition_note && updated) {
+      if (req.body.transition_note && finalLead) {
         const transitionNote = req.body.transition_note as string;
         const currentDate = new Date().toISOString().split('T')[0];
         await storage.createLeadUpdate({
@@ -5207,15 +5219,15 @@ ${questionsList}`;
 
       // Realtime update
       const io = app.get("io") as SocketIOServer;
-      io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", updated);
+      io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", finalLead);
 
       // Trigger outgoing webhooks for lead_updated and field_changed events
-      if (updated) {
-        const afterFields = flattenLeadFields(updated);
+      if (finalLead) {
+        const afterFields = flattenLeadFields(finalLead);
         const changedFields = getChangedFields(beforeFields, afterFields);
         
         triggerOutgoingWebhooks("lead_updated", {
-          lead: updated,
+          lead: finalLead,
           sheetId: lead.sheet_id,
           companyId: sheet.company_id,
           userId: req.userId,
@@ -5226,7 +5238,7 @@ ${questionsList}`;
 
         if (changedFields.length > 0) {
           triggerOutgoingWebhooks("field_changed", {
-            lead: updated,
+            lead: finalLead,
             sheetId: lead.sheet_id,
             companyId: sheet.company_id,
             userId: req.userId,
@@ -5237,7 +5249,7 @@ ${questionsList}`;
         }
       }
 
-      res.json(updated);
+      res.json(finalLead);
     } catch (error: any) {
       console.error("Update lead error:", error);
       res.status(500).json({ error: error.message });
@@ -5286,6 +5298,12 @@ ${questionsList}`;
       
       const updated = await storage.updateLead(req.params.id, { meta: updatedMeta });
 
+      // Mark lead as attended (first user action sets attended_at/attended_by)
+      await storage.markLeadAttended(req.params.id, req.userId!);
+
+      // Refetch lead to get updated attended_at value
+      const finalLead = await storage.getLead(req.params.id) || updated;
+
       // Audit log
       await storage.createAuditLog({
         user_id: req.userId!,
@@ -5315,9 +5333,9 @@ ${questionsList}`;
 
       // Realtime update
       const io = app.get("io") as SocketIOServer;
-      io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", updated);
+      io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", finalLead);
 
-      res.json(updated);
+      res.json(finalLead);
     } catch (error: any) {
       console.error("Update lead thought error:", error);
       res.status(500).json({ error: error.message });
@@ -5718,6 +5736,12 @@ ${questionsList}`;
 
       const update = await storage.createLeadUpdate(parsed);
 
+      // Mark lead as attended (first user action sets attended_at/attended_by)
+      await storage.markLeadAttended(req.params.id, req.userId!);
+
+      // Refetch lead to get updated attended_at value
+      const finalLead = await storage.getLead(req.params.id) || lead;
+
       // Audit log with company_id
       await storage.createAuditLog({
         user_id: req.userId!,
@@ -5750,11 +5774,11 @@ ${questionsList}`;
 
       // Realtime update
       const io = app.get("io") as SocketIOServer;
-      io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", lead);
+      io.to(`sheet:${lead.sheet_id}`).emit("lead_updated", finalLead);
 
       // Trigger outgoing webhooks for lead_update_added event
       triggerOutgoingWebhooks("lead_update_added", {
-        lead,
+        lead: finalLead,
         sheetId: lead.sheet_id,
         companyId: sheet.company_id,
         userId: req.userId,

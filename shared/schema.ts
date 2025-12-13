@@ -210,7 +210,7 @@ export interface Lead {
   deleted_at: string | null;
   deleted_by_user_id: string | null;
   attended_at: string | null; // First user action timestamp (null until attended)
-  attended_by: string | null; // User ID who first attended (null until attended)
+  attended_by_user_id: string | null; // User ID who first attended (null until attended)
   created_at: string;
   updated_at: string;
 }
@@ -839,6 +839,8 @@ export const leads = pgTable('leads', {
   meta: json('meta').$type<Record<string, any>>().default({}).notNull(),
   deleted_at: timestamp('deleted_at'),
   deleted_by_user_id: varchar('deleted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  attended_at: timestamp('attended_at'), // First user action timestamp (nullable until attended)
+  attended_by_user_id: varchar('attended_by_user_id').references(() => users.id, { onDelete: 'set null' }), // User who first attended (nullable)
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
