@@ -209,6 +209,8 @@ export interface Lead {
   meta: Record<string, any>;
   deleted_at: string | null;
   deleted_by_user_id: string | null;
+  attended_at: string | null; // First user action timestamp (null until attended)
+  attended_by: string | null; // User ID who first attended (null until attended)
   created_at: string;
   updated_at: string;
 }
@@ -257,7 +259,7 @@ export interface CustomColumn {
   sheet_id: string | null; // optional: if specified, column is sheet-specific override
   name: string;
   column_key: string; // unique key for this column within the company
-  type: "text" | "number" | "date" | "dropdown" | "boolean" | "mobile" | "percentage";
+  type: "text" | "number" | "date" | "datetime" | "dropdown" | "boolean" | "mobile" | "percentage";
   config: {
     default_value?: any;
     dropdown_options?: string[];
@@ -274,7 +276,7 @@ export const insertCustomColumnSchema = z.object({
   sheet_id: z.string().nullable().optional(),
   name: z.string().min(1, "Column name is required"),
   column_key: z.string().min(1, "Column key is required"),
-  type: z.enum(["text", "number", "date", "dropdown", "boolean", "mobile", "percentage"]),
+  type: z.enum(["text", "number", "date", "datetime", "dropdown", "boolean", "mobile", "percentage"]),
   config: z.object({
     default_value: z.any().optional(),
     dropdown_options: z.array(z.string()).optional(),
@@ -663,7 +665,7 @@ export interface GlobalReportSummary {
 // UTILITY: Default Columns for New Companies
 // ============================================================================
 // System column keys that cannot be deleted - these are always present for all companies
-export const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at"] as const;
+export const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at", "attended_at"] as const;
 
 export function getDefaultColumnsForCompany(companyId: string): InsertCustomColumn[] {
   return [
@@ -690,9 +692,18 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       sheet_id: null,
       name: "Created At",
       column_key: "created_at",
-      type: "date" as const,
+      type: "datetime" as const,
       config: { required: true, is_system_column: true },
       order_index: 2,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
+      name: "Attended At",
+      column_key: "attended_at",
+      type: "datetime" as const,
+      config: { is_system_column: true },
+      order_index: 3,
     },
     {
       company_id: companyId,
@@ -701,7 +712,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "phone",
       type: "text" as const,
       config: {},
-      order_index: 3,
+      order_index: 4,
     },
     {
       company_id: companyId,
@@ -710,7 +721,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "email",
       type: "text" as const,
       config: {},
-      order_index: 4,
+      order_index: 5,
     },
     {
       company_id: companyId,
@@ -721,7 +732,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       config: {
         dropdown_options: ["New", "Contacted", "Qualified", "Closed", "Lost"],
       },
-      order_index: 5,
+      order_index: 6,
     },
     {
       company_id: companyId,
@@ -732,7 +743,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       config: {
         dropdown_options: ["High", "Medium", "Low"],
       },
-      order_index: 6,
+      order_index: 7,
     },
     {
       company_id: companyId,
@@ -741,7 +752,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "notes",
       type: "text" as const,
       config: {},
-      order_index: 7,
+      order_index: 8,
     },
   ];
 }

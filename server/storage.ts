@@ -256,6 +256,7 @@ export interface IStorage {
   findLeadByField(companyId: string, fieldKey: string, fieldValue: string, includeDeleted?: boolean): Promise<Lead | undefined>;
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: string, updates: Partial<Lead>): Promise<Lead | undefined>;
+  markLeadAttended(leadId: string, userId: string): Promise<boolean>;
   deleteLead(id: string, userId: string): Promise<boolean>;
   deleteLeads(ids: string[], userId: string): Promise<number>;
   restoreLead(id: string): Promise<boolean>;
@@ -1195,6 +1196,20 @@ export class MemStorage implements IStorage {
     const updated = { ...lead, ...updates, updated_at: new Date().toISOString() };
     this.leads.set(id, updated);
     return updated;
+  }
+
+  async markLeadAttended(leadId: string, userId: string): Promise<boolean> {
+    const lead = this.leads.get(leadId);
+    if (!lead) return false;
+    // Only set if not already attended (first-write-wins)
+    if (!lead.attended_at) {
+      lead.attended_at = new Date().toISOString();
+      lead.attended_by = userId;
+      lead.updated_at = new Date().toISOString();
+      this.leads.set(leadId, lead);
+      return true;
+    }
+    return false;
   }
 
   async deleteLead(id: string, userId: string): Promise<boolean> {
@@ -3219,12 +3234,17 @@ export class PgStorage implements IStorage {
       if (typeof value === 'object' && value !== null && 'from' in value && 'to' in value) {
         const dateFilter = value as { from: string; to: string; type?: string };
         if (dateFilter.from && dateFilter.to) {
-          // Handle created_at as native column on leads table - convert to company timezone before comparing dates
-          // Note: created_at is stored as "timestamp without time zone" but contains UTC values
-          // We must first interpret it as UTC, then convert to company timezone
+          // Handle created_at and attended_at as native columns on leads table - convert to company timezone before comparing dates
+          // Note: These are stored as "timestamp without time zone" but contain UTC values
+          // We must first interpret them as UTC, then convert to company timezone
           if (key === 'created_at') {
             conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
             conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
+          } else if (key === 'attended_at') {
+            // attended_at can be null, only filter non-null values
+            conditions.push(sql`${dbSchema.leads.attended_at} IS NOT NULL`);
+            conditions.push(sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
+            conditions.push(sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
           } else {
             conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
             conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
@@ -3545,6 +3565,24 @@ export class PgStorage implements IStorage {
     convertedUpdates.updated_at = updated_at;
     await db.update(dbSchema.leads).set(convertedUpdates).where(eq(dbSchema.leads.id, id));
     return this.getLead(id);
+  }
+
+  async markLeadAttended(leadId: string, userId: string): Promise<boolean> {
+    // Only set attended_at/by if not already set (first-write-wins)
+    // Using a conditional update to avoid race conditions
+    const result = await db.update(dbSchema.leads)
+      .set({
+        attended_at: new Date(),
+        attended_by: userId,
+        updated_at: new Date(),
+      })
+      .where(
+        and(
+          eq(dbSchema.leads.id, leadId),
+          isNull(dbSchema.leads.attended_at)
+        )
+      );
+    return true;
   }
 
   async deleteLead(id: string, userId: string): Promise<boolean> {
@@ -4230,6 +4268,8 @@ export class PgStorage implements IStorage {
       ...row,
       deleted_at: row.deleted_at?.toISOString() || row.deleted_at,
       deleted_by_user_id: row.deleted_by_user_id || null,
+      attended_at: row.attended_at?.toISOString() || row.attended_at || null,
+      attended_by: row.attended_by || null,
       created_at: row.created_at?.toISOString() || row.created_at,
       updated_at: row.updated_at?.toISOString() || row.updated_at,
     };
