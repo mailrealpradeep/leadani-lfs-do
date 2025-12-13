@@ -8437,7 +8437,22 @@ ${questionsList}`;
         return formatDateForGrouping(dateValue, groupType, timezone);
       }
       
-      return lead[field] || lead.custom_fields?.[field] || "Unknown";
+      // Get raw field value - check lead first, then custom_fields
+      const rawValue = field in lead ? lead[field] : lead.custom_fields?.[field];
+      if (rawValue === null || rawValue === undefined) return "Unknown";
+      
+      // If value looks like a datetime (ISO format), format it as date for grouping
+      // This ensures datetime columns like attended_at are grouped by date, not exact timestamp
+      if (typeof rawValue === 'string' && rawValue.match(/^\d{4}-\d{2}-\d{2}T/)) {
+        return formatDateForGrouping(rawValue, "day", timezone);
+      }
+      
+      // Handle Date objects
+      if (rawValue instanceof Date) {
+        return formatDateForGrouping(rawValue, "day", timezone);
+      }
+      
+      return rawValue;
     };
 
     // Helper function to calculate aggregation
