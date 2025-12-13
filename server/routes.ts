@@ -5948,6 +5948,7 @@ ${questionsList}`;
     { name: "Full Name", column_key: "full_name", type: "text" as const, order_index: 0 },
     { name: "Mobile No", column_key: "mobile_no", type: "mobile" as const, order_index: 1 },
     { name: "Created At", column_key: "created_at", type: "datetime" as const, order_index: 2 },
+    { name: "Attended At", column_key: "attended_at", type: "datetime" as const, order_index: 3 },
   ];
 
   // Get company-wide columns (and optionally sheet-specific overrides)
@@ -6184,7 +6185,7 @@ ${questionsList}`;
   });
 
   // System column keys that cannot be deleted or have their core properties modified
-  const PROTECTED_SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at"];
+  const PROTECTED_SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at", "attended_at"];
   
   // Update company column (Company Admin only)
   app.patch("/api/company/columns/:columnId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
