@@ -1739,29 +1739,37 @@ export function SpreadsheetGrid({
         config: col.config,
       }));
     
-    // Add created_at as a system column with datetime type for filtering
-    const createdAtColumn = {
-      key: "created_at",
-      label: "Created Date",
-      width: getColumnWidth("created_at", "datetime"),
-      sortable: true,
-      dropdown: false,
-      type: "datetime" as const,
-      config: {},
-    };
+    // Check which system columns already exist in customCols to avoid duplicates
+    const existingKeys = new Set(customCols.map(c => c.key));
+    const systemColumnsToAdd: typeof customCols = [];
     
-    // Add attended_at as a system column with datetime type for filtering
-    const attendedAtColumn = {
-      key: "attended_at",
-      label: "Attended At",
-      width: getColumnWidth("attended_at", "datetime"),
-      sortable: true,
-      dropdown: false,
-      type: "datetime" as const,
-      config: {},
-    };
+    // Add created_at as a system column with datetime type for filtering (if not already present)
+    if (!existingKeys.has("created_at")) {
+      systemColumnsToAdd.push({
+        key: "created_at",
+        label: "Created Date",
+        width: getColumnWidth("created_at", "datetime"),
+        sortable: true,
+        dropdown: false,
+        type: "datetime" as const,
+        config: {},
+      });
+    }
     
-    return [...customCols, createdAtColumn, attendedAtColumn];
+    // Add attended_at as a system column with datetime type for filtering (if not already present)
+    if (!existingKeys.has("attended_at")) {
+      systemColumnsToAdd.push({
+        key: "attended_at",
+        label: "Attended At",
+        width: getColumnWidth("attended_at", "datetime"),
+        sortable: true,
+        dropdown: false,
+        type: "datetime" as const,
+        config: {},
+      });
+    }
+    
+    return [...customCols, ...systemColumnsToAdd];
   }, [customColumns, columnWidths]);
 
   // Add Sheet column as first column in multi-mode
