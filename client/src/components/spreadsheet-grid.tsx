@@ -732,6 +732,9 @@ export function SpreadsheetGrid({
         } else if (sortColumn === "created_at") {
           aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
           bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+        } else if (sortColumn === "attended_at") {
+          aVal = a.attended_at ? new Date(a.attended_at).getTime() : 0;
+          bVal = b.attended_at ? new Date(b.attended_at).getTime() : 0;
         } else {
           aVal = a.custom_fields?.[sortColumn] || "";
           bVal = b.custom_fields?.[sortColumn] || "";
@@ -818,6 +821,9 @@ export function SpreadsheetGrid({
         } else if (sortColumn === "created_at") {
           aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
           bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+        } else if (sortColumn === "attended_at") {
+          aVal = a.attended_at ? new Date(a.attended_at).getTime() : 0;
+          bVal = b.attended_at ? new Date(b.attended_at).getTime() : 0;
         } else {
           aVal = a.custom_fields?.[sortColumn] || "";
           bVal = b.custom_fields?.[sortColumn] || "";
@@ -1054,8 +1060,11 @@ export function SpreadsheetGrid({
     if (userSheetView?.hidden_columns && userSheetView.hidden_columns.length > 0) {
       setHiddenColumns(new Set(userSheetView.hidden_columns));
     } else if (userSheetView) {
-      // User has view but no hidden columns - reset to empty
-      setHiddenColumns(new Set());
+      // User has view but no hidden columns - default to hiding attended_at
+      setHiddenColumns(new Set(["attended_at"]));
+    } else {
+      // No user view yet - default to hiding attended_at
+      setHiddenColumns(new Set(["attended_at"]));
     }
   }, [userSheetView?.hidden_columns, activeSheetId]);
 
@@ -1419,9 +1428,10 @@ export function SpreadsheetGrid({
   useEffect(() => {
     if (!isMultiMode && activeSheetId) {
       const stored = localStorage.getItem(`hiddenColumns_${activeSheetId}`);
-      setHiddenColumns(stored ? new Set(JSON.parse(stored)) : new Set());
+      // Default to hiding attended_at if no stored preference
+      setHiddenColumns(stored ? new Set(JSON.parse(stored)) : new Set(["attended_at"]));
     } else {
-      setHiddenColumns(new Set()); // No hidden columns in multi-mode
+      setHiddenColumns(new Set(["attended_at"])); // Default to hiding attended_at in multi-mode
     }
     
     // Reset filters and sort to defaults when switching sheets
@@ -1634,6 +1644,9 @@ export function SpreadsheetGrid({
     if (columnKey === "created_at") {
       return lead.created_at;
     }
+    if (columnKey === "attended_at") {
+      return lead.attended_at;
+    }
     return lead.custom_fields[columnKey];
   };
 
@@ -1747,7 +1760,18 @@ export function SpreadsheetGrid({
       config: {},
     };
     
-    return [...customCols, createdAtColumn];
+    // Add attended_at as a system column (hidden by default, read-only)
+    const attendedAtColumn = {
+      key: "attended_at",
+      label: "Attended At",
+      width: getColumnWidth("attended_at", "datetime"),
+      sortable: true,
+      dropdown: false,
+      type: "datetime" as const,
+      config: {},
+    };
+    
+    return [...customCols, createdAtColumn, attendedAtColumn];
   }, [customColumns, columnWidths]);
 
   // Add Sheet column as first column in multi-mode

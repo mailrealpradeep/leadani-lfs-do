@@ -4457,13 +4457,14 @@ ${questionsList}`;
   // LEADS
   // ============================================================================
   
-  // Helper to inject lead.created_at into custom_fields for proper grid display/sorting
+  // Helper to inject lead.created_at and attended_at into custom_fields for proper grid display/sorting
   const injectCreatedAtToCustomFields = (lead: any) => {
     return {
       ...lead,
       custom_fields: {
         ...lead.custom_fields,
         created_at: lead.created_at || lead.custom_fields?.created_at,
+        attended_at: lead.attended_at || lead.custom_fields?.attended_at,
       },
     };
   };
@@ -10564,6 +10565,7 @@ ${questionsList}`;
         const row: Record<string, any> = {
           ID: lead.id,
           "Created At": lead.created_at,
+          "Attended At": lead.attended_at || "",
         };
         
         // Add custom field values based on defined columns
