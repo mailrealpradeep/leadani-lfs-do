@@ -183,18 +183,18 @@ export function ReportDrilldownModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden px-2 md:px-6">
+        <div className="flex-1 min-h-0">
           {isLoading ? (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex items-center justify-center h-full px-2 md:px-6">
               <p className="text-sm md:text-base text-muted-foreground">Loading...</p>
             </div>
           ) : leads.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex items-center justify-center h-full px-2 md:px-6">
               <p className="text-sm md:text-base text-muted-foreground">No leads found</p>
             </div>
           ) : isMobile ? (
             // Mobile card view
-            <div className="h-full overflow-auto space-y-3 py-3">
+            <div className="h-full overflow-auto space-y-3 py-3 px-2 md:px-6">
               {leads.map((lead) => (
                 <Card 
                   key={lead.id} 
@@ -257,9 +257,9 @@ export function ReportDrilldownModal({
               ))}
             </div>
           ) : (
-            // Desktop table view
-            <div className="h-full overflow-auto -mx-2 md:mx-0">
-              <Table className="min-w-max">
+            // Desktop table view - scrollable container for both horizontal and vertical
+            <div className="h-full overflow-auto">
+              <Table className="w-max min-w-full">
                 <TableHeader>
                   <TableRow>
                     {/* Dynamically render company columns */}
