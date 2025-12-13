@@ -1042,7 +1042,9 @@ export function SpreadsheetGrid({
   // Sync column order from user sheet view when it loads
   useEffect(() => {
     if (userSheetView?.column_order && userSheetView.column_order.length > 0) {
-      setCustomColumnOrder(userSheetView.column_order);
+      // De-duplicate column order to prevent duplicate columns from corrupted view data
+      const uniqueOrder = [...new Set(userSheetView.column_order)];
+      setCustomColumnOrder(uniqueOrder);
     } else if (userSheetView) {
       // User has view but no custom order - reset to empty
       setCustomColumnOrder([]);
@@ -1801,10 +1803,15 @@ export function SpreadsheetGrid({
     const columnMap = new Map(columns.map(col => [col.key, col]));
     
     // Build ordered array from custom order, then append any new columns not in the order
+    // IMPORTANT: Skip duplicate keys in customColumnOrder to prevent duplicate columns
     const orderedArr: typeof columns = [];
     const usedKeys = new Set<string>();
     
     for (const key of customColumnOrder) {
+      // Skip if this key was already added (prevents duplicates in saved order)
+      if (usedKeys.has(key)) {
+        continue;
+      }
       const col = columnMap.get(key);
       if (col) {
         orderedArr.push(col);
