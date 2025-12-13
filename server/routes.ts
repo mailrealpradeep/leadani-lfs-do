@@ -4458,13 +4458,14 @@ ${questionsList}`;
   // ============================================================================
   
   // Helper to inject lead.created_at and attended_at into custom_fields for proper grid display/sorting
+  // Uses ?? (nullish coalescing) instead of || to preserve null values properly
   const injectCreatedAtToCustomFields = (lead: any) => {
     return {
       ...lead,
       custom_fields: {
         ...lead.custom_fields,
-        created_at: lead.created_at || lead.custom_fields?.created_at,
-        attended_at: lead.attended_at || lead.custom_fields?.attended_at,
+        created_at: lead.created_at ?? lead.custom_fields?.created_at ?? null,
+        attended_at: lead.attended_at ?? lead.custom_fields?.attended_at ?? null,
       },
     };
   };
@@ -8305,7 +8306,7 @@ ${questionsList}`;
     const grouped: Record<string, any[]> = {};
     
     // Check if x_axis is a date-based grouping
-    const dateGroupingMatch = xAxis.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+    const dateGroupingMatch = xAxis.match(/^(created_at|attended_at|nfdt)_(day|week|month|quarter|year)$/);
     
     // Group leads by X-axis value
     leads.forEach(lead => {
@@ -8318,6 +8319,8 @@ ${questionsList}`;
         
         if (dateField === "created_at") {
           dateValue = lead.created_at;
+        } else if (dateField === "attended_at") {
+          dateValue = lead.attended_at;
         } else if (dateField === "nfdt") {
           // NFDT can be in custom_fields or as a direct field
           dateValue = lead.custom_fields?.nfdt || lead.nfdt || null;
@@ -8399,7 +8402,7 @@ ${questionsList}`;
     // Helper function to get field value from lead (with date-based grouping support)
     const getFieldValue = (lead: any, field: string) => {
       // Check if field is a date-based grouping
-      const dateGroupingMatch = field.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+      const dateGroupingMatch = field.match(/^(created_at|attended_at|nfdt)_(day|week|month|quarter|year)$/);
       
       if (dateGroupingMatch) {
         const [, dateField, groupType] = dateGroupingMatch;
@@ -8407,6 +8410,8 @@ ${questionsList}`;
         
         if (dateField === "created_at") {
           dateValue = lead.created_at;
+        } else if (dateField === "attended_at") {
+          dateValue = lead.attended_at;
         } else if (dateField === "nfdt") {
           dateValue = lead.custom_fields?.nfdt || lead.nfdt || null;
         }
@@ -8475,7 +8480,7 @@ ${questionsList}`;
         }
 
         const currentField = rowFields[fieldIndex];
-        const dateMatch = currentField?.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+        const dateMatch = currentField?.match(/^(created_at|attended_at|nfdt)_(day|week|month|quarter|year)$/);
         let entries = Object.entries(node);
         
         // Sort entries based on whether current row field is a date grouping
@@ -8511,7 +8516,7 @@ ${questionsList}`;
     });
 
     // Check if column field is a date-based grouping and apply appropriate sorting
-    const columnDateMatch = columnField.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+    const columnDateMatch = columnField.match(/^(created_at|attended_at|nfdt)_(day|week|month|quarter|year)$/);
     let columns: string[];
     if (columnDateMatch) {
       const [, , groupType] = columnDateMatch;
@@ -8536,7 +8541,7 @@ ${questionsList}`;
       }
 
       const currentField = rowFields[fieldIndex];
-      const dateMatch = currentField?.match(/^(created_at|nfdt)_(day|week|month|quarter|year)$/);
+      const dateMatch = currentField?.match(/^(created_at|attended_at|nfdt)_(day|week|month|quarter|year)$/);
       let entries = Object.entries(node);
       
       // Sort entries based on whether current row field is a date grouping
