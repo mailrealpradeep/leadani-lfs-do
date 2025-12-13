@@ -4163,6 +4163,27 @@ export class PgStorage implements IStorage {
       created_at: now,
     };
     await db.insert(dbSchema.lead_updates).values(newUpdate);
+    
+    // Set attended_at on first user action (excludes system actions like webhooks/auto-assignment)
+    // User action = has created_by_user_id
+    if (update.created_by_user_id) {
+      // Check if this lead already has attended_at set
+      const lead = await db.select({ attended_at: dbSchema.leads.attended_at })
+        .from(dbSchema.leads)
+        .where(eq(dbSchema.leads.id, update.lead_id))
+        .limit(1);
+      
+      if (lead.length > 0 && !lead[0].attended_at) {
+        // First user action - set attended_at and attended_by_user_id
+        await db.update(dbSchema.leads)
+          .set({
+            attended_at: now,
+            attended_by_user_id: update.created_by_user_id,
+          })
+          .where(eq(dbSchema.leads.id, update.lead_id));
+      }
+    }
+    
     return this.mapLeadUpdate(newUpdate as any);
   }
 
@@ -4230,6 +4251,8 @@ export class PgStorage implements IStorage {
       ...row,
       deleted_at: row.deleted_at?.toISOString() || row.deleted_at,
       deleted_by_user_id: row.deleted_by_user_id || null,
+      attended_at: row.attended_at?.toISOString() || row.attended_at || null,
+      attended_by_user_id: row.attended_by_user_id || null,
       created_at: row.created_at?.toISOString() || row.created_at,
       updated_at: row.updated_at?.toISOString() || row.updated_at,
     };
