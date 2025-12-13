@@ -257,45 +257,29 @@ export function ReportDrilldownModal({
               ))}
             </div>
           ) : (
-            // Desktop table view - split scroll regions for proper scrollbar behavior
-            // Outer: horizontal scroll (scrollbar always at bottom of viewport)
-            // Inner: vertical scroll (scrollbar at right)
-            <div className="h-full flex flex-col">
-              {/* Fixed header that scrolls horizontally with content */}
-              <div className="overflow-x-auto overflow-y-hidden flex-shrink-0 scrollbar-thin" id="drilldown-header-scroll">
-                <Table className="w-max min-w-full">
-                  <TableHeader>
-                    <TableRow className="border-b bg-muted/50">
+            // Desktop table view - nested scroll containers for proper scrollbar behavior
+            // Outer: horizontal scroll (scrollbar always visible at container bottom)
+            // Inner: vertical scroll with sticky header
+            <div className="h-full overflow-x-auto">
+              <div className="h-full overflow-y-auto min-w-max">
+                <Table className="w-full relative">
+                  <TableHeader className="sticky top-0 z-10">
+                    <TableRow className="border-b bg-muted">
                       {/* Dynamically render company columns */}
                       {sortedColumns.map((column) => (
                         <TableHead 
                           key={column.id} 
-                          className="min-w-[120px] text-xs md:text-sm whitespace-nowrap bg-muted/50"
+                          className="min-w-[120px] text-xs md:text-sm whitespace-nowrap bg-muted"
                         >
                           {column.name}
                         </TableHead>
                       ))}
                       {/* Fixed system columns */}
-                      <TableHead className="min-w-[140px] text-xs md:text-sm whitespace-nowrap bg-muted/50">Sheet Name</TableHead>
-                      <TableHead className="min-w-[140px] text-xs md:text-sm whitespace-nowrap bg-muted/50">Owner</TableHead>
-                      <TableHead className="min-w-[100px] text-xs md:text-sm whitespace-nowrap bg-muted/50">Lead Date</TableHead>
+                      <TableHead className="min-w-[140px] text-xs md:text-sm whitespace-nowrap bg-muted">Sheet Name</TableHead>
+                      <TableHead className="min-w-[140px] text-xs md:text-sm whitespace-nowrap bg-muted">Owner</TableHead>
+                      <TableHead className="min-w-[100px] text-xs md:text-sm whitespace-nowrap bg-muted">Lead Date</TableHead>
                     </TableRow>
                   </TableHeader>
-                </Table>
-              </div>
-              {/* Scrollable body - horizontal scroll syncs with header, vertical scroll independent */}
-              <div 
-                className="flex-1 overflow-auto min-h-0" 
-                id="drilldown-body-scroll"
-                onScroll={(e) => {
-                  // Sync horizontal scroll with header
-                  const headerScroll = document.getElementById('drilldown-header-scroll');
-                  if (headerScroll) {
-                    headerScroll.scrollLeft = e.currentTarget.scrollLeft;
-                  }
-                }}
-              >
-                <Table className="w-max min-w-full">
                   <TableBody>
                     {leads.map((lead) => (
                       <TableRow key={lead.id} data-testid={`drilldown-lead-${lead.id}`}>
