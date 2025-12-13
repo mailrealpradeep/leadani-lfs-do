@@ -209,7 +209,6 @@ export function HotLeadsConfigManager() {
     { key: "email", name: "Email", type: "text" },
     { key: "mobile_no", name: "Mobile No", type: "mobile" },
     { key: "created_at", name: "Created Date", type: "date" },
-    { key: "attended_at", name: "Attended At", type: "date" },
   ];
 
   const getColumnType = (columnKey: string): string => {

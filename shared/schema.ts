@@ -828,8 +828,6 @@ export const leads = pgTable('leads', {
   meta: json('meta').$type<Record<string, any>>().default({}).notNull(),
   deleted_at: timestamp('deleted_at'),
   deleted_by_user_id: varchar('deleted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
-  attended_at: timestamp('attended_at'),
-  attended_by_user_id: varchar('attended_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

@@ -3219,17 +3219,12 @@ export class PgStorage implements IStorage {
       if (typeof value === 'object' && value !== null && 'from' in value && 'to' in value) {
         const dateFilter = value as { from: string; to: string; type?: string };
         if (dateFilter.from && dateFilter.to) {
-          // Handle created_at and attended_at as native columns on leads table - convert to company timezone before comparing dates
-          // Note: these are stored as "timestamp without time zone" but contain UTC values
-          // We must first interpret them as UTC, then convert to company timezone
+          // Handle created_at as native column on leads table - convert to company timezone before comparing dates
+          // Note: created_at is stored as "timestamp without time zone" but contains UTC values
+          // We must first interpret it as UTC, then convert to company timezone
           if (key === 'created_at') {
             conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
             conditions.push(sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
-          } else if (key === 'attended_at') {
-            // attended_at can be null for unattended leads - only match non-null values
-            conditions.push(sql`${dbSchema.leads.attended_at} IS NOT NULL`);
-            conditions.push(sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
-            conditions.push(sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
           } else {
             conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
             conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
@@ -3313,84 +3308,40 @@ export class PgStorage implements IStorage {
         
         switch (operator) {
           case 'is_empty':
-            // Handle native columns vs custom_fields
-            if (column_key === 'attended_at') {
-              quickFilterConditions.push(sql`${dbSchema.leads.attended_at} IS NULL`);
-            } else if (column_key === 'created_at') {
-              quickFilterConditions.push(sql`${dbSchema.leads.created_at} IS NULL`);
-            } else {
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} = '')`
-              );
-            }
+            quickFilterConditions.push(
+              sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} = '')`
+            );
             break;
             
           case 'is_not_empty':
-            // Handle native columns vs custom_fields
-            if (column_key === 'attended_at') {
-              quickFilterConditions.push(sql`${dbSchema.leads.attended_at} IS NOT NULL`);
-            } else if (column_key === 'created_at') {
-              quickFilterConditions.push(sql`${dbSchema.leads.created_at} IS NOT NULL`);
-            } else {
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '')`
-              );
-            }
+            quickFilterConditions.push(
+              sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '')`
+            );
             break;
             
           case 'date_before':
           case 'before':
-            // Date is strictly before the target date - handle native columns
-            if (column_key === 'attended_at') {
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date < ${targetDate}::date`
-              );
-            } else if (column_key === 'created_at') {
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date < ${targetDate}::date`
-              );
-            } else {
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date`
-              );
-            }
+            // Date is strictly before the target date
+            quickFilterConditions.push(
+              sql`(${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date`
+            );
             break;
             
           case 'date_after':
           case 'after':
-            // Date is strictly after the target date - handle native columns
-            if (column_key === 'attended_at') {
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date > ${targetDate}::date`
-              );
-            } else if (column_key === 'created_at') {
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date > ${targetDate}::date`
-              );
-            } else {
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date`
-              );
-            }
+            // Date is strictly after the target date
+            quickFilterConditions.push(
+              sql`(${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date`
+            );
             break;
             
           case 'date_equals':
           case 'equals':
             if (relative_date || (value && typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
-              // Date comparison - handle native columns
-              if (column_key === 'attended_at') {
-                quickFilterConditions.push(
-                  sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date = ${targetDate}::date`
-                );
-              } else if (column_key === 'created_at') {
-                quickFilterConditions.push(
-                  sql`(${dbSchema.leads.created_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date = ${targetDate}::date`
-                );
-              } else {
-                quickFilterConditions.push(
-                  sql`(${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date`
-                );
-              }
+              // Date comparison
+              quickFilterConditions.push(
+                sql`(${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date`
+              );
             } else {
               // String comparison
               quickFilterConditions.push(
@@ -4212,27 +4163,6 @@ export class PgStorage implements IStorage {
       created_at: now,
     };
     await db.insert(dbSchema.lead_updates).values(newUpdate);
-    
-    // Set attended_at on first user action (excludes system actions like webhooks/auto-assignment)
-    // User action = has created_by_user_id
-    if (update.created_by_user_id) {
-      // Check if this lead already has attended_at set
-      const lead = await db.select({ attended_at: dbSchema.leads.attended_at })
-        .from(dbSchema.leads)
-        .where(eq(dbSchema.leads.id, update.lead_id))
-        .limit(1);
-      
-      if (lead.length > 0 && !lead[0].attended_at) {
-        // First user action - set attended_at and attended_by_user_id
-        await db.update(dbSchema.leads)
-          .set({
-            attended_at: now,
-            attended_by_user_id: update.created_by_user_id,
-          })
-          .where(eq(dbSchema.leads.id, update.lead_id));
-      }
-    }
-    
     return this.mapLeadUpdate(newUpdate as any);
   }
 
@@ -4300,8 +4230,6 @@ export class PgStorage implements IStorage {
       ...row,
       deleted_at: row.deleted_at?.toISOString() || row.deleted_at,
       deleted_by_user_id: row.deleted_by_user_id || null,
-      attended_at: row.attended_at?.toISOString() || row.attended_at || null,
-      attended_by_user_id: row.attended_by_user_id || null,
       created_at: row.created_at?.toISOString() || row.created_at,
       updated_at: row.updated_at?.toISOString() || row.updated_at,
     };

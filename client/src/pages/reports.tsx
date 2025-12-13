@@ -183,11 +183,6 @@ export default function Reports() {
       "created_at_month": "Created Date (by Month)",
       "created_at_quarter": "Created Date (by Quarter)",
       "created_at_year": "Created Date (by Year)",
-      "attended_at_day": "Attended At (by Day)",
-      "attended_at_week": "Attended At (by Week)",
-      "attended_at_month": "Attended At (by Month)",
-      "attended_at_quarter": "Attended At (by Quarter)",
-      "attended_at_year": "Attended At (by Year)",
       "nfdt_day": "Follow-up Date (by Day)",
       "nfdt_week": "Follow-up Date (by Week)",
       "nfdt_month": "Follow-up Date (by Month)",
@@ -286,11 +281,6 @@ export default function Reports() {
       "created_at_month",   // Group by month (e.g., "Jan 2024")
       "created_at_quarter", // Group by quarter (e.g., "Q1 2024")
       "created_at_year",    // Group by year (e.g., "2024")
-      "attended_at_day",    // Attended At by day
-      "attended_at_week",   // Attended At by week
-      "attended_at_month",  // Attended At by month
-      "attended_at_quarter",// Attended At by quarter
-      "attended_at_year",   // Attended At by year
       "nfdt_day",           // Next Follow-up Date by day
       "nfdt_week",          // Next Follow-up Date by week
       "nfdt_month",         // Next Follow-up Date by month
