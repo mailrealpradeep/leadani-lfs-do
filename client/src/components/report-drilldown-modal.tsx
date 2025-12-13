@@ -183,7 +183,7 @@ export function ReportDrilldownModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-auto px-2 md:px-6">
+        <div className="flex-1 overflow-hidden px-2 md:px-6">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <p className="text-sm md:text-base text-muted-foreground">Loading...</p>
@@ -194,7 +194,7 @@ export function ReportDrilldownModal({
             </div>
           ) : isMobile ? (
             // Mobile card view
-            <div className="space-y-3 py-3">
+            <div className="h-full overflow-auto space-y-3 py-3">
               {leads.map((lead) => (
                 <Card 
                   key={lead.id} 
@@ -258,8 +258,8 @@ export function ReportDrilldownModal({
             </div>
           ) : (
             // Desktop table view
-            <div className="overflow-x-auto -mx-2 md:mx-0">
-              <Table>
+            <div className="h-full overflow-auto -mx-2 md:mx-0">
+              <Table className="min-w-max">
                 <TableHeader>
                   <TableRow>
                     {/* Dynamically render company columns */}
