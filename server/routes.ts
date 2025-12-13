@@ -7777,6 +7777,103 @@ ${questionsList}`;
         })
       )).flat().filter(lead => !lead.deleted_at);
 
+      // Helper to check if filter value is a formatted date and lead value is ISO datetime
+      // Returns true if they represent the same period (day, week, month, quarter, year)
+      const compareDateValues = (filterValue: string, leadValue: string): boolean => {
+        // Check if lead value is ISO datetime or date format
+        if (typeof leadValue !== 'string' || !leadValue.match(/^\d{4}-\d{2}-\d{2}/)) {
+          return false;
+        }
+        
+        const monthMap: Record<string, number> = {
+          "Jan": 0, "Feb": 1, "Mar": 2, "Apr": 3, "May": 4, "Jun": 5,
+          "Jul": 6, "Aug": 7, "Sep": 8, "Oct": 9, "Nov": 10, "Dec": 11,
+          "January": 0, "February": 1, "March": 2, "April": 3, "May": 4, "June": 5,
+          "July": 6, "August": 7, "September": 8, "October": 9, "November": 10, "December": 11
+        };
+        
+        const leadDate = new Date(leadValue);
+        
+        // Match "Dec 13, 2025" or "December 13, 2025" format (day grouping)
+        const dayMatch = filterValue.match(/^(\w{3,9})\s+(\d{1,2}),\s+(\d{4})$/);
+        if (dayMatch) {
+          const [, mon, day, year] = dayMatch;
+          if (monthMap[mon] !== undefined) {
+            return leadDate.getFullYear() === parseInt(year) &&
+                   leadDate.getMonth() === monthMap[mon] &&
+                   leadDate.getDate() === parseInt(day);
+          }
+        }
+        
+        // Match "12 Dec 2025" format (day first)
+        const dayFirstMatch = filterValue.match(/^(\d{1,2})\s+(\w{3,9})\s+(\d{4})$/);
+        if (dayFirstMatch) {
+          const [, day, mon, year] = dayFirstMatch;
+          if (monthMap[mon] !== undefined) {
+            return leadDate.getFullYear() === parseInt(year) &&
+                   leadDate.getMonth() === monthMap[mon] &&
+                   leadDate.getDate() === parseInt(day);
+          }
+        }
+        
+        // Match "2025-12-13" ISO date format
+        const isoMatch = filterValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (isoMatch) {
+          const [, year, month, day] = isoMatch;
+          return leadDate.getFullYear() === parseInt(year) &&
+                 leadDate.getMonth() === parseInt(month) - 1 &&
+                 leadDate.getDate() === parseInt(day);
+        }
+        
+        // Match "Dec 2025" or "December 2025" format (month grouping)
+        const monthMatch = filterValue.match(/^(\w{3,9})\s+(\d{4})$/);
+        if (monthMatch) {
+          const [, mon, year] = monthMatch;
+          if (monthMap[mon] !== undefined) {
+            return leadDate.getFullYear() === parseInt(year) &&
+                   leadDate.getMonth() === monthMap[mon];
+          }
+        }
+        
+        // Match "Week X, YYYY" format (week grouping)
+        const weekMatch = filterValue.match(/^Week\s+(\d+),\s+(\d{4})$/);
+        if (weekMatch) {
+          const [, week, year] = weekMatch;
+          // Calculate week of year for lead date
+          const startOfYear = new Date(leadDate.getFullYear(), 0, 1);
+          const days = Math.floor((leadDate.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+          const leadWeek = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+          return leadDate.getFullYear() === parseInt(year) && leadWeek === parseInt(week);
+        }
+        
+        // Match "Week of Dec 08, 2025" format (week start date format)
+        const weekOfMatch = filterValue.match(/^Week of (\w{3,9})\s+(\d{1,2}),\s+(\d{4})$/);
+        if (weekOfMatch) {
+          const [, mon, day, year] = weekOfMatch;
+          if (monthMap[mon] !== undefined) {
+            // Week start date - lead date should fall within 7 days of week start
+            const weekStart = new Date(parseInt(year), monthMap[mon], parseInt(day));
+            const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+            return leadDate >= weekStart && leadDate < weekEnd;
+          }
+        }
+        
+        // Match "Q1 2025" format (quarter grouping)
+        const quarterMatch = filterValue.match(/^Q(\d)\s+(\d{4})$/);
+        if (quarterMatch) {
+          const [, quarter, year] = quarterMatch;
+          const leadQuarter = Math.floor(leadDate.getMonth() / 3) + 1;
+          return leadDate.getFullYear() === parseInt(year) && leadQuarter === parseInt(quarter);
+        }
+        
+        // Match pure year "2025" format (year grouping)
+        if (/^\d{4}$/.test(filterValue)) {
+          return leadDate.getFullYear() === parseInt(filterValue);
+        }
+        
+        return false;
+      };
+      
       // Apply filters
       let filteredLeads = allLeads.filter(lead => {
         for (const [key, value] of Object.entries(filters)) {
@@ -7796,6 +7893,11 @@ ${questionsList}`;
             // Filter wants a specific value but lead has null - doesn't match
             return false;
           } else if (leadValue !== value) {
+            // Direct comparison failed - try date comparison for datetime fields
+            if (typeof value === 'string' && typeof leadValue === 'string' && compareDateValues(value, leadValue)) {
+              // Date comparison matched - continue to next filter
+              continue;
+            }
             return false;
           }
         }
