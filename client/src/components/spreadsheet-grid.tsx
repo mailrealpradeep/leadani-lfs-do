@@ -2187,18 +2187,20 @@ export function SpreadsheetGrid({
   }, [visibleColumns]);
 
   // Memoize grid template style to prevent header re-renders on filter changes
+  // First column (140px): Checkbox + Edit + History icons (size="icon" = 36px each)
+  // Last column (50px): Actions dropdown menu only
   const gridTemplateStyle = useMemo(() => {
-    return `50px ${visibleColumns.map(c => c.width).join(' ')} 150px`;
+    return `140px ${visibleColumns.map(c => c.width).join(' ')} 50px`;
   }, [visibleColumns]);
 
-  // Calculate total table width: checkbox (50px) + all visible columns + actions (150px)
+  // Calculate total table width: first col (140px) + all visible columns + actions (50px)
   const calculateTableWidth = () => {
-    const checkboxWidth = 50;
-    const actionsWidth = 150;
+    const firstColumnWidth = 140; // Checkbox + Edit + History
+    const actionsWidth = 50; // Just dropdown menu
     const columnsWidth = visibleColumns.reduce((sum, col) => {
       return sum + parseInt(col.width);
     }, 0);
-    return checkboxWidth + columnsWidth + actionsWidth;
+    return firstColumnWidth + columnsWidth + actionsWidth;
   };
 
   // Infinite scroll handler - load more when near bottom
@@ -3233,8 +3235,8 @@ export function SpreadsheetGrid({
                     gridTemplateColumns: gridTemplateStyle
                   }}
                 >
-                  {/* Checkbox Column Header */}
-                  <div className="border-b border-r px-3 py-3 flex items-center justify-center">
+                  {/* First Column Header - Checkbox + Edit + History (Sticky) */}
+                  <div className="border-b border-r px-2 py-3 flex items-center justify-center gap-2 sticky left-0 z-30 bg-background dark:bg-muted">
                     <Checkbox
                       checked={selectedRows.size === leads.length && leads.length > 0}
                       onCheckedChange={(checked) => {
@@ -3246,6 +3248,7 @@ export function SpreadsheetGrid({
                       }}
                       data-testid="checkbox-select-all"
                     />
+                    <span className="text-xs text-muted-foreground">Actions</span>
                   </div>
                   
                   {/* Column Headers - Sortable */}
@@ -3400,8 +3403,18 @@ export function SpreadsheetGrid({
                             : undefined
                           }
                         >
-                          {/* Checkbox Cell with Thought Icon */}
-                          <div className="border-r px-2 py-2 flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          {/* First Column Cell - Checkbox + Edit + History (Sticky) */}
+                          <div 
+                            className={`border-r px-2 py-2 flex items-center justify-center gap-1 sticky left-0 z-10 ${
+                              highlightResult 
+                                ? '' 
+                                : invalidLeadIds.has(lead.id) 
+                                  ? 'bg-red-50 dark:bg-red-950/20' 
+                                  : 'bg-background dark:bg-muted'
+                            }`}
+                            style={highlightResult ? { backgroundColor: isDarkMode ? highlightResult.colorDark : highlightResult.colorLight } : undefined}
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             {leadThought === "sure" && (
                               <Star className="h-4 w-4 text-emerald-500 fill-emerald-500" />
                             )}
@@ -3421,6 +3434,42 @@ export function SpreadsheetGrid({
                               }}
                               data-testid={`checkbox-select-${lead.id}`}
                             />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                if (updateDialogOpen) return;
+                                if (highlightTimeoutRef.current) {
+                                  clearTimeout(highlightTimeoutRef.current);
+                                }
+                                setHighlightedLeadId(lead.id);
+                                setSelectedLeadForUpdate(lead.id);
+                                setUpdateDialogOpen(true);
+                              }}
+                              data-testid={`button-update-lead-${lead.id}`}
+                              title="Record update"
+                              aria-label="Record update"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                if (updateHistoryDialogOpen) return;
+                                if (highlightTimeoutRef.current) {
+                                  clearTimeout(highlightTimeoutRef.current);
+                                }
+                                setHighlightedLeadId(lead.id);
+                                setSelectedLeadForUpdate(lead.id);
+                                setUpdateHistoryDialogOpen(true);
+                              }}
+                              data-testid={`button-update-history-${lead.id}`}
+                              title="View update history"
+                              aria-label="View update history"
+                            >
+                              <History className="h-4 w-4" />
+                            </Button>
                           </div>
                     
                     {/* Data Cells */}
@@ -3665,55 +3714,13 @@ export function SpreadsheetGrid({
                       );
                     })}
                     
-                    {/* Actions Cell */}
-                    <div className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => {
-                          // Prevent switching leads while dialog is already open
-                          if (updateDialogOpen) return;
-                          // Clear any existing timeout and set highlight
-                          if (highlightTimeoutRef.current) {
-                            clearTimeout(highlightTimeoutRef.current);
-                          }
-                          setHighlightedLeadId(lead.id);
-                          setSelectedLeadForUpdate(lead.id);
-                          setUpdateDialogOpen(true);
-                        }}
-                        data-testid={`button-update-lead-${lead.id}`}
-                        title="Record update"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => {
-                          // Prevent switching leads while dialog is already open
-                          if (updateHistoryDialogOpen) return;
-                          // Clear any existing timeout and set highlight
-                          if (highlightTimeoutRef.current) {
-                            clearTimeout(highlightTimeoutRef.current);
-                          }
-                          setHighlightedLeadId(lead.id);
-                          setSelectedLeadForUpdate(lead.id);
-                          setUpdateHistoryDialogOpen(true);
-                        }}
-                        data-testid={`button-update-history-${lead.id}`}
-                        title="View update history"
-                      >
-                        <History className="h-4 w-4" />
-                      </Button>
+                    {/* Actions Cell - Just dropdown menu */}
+                    <div className="px-2 py-2 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8"
                             data-testid={`button-actions-${lead.id}`}
                           >
                             <MoreHorizontal className="h-4 w-4" />
@@ -3735,7 +3742,6 @@ export function SpreadsheetGrid({
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                      </div>
                     </div>
                   </div>
                 </ContextMenuTrigger>
