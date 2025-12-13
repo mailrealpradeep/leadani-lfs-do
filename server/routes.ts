@@ -8319,6 +8319,120 @@ ${questionsList}`;
     return [...strings].sort((a, b) => getDateSortKey(a, groupType) - getDateSortKey(b, groupType));
   }
   
+  // Helper to detect if a string looks like a formatted date and parse it for sorting
+  // Tries all known date formats from formatDateForGrouping
+  function parseFormattedDateString(str: string): number | null {
+    if (!str || str === "Unknown") return null;
+    
+    const monthMap: Record<string, number> = {
+      "Jan": 0, "Feb": 1, "Mar": 2, "Apr": 3, "May": 4, "Jun": 5,
+      "Jul": 6, "Aug": 7, "Sep": 8, "Oct": 9, "Nov": 10, "Dec": 11,
+      "January": 0, "February": 1, "March": 2, "April": 3, "June": 5,
+      "July": 6, "August": 7, "September": 8, "October": 9, "November": 10, "December": 11
+    };
+    
+    // Match "Dec 12, 2025" or "Jan 1, 2024" format (short month)
+    const dayMatch = str.match(/^(\w{3,9})\s+(\d{1,2}),\s+(\d{4})$/);
+    if (dayMatch) {
+      const [, mon, day, year] = dayMatch;
+      if (monthMap[mon] !== undefined) {
+        return new Date(parseInt(year), monthMap[mon], parseInt(day)).getTime();
+      }
+    }
+    
+    // Match "12 Dec 2025" or "1 Jan 2024" format (day first)
+    const dayFirstMatch = str.match(/^(\d{1,2})\s+(\w{3,9})\s+(\d{4})$/);
+    if (dayFirstMatch) {
+      const [, day, mon, year] = dayFirstMatch;
+      if (monthMap[mon] !== undefined) {
+        return new Date(parseInt(year), monthMap[mon], parseInt(day)).getTime();
+      }
+    }
+    
+    // Match "2025-12-08" or similar ISO date format
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const [, year, month, day] = isoMatch;
+      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day)).getTime();
+    }
+    
+    // Match "Jan 2024" or "January 2024" format (month grouping)
+    const monthMatch = str.match(/^(\w{3,9})\s+(\d{4})$/);
+    if (monthMatch) {
+      const [, mon, year] = monthMatch;
+      if (monthMap[mon] !== undefined) {
+        return parseInt(year) * 12 + monthMap[mon];
+      }
+    }
+    
+    // Match "Week 3, 2024" format
+    const weekMatch = str.match(/^Week\s+(\d+),\s+(\d{4})$/);
+    if (weekMatch) {
+      const [, week, year] = weekMatch;
+      return parseInt(year) * 100 + parseInt(week);
+    }
+    
+    // Match "Q1 2024" format
+    const quarterMatch = str.match(/^Q(\d)\s+(\d{4})$/);
+    if (quarterMatch) {
+      const [, q, year] = quarterMatch;
+      return parseInt(year) * 4 + parseInt(q);
+    }
+    
+    // Match pure year "2024"
+    if (/^\d{4}$/.test(str)) {
+      return parseInt(str);
+    }
+    
+    return null;
+  }
+  
+  // Helper to intelligently sort an array - dates chronologically, text alphabetically
+  function smartSortStrings(strings: string[]): string[] {
+    const arr = [...strings];
+    
+    // Check how many values look like dates
+    const dateScores = arr.filter(s => s && s !== "Unknown" && parseFormattedDateString(s) !== null);
+    const nonUnknownCount = arr.filter(s => s && s !== "Unknown").length;
+    
+    // If majority of values are date-like, sort as dates
+    if (nonUnknownCount > 0 && dateScores.length >= nonUnknownCount / 2) {
+      return arr.sort((a, b) => {
+        const aVal = parseFormattedDateString(a);
+        const bVal = parseFormattedDateString(b);
+        if (aVal === null && bVal === null) return a.localeCompare(b);
+        if (aVal === null) return 1;
+        if (bVal === null) return -1;
+        return aVal - bVal;
+      });
+    }
+    
+    // Sort alphabetically
+    return arr.sort((a, b) => a.localeCompare(b));
+  }
+  
+  // Helper to sort object entries using smart sort (preserves all entries including duplicates)
+  function smartSortEntries(entries: [string, any][]): [string, any][] {
+    const keys = entries.map(e => e[0]);
+    
+    // Check if values are dates
+    const dateScores = keys.filter(k => k && k !== "Unknown" && parseFormattedDateString(k) !== null);
+    const nonUnknownCount = keys.filter(k => k && k !== "Unknown").length;
+    const isDateSort = nonUnknownCount > 0 && dateScores.length >= nonUnknownCount / 2;
+    
+    return [...entries].sort((a, b) => {
+      if (isDateSort) {
+        const aVal = parseFormattedDateString(a[0]);
+        const bVal = parseFormattedDateString(b[0]);
+        if (aVal === null && bVal === null) return a[0].localeCompare(b[0]);
+        if (aVal === null) return 1;
+        if (bVal === null) return -1;
+        return aVal - bVal;
+      }
+      return a[0].localeCompare(b[0]);
+    });
+  }
+  
   // Dynamic report generation based on X and Y axis configuration
   function generateDynamicReport(leads: any[], config: any, timezone: string = "Asia/Kolkata") {
     const xAxis = config?.x_axis || "lead_status"; // Column to group by
@@ -8521,7 +8635,8 @@ ${questionsList}`;
           const [, , groupType] = dateMatch;
           entries = entries.sort((a, b) => getDateSortKey(a[0], groupType) - getDateSortKey(b[0], groupType));
         } else {
-          entries = entries.sort((a, b) => a[0].localeCompare(b[0]));
+          // Use smart sort to detect formatted dates and sort chronologically, otherwise alphabetically
+          entries = smartSortEntries(entries);
         }
 
         const rows: any[] = [];
@@ -8555,7 +8670,8 @@ ${questionsList}`;
       const [, , groupType] = columnDateMatch;
       columns = sortDateStrings(Array.from(columnValues), groupType);
     } else {
-      columns = Array.from(columnValues).sort();
+      // Use smart sort to detect formatted dates and sort chronologically, otherwise alphabetically
+      columns = smartSortStrings(Array.from(columnValues));
     }
     
     const hierarchy = buildRowHierarchy(leads, 0);
@@ -8582,7 +8698,8 @@ ${questionsList}`;
         const [, , groupType] = dateMatch;
         entries = entries.sort((a, b) => getDateSortKey(a[0], groupType) - getDateSortKey(b[0], groupType));
       } else {
-        entries = entries.sort((a, b) => a[0].localeCompare(b[0]));
+        // Use smart sort to detect formatted dates and sort chronologically, otherwise alphabetically
+        entries = smartSortEntries(entries);
       }
 
       const rows: any[] = [];
