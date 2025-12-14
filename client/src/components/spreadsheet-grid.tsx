@@ -2718,6 +2718,7 @@ export function SpreadsheetGrid({
             setEditDialogOpen(open);
             if (!open) setSelectedLeadForEdit(null);
           }}
+          validationRules={validationRules}
         />
       )}
       
