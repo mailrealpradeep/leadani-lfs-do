@@ -5367,13 +5367,14 @@ ${questionsList}`;
   // LEADS
   // ============================================================================
   
-  // Helper to inject lead.created_at into custom_fields for proper grid display/sorting
-  const injectCreatedAtToCustomFields = (lead: any) => {
+  // Helper to inject lead system fields (created_at, attended_at) into custom_fields for proper grid display/sorting
+  const injectSystemFieldsToCustomFields = (lead: any) => {
     return {
       ...lead,
       custom_fields: {
         ...lead.custom_fields,
         created_at: lead.created_at || lead.custom_fields?.created_at,
+        attended_at: lead.attended_at || lead.custom_fields?.attended_at,
       },
     };
   };
@@ -5431,7 +5432,7 @@ ${questionsList}`;
         });
         
         // Inject created_at into custom_fields for each lead
-        const enrichedLeads = result.leads.map(injectCreatedAtToCustomFields);
+        const enrichedLeads = result.leads.map(injectSystemFieldsToCustomFields);
         
         res.json({
           leads: enrichedLeads,
@@ -5444,7 +5445,7 @@ ${questionsList}`;
         // Legacy behavior: return all leads (for backwards compatibility)
         const leads = await storage.getLeadsBySheetId(sheetId);
         // Inject created_at into custom_fields for each lead
-        const enrichedLeads = leads.map(injectCreatedAtToCustomFields);
+        const enrichedLeads = leads.map(injectSystemFieldsToCustomFields);
         res.json(enrichedLeads);
       }
     } catch (error: any) {
@@ -5494,7 +5495,7 @@ ${questionsList}`;
       }
       
       // Inject created_at into custom_fields for each lead
-      const enrichedLeads = result.leads.map(injectCreatedAtToCustomFields);
+      const enrichedLeads = result.leads.map(injectSystemFieldsToCustomFields);
       
       res.json({
         ...result,
@@ -6041,7 +6042,22 @@ ${questionsList}`;
       // Capture before state for webhook field change tracking
       const beforeFields = flattenLeadFields(lead);
 
-      const updated = await storage.updateLead(req.params.id, req.body);
+      // Extract system fields (created_at, attended_at) from custom_fields and apply to lead columns
+      const updatePayload = { ...req.body };
+      if (updatePayload.custom_fields) {
+        // Extract created_at from custom_fields if present
+        if (updatePayload.custom_fields.created_at !== undefined) {
+          updatePayload.created_at = updatePayload.custom_fields.created_at;
+          delete updatePayload.custom_fields.created_at;
+        }
+        // Extract attended_at from custom_fields if present
+        if (updatePayload.custom_fields.attended_at !== undefined) {
+          updatePayload.attended_at = updatePayload.custom_fields.attended_at;
+          delete updatePayload.custom_fields.attended_at;
+        }
+      }
+
+      const updated = await storage.updateLead(req.params.id, updatePayload);
 
       // Mark lead as attended (first user action sets attended_at/attended_by)
       await storage.markLeadAttended(req.params.id, req.userId!);
@@ -8983,7 +8999,7 @@ ${questionsList}`;
           const assignedUser = lead.assigned_to ? await storage.getUser(lead.assigned_to) : null;
           
           // Inject created_at into custom_fields for proper display
-          const leadWithCreatedAt = injectCreatedAtToCustomFields(lead);
+          const leadWithCreatedAt = injectSystemFieldsToCustomFields(lead);
           
           return {
             ...leadWithCreatedAt,
@@ -9197,7 +9213,7 @@ ${questionsList}`;
           const owner = await storage.getUser(lead.owner_user_id);
           
           // Inject created_at into custom_fields for proper display
-          const leadWithCreatedAt = injectCreatedAtToCustomFields(lead);
+          const leadWithCreatedAt = injectSystemFieldsToCustomFields(lead);
           
           return {
             ...leadWithCreatedAt,
