@@ -3209,8 +3209,8 @@ export function SpreadsheetGrid({
       ) : (
         /* Desktop Grid View with Sticky Header */
         <div className="flex flex-col h-full">
-          {/* Multi-sheet mode header */}
-          {isMultiMode && (
+          {/* Multi-sheet mode header - hidden for custom views since they show this in their own header */}
+          {isMultiMode && !customViewMode && (
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm text-muted-foreground">
                 {pagination.total.toLocaleString()} leads from {activeSheetIds.length} sheets

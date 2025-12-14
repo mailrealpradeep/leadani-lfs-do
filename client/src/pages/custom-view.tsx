@@ -48,6 +48,7 @@ interface CustomView {
 
 interface CustomViewResponse {
   leads: any[];
+  sheets: any[];
   count: number;
   view: CustomView | null;
 }
@@ -196,12 +197,15 @@ export default function CustomViewPage() {
   }
 
   const IconComponent = ICON_MAP[data.view.icon] || Star;
+  
+  // Sheet count comes from API response (sheetsWithLeads array)
+  const sheetCount = data?.sheets?.length || 0;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden h-full">
       {/* Compact header bar - matching normal sheet view style */}
       <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-background">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <div className={`p-1 rounded bg-gradient-to-br ${
             data.view.icon_color === 'blue' ? 'from-blue-500 to-blue-600' :
             data.view.icon_color === 'green' ? 'from-green-500 to-green-600' :
@@ -221,6 +225,9 @@ export default function CustomViewPage() {
           <Badge variant="secondary" className="text-xs shrink-0">
             {data.count}
           </Badge>
+          <span className="text-xs text-muted-foreground shrink-0">
+            · {data.count.toLocaleString()} leads from {sheetCount} {sheetCount === 1 ? 'sheet' : 'sheets'}
+          </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <Button
