@@ -235,8 +235,8 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
 
   // Toggle individual system value visibility
   const toggleSystemValueMutation = useMutation({
-    mutationFn: async ({ columnId, value }: { columnId: string; value: string }) => {
-      return await apiRequest("POST", `/api/company/columns/${columnId}/toggle-system-value`, { value });
+    mutationFn: async ({ columnId, value, hidden }: { columnId: string; value: string; hidden: boolean }) => {
+      return await apiRequest("POST", `/api/company/columns/${columnId}/toggle-system-value`, { value, hidden });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/columns"] });
@@ -837,7 +837,7 @@ function SortableColumnItem({
                             <Switch
                               checked={!isHidden}
                               onCheckedChange={() => {
-                                toggleSystemValueMutation.mutate({ columnId: column.id, value: sysVal });
+                                toggleSystemValueMutation.mutate({ columnId: column.id, value: sysVal, hidden: !isHidden });
                               }}
                               disabled={toggleSystemValueMutation.isPending}
                               data-testid={`switch-system-value-${index}`}
