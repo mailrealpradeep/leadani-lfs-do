@@ -12,6 +12,7 @@ import crypto from "crypto";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { getCompanyTimezone } from "./timezone-utils";
 import { seedData } from "./seed";
+import { seedSystemValueDefinitions } from "./seed-system-values";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition } from "@shared/schema";
 import { evaluateCondition } from "./target-evaluator";
@@ -291,6 +292,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   } catch (error) {
     console.error("Failed to bootstrap Super Admin account:", error);
+  }
+
+  // Seed system value definitions (global system column values)
+  try {
+    await seedSystemValueDefinitions();
+  } catch (error) {
+    console.error("Failed to seed system value definitions:", error);
   }
 
   // Socket.io connection handling with company isolation

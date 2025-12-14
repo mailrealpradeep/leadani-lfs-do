@@ -3484,6 +3484,21 @@ export const insertFutureImprovementSchema = createInsertSchema(future_improveme
 export type InsertFutureImprovementData = z.infer<typeof insertFutureImprovementSchema>;
 
 // ============================================================================
+// SYSTEM VALUE DEFINITIONS TABLE (Global System Column Values)
+// ============================================================================
+
+export const system_value_definitions = pgTable('system_value_definitions', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  column_type: varchar('column_type', { length: 50 }).notNull(),
+  value: varchar('value', { length: 255 }).notNull(),
+  display_order: integer('display_order').notNull().default(0),
+  is_active: boolean('is_active').notNull().default(true),
+  deprecated_at: timestamp('deprecated_at'),
+  replaced_by: varchar('replaced_by'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ============================================================================
 // HOT LEAD CONDITIONS (Define what makes a lead "hot" for priority attention)
 // ============================================================================
 

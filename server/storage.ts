@@ -164,6 +164,10 @@ import type {
   InsertCustomView,
   custom_views,
   CustomViewConditionGroup,
+  // System Value Definitions
+  SystemValueDefinition,
+  InsertSystemValueDefinition,
+  SystemColumnType,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -664,6 +668,17 @@ export interface IStorage {
   createFutureImprovement(improvement: InsertFutureImprovement): Promise<FutureImprovementRecord>;
   updateFutureImprovement(id: string, updates: Partial<FutureImprovementRecord>): Promise<FutureImprovementRecord | undefined>;
   deleteFutureImprovement(id: string): Promise<boolean>;
+
+  // =========================================================================
+  // SYSTEM VALUE DEFINITIONS (Global System Column Values)
+  // =========================================================================
+  
+  getSystemValueDefinitions(): Promise<SystemValueDefinition[]>;
+  getSystemValueDefinitionsByType(columnType: SystemColumnType): Promise<SystemValueDefinition[]>;
+  getSystemValueDefinition(id: string): Promise<SystemValueDefinition | undefined>;
+  createSystemValueDefinition(definition: InsertSystemValueDefinition): Promise<SystemValueDefinition>;
+  updateSystemValueDefinition(id: string, updates: Partial<SystemValueDefinition>): Promise<SystemValueDefinition | undefined>;
+  deleteSystemValueDefinition(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -2800,6 +2815,26 @@ export class MemStorage implements IStorage {
     return undefined;
   }
   async deleteFutureImprovement(_id: string): Promise<boolean> {
+    return false;
+  }
+
+  // System Value Definitions (not implemented in MemStorage - requires PostgreSQL)
+  async getSystemValueDefinitions(): Promise<SystemValueDefinition[]> {
+    return [];
+  }
+  async getSystemValueDefinitionsByType(_columnType: SystemColumnType): Promise<SystemValueDefinition[]> {
+    return [];
+  }
+  async getSystemValueDefinition(_id: string): Promise<SystemValueDefinition | undefined> {
+    return undefined;
+  }
+  async createSystemValueDefinition(_definition: InsertSystemValueDefinition): Promise<SystemValueDefinition> {
+    throw new Error("System Value Definitions not implemented in MemStorage");
+  }
+  async updateSystemValueDefinition(_id: string, _updates: Partial<SystemValueDefinition>): Promise<SystemValueDefinition | undefined> {
+    return undefined;
+  }
+  async deleteSystemValueDefinition(_id: string): Promise<boolean> {
     return false;
   }
 }
@@ -7198,6 +7233,71 @@ export class PgStorage implements IStorage {
   async deleteFutureImprovement(id: string): Promise<boolean> {
     const result = await db.delete(dbSchema.future_improvements)
       .where(eq(dbSchema.future_improvements.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  // =========================================================================
+  // SYSTEM VALUE DEFINITIONS (Global System Column Values)
+  // =========================================================================
+
+  private mapSystemValueDefinition(row: any): SystemValueDefinition {
+    return {
+      id: row.id,
+      column_type: row.column_type as SystemColumnType,
+      value: row.value,
+      display_order: row.display_order,
+      is_active: row.is_active,
+      deprecated_at: row.deprecated_at ? row.deprecated_at.toISOString() : null,
+      replaced_by: row.replaced_by,
+      created_at: row.created_at.toISOString(),
+    };
+  }
+
+  async getSystemValueDefinitions(): Promise<SystemValueDefinition[]> {
+    const result = await db.select()
+      .from(dbSchema.system_value_definitions)
+      .orderBy(asc(dbSchema.system_value_definitions.column_type), asc(dbSchema.system_value_definitions.display_order));
+    return result.map(this.mapSystemValueDefinition);
+  }
+
+  async getSystemValueDefinitionsByType(columnType: SystemColumnType): Promise<SystemValueDefinition[]> {
+    const result = await db.select()
+      .from(dbSchema.system_value_definitions)
+      .where(eq(dbSchema.system_value_definitions.column_type, columnType))
+      .orderBy(asc(dbSchema.system_value_definitions.display_order));
+    return result.map(this.mapSystemValueDefinition);
+  }
+
+  async getSystemValueDefinition(id: string): Promise<SystemValueDefinition | undefined> {
+    const result = await db.select()
+      .from(dbSchema.system_value_definitions)
+      .where(eq(dbSchema.system_value_definitions.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapSystemValueDefinition(result[0]);
+  }
+
+  async createSystemValueDefinition(definition: InsertSystemValueDefinition): Promise<SystemValueDefinition> {
+    const rows = await db.insert(dbSchema.system_value_definitions).values(definition).returning();
+    return this.mapSystemValueDefinition(rows[0]);
+  }
+
+  async updateSystemValueDefinition(id: string, updates: Partial<SystemValueDefinition>): Promise<SystemValueDefinition | undefined> {
+    const dbUpdates: any = { ...updates };
+    if (updates.deprecated_at) {
+      dbUpdates.deprecated_at = new Date(updates.deprecated_at);
+    }
+    const rows = await db.update(dbSchema.system_value_definitions)
+      .set(dbUpdates)
+      .where(eq(dbSchema.system_value_definitions.id, id))
+      .returning();
+    if (rows.length === 0) return undefined;
+    return this.mapSystemValueDefinition(rows[0]);
+  }
+
+  async deleteSystemValueDefinition(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.system_value_definitions)
+      .where(eq(dbSchema.system_value_definitions.id, id))
       .returning();
     return result.length > 0;
   }
