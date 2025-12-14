@@ -5158,6 +5158,87 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // ADMIN: RESET USER COLUMN ORDERS (Company Admin)
+  // ============================================================================
+  
+  // POST /api/admin/reset-column-order - Reset all users' column orders back to company default
+  app.post("/api/admin/reset-column-order", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sheet_ids } = req.body;
+      
+      // Validate input: sheet_ids must be 'all' or an array of UUIDs
+      if (sheet_ids !== 'all' && !Array.isArray(sheet_ids)) {
+        return res.status(400).json({ error: "sheet_ids must be 'all' or an array of sheet IDs" });
+      }
+      
+      if (Array.isArray(sheet_ids) && sheet_ids.length === 0) {
+        return res.status(400).json({ error: "sheet_ids array cannot be empty" });
+      }
+      
+      const companyId = req.companyId!;
+      
+      // Get company sheets
+      const companySheets = await storage.getSheetsByCompanyId(companyId);
+      const companySheetIds = companySheets.filter(s => !s.deleted_at).map(s => s.id);
+      
+      let targetSheetIds: string[];
+      
+      if (sheet_ids === 'all') {
+        targetSheetIds = companySheetIds;
+      } else {
+        // Filter to only include valid company sheets (silently ignore deleted or non-existent sheets)
+        targetSheetIds = sheet_ids.filter((id: string) => companySheetIds.includes(id));
+      }
+      
+      // If no valid sheets, return success with 0 affected (no-op)
+      if (targetSheetIds.length === 0) {
+        return res.json({ 
+          success: true,
+          message: "No sheets found to reset (all selected sheets may have been deleted)",
+          affected_views: 0,
+          affected_sheets: []
+        });
+      }
+      
+      // Reset column_order for all user_sheet_views for the target sheets
+      // Set column_order to empty array (which means use company default order)
+      const placeholders = targetSheetIds.map((_, i) => `$${i + 1}`).join(', ');
+      const result = await storage.executeRawQuery(
+        `UPDATE user_sheet_views 
+         SET column_order = '[]'::jsonb, updated_at = NOW()
+         WHERE sheet_id IN (${placeholders})`,
+        targetSheetIds
+      );
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: companyId,
+        action: "reset_column_order",
+        model: "user_sheet_views",
+        model_id: null,
+        payload: { 
+          sheet_ids: sheet_ids === 'all' ? 'all' : targetSheetIds,
+          affected_count: result.rowCount
+        },
+      });
+      
+      // Get sheet names for response
+      const affectedSheets = companySheets.filter(s => targetSheetIds.includes(s.id));
+      
+      res.json({ 
+        success: true,
+        message: `Reset column order for ${result.rowCount} user view(s) across ${targetSheetIds.length} sheet(s)`,
+        affected_views: result.rowCount,
+        affected_sheets: affectedSheets.map(s => ({ id: s.id, name: s.name }))
+      });
+    } catch (error: any) {
+      console.error("Reset column order error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SHEET USER ASSIGNMENT (Company Admin)
   // ============================================================================
   app.get("/api/admin/sheets/:sheetId/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Trash2, ArrowRightLeft, AlertTriangle, Loader2, Calendar, Percent } from "lucide-react";
+import { Trash2, ArrowRightLeft, AlertTriangle, Loader2, Calendar, Percent, RotateCcw, Columns } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,11 @@ export function DataManagement() {
   const [multiDestinations, setMultiDestinations] = useState<TransferDestination[]>([]);
   const [transferRemark, setTransferRemark] = useState("");
   const [transferConfirmText, setTransferConfirmText] = useState("");
+  
+  const [resetColumnOrderDialogOpen, setResetColumnOrderDialogOpen] = useState(false);
+  const [resetMode, setResetMode] = useState<"all" | "selected">("all");
+  const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
+  const [resetConfirmText, setResetConfirmText] = useState("");
   
   const { data: sheets = [] } = useQuery<Sheet[]>({
     queryKey: ["/api/sheets"],
@@ -161,6 +166,33 @@ export function DataManagement() {
     },
   });
 
+  const resetColumnOrderMutation = useMutation({
+    mutationFn: async () => {
+      const sheetIds = resetMode === "all" ? "all" : selectedSheetIds;
+      return await apiRequest("POST", "/api/admin/reset-column-order", {
+        sheet_ids: sheetIds,
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets"] });
+      setResetColumnOrderDialogOpen(false);
+      setResetConfirmText("");
+      setSelectedSheetIds([]);
+      setResetMode("all");
+      toast({
+        title: "Column orders reset",
+        description: data.message || "User column orders have been reset to company default.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reset column orders",
+        variant: "destructive",
+      });
+    },
+  });
+
   const totalPercentage = useMemo(() => {
     return multiDestinations.reduce((sum, d) => sum + (d.percentage || 0), 0);
   }, [multiDestinations]);
@@ -243,6 +275,136 @@ export function DataManagement() {
           </Button>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <RotateCcw className="h-5 w-5 text-orange-500" />
+            Reset User Column Orders
+          </CardTitle>
+          <CardDescription>
+            Reset all users' column display orders back to the company default. Users who have customized their column order will see the default order again.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button 
+            variant="outline"
+            onClick={() => setResetColumnOrderDialogOpen(true)}
+            data-testid="button-open-reset-column-order-dialog"
+          >
+            <Columns className="h-4 w-4 mr-2" />
+            Reset Column Orders
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Dialog open={resetColumnOrderDialogOpen} onOpenChange={setResetColumnOrderDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-orange-500" />
+              Reset User Column Orders
+            </DialogTitle>
+            <DialogDescription>
+              This will reset all users' custom column orders back to the company default for the selected sheets.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <Label>Which sheets to reset?</Label>
+              <Select value={resetMode} onValueChange={(v) => setResetMode(v as "all" | "selected")}>
+                <SelectTrigger data-testid="select-reset-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" data-testid="option-reset-mode-all">All Sheets</SelectItem>
+                  <SelectItem value="selected" data-testid="option-reset-mode-selected">Selected Sheets</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {resetMode === "selected" && (
+              <div className="space-y-2">
+                <Label>Select sheets</Label>
+                <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-2" data-testid="container-sheet-selection">
+                  {sheets.filter(s => !s.deleted_at).map((sheet) => (
+                    <label key={sheet.id} className="flex items-center gap-2 cursor-pointer hover-elevate p-1 rounded">
+                      <input
+                        type="checkbox"
+                        checked={selectedSheetIds.includes(sheet.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedSheetIds([...selectedSheetIds, sheet.id]);
+                          } else {
+                            setSelectedSheetIds(selectedSheetIds.filter(id => id !== sheet.id));
+                          }
+                        }}
+                        className="rounded"
+                        data-testid={`checkbox-sheet-${sheet.id}`}
+                      />
+                      <span className="text-sm">{sheet.name}</span>
+                    </label>
+                  ))}
+                </div>
+                {selectedSheetIds.length > 0 && (
+                  <div className="text-sm text-muted-foreground">
+                    {selectedSheetIds.length} sheet(s) selected
+                  </div>
+                )}
+              </div>
+            )}
+
+            <Separator />
+
+            <div className="bg-orange-50 dark:bg-orange-950/30 p-3 rounded-md">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-orange-700 dark:text-orange-400">This action will affect all users</p>
+                  <p className="text-muted-foreground">
+                    Users who have customized their column order will need to reconfigure it.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Type RESET to confirm</Label>
+              <Input
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                placeholder="Type RESET"
+                data-testid="input-reset-confirm"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetColumnOrderDialogOpen(false)} data-testid="button-cancel-reset-column-order">
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                resetConfirmText.trim().toUpperCase() !== "RESET" ||
+                (resetMode === "selected" && selectedSheetIds.length === 0) ||
+                resetColumnOrderMutation.isPending
+              }
+              onClick={() => resetColumnOrderMutation.mutate()}
+              data-testid="button-confirm-reset-column-order"
+            >
+              {resetColumnOrderMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Resetting...
+                </>
+              ) : (
+                "Reset Column Orders"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
         <DialogContent className="max-w-lg">
