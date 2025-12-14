@@ -1564,8 +1564,8 @@ export function SpreadsheetGrid({
     if (editingLeadCache?.id !== lead.id) {
       setEditingLeadCache(lead);
     }
-    // Automatically open date picker for date fields
-    if (columnType === "date") {
+    // Automatically open date picker for date and datetime fields
+    if (columnType === "date" || columnType === "datetime") {
       setDatePickerOpen({ leadId: lead.id, field: columnKey });
     }
   };
