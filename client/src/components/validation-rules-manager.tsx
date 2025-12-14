@@ -239,104 +239,115 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
       return parts.join(` ${joinWord} `);
     }
     const colName = columns.find(c => c.column_key === rule.trigger_column_key)?.name || rule.trigger_column_key;
-    return `${colName} ${getOperatorLabel(rule.operator)} "${rule.trigger_value}"`;
+    return `${colName} ${getOperatorLabel(rule.operator || "")} "${rule.trigger_value || ""}"`;
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" data-testid="button-manage-validation-rules">
-          <Plus className="h-4 w-4 mr-2" />
-          Validation Rules
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Validation Rules</DialogTitle>
-          <DialogDescription>
-            Create conditional validation rules. When conditions are met, specified fields become required.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          {rules.length > 0 && (
-            <div>
-              <Label className="text-sm font-medium mb-2">Existing Rules</Label>
-              <div className="space-y-2">
-                {rules.map((rule) => (
-                  <Collapsible
-                    key={rule.id}
-                    open={expandedRules.has(rule.id)}
-                    onOpenChange={() => toggleRuleExpanded(rule.id)}
-                  >
-                    <div
-                      className="p-3 border rounded-lg"
-                      data-testid={`validation-rule-${rule.id}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium flex items-center gap-2">
-                            {rule.name}
-                            {rule.conditions && rule.conditions.length > 1 && (
-                              <Badge variant="secondary" className="text-xs">
-                                {rule.conditions.length} conditions
-                              </Badge>
-                            )}
-                            {rule.logical_operator && rule.conditions && rule.conditions.length > 1 && (
-                              <Badge variant="outline" className="text-xs">
-                                {rule.logical_operator.toUpperCase()}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-sm text-muted-foreground truncate">
-                            When: {formatConditionDisplay(rule)}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <CollapsibleTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              {expandedRules.has(rule.id) ? (
-                                <ChevronUp className="h-4 w-4" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </CollapsibleTrigger>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setRuleToDelete(rule);
-                              setDeleteDialogOpen(true);
-                            }}
-                            data-testid={`button-delete-rule-${rule.id}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+    <div className="space-y-4">
+      {/* Existing Rules List - Displayed Outside Dialog */}
+      {rules.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Existing Rules ({rules.length})</Label>
+          <div className="space-y-2">
+            {rules.map((rule) => (
+              <Collapsible
+                key={rule.id}
+                open={expandedRules.has(rule.id)}
+                onOpenChange={() => toggleRuleExpanded(rule.id)}
+              >
+                <div
+                  className="p-3 border rounded-lg bg-card"
+                  data-testid={`validation-rule-${rule.id}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium flex items-center gap-2 flex-wrap">
+                        {rule.name}
+                        {rule.sheet_id === null && (
+                          <Badge variant="default" className="text-xs">
+                            Global
+                          </Badge>
+                        )}
+                        {rule.conditions && rule.conditions.length > 1 && (
+                          <Badge variant="secondary" className="text-xs">
+                            {rule.conditions.length} conditions
+                          </Badge>
+                        )}
+                        {rule.logical_operator && rule.conditions && rule.conditions.length > 1 && (
+                          <Badge variant="outline" className="text-xs">
+                            {rule.logical_operator.toUpperCase()}
+                          </Badge>
+                        )}
                       </div>
-                      <CollapsibleContent className="mt-2 pt-2 border-t">
-                        <div className="text-sm space-y-1">
-                          <div>
-                            <span className="text-muted-foreground">Required fields: </span>
-                            {Array.isArray(rule.required_fields) 
-                              ? rule.required_fields.map(f => 
-                                  columns.find(c => c.column_key === f)?.name || f
-                                ).join(", ")
-                              : "N/A"}
-                          </div>
-                        </div>
-                      </CollapsibleContent>
+                      <div className="text-sm text-muted-foreground truncate">
+                        When: {formatConditionDisplay(rule)}
+                      </div>
                     </div>
-                  </Collapsible>
-                ))}
-              </div>
-            </div>
-          )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          {expandedRules.has(rule.id) ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </CollapsibleTrigger>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setRuleToDelete(rule);
+                          setDeleteDialogOpen(true);
+                        }}
+                        data-testid={`button-delete-rule-${rule.id}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <CollapsibleContent className="mt-2 pt-2 border-t">
+                    <div className="text-sm space-y-1">
+                      <div>
+                        <span className="text-muted-foreground">Required fields: </span>
+                        {Array.isArray(rule.required_fields) 
+                          ? rule.required_fields.map(f => 
+                              columns.find(c => c.column_key === f)?.name || f
+                            ).join(", ")
+                          : "N/A"}
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </div>
+              </Collapsible>
+            ))}
+          </div>
+        </div>
+      )}
 
-          <form onSubmit={handleSubmit} className="space-y-4 pt-4 border-t">
-            <Label className="text-sm font-semibold">Create New Rule</Label>
-            
+      {rules.length === 0 && (
+        <div className="text-center py-4 text-muted-foreground border-2 border-dashed rounded-lg">
+          No validation rules configured yet.
+        </div>
+      )}
+
+      {/* Create New Rule Dialog */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm" data-testid="button-manage-validation-rules">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Validation Rule
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Validation Rule</DialogTitle>
+            <DialogDescription>
+              Create a rule that prompts users to fill required fields when specific conditions are met.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="rule-name">Rule Name</Label>
               <Input
@@ -402,8 +413,8 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
               </Button>
             </DialogFooter>
           </form>
-        </div>
-      </DialogContent>
+        </DialogContent>
+      </Dialog>
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -435,6 +446,6 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Dialog>
+    </div>
   );
 }
