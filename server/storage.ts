@@ -271,6 +271,7 @@ export interface IStorage {
   getDropdownOptions(sheetId: string): Promise<DropdownOption[]>;
   getDropdownOptionsByCompany(companyId: string): Promise<DropdownOption[]>;
   getDropdownOptionsByColumn(companyId: string, columnKey: string): Promise<DropdownOption[]>;
+  getDropdownOptionById(id: string): Promise<DropdownOption | undefined>;
   createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption>;
   updateDropdownOption(id: string, updates: Partial<DropdownOption>): Promise<DropdownOption | undefined>;
   deleteDropdownOption(id: string): Promise<boolean>;
@@ -1306,6 +1307,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.dropdownOptions.values()).filter(
       (opt) => opt.company_id === companyId && opt.column_key === columnKey
     );
+  }
+
+  async getDropdownOptionById(id: string): Promise<DropdownOption | undefined> {
+    return this.dropdownOptions.get(id);
   }
 
   async createDropdownOption(insertOption: InsertDropdownOption): Promise<DropdownOption> {
@@ -3700,6 +3705,12 @@ export class PgStorage implements IStorage {
   async getDropdownOptionsByColumn(companyId: string, columnKey: string): Promise<DropdownOption[]> {
     const result = await db.select().from(dbSchema.dropdown_options).where(and(eq(dbSchema.dropdown_options.company_id, companyId), eq(dbSchema.dropdown_options.column_key, columnKey)));
     return result.map(this.mapDropdownOption);
+  }
+
+  async getDropdownOptionById(id: string): Promise<DropdownOption | undefined> {
+    const result = await db.select().from(dbSchema.dropdown_options).where(eq(dbSchema.dropdown_options.id, id));
+    if (result.length === 0) return undefined;
+    return this.mapDropdownOption(result[0]);
   }
 
   async createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption> {
