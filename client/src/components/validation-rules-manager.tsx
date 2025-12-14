@@ -42,10 +42,11 @@ import type { ValidationRule, CustomColumn, ValidationCondition } from "@shared/
 import { FilterConditionBuilder, type FilterCondition } from "@/components/filter-condition-builder";
 
 interface ValidationRulesManagerProps {
-  sheetId: string;
+  sheetId: string | null;
+  isGlobal?: boolean;
 }
 
-export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps) {
+export function ValidationRulesManager({ sheetId, isGlobal = false }: ValidationRulesManagerProps) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [ruleName, setRuleName] = useState("");
@@ -58,13 +59,13 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { data: rules = [] } = useQuery<ValidationRule[]>({
-    queryKey: ["/api/sheets", sheetId, "validation-rules"],
-    enabled: !!sheetId,
+    queryKey: isGlobal ? ["/api/company/global-validation-rules"] : ["/api/sheets", sheetId, "validation-rules"],
+    enabled: isGlobal || !!sheetId,
   });
 
   const { data: columns = [] } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/sheets", sheetId, "columns"],
-    enabled: !!sheetId,
+    queryKey: isGlobal ? ["/api/company/columns"] : ["/api/sheets", sheetId, "columns"],
+    enabled: isGlobal || !!sheetId,
   });
 
   const createRuleMutation = useMutation({
@@ -76,7 +77,11 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
         value2: c.value2,
       }));
 
-      return await apiRequest("POST", `/api/sheets/${sheetId}/validation-rules`, {
+      const endpoint = isGlobal 
+        ? "/api/company/global-validation-rules"
+        : `/api/sheets/${sheetId}/validation-rules`;
+
+      return await apiRequest("POST", endpoint, {
         name: ruleName,
         conditions: validationConditions,
         logical_operator: logicalOperator,
@@ -84,7 +89,8 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "validation-rules"] });
+      const queryKey = isGlobal ? ["/api/company/global-validation-rules"] : ["/api/sheets", sheetId, "validation-rules"];
+      queryClient.invalidateQueries({ queryKey });
       resetForm();
       setOpen(false);
       toast({
@@ -106,7 +112,8 @@ export function ValidationRulesManager({ sheetId }: ValidationRulesManagerProps)
       return await apiRequest("DELETE", `/api/company/validation-rules/${ruleId}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "validation-rules"] });
+      const queryKey = isGlobal ? ["/api/company/global-validation-rules"] : ["/api/sheets", sheetId, "validation-rules"];
+      queryClient.invalidateQueries({ queryKey });
       toast({
         title: "Rule deleted",
         description: "Validation rule has been deleted successfully",

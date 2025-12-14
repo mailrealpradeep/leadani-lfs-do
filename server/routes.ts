@@ -10346,6 +10346,59 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // GLOBAL VALIDATION RULES (Company-wide rules with null sheet_id)
+  // ============================================================================
+
+  // GET /api/company/global-validation-rules - Fetch global validation rules
+  app.get("/api/company/global-validation-rules", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const rules = await storage.getValidationRules(req.companyId!, null);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get global validation rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/company/global-validation-rules - Create global validation rule (Admin only)
+  app.post("/api/company/global-validation-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, conditions, logical_operator, required_fields } = req.body;
+      
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Rule name is required" });
+      }
+      
+      if (!conditions || !Array.isArray(conditions) || conditions.length === 0) {
+        return res.status(400).json({ error: "At least one condition is required" });
+      }
+      
+      if (!required_fields || !Array.isArray(required_fields) || required_fields.length === 0) {
+        return res.status(400).json({ error: "At least one required field must be specified" });
+      }
+      
+      const rule = await storage.createValidationRule({
+        company_id: req.companyId!,
+        sheet_id: null, // null means global/company-wide
+        name: name.trim(),
+        conditions,
+        logical_operator: logical_operator || "and",
+        required_fields,
+        is_active: true,
+        created_by_user_id: req.userId!,
+      });
+      
+      // Emit socket event for real-time updates
+      io.to(`company:${req.companyId}`).emit("validation_rules.updated", { sheetId: null, global: true });
+      
+      res.status(201).json(rule);
+    } catch (error: any) {
+      console.error("Create global validation rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // HOT LEAD CONFIGURATION
   // ============================================================================
 

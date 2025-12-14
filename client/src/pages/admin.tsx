@@ -999,6 +999,9 @@ function CompanyAdminView() {
                       <SelectValue placeholder="Choose a sheet to configure validation rules..." />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="__all__">
+                        All Sheets (Company-wide)
+                      </SelectItem>
                       {companySheets.map((sheet) => (
                         <SelectItem key={sheet.id} value={sheet.id}>
                           {sheet.name}
@@ -1008,10 +1011,18 @@ function CompanyAdminView() {
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     Create rules that prompt users to fill required fields when lead data matches specific conditions.
+                    {selectedValidationSheetId === "__all__" && (
+                      <span className="block mt-1 text-primary font-medium">
+                        Rules created here will apply to all sheets in your company.
+                      </span>
+                    )}
                   </p>
                 </div>
                 {selectedValidationSheetId ? (
-                  <ValidationRulesManager sheetId={selectedValidationSheetId} />
+                  <ValidationRulesManager 
+                    sheetId={selectedValidationSheetId === "__all__" ? null : selectedValidationSheetId} 
+                    isGlobal={selectedValidationSheetId === "__all__"}
+                  />
                 ) : (
                   <div className="text-center py-8 border-2 border-dashed rounded-lg">
                     <ClipboardCheck className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
