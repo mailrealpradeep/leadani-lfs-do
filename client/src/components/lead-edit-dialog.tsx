@@ -77,6 +77,15 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     enabled: !!sheetId && open,
   });
 
+  // Fetch validation rules for this sheet (includes company-wide rules where sheet_id is NULL)
+  const { data: fetchedValidationRules = [] } = useQuery<ValidationRule[]>({
+    queryKey: ["/api/sheets", sheetId, "validation-rules"],
+    enabled: !!sheetId && open,
+  });
+
+  // Use fetched validation rules, with prop as fallback for backwards compatibility
+  const activeValidationRules = fetchedValidationRules.length > 0 ? fetchedValidationRules : validationRules;
+
   useEffect(() => {
     if (lead && open) {
       const customFields = { ...lead.custom_fields };
@@ -119,7 +128,13 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
 
   // Check if any validation rule is triggered
   const checkValidationRules = (columnKey: string, newValue: any, updatedFormValues: Record<string, any>) => {
-    if (!validationRules || validationRules.length === 0) return null;
+    console.log('[LeadEditDialog] checkValidationRules called:', {
+      columnKey,
+      newValue,
+      activeValidationRulesCount: activeValidationRules?.length,
+      activeValidationRules: activeValidationRules?.map(r => ({ name: r.name, conditions: r.conditions })),
+    });
+    if (!activeValidationRules || activeValidationRules.length === 0) return null;
     if (!lead) return null;
 
     // Build proposed lead with full lead object + updated custom_fields (matching desktop logic)
@@ -128,7 +143,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       custom_fields: { ...updatedFormValues } 
     };
 
-    for (const rule of validationRules) {
+    for (const rule of activeValidationRules) {
       if (rule.is_active === false) continue;
 
       // Check new multi-condition format
