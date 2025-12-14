@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, CheckCircle2, ChevronRight, Sparkles, Star, X, CalendarIcon } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronRight, Sparkles, Star, X, CalendarIcon, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { format, parseISO } from "date-fns";
+import { format, parse } from "date-fns";
 import type { CustomColumn, ValidationRule, DropdownOption } from "@shared/schema";
 
 interface RequiredColumn {
@@ -69,6 +69,24 @@ export function ValidationPromptDialog({
   const [fieldValues, setFieldValues] = useState<Record<string, any>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
+
+  const normalizeDate = (value: any): Date | undefined => {
+    if (!value) return undefined;
+    const strValue = String(value);
+    if (/^\d{2}\/\d{2}\/\d{2}$/.test(strValue)) {
+      try {
+        return parse(strValue, "dd/MM/yy", new Date());
+      } catch {
+        return undefined;
+      }
+    }
+    try {
+      return new Date(strValue);
+    } catch {
+      return undefined;
+    }
+  };
 
   const requiredColumns: RequiredColumn[] = rule.required_columns && rule.required_columns.length > 0
     ? rule.required_columns
@@ -193,22 +211,12 @@ export function ValidationPromptDialog({
         );
 
       case "date":
-        const parseDateValue = (val: string) => {
-          if (!val) return undefined;
-          try {
-            // Handle YYYY-MM-DD format as local date (not UTC)
-            if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-              const [year, month, day] = val.split("-").map(Number);
-              return new Date(year, month - 1, day);
-            }
-            return parseISO(val);
-          } catch {
-            return undefined;
-          }
-        };
-        const dateValue = parseDateValue(value);
+        const dateValue = normalizeDate(value);
         return (
-          <Popover>
+          <Popover 
+            open={datePickerOpen === columnKey} 
+            onOpenChange={(open) => setDatePickerOpen(open ? columnKey : null)}
+          >
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
@@ -216,10 +224,10 @@ export function ValidationPromptDialog({
                 data-testid={`date-picker-validation-${columnKey}`}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {dateValue ? format(dateValue, "dd/MM/yyyy") : `Select ${column.name}`}
+                {dateValue ? format(dateValue, "dd/MM/yy") : `Select ${column.name}`}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start" side="top" sideOffset={5}>
+            <PopoverContent className="w-auto p-0" align="start">
               <Calendar
                 mode="single"
                 selected={dateValue}
@@ -227,35 +235,22 @@ export function ValidationPromptDialog({
                   if (date) {
                     handleFieldChange(columnKey, format(date, "yyyy-MM-dd"));
                   }
+                  setDatePickerOpen(null);
                 }}
                 initialFocus
               />
-              <div className="p-2 border-t">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => handleFieldChange(columnKey, "")}
-                >
-                  Clear date
-                </Button>
-              </div>
             </PopoverContent>
           </Popover>
         );
 
       case "datetime":
-        const parseDateTimeValue = (val: string) => {
-          if (!val) return undefined;
-          try {
-            return parseISO(val);
-          } catch {
-            return undefined;
-          }
-        };
-        const datetimeValue = parseDateTimeValue(value);
+        const datetimeValue = normalizeDate(value);
+        const currentTime = datetimeValue ? format(datetimeValue, "HH:mm") : "09:00";
         return (
-          <Popover>
+          <Popover 
+            open={datePickerOpen === columnKey} 
+            onOpenChange={(open) => setDatePickerOpen(open ? columnKey : null)}
+          >
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
@@ -263,10 +258,10 @@ export function ValidationPromptDialog({
                 data-testid={`datetime-picker-validation-${columnKey}`}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {datetimeValue ? format(datetimeValue, "dd/MM/yyyy HH:mm") : `Select ${column.name}`}
+                {datetimeValue ? format(datetimeValue, "dd/MM/yy HH:mm") : `Select ${column.name}`}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start" side="top" sideOffset={5}>
+            <PopoverContent className="w-auto p-0" align="start">
               <Calendar
                 mode="single"
                 selected={datetimeValue}
@@ -274,35 +269,54 @@ export function ValidationPromptDialog({
                   if (date) {
                     if (datetimeValue) {
                       date.setHours(datetimeValue.getHours(), datetimeValue.getMinutes());
+                    } else {
+                      date.setHours(9, 0);
                     }
                     handleFieldChange(columnKey, date.toISOString());
                   }
                 }}
                 initialFocus
               />
-              <div className="p-3 border-t space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">Time:</Label>
-                  <Input
-                    type="time"
-                    value={datetimeValue ? format(datetimeValue, "HH:mm") : ""}
-                    onChange={(e) => {
-                      const [hours, minutes] = e.target.value.split(":").map(Number);
-                      const currentDate = datetimeValue ? new Date(datetimeValue) : new Date();
-                      currentDate.setHours(hours, minutes);
-                      handleFieldChange(columnKey, currentDate.toISOString());
-                    }}
-                    className="w-24 h-8"
-                    data-testid={`time-input-validation-${columnKey}`}
-                  />
-                </div>
+              <div className="p-3 border-t flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">Time:</span>
+                <Input
+                  type="time"
+                  className="h-9 w-28"
+                  defaultValue={currentTime}
+                  onChange={(e) => {
+                    const timeValue = e.target.value;
+                    if (timeValue) {
+                      const [hours, minutes] = timeValue.split(':').map(Number);
+                      const newDate = datetimeValue ? new Date(datetimeValue) : new Date();
+                      newDate.setHours(hours, minutes);
+                      handleFieldChange(columnKey, newDate.toISOString());
+                    }
+                  }}
+                  data-testid={`time-input-validation-${columnKey}`}
+                />
+              </div>
+              <div className="px-3 pb-3 flex gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="w-full"
-                  onClick={() => handleFieldChange(columnKey, "")}
+                  className="flex-1 text-muted-foreground"
+                  onClick={() => {
+                    handleFieldChange(columnKey, null);
+                    setDatePickerOpen(null);
+                  }}
+                  data-testid={`button-clear-datetime-validation-${columnKey}`}
                 >
                   Clear
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setDatePickerOpen(null)}
+                  data-testid={`button-done-datetime-validation-${columnKey}`}
+                >
+                  Done
                 </Button>
               </div>
             </PopoverContent>
