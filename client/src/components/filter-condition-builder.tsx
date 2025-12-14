@@ -60,6 +60,16 @@ const OPERATORS_BY_TYPE: Record<string, Array<{ value: string; label: string }>>
     { value: "is_empty", label: "Is empty" },
     { value: "is_not_empty", label: "Is not empty" },
   ],
+  datetime: [
+    { value: "date_equals", label: "Equals" },
+    { value: "date_not_equals", label: "Does not equal" },
+    { value: "date_before", label: "Before" },
+    { value: "date_after", label: "After" },
+    { value: "date_between", label: "Between" },
+    { value: "date_within", label: "Within" },
+    { value: "is_empty", label: "Is empty" },
+    { value: "is_not_empty", label: "Is not empty" },
+  ],
   dropdown: [
     { value: "equals", label: "Equals" },
     { value: "not_equals", label: "Does not equal" },
@@ -251,7 +261,8 @@ export function FilterConditionBuilder({
         const needsValue = requiresValue(condition.operator);
         const needsSecondValue = requiresSecondValue(condition.operator);
         const dropdownOptions = getDropdownOptions(condition.column_key);
-        const isDateOperator = columnType === "date" && condition.operator && !["is_empty", "is_not_empty"].includes(condition.operator);
+        const isDateOrDatetimeType = (columnType === "date" || columnType === "datetime");
+        const isDateOperator = isDateOrDatetimeType && condition.operator && !["is_empty", "is_not_empty"].includes(condition.operator);
         const allowsRelativeDate = isDateOperator && !needsSecondValue;
         const dateValueType = condition.date_value_type || (condition.relative_date ? "relative" : "custom");
 
@@ -330,7 +341,7 @@ export function FilterConditionBuilder({
 
               {condition.operator && needsValue && (
                 <div className="space-y-2">
-                  {columnType === "date" && allowsRelativeDate && (
+                  {isDateOrDatetimeType && allowsRelativeDate && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <Label className="text-xs">Value Type</Label>
@@ -384,9 +395,9 @@ export function FilterConditionBuilder({
                         </div>
                       ) : (
                         <div>
-                          <Label className="text-xs mb-1">Select Date</Label>
+                          <Label className="text-xs mb-1">Select {columnType === "datetime" ? "Date/Time" : "Date"}</Label>
                           <Input
-                            type="date"
+                            type={columnType === "datetime" ? "datetime-local" : "date"}
                             value={condition.value || ""}
                             onChange={(e) => updateCondition(index, { value: e.target.value, relative_date: undefined })}
                             data-testid={`input-condition-value-${index}`}
@@ -396,12 +407,12 @@ export function FilterConditionBuilder({
                     </div>
                   )}
 
-                  {columnType === "date" && needsSecondValue && (
+                  {isDateOrDatetimeType && needsSecondValue && (
                     <div className="flex gap-2 items-end">
                       <div className="flex-1">
                         <Label className="text-xs mb-1">From</Label>
                         <Input
-                          type="date"
+                          type={columnType === "datetime" ? "datetime-local" : "date"}
                           value={condition.value || ""}
                           onChange={(e) => updateCondition(index, { value: e.target.value })}
                           data-testid={`input-condition-value-${index}`}
@@ -410,7 +421,7 @@ export function FilterConditionBuilder({
                       <div className="flex-1">
                         <Label className="text-xs mb-1">To</Label>
                         <Input
-                          type="date"
+                          type={columnType === "datetime" ? "datetime-local" : "date"}
                           value={condition.value2 || ""}
                           onChange={(e) => updateCondition(index, { value2: e.target.value })}
                           data-testid={`input-condition-value2-${index}`}
@@ -509,7 +520,7 @@ export function FilterConditionBuilder({
                     </div>
                   )}
 
-                  {!["date", "dropdown", "boolean", "number"].includes(columnType) && (
+                  {!["date", "datetime", "dropdown", "boolean", "number"].includes(columnType) && (
                     <div>
                       <Label className="text-xs mb-1">Value</Label>
                       {["in", "not_in"].includes(condition.operator) ? (
