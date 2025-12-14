@@ -31,7 +31,7 @@ import { queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
 import { SpreadsheetGrid } from "@/components/spreadsheet-grid";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
-import type { CustomViewConditionGroup } from "@shared/schema";
+import type { CustomViewCondition } from "@shared/schema";
 
 interface CustomView {
   id: string;
@@ -39,7 +39,7 @@ interface CustomView {
   name: string;
   icon: string;
   icon_color: string;
-  condition_groups: CustomViewConditionGroup[];
+  conditions: CustomViewCondition[];
   show_badge: boolean;
   is_enabled: boolean;
   created_at: string;
@@ -69,21 +69,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "alert-triangle": AlertTriangle,
 };
 
-const getGradientColors = (color: string): string => {
-  const gradientMap: Record<string, string> = {
-    blue: "from-blue-500 to-blue-600",
-    green: "from-green-500 to-green-600",
-    orange: "from-orange-500 to-orange-600",
-    red: "from-red-500 to-red-600",
-    purple: "from-purple-500 to-purple-600",
-    pink: "from-pink-500 to-pink-600",
-    yellow: "from-yellow-500 to-yellow-600",
-    teal: "from-teal-500 to-teal-600",
-    indigo: "from-indigo-500 to-indigo-600",
-    gray: "from-gray-500 to-gray-600",
-  };
-  return gradientMap[color] || "from-blue-500 to-blue-600";
-};
 
 export default function CustomViewPage() {
   const params = useParams<{ viewId: string }>();
@@ -211,49 +196,54 @@ export default function CustomViewPage() {
   }
 
   const IconComponent = ICON_MAP[data.view.icon] || Star;
-  const gradientColors = getGradientColors(data.view.icon_color);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden h-full">
-      <div className="p-4 sm:p-6 pb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 bg-gradient-to-br ${gradientColors} rounded-lg`}>
-            <IconComponent className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+      {/* Compact header bar - matching normal sheet view style */}
+      <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-background">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`p-1 rounded bg-gradient-to-br ${
+            data.view.icon_color === 'blue' ? 'from-blue-500 to-blue-600' :
+            data.view.icon_color === 'green' ? 'from-green-500 to-green-600' :
+            data.view.icon_color === 'orange' ? 'from-orange-500 to-orange-600' :
+            data.view.icon_color === 'red' ? 'from-red-500 to-red-600' :
+            data.view.icon_color === 'purple' ? 'from-purple-500 to-purple-600' :
+            data.view.icon_color === 'pink' ? 'from-pink-500 to-pink-600' :
+            data.view.icon_color === 'yellow' ? 'from-yellow-500 to-yellow-600' :
+            data.view.icon_color === 'teal' ? 'from-teal-500 to-teal-600' :
+            data.view.icon_color === 'indigo' ? 'from-indigo-500 to-indigo-600' :
+            data.view.icon_color === 'gray' ? 'from-gray-500 to-gray-600' :
+            'from-blue-500 to-blue-600'
+          }`}>
+            <IconComponent className="h-3.5 w-3.5 text-white" />
           </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
-              {data.view.name}
-              <Badge variant="secondary" className="font-normal text-sm">
-                {data.count}
-              </Badge>
-            </h1>
-            <p className="text-sm text-muted-foreground hidden sm:block">
-              Filtered leads based on custom conditions
-            </p>
-          </div>
+          <span className="font-medium text-sm truncate">{data.view.name}</span>
+          <Badge variant="secondary" className="text-xs shrink-0">
+            {data.count}
+          </Badge>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 shrink-0">
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
             onClick={() => refetch()}
-            title="Refresh"
+            aria-label="Refresh"
             data-testid="button-refresh-custom-view"
           >
             <RefreshCw className="h-4 w-4" />
           </Button>
           {isCompanyAdmin && (
             <Link href="/admin">
-              <Button variant="outline" size="sm" data-testid="button-configure-custom-view">
-                <Settings className="h-4 w-4 mr-2" />
-                Configure
+              <Button variant="ghost" size="icon" aria-label="Configure" data-testid="button-configure-custom-view">
+                <Settings className="h-4 w-4" />
               </Button>
             </Link>
           )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden px-4 sm:px-6 pb-4 sm:pb-6">
+      {/* Grid with minimal padding - matching normal sheet view */}
+      <div className="flex-1 overflow-hidden">
         <SpreadsheetGrid
           customViewId={viewId}
           onOpenLeadDetail={handleOpenLeadDetail}
