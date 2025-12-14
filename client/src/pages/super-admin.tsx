@@ -700,6 +700,9 @@ function SuperAdminContent() {
   const [newValueInput, setNewValueInput] = useState("");
   const [isAddingValue, setIsAddingValue] = useState(false);
   const [syncTargetCompanyId, setSyncTargetCompanyId] = useState<string>("");
+  const [showSyncPreview, setShowSyncPreview] = useState(false);
+  const [syncPreviewData, setSyncPreviewData] = useState<any>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const { data: systemValues = [], isLoading: systemValuesLoading, refetch: refetchSystemValues } = useQuery<SystemValueDefinition[]>({
     queryKey: ["/api/admin/system-values"],
@@ -771,11 +774,27 @@ function SuperAdminContent() {
     onSuccess: (data: any) => {
       toast({ title: "Sync completed", description: data.message || "System values synced to company" });
       setSyncTargetCompanyId("");
+      setShowSyncPreview(false);
+      setSyncPreviewData(null);
     },
     onError: (error: any) => {
       toast({ variant: "destructive", title: "Sync failed", description: error.message });
     },
   });
+
+  const handlePreviewSync = async () => {
+    if (!syncTargetCompanyId) return;
+    setIsLoadingPreview(true);
+    try {
+      const data = await apiRequest("GET", `/api/admin/system-columns/sync-preview/${syncTargetCompanyId}`);
+      setSyncPreviewData(data);
+      setShowSyncPreview(true);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Preview failed", description: error.message });
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
 
   const columnTypeLabels: Record<string, string> = {
     lead_status: "Lead Status",
@@ -887,16 +906,12 @@ function SuperAdminContent() {
             </Select>
             <Button
               variant="outline"
-              onClick={() => {
-                if (syncTargetCompanyId) {
-                  syncCompanyMutation.mutate(syncTargetCompanyId);
-                }
-              }}
-              disabled={!syncTargetCompanyId || syncCompanyMutation.isPending}
+              onClick={handlePreviewSync}
+              disabled={!syncTargetCompanyId || isLoadingPreview}
               data-testid="button-sync-selected-company"
             >
-              <RefreshCw className={`h-4 w-4 mr-1 ${syncCompanyMutation.isPending ? 'animate-spin' : ''}`} />
-              {syncCompanyMutation.isPending ? "Syncing..." : "Sync Company"}
+              <RefreshCw className={`h-4 w-4 mr-1 ${isLoadingPreview ? 'animate-spin' : ''}`} />
+              {isLoadingPreview ? "Loading..." : "Preview & Sync"}
             </Button>
           </div>
         </div>
@@ -1253,6 +1268,137 @@ function SuperAdminContent() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showSyncPreview} onOpenChange={(open) => { if (!open) { setShowSyncPreview(false); setSyncPreviewData(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Sync Preview: {syncPreviewData?.company?.name}</DialogTitle>
+            <DialogDescription>
+              Review the changes that will be made when syncing system values.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {syncPreviewData && (
+            <div className="space-y-4 py-4">
+              {!syncPreviewData.summary.has_changes ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <Check className="h-12 w-12 mx-auto mb-2 text-green-500" />
+                  <p className="font-medium">All system columns and values are already synced!</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                    <Card className="p-3">
+                      <div className="text-2xl font-bold text-primary">{syncPreviewData.summary.columns_to_create}</div>
+                      <div className="text-xs text-muted-foreground">Columns to Create</div>
+                    </Card>
+                    {syncPreviewData.summary.columns_to_convert > 0 && (
+                      <Card className="p-3 border-destructive">
+                        <div className="text-2xl font-bold text-destructive">{syncPreviewData.summary.columns_to_convert}</div>
+                        <div className="text-xs text-muted-foreground">Type Conversions</div>
+                      </Card>
+                    )}
+                    <Card className="p-3">
+                      <div className="text-2xl font-bold text-blue-500">{syncPreviewData.summary.total_values_to_add}</div>
+                      <div className="text-xs text-muted-foreground">Values to Add</div>
+                    </Card>
+                    <Card className="p-3">
+                      <div className="text-2xl font-bold text-amber-500">{syncPreviewData.summary.total_values_to_mark_system}</div>
+                      <div className="text-xs text-muted-foreground">Values to Mark System</div>
+                    </Card>
+                  </div>
+
+                  {syncPreviewData.columns_to_create.length > 0 && (
+                    <div>
+                      <h4 className="font-medium mb-2 flex items-center gap-2">
+                        <Plus className="h-4 w-4 text-green-500" />
+                        Columns to Create
+                      </h4>
+                      <div className="space-y-2">
+                        {syncPreviewData.columns_to_create.map((col: any) => (
+                          <Card key={col.column_key} className="p-3">
+                            <div className="font-medium">{col.name}</div>
+                            <div className="text-xs text-muted-foreground mb-1">Column key: {col.column_key}</div>
+                            <div className="flex flex-wrap gap-1">
+                              {col.values.map((v: string) => (
+                                <Badge key={v} variant="secondary">{v}</Badge>
+                              ))}
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {syncPreviewData.columns_existing.filter((col: any) => col.values_to_add.length > 0 || col.values_to_mark_system.length > 0 || col.will_convert_to_dropdown).length > 0 && (
+                    <div>
+                      <h4 className="font-medium mb-2 flex items-center gap-2">
+                        <RefreshCw className="h-4 w-4 text-blue-500" />
+                        Existing Columns to Update
+                      </h4>
+                      <div className="space-y-2">
+                        {syncPreviewData.columns_existing
+                          .filter((col: any) => col.values_to_add.length > 0 || col.values_to_mark_system.length > 0 || col.will_convert_to_dropdown)
+                          .map((col: any) => (
+                            <Card key={col.column_key} className="p-3">
+                              <div className="font-medium flex items-center gap-2">
+                                {col.name}
+                                {col.will_convert_to_dropdown && (
+                                  <Badge variant="destructive" className="text-xs">
+                                    <AlertCircle className="h-3 w-3 mr-1" />
+                                    Type Change
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground mb-1">
+                                Current type: {col.current_type}
+                                {col.will_convert_to_dropdown && (
+                                  <span className="text-destructive font-medium"> → will be converted to dropdown</span>
+                                )}
+                              </div>
+                              {col.values_to_add.length > 0 && (
+                                <div className="mb-1">
+                                  <span className="text-xs text-green-600 font-medium">Add: </span>
+                                  {col.values_to_add.map((v: string) => (
+                                    <Badge key={v} variant="outline" className="mr-1 border-green-500 text-green-600">{v}</Badge>
+                                  ))}
+                                </div>
+                              )}
+                              {col.values_to_mark_system.length > 0 && (
+                                <div>
+                                  <span className="text-xs text-amber-600 font-medium">Mark as system: </span>
+                                  {col.values_to_mark_system.map((v: string) => (
+                                    <Badge key={v} variant="outline" className="mr-1 border-amber-500 text-amber-600">{v}</Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </Card>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowSyncPreview(false); setSyncPreviewData(null); }}>
+              Cancel
+            </Button>
+            {syncPreviewData?.summary?.has_changes && (
+              <Button 
+                onClick={() => syncCompanyMutation.mutate(syncTargetCompanyId)}
+                disabled={syncCompanyMutation.isPending}
+                data-testid="button-confirm-sync"
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${syncCompanyMutation.isPending ? 'animate-spin' : ''}`} />
+                {syncCompanyMutation.isPending ? "Syncing..." : "Apply Changes"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

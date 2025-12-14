@@ -2067,7 +2067,138 @@ ${questionsList}`;
     }
   });
 
-  // Sync system values to a single company
+  // Preview sync for a single company - shows what columns and values will be created/updated
+  app.get("/api/admin/system-columns/sync-preview/:companyId", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { companyId } = req.params;
+      
+      // Get the company
+      const company = await storage.getCompany(companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      
+      // Get all system value definitions (only active ones)
+      const systemValues = await storage.getSystemValueDefinitions();
+      const activeSystemValues = systemValues.filter(sv => !sv.deprecated_at);
+      
+      if (activeSystemValues.length === 0) {
+        return res.status(400).json({
+          error: 'No active system value definitions found',
+          message: 'Run seed first before previewing sync.',
+        });
+      }
+      
+      // Group system values by column_type
+      const systemValuesByType: Record<string, string[]> = {};
+      for (const sv of activeSystemValues) {
+        if (!systemValuesByType[sv.column_type]) {
+          systemValuesByType[sv.column_type] = [];
+        }
+        systemValuesByType[sv.column_type].push(sv.value);
+      }
+      
+      // Get company's existing custom columns
+      const companyColumns = await storage.getCompanyColumns(companyId);
+      const columnsByKey = new Map(companyColumns.map(col => [col.column_key, col]));
+      
+      // System column type to display name mapping
+      const columnDisplayNames: Record<string, string> = {
+        lead_status: "Lead Status",
+        visit_status: "Visit Status",
+        visit_type: "Visit Type",
+        lost_reason: "Lost Reason",
+      };
+      
+      const columnsToCreate: Array<{
+        column_key: string;
+        name: string;
+        values: string[];
+      }> = [];
+      
+      const columnsExisting: Array<{
+        column_key: string;
+        name: string;
+        current_type: string;
+        current_values: string[];
+        values_to_add: string[];
+        values_to_mark_system: string[];
+        will_convert_to_dropdown: boolean;
+      }> = [];
+      
+      // Check each system column type
+      for (const [columnType, systemValuesList] of Object.entries(systemValuesByType)) {
+        const existingColumn = columnsByKey.get(columnType);
+        
+        if (!existingColumn) {
+          // Column doesn't exist - needs to be created
+          columnsToCreate.push({
+            column_key: columnType,
+            name: columnDisplayNames[columnType] || columnType,
+            values: systemValuesList,
+          });
+        } else {
+          // Column exists - check values
+          const existingDropdownOptions = await storage.getDropdownOptionsByColumn(companyId, columnType);
+          const existingValueMap = new Map(existingDropdownOptions.map(opt => [opt.value.toLowerCase(), opt]));
+          
+          const currentValues = existingDropdownOptions.map(opt => opt.value);
+          const valuesToAdd: string[] = [];
+          const valuesToMarkSystem: string[] = [];
+          
+          for (const systemValue of systemValuesList) {
+            const existingOpt = existingValueMap.get(systemValue.toLowerCase());
+            if (existingOpt) {
+              // Value exists - check if needs to be marked as system
+              if (!existingOpt.is_system) {
+                valuesToMarkSystem.push(systemValue);
+              }
+            } else {
+              // Value doesn't exist - needs to be added
+              valuesToAdd.push(systemValue);
+            }
+          }
+          
+          columnsExisting.push({
+            column_key: columnType,
+            name: existingColumn.name,
+            current_type: existingColumn.type,
+            current_values: currentValues,
+            values_to_add: valuesToAdd,
+            values_to_mark_system: valuesToMarkSystem,
+            will_convert_to_dropdown: existingColumn.type !== 'dropdown',
+          });
+        }
+      }
+      
+      const totalColumnsToCreate = columnsToCreate.length;
+      const totalValuesToAdd = columnsExisting.reduce((sum, col) => sum + col.values_to_add.length, 0) +
+                               columnsToCreate.reduce((sum, col) => sum + col.values.length, 0);
+      const totalValuesToMarkSystem = columnsExisting.reduce((sum, col) => sum + col.values_to_mark_system.length, 0);
+      const totalColumnsToConvert = columnsExisting.filter(col => col.will_convert_to_dropdown).length;
+      
+      res.json({
+        company: {
+          id: company.id,
+          name: company.name,
+        },
+        columns_to_create: columnsToCreate,
+        columns_existing: columnsExisting,
+        summary: {
+          columns_to_create: totalColumnsToCreate,
+          columns_to_convert: totalColumnsToConvert,
+          total_values_to_add: totalValuesToAdd,
+          total_values_to_mark_system: totalValuesToMarkSystem,
+          has_changes: totalColumnsToCreate > 0 || totalValuesToAdd > 0 || totalValuesToMarkSystem > 0 || totalColumnsToConvert > 0,
+        },
+      });
+    } catch (error: any) {
+      console.error("Sync preview error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Sync system values to a single company (with column creation)
   app.post("/api/admin/system-columns/sync-company/:companyId", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       const { companyId } = req.params;
@@ -2098,12 +2229,51 @@ ${questionsList}`;
         systemValuesByType[sv.column_type].push(sv.value);
       }
       
+      // System column type to display name mapping
+      const columnDisplayNames: Record<string, string> = {
+        lead_status: "Lead Status",
+        visit_status: "Visit Status",
+        visit_type: "Visit Type",
+        lost_reason: "Lost Reason",
+      };
+      
+      // Get company's existing custom columns
+      let companyColumns = await storage.getCompanyColumns(companyId);
+      const columnsByKey = new Map(companyColumns.map(col => [col.column_key, col]));
+      
+      // Get max order_index for new columns
+      let maxColumnOrderIndex = companyColumns.reduce((max, col) => Math.max(max, col.order_index), -1);
+      
+      let columnsCreated = 0;
       let markedCount = 0;
-      let createdCount = 0;
+      let valuesCreated = 0;
       
       // Check each column type
       for (const [columnType, systemValuesList] of Object.entries(systemValuesByType)) {
-        // Get existing dropdown options for this company and column type
+        const existingColumn = columnsByKey.get(columnType);
+        
+        // Step 1: Create column if it doesn't exist
+        if (!existingColumn) {
+          maxColumnOrderIndex++;
+          await storage.createCustomColumn({
+            company_id: companyId,
+            sheet_id: null, // Company-wide
+            name: columnDisplayNames[columnType] || columnType,
+            column_key: columnType,
+            type: 'dropdown',
+            config: { dropdown_options: [], is_system_column: true },
+            order_index: maxColumnOrderIndex,
+          });
+          columnsCreated++;
+        } else if (existingColumn.type !== 'dropdown') {
+          // Convert existing column to dropdown type
+          await storage.updateCustomColumn(existingColumn.id, {
+            type: 'dropdown',
+            config: { ...existingColumn.config, dropdown_options: [], is_system_column: true },
+          });
+        }
+        
+        // Step 2: Sync dropdown options
         const existingOptions = await storage.getDropdownOptionsByColumn(company.id, columnType);
         const existingValueMap = new Map(existingOptions.map(opt => [opt.value.toLowerCase(), opt]));
         
@@ -2130,7 +2300,7 @@ ${questionsList}`;
               order_index: maxOrderIndex,
               is_system: true,
             });
-            createdCount++;
+            valuesCreated++;
           }
         }
       }
@@ -2142,16 +2312,17 @@ ${questionsList}`;
         action: "system_values_sync_company",
         model: "dropdown_option",
         model_id: company.id,
-        payload: { markedAsSystem: markedCount, created: createdCount },
+        payload: { columnsCreated, markedAsSystem: markedCount, valuesCreated },
       });
       
       res.json({
         status: 'completed',
         companyId: company.id,
         companyName: company.name,
+        columnsCreated,
         markedAsSystem: markedCount,
-        created: createdCount,
-        message: `Successfully synced ${company.name}: marked ${markedCount} values as system and created ${createdCount} new system values.`,
+        valuesCreated,
+        message: `Successfully synced ${company.name}: created ${columnsCreated} columns, marked ${markedCount} values as system, and created ${valuesCreated} new system values.`,
       });
     } catch (error: any) {
       console.error("Sync company error:", error);
