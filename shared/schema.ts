@@ -27,7 +27,8 @@ export interface Company {
     };
     site_visit_config?: {
       status_column?: string; // column_key that indicates visit type (e.g., "lead_status")
-      status_value?: string; // value that means "site visit scheduled" (e.g., "Site Visit")
+      status_value?: string; // LEGACY: single value (kept for backward compatibility)
+      status_values?: string[]; // NEW: array of values for multi-select (OR logic)
       date_column?: string; // column_key for visit date (e.g., "nfdt")
       card_columns?: string[]; // column keys to display in visit schedule card
     };
@@ -60,7 +61,8 @@ export const insertCompanySchema = z.object({
     }).optional(),
     site_visit_config: z.object({
       status_column: z.string().optional(),
-      status_value: z.string().optional(),
+      status_value: z.string().optional(), // LEGACY: kept for backward compatibility
+      status_values: z.array(z.string()).optional(), // NEW: multi-select values
       date_column: z.string().optional(),
       card_columns: z.array(z.string()).optional(),
     }).optional(),

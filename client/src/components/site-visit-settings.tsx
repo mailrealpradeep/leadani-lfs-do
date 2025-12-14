@@ -30,7 +30,8 @@ import { CSS } from "@dnd-kit/utilities";
 
 interface SiteVisitConfig {
   status_column?: string;
-  status_value?: string;
+  status_value?: string; // Legacy single value
+  status_values?: string[]; // New multi-select values
   date_column?: string;
   card_columns?: string[];
 }
@@ -105,7 +106,7 @@ interface SiteVisitSettingsProps {
 export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) {
   const { toast } = useToast();
   const [statusColumn, setStatusColumn] = useState<string>("");
-  const [statusValue, setStatusValue] = useState<string>("");
+  const [statusValues, setStatusValues] = useState<Set<string>>(new Set()); // Multi-select values
   const [dateColumn, setDateColumn] = useState<string>("");
   const [selectedColumnKeys, setSelectedColumnKeys] = useState<Set<string>>(new Set());
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -130,7 +131,7 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
   );
 
   const dateColumns = useMemo(() => 
-    sortedColumns.filter(c => c.type === "date"),
+    sortedColumns.filter(c => c.type === "date" || c.type === "datetime"),
     [sortedColumns]
   );
 
@@ -162,7 +163,11 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
       
       if (serverConfig) {
         setStatusColumn(serverConfig.status_column || "");
-        setStatusValue(serverConfig.status_value || "");
+        // Load status_values (new) or fallback to status_value (legacy)
+        const loadedValues = serverConfig.status_values?.length 
+          ? serverConfig.status_values 
+          : (serverConfig.status_value ? [serverConfig.status_value] : []);
+        setStatusValues(new Set(loadedValues));
         setDateColumn(serverConfig.date_column || "");
         
         if (serverConfig.card_columns && serverConfig.card_columns.length > 0) {
@@ -252,67 +257,93 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
     },
   });
 
+  const toggleStatusValue = (value: string) => {
+    setStatusValues(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) {
+        next.delete(value);
+      } else {
+        next.add(value);
+      }
+      return next;
+    });
+  };
+
   const handleSave = () => {
     const orderedSelectedColumns = columnOrder.filter(key => selectedColumnKeys.has(key));
+    const statusValuesArray = Array.from(statusValues);
     
     updateMutation.mutate({
       status_column: statusColumn || undefined,
-      status_value: statusValue || undefined,
+      status_values: statusValuesArray.length > 0 ? statusValuesArray : undefined,
       date_column: dateColumn || undefined,
       card_columns: orderedSelectedColumns.length > 0 ? orderedSelectedColumns : undefined,
     });
   };
 
   const isLoading = columnsLoading || settingsLoading;
-  const isConfigured = statusColumn && statusValue && dateColumn;
+  const isConfigured = statusColumn && statusValues.size > 0 && dateColumn;
 
   const content = (
     <div className="space-y-6">
       <Alert>
         <Info className="h-4 w-4" />
         <AlertDescription>
-          Configure which leads appear in the Visit Schedules page. Select a status column and value that indicates a site visit, and the date column for the scheduled visit date.
+          Configure which leads appear in the Visit Schedules page. Select a status column and the values that indicate a scheduled visit, plus the date column.
         </AlertDescription>
       </Alert>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Status Column</Label>
-          <Select value={statusColumn} onValueChange={(val) => { setStatusColumn(val); setStatusValue(""); }}>
-            <SelectTrigger data-testid="select-status-column">
-              <SelectValue placeholder="Select a dropdown column" />
-            </SelectTrigger>
-            <SelectContent>
-              {dropdownColumns.map(col => (
-                <SelectItem key={col.column_key} value={col.column_key}>
-                  {col.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            Which column indicates the lead type/status
-          </p>
-        </div>
+      <div className="space-y-2">
+        <Label>Status Column</Label>
+        <Select value={statusColumn} onValueChange={(val) => { setStatusColumn(val); setStatusValues(new Set()); }}>
+          <SelectTrigger className="max-w-sm" data-testid="select-status-column">
+            <SelectValue placeholder="Select a dropdown column" />
+          </SelectTrigger>
+          <SelectContent>
+            {dropdownColumns.map(col => (
+              <SelectItem key={col.column_key} value={col.column_key}>
+                {col.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Which column indicates the lead type/status
+        </p>
+      </div>
 
-        <div className="space-y-2">
-          <Label>Site Visit Value</Label>
-          <Select value={statusValue} onValueChange={setStatusValue} disabled={!statusColumn}>
-            <SelectTrigger data-testid="select-status-value">
-              <SelectValue placeholder={statusColumn ? "Select a value" : "Select status column first"} />
-            </SelectTrigger>
-            <SelectContent>
-              {dropdownOptions.map(opt => (
-                <SelectItem key={opt} value={opt}>
+      <div className="space-y-2">
+        <Label>Visit Values</Label>
+        {!statusColumn ? (
+          <p className="text-sm text-muted-foreground py-2">Select a status column first</p>
+        ) : dropdownOptions.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">No options available for this column</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {dropdownOptions.map(opt => (
+              <div 
+                key={opt} 
+                className={`flex items-center gap-2 p-2 border rounded-md cursor-pointer transition-colors ${
+                  statusValues.has(opt) ? "bg-primary/10 border-primary" : "hover:bg-muted"
+                }`}
+                onClick={() => toggleStatusValue(opt)}
+              >
+                <Checkbox
+                  id={`visit-value-${opt}`}
+                  checked={statusValues.has(opt)}
+                  onCheckedChange={() => toggleStatusValue(opt)}
+                  data-testid={`checkbox-visit-value-${opt}`}
+                />
+                <Label htmlFor={`visit-value-${opt}`} className="cursor-pointer text-sm flex-1">
                   {opt}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            Which value means "site visit scheduled"
-          </p>
-        </div>
+                </Label>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Select one or more values that indicate a scheduled visit. Leads matching any selected value will appear.
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -388,7 +419,7 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
       {!isConfigured && statusColumn && (
         <Alert variant="destructive">
           <AlertDescription>
-            Please complete all required fields (Status Column, Site Visit Value, and Visit Date Column) to enable the Visit Schedules feature.
+            Please complete all required fields (Status Column, Visit Values, and Visit Date Column) to enable the Visit Schedules feature.
           </AlertDescription>
         </Alert>
       )}
@@ -404,10 +435,10 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MapPin className="h-5 w-5" />
-          Site Visit Settings
+          Visit Schedule Settings
         </CardTitle>
         <CardDescription>
-          Configure how site visits are identified and displayed in the Visit Schedules page
+          Configure how visits are identified and displayed in the Visit Schedules page
         </CardDescription>
       </CardHeader>
       <CardContent>

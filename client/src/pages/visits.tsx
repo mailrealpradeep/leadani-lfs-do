@@ -207,6 +207,7 @@ export default function Visits() {
             cardColumns={cardColumns}
             columnsMap={columnsMap}
             dateColumn={data.config?.date_column || ''}
+            statusColumn={data.config?.status_column || ''}
             getVisitCount={getVisitCount}
             goToPreviousMonth={goToPreviousMonth}
             goToNextMonth={goToNextMonth}
@@ -223,6 +224,7 @@ export default function Visits() {
             cardColumns={cardColumns}
             columnsMap={columnsMap}
             dateColumn={data.config?.date_column || ''}
+            statusColumn={data.config?.status_column || ''}
             getVisitCount={getVisitCount}
             goToPreviousMonth={goToPreviousMonth}
             goToNextMonth={goToNextMonth}
@@ -252,6 +254,7 @@ interface LayoutProps {
   cardColumns: string[];
   columnsMap: Map<string, CustomColumn>;
   dateColumn: string;
+  statusColumn: string;
   getVisitCount: (date: Date) => number;
   goToPreviousMonth: () => void;
   goToNextMonth: () => void;
@@ -267,6 +270,7 @@ function MobileLayout({
   cardColumns,
   columnsMap,
   dateColumn,
+  statusColumn,
   getVisitCount,
   goToPreviousMonth,
   goToNextMonth,
@@ -291,6 +295,7 @@ function MobileLayout({
         cardColumns={cardColumns}
         columnsMap={columnsMap}
         dateColumn={dateColumn}
+        statusColumn={statusColumn}
         setSelectedLeadId={setSelectedLeadId}
         isMobileView={true}
       />
@@ -306,6 +311,7 @@ function DesktopLayout({
   cardColumns,
   columnsMap,
   dateColumn,
+  statusColumn,
   getVisitCount,
   goToPreviousMonth,
   goToNextMonth,
@@ -333,6 +339,7 @@ function DesktopLayout({
           cardColumns={cardColumns}
           columnsMap={columnsMap}
           dateColumn={dateColumn}
+          statusColumn={statusColumn}
           setSelectedLeadId={setSelectedLeadId}
         />
       </div>
@@ -432,6 +439,7 @@ interface VisitsListProps {
   cardColumns: string[];
   columnsMap: Map<string, CustomColumn>;
   dateColumn: string;
+  statusColumn: string;
   setSelectedLeadId: (id: string | null) => void;
 }
 
@@ -441,6 +449,7 @@ function VisitsList({
   cardColumns,
   columnsMap,
   dateColumn,
+  statusColumn,
   setSelectedLeadId,
   isMobileView = false,
 }: VisitsListProps & { isMobileView?: boolean }) {
@@ -481,6 +490,7 @@ function VisitsList({
               cardColumns={cardColumns}
               columnsMap={columnsMap}
               dateColumn={dateColumn}
+              statusColumn={statusColumn}
               onClick={() => setSelectedLeadId(visit.id)}
             />
           ))}
@@ -495,6 +505,7 @@ function VisitsList({
                 cardColumns={cardColumns}
                 columnsMap={columnsMap}
                 dateColumn={dateColumn}
+                statusColumn={statusColumn}
                 onClick={() => setSelectedLeadId(visit.id)}
               />
             ))}
@@ -510,10 +521,11 @@ interface VisitCardProps {
   cardColumns: string[];
   columnsMap: Map<string, CustomColumn>;
   dateColumn: string;
+  statusColumn: string;
   onClick: () => void;
 }
 
-function VisitCard({ visit, cardColumns, columnsMap, dateColumn, onClick }: VisitCardProps) {
+function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, onClick }: VisitCardProps) {
   const displayColumns = cardColumns.length > 0 ? cardColumns : ['full_name', 'mobile_no'];
   
   const formatValue = (key: string, value: any): string => {
@@ -592,11 +604,18 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, onClick }: Visi
           </div>
         </div>
 
-        <div className={cn(
-          "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
-          sheetColorClass
-        )}>
-          {visit.sheet_name}
+        <div className="flex flex-wrap items-center gap-1">
+          <div className={cn(
+            "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
+            sheetColorClass
+          )}>
+            {visit.sheet_name}
+          </div>
+          {statusColumn && visit.custom_fields?.[statusColumn] && (
+            <Badge variant="outline" className="text-xs" data-testid={`badge-visit-type-${visit.id}`}>
+              {String(visit.custom_fields[statusColumn])}
+            </Badge>
+          )}
         </div>
 
         {displayColumns.length > 0 && (

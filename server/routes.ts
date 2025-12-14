@@ -2763,11 +2763,16 @@ ${questionsList}`;
       }
 
       const siteVisitConfig = company.settings?.site_visit_config;
-      if (!siteVisitConfig?.status_column || !siteVisitConfig?.status_value || !siteVisitConfig?.date_column) {
+      // Support both legacy status_value (string) and new status_values (array)
+      const statusValues = siteVisitConfig?.status_values?.length 
+        ? siteVisitConfig.status_values 
+        : (siteVisitConfig?.status_value ? [siteVisitConfig.status_value] : []);
+      
+      if (!siteVisitConfig?.status_column || statusValues.length === 0 || !siteVisitConfig?.date_column) {
         return res.json({ 
           visits: [], 
           config: null,
-          message: "Site visit configuration not set up. Please configure in Admin Console." 
+          message: "Visit configuration not set up. Please configure in Admin Console." 
         });
       }
 
@@ -2792,12 +2797,11 @@ ${questionsList}`;
       const startDate = req.query.start_date as string | undefined;
       const endDate = req.query.end_date as string | undefined;
 
-      // Build filter for site visits
+      // Build filter for site visits (OR logic for multiple values)
       const filters: Record<string, any> = {
-        [siteVisitConfig.status_column]: { 
-          value: siteVisitConfig.status_value, 
-          exactMatch: true 
-        },
+        [siteVisitConfig.status_column]: statusValues.length === 1
+          ? { value: statusValues[0], exactMatch: true }
+          : { values: statusValues, operator: 'in' },
       };
 
       // Add date range filter if provided
