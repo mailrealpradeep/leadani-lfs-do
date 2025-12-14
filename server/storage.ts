@@ -3401,7 +3401,9 @@ export class PgStorage implements IStorage {
       else if (typeof value === 'object' && value !== null && 'operator' in value && (value as any).operator === 'in' && Array.isArray((value as any).values)) {
         const inFilter = value as { values: string[]; operator: string };
         if (inFilter.values.length > 0) {
-          conditions.push(sql`${dbSchema.leads.custom_fields}->>${key} = ANY(${inFilter.values})`);
+          // Build OR conditions for each value (PostgreSQL ANY with proper array syntax)
+          const orConditions = inFilter.values.map(v => sql`${dbSchema.leads.custom_fields}->>${key} = ${v}`);
+          conditions.push(or(...orConditions)!);
         }
       }
       // Handle simple string filter (substring match)
