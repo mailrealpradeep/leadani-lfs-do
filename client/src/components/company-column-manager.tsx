@@ -57,7 +57,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
   const [isAdding, setIsAdding] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");
   const [newColumnKey, setNewColumnKey] = useState("");
-  const [newColumnType, setNewColumnType] = useState<"text" | "number" | "date" | "dropdown" | "boolean" | "mobile" | "percentage">("text");
+  const [newColumnType, setNewColumnType] = useState<"text" | "number" | "date" | "datetime" | "dropdown" | "boolean" | "mobile" | "percentage">("text");
   const [newDropdownOptions, setNewDropdownOptions] = useState<string[]>([]);
   const [newDropdownInput, setNewDropdownInput] = useState("");
 
@@ -65,7 +65,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [editColumnName, setEditColumnName] = useState("");
   const [editColumnKey, setEditColumnKey] = useState(""); // Read-only, for display
-  const [editColumnType, setEditColumnType] = useState<"text" | "number" | "date" | "dropdown" | "boolean" | "mobile" | "percentage">("text");
+  const [editColumnType, setEditColumnType] = useState<"text" | "number" | "date" | "datetime" | "dropdown" | "boolean" | "mobile" | "percentage">("text");
   const [editDropdownOptions, setEditDropdownOptions] = useState<string[]>([]);
   const [editDropdownInput, setEditDropdownInput] = useState("");
   const [editColumnConfig, setEditColumnConfig] = useState<any>({}); // Store full config
@@ -439,6 +439,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
                     <SelectItem value="text">Text</SelectItem>
                     <SelectItem value="number">Number</SelectItem>
                     <SelectItem value="date">Date</SelectItem>
+                    <SelectItem value="datetime">Date/Time</SelectItem>
                     <SelectItem value="dropdown">Dropdown</SelectItem>
                     <SelectItem value="boolean">Yes/No</SelectItem>
                     <SelectItem value="mobile">Mobile No</SelectItem>
@@ -688,11 +689,11 @@ function SortableColumnItem({
   editingColumnId: string | null;
   editColumnName: string;
   editColumnKey: string;
-  editColumnType: "text" | "number" | "date" | "dropdown" | "boolean" | "mobile" | "percentage";
+  editColumnType: "text" | "number" | "date" | "datetime" | "dropdown" | "boolean" | "mobile" | "percentage";
   editDropdownOptions: string[];
   editDropdownInput: string;
   setEditColumnName: (value: string) => void;
-  setEditColumnType: (value: "text" | "number" | "date" | "dropdown" | "boolean" | "mobile" | "percentage") => void;
+  setEditColumnType: (value: "text" | "number" | "date" | "datetime" | "dropdown" | "boolean" | "mobile" | "percentage") => void;
   setEditDropdownOptions: (value: string[]) => void;
   setEditDropdownInput: (value: string) => void;
   handleUpdateColumn: (e: React.FormEvent, columnId: string) => void;
@@ -767,6 +768,7 @@ function SortableColumnItem({
                 <SelectItem value="text">Text</SelectItem>
                 <SelectItem value="number">Number</SelectItem>
                 <SelectItem value="date">Date</SelectItem>
+                <SelectItem value="datetime">Date/Time</SelectItem>
                 <SelectItem value="dropdown">Dropdown</SelectItem>
                 <SelectItem value="boolean">Yes/No</SelectItem>
                 <SelectItem value="mobile">Mobile No</SelectItem>
