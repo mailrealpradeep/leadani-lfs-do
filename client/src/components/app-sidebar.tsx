@@ -281,13 +281,18 @@ export function AppSidebar() {
       icon: MapPin,
       testId: "link-visits",
     },
-    {
-      title: "Hot Leads",
-      url: "/hot-leads",
-      icon: Flame,
-      testId: "link-hot-leads",
-      badge: hotLeadsCount,
-    },
+    // HOT LEADS FEATURE HIDDEN - Dec 2025
+    // Reason: Functionality is covered by Custom Views feature
+    // To restore: Uncomment this menu item and the AccordionItem in admin.tsx
+    // Related files: hot-leads.tsx, hot-leads-config.tsx, spreadsheet-grid.tsx (hotLeadsMode)
+    // See docs/HIDDEN_FEATURES.md for full details
+    // {
+    //   title: "Hot Leads",
+    //   url: "/hot-leads",
+    //   icon: Flame,
+    //   testId: "link-hot-leads",
+    //   badge: hotLeadsCount,
+    // },
     // Webhooks - admin only
     ...((isCompanyAdmin || isSuperAdmin) ? [{
       title: "Webhooks",

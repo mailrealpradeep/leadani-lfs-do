@@ -937,6 +937,11 @@ function CompanyAdminView() {
             </AccordionContent>
           </AccordionItem>
 
+          {/* HOT LEADS FEATURE HIDDEN - Dec 2025
+              Reason: Functionality is covered by Custom Views feature
+              To restore: Uncomment this AccordionItem and the sidebar menu item in app-sidebar.tsx
+              Related files: hot-leads.tsx, hot-leads-config.tsx, spreadsheet-grid.tsx (hotLeadsMode)
+              See docs/HIDDEN_FEATURES.md for full details
           <AccordionItem value="hot-leads" className="border rounded-lg px-4 bg-card">
             <AccordionTrigger className="hover:no-underline" data-testid="accordion-hot-leads">
               <div className="flex items-center gap-3">
@@ -955,6 +960,7 @@ function CompanyAdminView() {
               </div>
             </AccordionContent>
           </AccordionItem>
+          */}
 
           <AccordionItem value="custom-views" className="border rounded-lg px-4 bg-card">
             <AccordionTrigger className="hover:no-underline" data-testid="accordion-custom-views">
