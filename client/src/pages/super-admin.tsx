@@ -30,6 +30,7 @@ import {
   Lock,
   GripVertical,
   AlertCircle,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1299,6 +1300,14 @@ function SuperAdminContent() {
                 <div className="text-center py-6 text-muted-foreground">
                   <Check className="h-12 w-12 mx-auto mb-2 text-green-500" />
                   <p className="font-medium">All system columns and values are already synced!</p>
+                  {syncPreviewData.summary.total_hidden_system_values > 0 && (
+                    <div className="mt-3 inline-flex items-center gap-2 px-3 py-2 bg-muted rounded-lg">
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">
+                        <span className="font-medium">{syncPreviewData.summary.total_hidden_system_values}</span> system value{syncPreviewData.summary.total_hidden_system_values !== 1 ? 's' : ''} hidden by company
+                      </span>
+                    </div>
+                  )}
                   <p className="text-sm mt-2">If lock icons are not showing, use Force Sync below.</p>
                   <Button 
                     variant="outline"
@@ -1313,7 +1322,7 @@ function SuperAdminContent() {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
                     <Card className="p-3">
                       <div className="text-2xl font-bold text-primary">{syncPreviewData.summary.columns_to_create}</div>
                       <div className="text-xs text-muted-foreground">Columns to Create</div>
@@ -1332,6 +1341,15 @@ function SuperAdminContent() {
                       <div className="text-2xl font-bold text-amber-500">{syncPreviewData.summary.total_values_to_mark_system}</div>
                       <div className="text-xs text-muted-foreground">Values to Mark System</div>
                     </Card>
+                    {syncPreviewData.summary.total_hidden_system_values > 0 && (
+                      <Card className="p-3">
+                        <div className="text-2xl font-bold text-muted-foreground flex items-center justify-center gap-1">
+                          <EyeOff className="h-5 w-5" />
+                          {syncPreviewData.summary.total_hidden_system_values}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Hidden by Company</div>
+                      </Card>
+                    )}
                   </div>
 
                   {syncPreviewData.columns_to_create.length > 0 && (
@@ -1391,10 +1409,21 @@ function SuperAdminContent() {
                                 </div>
                               )}
                               {col.values_to_mark_system.length > 0 && (
-                                <div>
+                                <div className="mb-1">
                                   <span className="text-xs text-amber-600 font-medium">Mark as system: </span>
                                   {col.values_to_mark_system.map((v: string) => (
                                     <Badge key={v} variant="outline" className="mr-1 border-amber-500 text-amber-600">{v}</Badge>
+                                  ))}
+                                </div>
+                              )}
+                              {col.hidden_system_values?.length > 0 && (
+                                <div>
+                                  <span className="text-xs text-muted-foreground font-medium flex items-center gap-1 mb-1">
+                                    <EyeOff className="h-3 w-3" />
+                                    Hidden by company:
+                                  </span>
+                                  {col.hidden_system_values.map((v: string) => (
+                                    <Badge key={v} variant="outline" className="mr-1 opacity-60">{v}</Badge>
                                   ))}
                                 </div>
                               )}

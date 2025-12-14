@@ -189,7 +189,10 @@ export function FilterConditionBuilder({
 
   const getDropdownOptions = (columnKey: string) => {
     const column = companyColumns.find((col) => col.column_key === columnKey);
-    return column?.config?.dropdown_options || [];
+    const allOptions = column?.config?.dropdown_options || [];
+    const hiddenSystemValues = column?.config?.hidden_system_values || [];
+    // Filter out hidden system values from dropdown options
+    return allOptions.filter((opt: string) => !hiddenSystemValues.includes(opt));
   };
 
   return (

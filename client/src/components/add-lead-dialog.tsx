@@ -361,6 +361,11 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
         );
 
       case "dropdown":
+        // Filter out hidden system values from dropdown options
+        const hiddenSystemValues = col.config?.hidden_system_values || [];
+        const visibleOptions = (col.config?.dropdown_options || []).filter(
+          (opt: string) => !hiddenSystemValues.includes(opt)
+        );
         return (
           <div key={col.id} className="space-y-2">
             <Label htmlFor={col.column_key}>
@@ -375,7 +380,7 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
                 <SelectValue placeholder={`Select ${col.name}`} />
               </SelectTrigger>
               <SelectContent>
-                {col.config.dropdown_options?.map((opt) => (
+                {visibleOptions.map((opt: string) => (
                   <SelectItem key={opt} value={opt}>
                     {opt}
                   </SelectItem>

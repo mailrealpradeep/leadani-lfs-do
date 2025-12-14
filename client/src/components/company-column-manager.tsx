@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, Loader2, Edit2, X, Check, Lightbulb, GripVertical, Lock } from "lucide-react";
+import { Plus, Trash2, Loader2, Edit2, X, Check, Lightbulb, GripVertical, Lock, Eye, EyeOff } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -227,6 +228,46 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
       toast({
         variant: "destructive",
         title: "Failed to delete column",
+        description: error.message,
+      });
+    },
+  });
+
+  // Toggle individual system value visibility
+  const toggleSystemValueMutation = useMutation({
+    mutationFn: async ({ columnId, value }: { columnId: string; value: string }) => {
+      return await apiRequest("POST", `/api/company/columns/${columnId}/toggle-system-value`, { value });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/columns"] });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to toggle value",
+        description: error.message,
+      });
+    },
+  });
+
+  // Bulk toggle all system values
+  const bulkToggleSystemValuesMutation = useMutation({
+    mutationFn: async ({ columnId, action }: { columnId: string; action: "hide_all" | "show_all" }) => {
+      return await apiRequest("POST", `/api/company/columns/${columnId}/bulk-toggle-system-values`, { action });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/columns"] });
+      toast({
+        title: variables.action === "show_all" ? "All values enabled" : "All values disabled",
+        description: variables.action === "show_all" 
+          ? "All system values are now visible in dropdowns" 
+          : "All system values are now hidden from dropdowns",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to update values",
         description: error.message,
       });
     },
@@ -531,6 +572,8 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
                         setDeleteDialogOpen(true);
                       }}
                       updateColumnMutation={updateColumnMutation}
+                      toggleSystemValueMutation={toggleSystemValueMutation}
+                      bulkToggleSystemValuesMutation={bulkToggleSystemValuesMutation}
                       typeLabels={typeLabels}
                     />
                   ))}
@@ -636,6 +679,8 @@ function SortableColumnItem({
   cancelEditing,
   onDeleteClick,
   updateColumnMutation,
+  toggleSystemValueMutation,
+  bulkToggleSystemValuesMutation,
   typeLabels,
 }: {
   column: CustomColumn;
@@ -657,6 +702,8 @@ function SortableColumnItem({
   cancelEditing: () => void;
   onDeleteClick: (column: CustomColumn) => void;
   updateColumnMutation: any;
+  toggleSystemValueMutation: any;
+  bulkToggleSystemValuesMutation: any;
   typeLabels: Record<string, string>;
 }) {
   const {
@@ -728,41 +775,116 @@ function SortableColumnItem({
           </div>
 
           {editColumnType === "dropdown" && (
-            <div className="space-y-2">
-              <Label>Dropdown Options</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Enter option"
-                  value={editDropdownInput}
-                  onChange={(e) => setEditDropdownInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddEditDropdownOption();
-                    }
-                  }}
-                  data-testid="input-edit-dropdown-option"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAddEditDropdownOption}
-                  disabled={!editDropdownInput.trim()}
-                  data-testid="button-edit-add-dropdown-option"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-              {editDropdownOptions.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {editDropdownOptions.map((option, index) => (
-                    <Badge key={index} variant="secondary" className="gap-1">
-                      {option}
-                      {isSystemValue(option) ? (
-                        <span title="System value - cannot be deleted" data-testid={`icon-lock-system-value-${index}`}>
-                          <Lock className="h-3 w-3 ml-1 text-muted-foreground" />
-                        </span>
-                      ) : (
+            <div className="space-y-4">
+              {/* System Values Section */}
+              {column.config?.system_values && (column.config.system_values as string[]).length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Lock className="h-4 w-4 text-muted-foreground" />
+                      <Label className="text-sm font-medium">System Values</Label>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => bulkToggleSystemValuesMutation.mutate({ columnId: column.id, action: "show_all" })}
+                        disabled={bulkToggleSystemValuesMutation.isPending}
+                        data-testid="button-enable-all-system-values"
+                      >
+                        <Eye className="h-3 w-3 mr-1" />
+                        Enable All
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => bulkToggleSystemValuesMutation.mutate({ columnId: column.id, action: "hide_all" })}
+                        disabled={bulkToggleSystemValuesMutation.isPending}
+                        data-testid="button-disable-all-system-values"
+                      >
+                        <EyeOff className="h-3 w-3 mr-1" />
+                        Disable All
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="border rounded-lg divide-y">
+                    {(column.config.system_values as string[]).map((sysVal, index) => {
+                      const hiddenValues = (column.config?.hidden_system_values as string[] | undefined) || [];
+                      const isHidden = hiddenValues.some(h => h.toLowerCase() === sysVal.toLowerCase());
+                      return (
+                        <div
+                          key={sysVal}
+                          className="flex items-center justify-between p-3"
+                          data-testid={`system-value-row-${index}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Lock className="h-3 w-3 text-muted-foreground" />
+                            <span className={isHidden ? "text-muted-foreground line-through" : ""}>
+                              {sysVal}
+                            </span>
+                            {isHidden && (
+                              <Badge variant="secondary" className="text-xs">
+                                Hidden
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {isHidden ? "Disabled" : "Enabled"}
+                            </span>
+                            <Switch
+                              checked={!isHidden}
+                              onCheckedChange={() => {
+                                toggleSystemValueMutation.mutate({ columnId: column.id, value: sysVal });
+                              }}
+                              disabled={toggleSystemValueMutation.isPending}
+                              data-testid={`switch-system-value-${index}`}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Disabled system values won't appear in dropdown selections for new leads. Existing leads keep their values.
+                  </p>
+                </div>
+              )}
+
+              {/* Custom Values Section */}
+              <div className="space-y-2">
+                <Label>Custom Values</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Enter custom option"
+                    value={editDropdownInput}
+                    onChange={(e) => setEditDropdownInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddEditDropdownOption();
+                      }
+                    }}
+                    data-testid="input-edit-dropdown-option"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleAddEditDropdownOption}
+                    disabled={!editDropdownInput.trim()}
+                    data-testid="button-edit-add-dropdown-option"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                {/* Show only custom values (non-system) */}
+                {editDropdownOptions.filter(opt => !isSystemValue(opt)).length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {editDropdownOptions.filter(opt => !isSystemValue(opt)).map((option, index) => (
+                      <Badge key={option} variant="secondary" className="gap-1">
+                        {option}
                         <button
                           type="button"
                           onClick={() => handleRemoveEditDropdownOption(option)}
@@ -771,14 +893,14 @@ function SortableColumnItem({
                         >
                           <X className="h-3 w-3" />
                         </button>
-                      )}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-              {editColumnType === "dropdown" && editDropdownOptions.length === 0 && (
-                <p className="text-xs text-muted-foreground">Add at least one option for dropdown columns</p>
-              )}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {editColumnType === "dropdown" && editDropdownOptions.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Add at least one option for dropdown columns</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -836,11 +958,24 @@ function SortableColumnItem({
               </div>
               {column.type === "dropdown" && column.config?.dropdown_options && (
                 <div className="flex flex-wrap gap-1 mt-2">
-                  {(column.config.dropdown_options as string[]).map((option, idx) => (
-                    <Badge key={idx} variant="secondary" className="text-xs">
-                      {option}
-                    </Badge>
-                  ))}
+                  {(column.config.dropdown_options as string[]).map((option, idx) => {
+                    const systemValues = (column.config?.system_values as string[] | undefined) || [];
+                    const hiddenValues = (column.config?.hidden_system_values as string[] | undefined) || [];
+                    const isSysValue = systemValues.some(s => s.toLowerCase() === option.toLowerCase());
+                    const isHidden = hiddenValues.some(h => h.toLowerCase() === option.toLowerCase());
+                    
+                    return (
+                      <Badge 
+                        key={idx} 
+                        variant="secondary" 
+                        className={`text-xs ${isHidden ? "opacity-50 line-through" : ""}`}
+                      >
+                        {isSysValue && <Lock className="h-2.5 w-2.5 mr-1" />}
+                        {option}
+                        {isHidden && <EyeOff className="h-2.5 w-2.5 ml-1" />}
+                      </Badge>
+                    );
+                  })}
                 </div>
               )}
             </div>

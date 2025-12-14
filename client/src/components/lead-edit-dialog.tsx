@@ -126,7 +126,9 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange }: LeadEdit
 
     switch (column.type) {
       case "dropdown":
-        const options = config?.dropdown_options || [];
+        const allOptions = config?.dropdown_options || [];
+        const hiddenSystemValues = config?.hidden_system_values || [];
+        const currentValue = value;
         return (
           <Select
             value={value ?? ""}
@@ -136,11 +138,20 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange }: LeadEdit
               <SelectValue placeholder={`Select ${column.name}`} />
             </SelectTrigger>
             <SelectContent>
-              {options.map((opt: string) => (
-                <SelectItem key={opt} value={opt}>
-                  {opt}
-                </SelectItem>
-              ))}
+              {allOptions.map((opt: string) => {
+                const isHidden = hiddenSystemValues.includes(opt);
+                // Show hidden values only if they are the current value
+                if (isHidden && opt !== currentValue) return null;
+                return (
+                  <SelectItem 
+                    key={opt} 
+                    value={opt}
+                    className={isHidden ? "text-muted-foreground opacity-60" : ""}
+                  >
+                    {opt}{isHidden ? " (disabled)" : ""}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         );

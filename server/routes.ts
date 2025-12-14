@@ -2124,6 +2124,7 @@ ${questionsList}`;
         values_to_add: string[];
         values_to_mark_system: string[];
         will_convert_to_dropdown: boolean;
+        hidden_system_values: string[];
       }> = [];
       
       // Check each system column type
@@ -2159,6 +2160,10 @@ ${questionsList}`;
             }
           }
           
+          // Get hidden system values from column config
+          const config = existingColumn.config as { hidden_system_values?: string[] } | null;
+          const hiddenSystemValues = config?.hidden_system_values || [];
+          
           columnsExisting.push({
             column_key: columnType,
             name: existingColumn.name,
@@ -2167,6 +2172,7 @@ ${questionsList}`;
             values_to_add: valuesToAdd,
             values_to_mark_system: valuesToMarkSystem,
             will_convert_to_dropdown: existingColumn.type !== 'dropdown',
+            hidden_system_values: hiddenSystemValues,
           });
         }
       }
@@ -2176,6 +2182,7 @@ ${questionsList}`;
                                columnsToCreate.reduce((sum, col) => sum + col.values.length, 0);
       const totalValuesToMarkSystem = columnsExisting.reduce((sum, col) => sum + col.values_to_mark_system.length, 0);
       const totalColumnsToConvert = columnsExisting.filter(col => col.will_convert_to_dropdown).length;
+      const totalHiddenSystemValues = columnsExisting.reduce((sum, col) => sum + col.hidden_system_values.length, 0);
       
       res.json({
         company: {
@@ -2189,6 +2196,7 @@ ${questionsList}`;
           columns_to_convert: totalColumnsToConvert,
           total_values_to_add: totalValuesToAdd,
           total_values_to_mark_system: totalValuesToMarkSystem,
+          total_hidden_system_values: totalHiddenSystemValues,
           has_changes: totalColumnsToCreate > 0 || totalValuesToAdd > 0 || totalValuesToMarkSystem > 0 || totalColumnsToConvert > 0,
         },
       });

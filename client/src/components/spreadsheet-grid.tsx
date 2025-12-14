@@ -2767,7 +2767,12 @@ export function SpreadsheetGrid({
           })) as any}
           dropdownOptions={customColumns.reduce((acc, col) => {
             if (col.type === "dropdown" && col.config?.dropdown_options) {
-              acc[col.column_key] = col.config.dropdown_options.map((opt: string, idx: number) => ({
+              const hiddenSystemValues = col.config?.hidden_system_values || [];
+              // Filter out hidden system values for validation prompts
+              const visibleOptions = col.config.dropdown_options.filter(
+                (opt: string) => !hiddenSystemValues.includes(opt)
+              );
+              acc[col.column_key] = visibleOptions.map((opt: string, idx: number) => ({
                 id: `${col.column_key}-${idx}`,
                 value: opt,
                 column_key: col.column_key,
@@ -3577,11 +3582,25 @@ export function SpreadsheetGrid({
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {col.config.dropdown_options?.map((opt) => (
-                                  <SelectItem key={opt} value={opt}>
-                                    {opt}
-                                  </SelectItem>
-                                ))}
+                                {(() => {
+                                  const allOptions = col.config?.dropdown_options || [];
+                                  const hiddenSystemValues = col.config?.hidden_system_values || [];
+                                  const currentValue = lead.custom_fields?.[col.key];
+                                  return allOptions.map((opt: string) => {
+                                    const isHidden = hiddenSystemValues.includes(opt);
+                                    // Show hidden values only if they are the current value (with visual indicator)
+                                    if (isHidden && opt !== currentValue) return null;
+                                    return (
+                                      <SelectItem 
+                                        key={opt} 
+                                        value={opt}
+                                        className={isHidden ? "text-muted-foreground opacity-60" : ""}
+                                      >
+                                        {opt}{isHidden ? " (disabled)" : ""}
+                                      </SelectItem>
+                                    );
+                                  });
+                                })()}
                               </SelectContent>
                             </Select>
                           ) : col.type === "date" ? (
