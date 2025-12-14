@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Pencil, Save, X, Calendar as CalendarIcon, Clock, AlertCircle, Star, Sparkles, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Pencil, Save, X, Calendar as CalendarIcon, Clock, AlertCircle, Star, Sparkles, ChevronRight, CheckCircle2, ArrowUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sheet,
@@ -60,6 +60,12 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
   const [triggerChange, setTriggerChange] = useState<{ column_key: string; old_value: any; new_value: any } | null>(null);
   const [validationFieldValues, setValidationFieldValues] = useState<Record<string, any>>({});
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [showValidationAlert, setShowValidationAlert] = useState(false);
+  
+  // Refs for scrolling and focusing
+  const validationSectionRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const { data: lead, isLoading: isLoadingLead } = useQuery<Lead>({
     queryKey: ["/api/leads", leadId],
@@ -96,6 +102,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       setTriggerChange(null);
       setValidationFieldValues({});
       setValidationErrors({});
+      setShowValidationAlert(false);
     }
   }, [lead, open]);
 
@@ -221,8 +228,9 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     }
   };
 
-  const validateRequiredFields = (): boolean => {
-    if (!triggeredRule) return true;
+  // Returns newErrors object so we can use it immediately (avoids stale state issue)
+  const validateRequiredFields = (): Record<string, string> => {
+    if (!triggeredRule) return {};
     
     const newErrors: Record<string, string> = {};
     requiredColumns.forEach((rc) => {
@@ -237,21 +245,42 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     });
 
     setValidationErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return newErrors;
+  };
+
+  // Scroll to validation section and focus first error field
+  // Accepts errors directly to avoid stale state from async React updates
+  const scrollToValidationSection = (errors: Record<string, string>) => {
+    // First scroll the container to top to show validation section
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    
+    // Find first error field and focus it after scroll
+    setTimeout(() => {
+      const firstErrorKey = Object.keys(errors)[0];
+      if (firstErrorKey && fieldRefs.current[firstErrorKey]) {
+        fieldRefs.current[firstErrorKey]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Try to focus the input inside
+        const input = fieldRefs.current[firstErrorKey]?.querySelector('input, select, textarea, button');
+        if (input) (input as HTMLElement).focus();
+      }
+    }, 300);
   };
 
   const handleSave = () => {
     // If validation rule is triggered, validate required fields first
     if (triggeredRule) {
-      if (!validateRequiredFields()) {
-        toast({
-          variant: "destructive",
-          title: "Missing required fields",
-          description: "Please fill in all required fields before saving",
-        });
+      const errors = validateRequiredFields();
+      if (Object.keys(errors).length > 0) {
+        setShowValidationAlert(true);
+        scrollToValidationSection(errors);
         return;
       }
     }
+    
+    // Clear alert on successful validation
+    setShowValidationAlert(false);
     
     // Merge validation field values into form values
     const finalValues = { ...formValues, ...validationFieldValues };
@@ -270,6 +299,16 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     setTriggerChange(null);
     setValidationFieldValues({});
     setValidationErrors({});
+    setShowValidationAlert(false);
+  };
+
+  // Jump to specific field handler
+  const jumpToField = (columnKey: string) => {
+    if (fieldRefs.current[columnKey]) {
+      fieldRefs.current[columnKey]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const input = fieldRefs.current[columnKey]?.querySelector('input, select, textarea, button');
+      if (input) (input as HTMLElement).focus();
+    }
   };
 
   const sortedColumns = [...columns].sort((a, b) => a.order_index - b.order_index);
@@ -747,7 +786,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto py-4">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto py-4">
           {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3, 4, 5].map((i) => (
@@ -759,10 +798,45 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Inline Validation Error Alert - Shown when save fails validation */}
+              <AnimatePresence>
+                {showValidationAlert && Object.keys(validationErrors).length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 space-y-2"
+                    data-testid="validation-error-alert"
+                  >
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0" />
+                      <span className="text-sm font-medium text-destructive">
+                        Missing required fields
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.keys(validationErrors).map((key) => (
+                        <Badge
+                          key={key}
+                          variant="outline"
+                          className="cursor-pointer border-destructive/50 text-destructive hover:bg-destructive/10 text-xs"
+                          onClick={() => jumpToField(key)}
+                          data-testid={`badge-jump-to-${key}`}
+                        >
+                          <ArrowUp className="h-3 w-3 mr-1" />
+                          {getColumnLabel(key)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Validation Rule Section - Shown when a rule is triggered */}
               <AnimatePresence>
                 {triggeredRule && triggerChange && (
                   <motion.div
+                    ref={validationSectionRef}
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
@@ -805,14 +879,19 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                           {requiredColumns
                             .filter(rc => rc.is_required)
                             .map((rc) => (
-                              <div key={rc.column_key} className="space-y-1.5">
+                              <div 
+                                key={rc.column_key} 
+                                className="space-y-1.5"
+                                ref={(el) => { fieldRefs.current[rc.column_key] = el; }}
+                              >
                                 <Label className="flex items-center gap-1.5 text-sm">
                                   {getColumnLabel(rc.column_key)}
                                   <Star className="h-3 w-3 text-destructive fill-destructive" />
                                 </Label>
                                 {renderValidationFieldInput(rc.column_key, true)}
                                 {validationErrors[rc.column_key] && (
-                                  <p className="text-xs text-destructive">
+                                  <p className="text-xs text-destructive flex items-center gap-1">
+                                    <AlertCircle className="h-3 w-3" />
                                     {validationErrors[rc.column_key]}
                                   </p>
                                 )}
@@ -831,7 +910,11 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                           {requiredColumns
                             .filter(rc => !rc.is_required)
                             .map((rc) => (
-                              <div key={rc.column_key} className="space-y-1.5">
+                              <div 
+                                key={rc.column_key} 
+                                className="space-y-1.5"
+                                ref={(el) => { fieldRefs.current[rc.column_key] = el; }}
+                              >
                                 <Label className="text-sm text-muted-foreground">
                                   {getColumnLabel(rc.column_key)}
                                 </Label>
