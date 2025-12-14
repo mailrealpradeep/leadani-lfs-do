@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, GripVertical, X, Loader2 } from "lucide-react";
+import { Plus, GripVertical, X, Loader2, Lock } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Dialog,
@@ -13,6 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { DropdownOption } from "@shared/schema";
 
 interface DropdownManagerModalProps {
@@ -66,6 +71,22 @@ export function DropdownManagerModal({
         description: "Dropdown option has been deleted successfully",
       });
     },
+    onError: (error: Error) => {
+      const errorMessage = error.message.toLowerCase();
+      if (errorMessage.includes("system") || errorMessage.includes("403")) {
+        toast({
+          title: "Cannot delete system value",
+          description: "System values are protected and cannot be deleted.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to delete option",
+          variant: "destructive",
+        });
+      }
+    },
   });
 
   const handleAddOption = (e: React.FormEvent) => {
@@ -115,16 +136,49 @@ export function DropdownManagerModal({
                         data-testid={`dropdown-option-${option.id}`}
                       >
                         <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
-                        <span className="flex-1 text-sm">{option.value}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => deleteOptionMutation.mutate(option.id)}
-                          data-testid={`button-delete-option-${option.id}`}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                        <span className="flex-1 text-sm flex items-center gap-2">
+                          {option.value}
+                          {option.is_system && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Lock className="h-3 w-3 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>System value - cannot be deleted</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </span>
+                        {option.is_system ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 opacity-30 cursor-not-allowed"
+                                  disabled
+                                  data-testid={`button-delete-option-${option.id}`}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>System values cannot be deleted</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => deleteOptionMutation.mutate(option.id)}
+                            data-testid={`button-delete-option-${option.id}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     ))
                 )}

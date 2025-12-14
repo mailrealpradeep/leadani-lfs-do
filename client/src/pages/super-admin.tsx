@@ -25,6 +25,11 @@ import {
   Lightbulb,
   History,
   LayoutDashboard,
+  Database,
+  Plus,
+  Lock,
+  GripVertical,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -116,7 +121,18 @@ interface UserWithCompany {
   company_name: string | null;
 }
 
-type Section = "dashboard" | "users" | "companies" | "recovery" | "api-docs" | "api-keys" | "future";
+interface SystemValueDefinition {
+  id: string;
+  column_type: 'lead_status' | 'visit_status' | 'visit_type' | 'lost_reason';
+  value: string;
+  display_order: number;
+  is_active: boolean;
+  deprecated_at: string | null;
+  replaced_by: string | null;
+  created_at: string;
+}
+
+type Section = "dashboard" | "users" | "companies" | "recovery" | "api-docs" | "api-keys" | "system-values" | "future";
 
 const SUPER_ADMIN_EMAIL = "adminleadani@leadani.com";
 
@@ -124,6 +140,7 @@ const menuItems = [
   { id: "dashboard" as Section, title: "Dashboard", icon: LayoutDashboard },
   { id: "users" as Section, title: "Users", icon: Users },
   { id: "companies" as Section, title: "Companies", icon: Building2 },
+  { id: "system-values" as Section, title: "System Values", icon: Database },
   { id: "recovery" as Section, title: "Recovery", icon: History },
   { id: "api-docs" as Section, title: "API Docs", icon: Code },
   { id: "api-keys" as Section, title: "API Keys", icon: Key },
@@ -678,6 +695,223 @@ function SuperAdminContent() {
     </div>
   );
 
+  // System Values state
+  const [selectedColumnType, setSelectedColumnType] = useState<string>("lead_status");
+  const [newValueInput, setNewValueInput] = useState("");
+  const [isAddingValue, setIsAddingValue] = useState(false);
+
+  const { data: systemValues = [], isLoading: systemValuesLoading, refetch: refetchSystemValues } = useQuery<SystemValueDefinition[]>({
+    queryKey: ["/api/admin/system-values"],
+    enabled: isSuperAdmin && activeSection === "system-values",
+  });
+
+  const createSystemValueMutation = useMutation({
+    mutationFn: async (data: { column_type: string; value: string }) => {
+      return await apiRequest("POST", "/api/admin/system-values", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/system-values"] });
+      setNewValueInput("");
+      setIsAddingValue(false);
+      toast({ title: "Success", description: "System value created" });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  const deprecateSystemValueMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/admin/system-values/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/system-values"] });
+      toast({ title: "Value deprecated", description: "System value has been deprecated" });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  const restoreSystemValueMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("PATCH", `/api/admin/system-values/${id}`, { is_active: true, deprecated_at: null });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/system-values"] });
+      toast({ title: "Value restored", description: "System value has been restored" });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  const columnTypeLabels: Record<string, string> = {
+    lead_status: "Lead Status",
+    visit_status: "Visit Status",
+    visit_type: "Visit Type",
+    lost_reason: "Lost Reason",
+  };
+
+  const filteredSystemValues = systemValues
+    .filter(v => v.column_type === selectedColumnType)
+    .sort((a, b) => a.display_order - b.display_order);
+
+  const renderSystemValues = () => (
+    <div className="flex flex-col h-full space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={selectedColumnType} onValueChange={setSelectedColumnType}>
+          <SelectTrigger className="w-[200px]" data-testid="select-column-type">
+            <SelectValue placeholder="Select column type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="lead_status">Lead Status</SelectItem>
+            <SelectItem value="visit_status">Visit Status</SelectItem>
+            <SelectItem value="visit_type">Visit Type</SelectItem>
+            <SelectItem value="lost_reason">Lost Reason</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          onClick={() => setIsAddingValue(true)}
+          disabled={isAddingValue}
+          data-testid="button-add-value"
+        >
+          <Plus className="h-4 w-4 mr-1" />
+          Add Value
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => refetchSystemValues()}
+          data-testid="button-refresh-values"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {isAddingValue && (
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <Input
+              placeholder="Enter new value..."
+              value={newValueInput}
+              onChange={(e) => setNewValueInput(e.target.value)}
+              className="flex-1"
+              data-testid="input-new-value"
+            />
+            <Button
+              onClick={() => {
+                if (newValueInput.trim()) {
+                  createSystemValueMutation.mutate({
+                    column_type: selectedColumnType,
+                    value: newValueInput.trim(),
+                  });
+                }
+              }}
+              disabled={!newValueInput.trim() || createSystemValueMutation.isPending}
+              data-testid="button-save-value"
+            >
+              {createSystemValueMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsAddingValue(false);
+                setNewValueInput("");
+              }}
+              data-testid="button-cancel-add"
+            >
+              Cancel
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      <Card className="flex-1 flex flex-col min-h-0">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Lock className="h-4 w-4" />
+            {columnTypeLabels[selectedColumnType] || selectedColumnType} Values
+            <Badge variant="secondary" className="ml-auto">
+              {filteredSystemValues.length} values
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 min-h-0 p-0">
+          <ScrollArea className="h-full">
+            {systemValuesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredSystemValues.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <AlertCircle className="h-8 w-8 mb-2" />
+                <p>No system values defined for {columnTypeLabels[selectedColumnType]}</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10">#</TableHead>
+                    <TableHead>Value</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredSystemValues.map((v, idx) => (
+                    <TableRow key={v.id} className={v.deprecated_at ? "opacity-50" : ""} data-testid={`row-value-${v.id}`}>
+                      <TableCell className="text-muted-foreground">
+                        <GripVertical className="h-4 w-4" />
+                      </TableCell>
+                      <TableCell className="font-medium">{v.value}</TableCell>
+                      <TableCell>
+                        {v.deprecated_at ? (
+                          <Badge variant="destructive">Deprecated</Badge>
+                        ) : v.is_active ? (
+                          <Badge variant="default">Active</Badge>
+                        ) : (
+                          <Badge variant="secondary">Inactive</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {format(parseISO(v.created_at), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {v.deprecated_at ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => restoreSystemValueMutation.mutate(v.id)}
+                            disabled={restoreSystemValueMutation.isPending}
+                            data-testid={`button-restore-${v.id}`}
+                          >
+                            Restore
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => deprecateSystemValueMutation.mutate(v.id)}
+                            disabled={deprecateSystemValueMutation.isPending}
+                            data-testid={`button-deprecate-${v.id}`}
+                          >
+                            Deprecate
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </ScrollArea>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   const renderContent = () => {
     switch (activeSection) {
       case "dashboard":
@@ -704,6 +938,8 @@ function SuperAdminContent() {
             <ApiKeysManager />
           </div>
         );
+      case "system-values":
+        return renderSystemValues();
       case "future":
         return <FutureImprovements />;
       default:
@@ -717,6 +953,7 @@ function SuperAdminContent() {
     dashboard: "System overview and statistics",
     users: "Manage all system users",
     companies: "Manage all registered companies",
+    "system-values": "Manage system-wide column values",
     recovery: "Restore data from point-in-time snapshots",
     "api-docs": "Reference for API integration",
     "api-keys": "Manage API access credentials",

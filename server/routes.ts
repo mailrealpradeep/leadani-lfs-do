@@ -2068,6 +2068,211 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // SYSTEM VALUE DEFINITIONS CRUD (SuperAdmin Only)
+  // ============================================================================
+  
+  // Get all system value definitions
+  app.get("/api/admin/system-values", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const definitions = await storage.getSystemValueDefinitions();
+      res.json(definitions);
+    } catch (error: any) {
+      console.error("Get system values error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Get system value definitions by column type
+  app.get("/api/admin/system-values/:columnType", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { columnType } = req.params;
+      const validTypes = ['lead_status', 'visit_status', 'visit_type', 'lost_reason'];
+      if (!validTypes.includes(columnType)) {
+        return res.status(400).json({ error: `Invalid column type. Must be one of: ${validTypes.join(', ')}` });
+      }
+      const definitions = await storage.getSystemValueDefinitionsByType(columnType as any);
+      res.json(definitions);
+    } catch (error: any) {
+      console.error("Get system values by type error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Create a new system value definition
+  app.post("/api/admin/system-values", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { column_type, value, display_order } = req.body;
+      
+      if (!column_type || !value) {
+        return res.status(400).json({ error: "column_type and value are required" });
+      }
+      
+      const validTypes = ['lead_status', 'visit_status', 'visit_type', 'lost_reason'];
+      if (!validTypes.includes(column_type)) {
+        return res.status(400).json({ error: `Invalid column type. Must be one of: ${validTypes.join(', ')}` });
+      }
+      
+      // Check for duplicates
+      const existing = await storage.getSystemValueDefinitionsByType(column_type);
+      const duplicate = existing.find(e => e.value.toLowerCase() === value.toLowerCase());
+      if (duplicate) {
+        return res.status(409).json({ error: `Value "${value}" already exists for ${column_type}` });
+      }
+      
+      // Get max display_order if not provided
+      const maxOrder = existing.reduce((max, e) => Math.max(max, e.display_order), -1);
+      
+      const definition = await storage.createSystemValueDefinition({
+        column_type,
+        value: value.trim(),
+        display_order: display_order ?? maxOrder + 1,
+        is_active: true,
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: null,
+        action: "create",
+        model: "system_value_definition",
+        model_id: definition.id,
+        payload: { column_type, value },
+      });
+      
+      res.status(201).json(definition);
+    } catch (error: any) {
+      console.error("Create system value error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Update a system value definition (e.g., deprecate, reorder)
+  app.patch("/api/admin/system-values/:id", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const existing = await storage.getSystemValueDefinition(id);
+      if (!existing) {
+        return res.status(404).json({ error: "System value not found" });
+      }
+      
+      // Only allow certain updates
+      const allowedFields = ['display_order', 'is_active', 'deprecated_at', 'replaced_by'];
+      const filteredUpdates: any = {};
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          filteredUpdates[field] = updates[field];
+        }
+      }
+      
+      const updated = await storage.updateSystemValueDefinition(id, filteredUpdates);
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: null,
+        action: "update",
+        model: "system_value_definition",
+        model_id: id,
+        payload: filteredUpdates,
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update system value error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Reorder system values for a column type
+  app.post("/api/admin/system-values/:columnType/reorder", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { columnType } = req.params;
+      const { orderedIds } = req.body;
+      
+      if (!Array.isArray(orderedIds)) {
+        return res.status(400).json({ error: "orderedIds must be an array" });
+      }
+      
+      const validTypes = ['lead_status', 'visit_status', 'visit_type', 'lost_reason'];
+      if (!validTypes.includes(columnType)) {
+        return res.status(400).json({ error: `Invalid column type. Must be one of: ${validTypes.join(', ')}` });
+      }
+      
+      // Update each item's display_order
+      for (let i = 0; i < orderedIds.length; i++) {
+        await storage.updateSystemValueDefinition(orderedIds[i], { display_order: i });
+      }
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: null,
+        action: "reorder",
+        model: "system_value_definition",
+        model_id: null,
+        payload: { columnType, orderedIds },
+      });
+      
+      const updated = await storage.getSystemValueDefinitionsByType(columnType as any);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Reorder system values error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Delete a system value definition (soft delete - deprecate instead of hard delete)
+  app.delete("/api/admin/system-values/:id", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { hardDelete } = req.query;
+      
+      const existing = await storage.getSystemValueDefinition(id);
+      if (!existing) {
+        return res.status(404).json({ error: "System value not found" });
+      }
+      
+      if (hardDelete === 'true') {
+        // Hard delete - only for truly unused values
+        await storage.deleteSystemValueDefinition(id);
+        
+        await storage.createAuditLog({
+          user_id: req.userId!,
+          company_id: null,
+          action: "delete",
+          model: "system_value_definition",
+          model_id: id,
+          payload: { value: existing.value, column_type: existing.column_type },
+        });
+        
+        res.json({ message: "System value deleted" });
+      } else {
+        // Soft delete - deprecate
+        const updated = await storage.updateSystemValueDefinition(id, {
+          deprecated_at: new Date().toISOString(),
+          is_active: false,
+        });
+        
+        await storage.createAuditLog({
+          user_id: req.userId!,
+          company_id: null,
+          action: "deprecate",
+          model: "system_value_definition",
+          model_id: id,
+          payload: { value: existing.value, column_type: existing.column_type },
+        });
+        
+        res.json(updated);
+      }
+    } catch (error: any) {
+      console.error("Delete system value error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // COMPANY SETTINGS
   // ============================================================================
   // Get company settings (available to all authenticated users in company)
