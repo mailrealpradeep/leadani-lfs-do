@@ -1117,6 +1117,21 @@ export function SpreadsheetGrid({
         ? (isLoadingMultiLeads || isLoadingCompanyColumns)
         : (isLoadingSingleLeads || isLoadingSingleColumns);
 
+  // Delayed loading bar - only show if fetching takes > 300ms to avoid flicker on quick saves
+  const [showLoadingBar, setShowLoadingBar] = useState(false);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (isFetchingLeads) {
+      timer = setTimeout(() => setShowLoadingBar(true), 300);
+    } else {
+      setShowLoadingBar(false);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [isFetchingLeads]);
+
   const updateLeadMutation = useMutation({
     mutationFn: async ({ leadId, customFields }: { leadId: string; customFields: Record<string, any> }) => {
       return await apiRequest("PATCH", `/api/leads/${leadId}`, { custom_fields: customFields });
@@ -3336,8 +3351,8 @@ export function SpreadsheetGrid({
               </DndContext>
 
               {/* Table Body */}
-              {/* Loading indicator bar when refetching with existing data */}
-              {isFetchingLeads && filteredAndSortedLeads.length > 0 && (
+              {/* Loading indicator bar when refetching with existing data - delayed to avoid flicker */}
+              {showLoadingBar && filteredAndSortedLeads.length > 0 && (
                 <div className="h-1 bg-primary/20 overflow-hidden">
                   <div className="h-full bg-primary animate-pulse w-full" />
                 </div>
