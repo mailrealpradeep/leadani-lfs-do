@@ -5216,7 +5216,7 @@ ${questionsList}`;
         company_id: companyId,
         action: "reset_column_order",
         model: "user_sheet_views",
-        model_id: null,
+        model_id: companyId,
         payload: { 
           sheet_ids: sheet_ids === 'all' ? 'all' : targetSheetIds,
           affected_count: result.rowCount
