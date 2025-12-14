@@ -219,7 +219,7 @@ export function ValidationPromptDialog({
                 {dateValue ? format(dateValue, "dd/MM/yyyy") : `Select ${column.name}`}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
+            <PopoverContent className="w-auto p-0" align="start" side="top" sideOffset={5}>
               <Calendar
                 mode="single"
                 selected={dateValue}
@@ -266,7 +266,7 @@ export function ValidationPromptDialog({
                 {datetimeValue ? format(datetimeValue, "dd/MM/yyyy HH:mm") : `Select ${column.name}`}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
+            <PopoverContent className="w-auto p-0" align="start" side="top" sideOffset={5}>
               <Calendar
                 mode="single"
                 selected={datetimeValue}
@@ -383,7 +383,7 @@ export function ValidationPromptDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-hidden p-0">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] p-0">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -412,7 +412,7 @@ export function ValidationPromptDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <ScrollArea className="max-h-[50vh] px-6">
+          <ScrollArea className="h-[calc(60vh-10rem)] max-h-[400px] px-6 overflow-y-auto">
             <div className="py-4 space-y-4">
               {requiredCount > 0 && (
                 <motion.div 
