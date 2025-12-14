@@ -95,9 +95,9 @@ export function LeadUpdateDialog({
     prevOpenRef.current = open;
   }, [open, leadId, sheetId]);
 
-  // Fetch company settings for quick_update_fields
+  // Fetch company settings for quick_update_fields (using non-admin endpoint)
   const { data: settingsData } = useQuery<{ settings: CompanySettings }>({
-    queryKey: ["/api/admin/company/settings"],
+    queryKey: ["/api/company/settings"],
     enabled: open,
   });
 
