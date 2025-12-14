@@ -6889,6 +6889,7 @@ ${questionsList}`;
     { name: "Full Name", column_key: "full_name", type: "text" as const, order_index: 0 },
     { name: "Mobile No", column_key: "mobile_no", type: "mobile" as const, order_index: 1 },
     { name: "Created At", column_key: "created_at", type: "datetime" as const, order_index: 2 },
+    { name: "Next Follow-up Date", column_key: "next_followup_date", type: "datetime" as const, order_index: 3 },
   ];
 
   // Get company-wide columns (and optionally sheet-specific overrides)
