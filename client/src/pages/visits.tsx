@@ -611,9 +611,9 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, o
           )}>
             {visit.sheet_name}
           </div>
-          {statusColumn && visit.custom_fields?.[statusColumn] && (
+          {visit.custom_fields?.["visit_type"] && (
             <Badge variant="outline" className="text-xs" data-testid={`badge-visit-type-${visit.id}`}>
-              {String(visit.custom_fields[statusColumn])}
+              {String(visit.custom_fields["visit_type"])}
             </Badge>
           )}
         </div>
