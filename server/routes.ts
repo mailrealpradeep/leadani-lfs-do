@@ -6124,18 +6124,31 @@ ${questionsList}`;
       const beforeFields = flattenLeadFields(lead);
 
       // Extract system fields (created_at, attended_at) from custom_fields and apply to lead columns
+      // Convert string timestamps to Date objects for Drizzle compatibility
       const updatePayload: any = { ...req.body };
       if (req.body.custom_fields) {
         // Deep copy custom_fields to avoid mutating original
         updatePayload.custom_fields = { ...req.body.custom_fields };
-        // Extract created_at from custom_fields if present
+        // Extract created_at from custom_fields if present and convert to Date
         if (updatePayload.custom_fields.created_at !== undefined) {
-          updatePayload.created_at = updatePayload.custom_fields.created_at || null;
+          const createdAtValue = updatePayload.custom_fields.created_at;
+          if (createdAtValue) {
+            const dateObj = new Date(createdAtValue);
+            updatePayload.created_at = isNaN(dateObj.getTime()) ? null : dateObj;
+          } else {
+            updatePayload.created_at = null;
+          }
           delete updatePayload.custom_fields.created_at;
         }
-        // Extract attended_at from custom_fields if present
+        // Extract attended_at from custom_fields if present and convert to Date
         if (updatePayload.custom_fields.attended_at !== undefined) {
-          updatePayload.attended_at = updatePayload.custom_fields.attended_at || null;
+          const attendedAtValue = updatePayload.custom_fields.attended_at;
+          if (attendedAtValue) {
+            const dateObj = new Date(attendedAtValue);
+            updatePayload.attended_at = isNaN(dateObj.getTime()) ? null : dateObj;
+          } else {
+            updatePayload.attended_at = null;
+          }
           delete updatePayload.custom_fields.attended_at;
         }
       }
