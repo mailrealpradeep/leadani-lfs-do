@@ -142,6 +142,19 @@ const OPERATORS_BY_TYPE: Record<string, Array<{ value: string; label: string }>>
     { value: "is_empty", label: "Is empty" },
     { value: "is_not_empty", label: "Is not empty" },
   ],
+  datetime: [
+    { value: "date_equals", label: "Equals date" },
+    { value: "date_before", label: "Before date" },
+    { value: "date_after", label: "After date" },
+    { value: "is_today", label: "Is today" },
+    { value: "is_before_today", label: "Is before today" },
+    { value: "is_after_today", label: "Is after today" },
+    { value: "is_this_week", label: "Is this week" },
+    { value: "is_next_week", label: "Is next week" },
+    { value: "is_last_week", label: "Is last week" },
+    { value: "is_empty", label: "Is empty" },
+    { value: "is_not_empty", label: "Is not empty" },
+  ],
   dropdown: [
     { value: "equals", label: "Equals" },
     { value: "not_equals", label: "Does not equal" },
@@ -683,7 +696,7 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
                               <SelectItem value="false">No</SelectItem>
                             </SelectContent>
                           </Select>
-                        ) : columnType === "date" ? (
+                        ) : columnType === "date" || columnType === "datetime" ? (
                           <Input
                             type="date"
                             value={condition.value as string || ""}
