@@ -279,23 +279,22 @@ export function ValidationPromptDialog({
               <div className="p-3 border-t flex items-center gap-2">
                 <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 <span className="text-sm text-muted-foreground">Time:</span>
-                <div className="relative h-9 w-28">
-                  <Input
-                    type="time"
-                    className="h-9 w-full absolute inset-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                    defaultValue={currentTime}
-                    onChange={(e) => {
-                      const timeValue = e.target.value;
-                      if (timeValue) {
-                        const [hours, minutes] = timeValue.split(':').map(Number);
-                        const newDate = datetimeValue ? new Date(datetimeValue) : new Date();
-                        newDate.setHours(hours, minutes);
-                        handleFieldChange(columnKey, newDate.toISOString());
-                      }
-                    }}
-                    data-testid={`time-input-validation-${columnKey}`}
-                  />
-                </div>
+                <Input
+                  type="time"
+                  className="h-9 w-28 cursor-pointer"
+                  defaultValue={currentTime}
+                  onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                  onChange={(e) => {
+                    const timeValue = e.target.value;
+                    if (timeValue) {
+                      const [hours, minutes] = timeValue.split(':').map(Number);
+                      const newDate = datetimeValue ? new Date(datetimeValue) : new Date();
+                      newDate.setHours(hours, minutes);
+                      handleFieldChange(columnKey, newDate.toISOString());
+                    }
+                  }}
+                  data-testid={`time-input-validation-${columnKey}`}
+                />
               </div>
               <div className="px-3 pb-3 flex gap-2">
                 <Button

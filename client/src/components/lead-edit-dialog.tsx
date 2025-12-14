@@ -229,8 +229,9 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange }: LeadEdit
                 <span className="text-sm text-muted-foreground">Time:</span>
                 <Input
                   type="time"
-                  className="h-9 w-28"
+                  className="h-9 w-28 cursor-pointer"
                   defaultValue={currentTime}
+                  onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                   onChange={(e) => {
                     const timeValue = e.target.value;
                     if (timeValue) {

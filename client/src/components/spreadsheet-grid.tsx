@@ -3742,10 +3742,11 @@ export function SpreadsheetGrid({
                                   <span className="text-sm text-muted-foreground">Time:</span>
                                   <Input
                                     type="time"
-                                    className="h-8 w-24"
+                                    className="h-8 w-24 cursor-pointer"
                                     defaultValue={editingCell?.originalValue 
                                       ? format(new Date(editingCell.originalValue), "HH:mm")
                                       : "09:00"}
+                                    onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                                     onBlur={(e) => {
                                       const timeValue = e.target.value;
                                       if (timeValue && editingCell?.originalValue) {
