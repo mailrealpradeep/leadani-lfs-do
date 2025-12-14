@@ -871,7 +871,7 @@ export class MemStorage implements IStorage {
     }
 
     // Create default sheet for the company
-    await this.createSheet({
+    const defaultSheet = await this.createSheet({
       company_id: company.id,
       name: "My First Sheet",
       owner_id: admin.id,
@@ -879,6 +879,36 @@ export class MemStorage implements IStorage {
       visibility: "company",
       settings: {},
     });
+
+    // Create company-wide system dropdown values
+    const systemValues = await this.getSystemValueDefinitions();
+    const activeSystemValues = systemValues.filter(sv => !sv.is_deprecated);
+    
+    // Group values by column type
+    const valuesByColumn: Record<string, typeof activeSystemValues> = {};
+    for (const sv of activeSystemValues) {
+      if (!valuesByColumn[sv.column_type]) {
+        valuesByColumn[sv.column_type] = [];
+      }
+      valuesByColumn[sv.column_type].push(sv);
+    }
+    
+    // Create dropdown options for each system column type (company-wide, not sheet-specific)
+    for (const [columnType, values] of Object.entries(valuesByColumn)) {
+      // Sort values by order_index
+      values.sort((a, b) => a.order_index - b.order_index);
+      
+      for (const systemValue of values) {
+        await this.createDropdownOption({
+          company_id: company.id,
+          sheet_id: null, // Company-wide, not sheet-specific
+          column_key: columnType,
+          value: systemValue.value,
+          order_index: systemValue.order_index,
+          is_system: true,
+        });
+      }
+    }
 
     // Create audit log
     await this.createAuditLog({
@@ -3000,6 +3030,64 @@ export class PgStorage implements IStorage {
       password_hash: passwordHash, 
       role: 'company_admin' 
     } as any);
+
+    // Create default columns for the company
+    const { getDefaultColumnsForCompany } = await import("@shared/schema");
+    const defaultColumns = getDefaultColumnsForCompany(company.id);
+    for (const columnDef of defaultColumns) {
+      await this.createCustomColumn(columnDef);
+    }
+
+    // Create default sheet for the company
+    const defaultSheet = await this.createSheet({
+      company_id: company.id,
+      name: "My First Sheet",
+      owner_id: admin.id,
+      is_personal: false,
+      visibility: "company",
+      settings: {},
+    });
+
+    // Create company-wide system dropdown values
+    const systemValues = await this.getSystemValueDefinitions();
+    const activeSystemValues = systemValues.filter(sv => !sv.is_deprecated);
+    
+    // Group values by column type
+    const valuesByColumn: Record<string, typeof activeSystemValues> = {};
+    for (const sv of activeSystemValues) {
+      if (!valuesByColumn[sv.column_type]) {
+        valuesByColumn[sv.column_type] = [];
+      }
+      valuesByColumn[sv.column_type].push(sv);
+    }
+    
+    // Create dropdown options for each system column type (company-wide, not sheet-specific)
+    for (const [columnType, values] of Object.entries(valuesByColumn)) {
+      // Sort values by order_index
+      values.sort((a, b) => a.order_index - b.order_index);
+      
+      for (const systemValue of values) {
+        await this.createDropdownOption({
+          company_id: company.id,
+          sheet_id: null, // Company-wide, not sheet-specific
+          column_key: columnType,
+          value: systemValue.value,
+          order_index: systemValue.order_index,
+          is_system: true,
+        });
+      }
+    }
+
+    // Create audit log
+    await this.createAuditLog({
+      user_id: admin.id,
+      company_id: company.id,
+      action: "company_signup",
+      model: "Company",
+      model_id: company.id,
+      payload: { company_name: companyName, admin_email: adminEmail },
+    });
+
     const token = generateToken(admin.id, admin.role, admin.company_id);
     return { company, admin, token };
   }
