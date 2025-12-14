@@ -679,6 +679,12 @@ export interface IStorage {
   createSystemValueDefinition(definition: InsertSystemValueDefinition): Promise<SystemValueDefinition>;
   updateSystemValueDefinition(id: string, updates: Partial<SystemValueDefinition>): Promise<SystemValueDefinition | undefined>;
   deleteSystemValueDefinition(id: string): Promise<boolean>;
+
+  // =========================================================================
+  // RAW SQL (For migrations and administrative tasks)
+  // =========================================================================
+  
+  executeRawQuery(query: string, params?: any[]): Promise<{ rows: any[]; rowCount: number }>;
 }
 
 export class MemStorage implements IStorage {
@@ -2836,6 +2842,11 @@ export class MemStorage implements IStorage {
   }
   async deleteSystemValueDefinition(_id: string): Promise<boolean> {
     return false;
+  }
+
+  // Raw SQL (not implemented in MemStorage)
+  async executeRawQuery(_query: string, _params?: any[]): Promise<{ rows: any[]; rowCount: number }> {
+    throw new Error("Raw SQL queries not implemented in MemStorage");
   }
 }
 
@@ -7300,6 +7311,19 @@ export class PgStorage implements IStorage {
       .where(eq(dbSchema.system_value_definitions.id, id))
       .returning();
     return result.length > 0;
+  }
+
+  // =========================================================================
+  // RAW SQL (For migrations and administrative tasks)
+  // =========================================================================
+
+  async executeRawQuery(query: string, params: any[] = []): Promise<{ rows: any[]; rowCount: number }> {
+    const { pool } = await import("./db");
+    const result = await pool.query(query, params);
+    return {
+      rows: result.rows || [],
+      rowCount: result.rowCount || 0,
+    };
   }
 }
 

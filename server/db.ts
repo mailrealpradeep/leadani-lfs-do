@@ -10,3 +10,6 @@ const connectionString = process.env.DATABASE_URL!;
 
 const pool = new Pool({ connectionString });
 export const db = drizzle(pool, { schema });
+
+// Export pool for raw SQL queries
+export { pool };

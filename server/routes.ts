@@ -1687,6 +1687,177 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // SYSTEM COLUMNS MIGRATION (Super Admin Only)
+  // ============================================================================
+  
+  // Dry-run migration report - shows what values need to be migrated
+  app.get("/api/admin/system-columns/migration-report", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Define migration mappings
+      const migrations = [
+        { from: 'Talked', to: 'Contacted', field: 'lead_status' },
+        { from: 'Talking', to: 'Follow Up', field: 'lead_status' },
+        { from: 'Invalid No', to: 'Invalid Data', field: 'lead_status' },
+        { from: 'Not Eligible', to: 'Lost', field: 'lead_status', addLostReason: 'Eligibility Issue' },
+      ];
+      
+      const results = [];
+      
+      for (const migration of migrations) {
+        // Count leads with the old value
+        const countResult = await storage.executeRawQuery(
+          `SELECT COUNT(*) as count FROM leads 
+           WHERE deleted_at IS NULL 
+           AND custom_fields->>'${migration.field}' = $1`,
+          [migration.from]
+        );
+        
+        const count = parseInt(countResult.rows[0]?.count || '0', 10);
+        
+        // Get breakdown by company and sheet
+        const breakdownResult = await storage.executeRawQuery(
+          `SELECT 
+            s.company_id,
+            c.name as company_name,
+            l.sheet_id,
+            s.name as sheet_name,
+            COUNT(*) as count
+           FROM leads l
+           JOIN sheets s ON l.sheet_id = s.id
+           JOIN companies c ON s.company_id = c.id
+           WHERE l.deleted_at IS NULL 
+           AND l.custom_fields->>'${migration.field}' = $1
+           GROUP BY s.company_id, c.name, l.sheet_id, s.name
+           ORDER BY c.name, s.name`,
+          [migration.from]
+        );
+        
+        results.push({
+          from: migration.from,
+          to: migration.to,
+          field: migration.field,
+          addLostReason: migration.addLostReason || null,
+          totalCount: count,
+          breakdown: breakdownResult.rows.map((row: any) => ({
+            companyId: row.company_id,
+            companyName: row.company_name,
+            sheetId: row.sheet_id,
+            sheetName: row.sheet_name,
+            count: parseInt(row.count, 10),
+          })),
+        });
+      }
+      
+      const totalAffected = results.reduce((sum, r) => sum + r.totalCount, 0);
+      
+      res.json({
+        status: 'dry_run',
+        totalLeadsAffected: totalAffected,
+        migrations: results,
+        message: totalAffected > 0 
+          ? `Found ${totalAffected} leads that need migration. Review the breakdown and call POST /api/admin/system-columns/execute-migration to proceed.`
+          : 'No leads found that need migration.',
+      });
+    } catch (error: any) {
+      console.error("Migration report error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // Execute migration - actually performs the value changes
+  app.post("/api/admin/system-columns/execute-migration", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { confirm } = req.body;
+      
+      if (confirm !== true) {
+        return res.status(400).json({ 
+          error: "Migration requires confirmation", 
+          message: "Send { confirm: true } to execute the migration" 
+        });
+      }
+      
+      // Define migration mappings
+      const migrations = [
+        { from: 'Talked', to: 'Contacted', field: 'lead_status' },
+        { from: 'Talking', to: 'Follow Up', field: 'lead_status' },
+        { from: 'Invalid No', to: 'Invalid Data', field: 'lead_status' },
+        { from: 'Not Eligible', to: 'Lost', field: 'lead_status', addLostReason: 'Eligibility Issue' },
+      ];
+      
+      const results = [];
+      let totalMigrated = 0;
+      
+      for (const migration of migrations) {
+        // Simple status change migrations
+        if (!migration.addLostReason) {
+          const updateResult = await storage.executeRawQuery(
+            `UPDATE leads 
+             SET custom_fields = jsonb_set(custom_fields::jsonb, '{${migration.field}}', $1::jsonb),
+                 updated_at = NOW()
+             WHERE deleted_at IS NULL 
+             AND custom_fields->>'${migration.field}' = $2
+             RETURNING id`,
+            [JSON.stringify(migration.to), migration.from]
+          );
+          
+          const migratedCount = updateResult.rows.length;
+          totalMigrated += migratedCount;
+          results.push({
+            from: migration.from,
+            to: migration.to,
+            field: migration.field,
+            migratedCount,
+          });
+        } else {
+          // Migration that also sets lost_reason
+          const updateResult = await storage.executeRawQuery(
+            `UPDATE leads 
+             SET custom_fields = jsonb_set(
+               jsonb_set(custom_fields::jsonb, '{${migration.field}}', $1::jsonb),
+               '{lost_reason}', $2::jsonb
+             ),
+             updated_at = NOW()
+             WHERE deleted_at IS NULL 
+             AND custom_fields->>'${migration.field}' = $3
+             RETURNING id`,
+            [JSON.stringify(migration.to), JSON.stringify(migration.addLostReason), migration.from]
+          );
+          
+          const migratedCount = updateResult.rows.length;
+          totalMigrated += migratedCount;
+          results.push({
+            from: migration.from,
+            to: migration.to,
+            field: migration.field,
+            addedLostReason: migration.addLostReason,
+            migratedCount,
+          });
+        }
+      }
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: null,
+        action: "system_column_migration",
+        model: "lead",
+        model_id: null,
+        payload: { totalMigrated, results },
+      });
+      
+      res.json({
+        status: 'completed',
+        totalMigrated,
+        migrations: results,
+        message: `Successfully migrated ${totalMigrated} leads.`,
+      });
+    } catch (error: any) {
+      console.error("Migration execution error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // COMPANY SETTINGS
   // ============================================================================
   // Get company settings (available to all authenticated users in company)
