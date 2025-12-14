@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Pencil, Save, X, Calendar as CalendarIcon } from "lucide-react";
+import { Pencil, Save, X, Calendar as CalendarIcon, Clock } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -185,6 +185,87 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange }: LeadEdit
                 }}
                 initialFocus
               />
+            </PopoverContent>
+          </Popover>
+        );
+
+      case "datetime":
+        const datetimeValue = normalizeDate(value);
+        const currentTime = datetimeValue ? format(datetimeValue, "HH:mm") : "09:00";
+        return (
+          <Popover 
+            open={datePickerOpen === column.column_key} 
+            onOpenChange={(open) => setDatePickerOpen(open ? column.column_key : null)}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full min-h-[44px] justify-start text-left font-normal"
+                data-testid={`datetime-picker-${column.column_key}`}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {datetimeValue ? format(datetimeValue, "dd/MM/yy HH:mm") : `Select ${column.name}`}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={datetimeValue}
+                onSelect={(date) => {
+                  if (date) {
+                    // Preserve existing time or default to 09:00
+                    if (datetimeValue) {
+                      date.setHours(datetimeValue.getHours(), datetimeValue.getMinutes());
+                    } else {
+                      date.setHours(9, 0);
+                    }
+                    handleFieldChange(column.column_key, date.toISOString());
+                  }
+                }}
+                initialFocus
+              />
+              <div className="p-3 border-t flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">Time:</span>
+                <Input
+                  type="time"
+                  className="h-9 w-28"
+                  defaultValue={currentTime}
+                  onChange={(e) => {
+                    const timeValue = e.target.value;
+                    if (timeValue) {
+                      const [hours, minutes] = timeValue.split(':').map(Number);
+                      const newDate = datetimeValue ? new Date(datetimeValue) : new Date();
+                      newDate.setHours(hours, minutes);
+                      handleFieldChange(column.column_key, newDate.toISOString());
+                    }
+                  }}
+                  data-testid={`time-input-${column.column_key}`}
+                />
+              </div>
+              <div className="px-3 pb-3 flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-muted-foreground"
+                  onClick={() => {
+                    handleFieldChange(column.column_key, null);
+                    setDatePickerOpen(null);
+                  }}
+                  data-testid={`button-clear-datetime-${column.column_key}`}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setDatePickerOpen(null)}
+                  data-testid={`button-done-datetime-${column.column_key}`}
+                >
+                  Done
+                </Button>
+              </div>
             </PopoverContent>
           </Popover>
         );
