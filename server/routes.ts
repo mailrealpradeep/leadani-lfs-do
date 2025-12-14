@@ -2252,8 +2252,12 @@ ${questionsList}`;
       for (const [columnType, systemValuesList] of Object.entries(systemValuesByType)) {
         const existingColumn = columnsByKey.get(columnType);
         
-        // Step 1: Create column if it doesn't exist
+        // Get existing config dropdown_options (for merging later)
+        let existingConfigOptions: string[] = [];
+        
+        // Step 1: Create or update column
         if (!existingColumn) {
+          // Create new column with system values in config
           maxColumnOrderIndex++;
           await storage.createCustomColumn({
             company_id: companyId,
@@ -2261,19 +2265,44 @@ ${questionsList}`;
             name: columnDisplayNames[columnType] || columnType,
             column_key: columnType,
             type: 'dropdown',
-            config: { dropdown_options: [], is_system_column: true },
+            config: { dropdown_options: [...systemValuesList], is_system_column: true },
             order_index: maxColumnOrderIndex,
           });
           columnsCreated++;
-        } else if (existingColumn.type !== 'dropdown') {
-          // Convert existing column to dropdown type
-          await storage.updateCustomColumn(existingColumn.id, {
-            type: 'dropdown',
-            config: { ...existingColumn.config, dropdown_options: [], is_system_column: true },
-          });
+        } else {
+          // Column exists - get existing dropdown options from config
+          existingConfigOptions = (existingColumn.config as any)?.dropdown_options || [];
+          
+          // Merge: existing custom values + system values (avoid duplicates, case-insensitive)
+          const existingLower = new Set(existingConfigOptions.map(v => v.toLowerCase()));
+          const mergedOptions = [...existingConfigOptions];
+          for (const sysVal of systemValuesList) {
+            if (!existingLower.has(sysVal.toLowerCase())) {
+              mergedOptions.push(sysVal);
+            }
+          }
+          
+          if (existingColumn.type !== 'dropdown') {
+            // Convert non-dropdown to dropdown type with merged values
+            await storage.updateCustomColumn(existingColumn.id, {
+              type: 'dropdown',
+              config: { ...existingColumn.config, dropdown_options: mergedOptions, is_system_column: true },
+            });
+          } else {
+            // Already dropdown - update config to add is_system_column and merge values
+            const currentConfig = existingColumn.config || {};
+            const needsUpdate = !(currentConfig as any).is_system_column || 
+                               mergedOptions.length !== existingConfigOptions.length;
+            
+            if (needsUpdate) {
+              await storage.updateCustomColumn(existingColumn.id, {
+                config: { ...currentConfig, dropdown_options: mergedOptions, is_system_column: true },
+              });
+            }
+          }
         }
         
-        // Step 2: Sync dropdown options
+        // Step 2: Sync dropdown_options table (for is_system tracking)
         const existingOptions = await storage.getDropdownOptionsByColumn(company.id, columnType);
         const existingValueMap = new Map(existingOptions.map(opt => [opt.value.toLowerCase(), opt]));
         
