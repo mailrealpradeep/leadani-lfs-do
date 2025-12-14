@@ -38,6 +38,7 @@ import { DataManagement } from "@/components/data-management";
 import { HotLeadsConfigManager } from "@/components/hot-leads-config";
 import { ValidationRulesManager } from "@/components/validation-rules-manager";
 import { CustomViewsManager } from "@/components/custom-views-manager";
+import { QuickUpdateFieldsSettings } from "@/components/quick-update-fields-settings";
 import { Flame, ClipboardCheck, Eye } from "lucide-react";
 import type { Sheet } from "@shared/schema";
 
@@ -824,6 +825,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <SiteVisitSettings headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="quick-update-fields" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-quick-update-fields">
+              <div className="flex items-center gap-3">
+                <Pencil className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Quick Update Fields</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure optional fields shown in Record Lead Update dialog
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <QuickUpdateFieldsSettings headless />
               </div>
             </AccordionContent>
           </AccordionItem>

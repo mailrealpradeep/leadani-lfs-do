@@ -2675,6 +2675,7 @@ export function SpreadsheetGrid({
           <LeadUpdateDialog
             key={`update-dialog-${selectedLeadForUpdate}`}
             leadId={selectedLeadForUpdate}
+            sheetId={leads.find(l => l.id === selectedLeadForUpdate)?.sheet_id || activeSheetId}
             open={updateDialogOpen}
             onOpenChange={(open) => {
               setUpdateDialogOpen(open);

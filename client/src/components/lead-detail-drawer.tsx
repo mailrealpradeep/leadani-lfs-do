@@ -435,6 +435,7 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
       {leadId && (
         <LeadUpdateDialog
           leadId={leadId}
+          sheetId={effectiveSheetId}
           open={addUpdateDialogOpen}
           onOpenChange={setAddUpdateDialogOpen}
         />
