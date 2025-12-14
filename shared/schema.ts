@@ -881,6 +881,7 @@ export const dropdown_options = pgTable('dropdown_options', {
   column_key: varchar('column_key', { length: 255 }).notNull(),
   value: varchar('value', { length: 255 }).notNull(),
   order_index: integer('order_index').notNull().default(0),
+  is_system: boolean('is_system').default(false).notNull(),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
