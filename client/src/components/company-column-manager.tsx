@@ -759,7 +759,9 @@ function SortableColumnItem({
                     <Badge key={index} variant="secondary" className="gap-1">
                       {option}
                       {isSystemValue(option) ? (
-                        <Lock className="h-3 w-3 ml-1 text-muted-foreground" title="System value - cannot be deleted" data-testid={`icon-lock-system-value-${index}`} />
+                        <span title="System value - cannot be deleted" data-testid={`icon-lock-system-value-${index}`}>
+                          <Lock className="h-3 w-3 ml-1 text-muted-foreground" />
+                        </span>
                       ) : (
                         <button
                           type="button"

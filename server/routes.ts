@@ -2199,9 +2199,11 @@ ${questionsList}`;
   });
 
   // Sync system values to a single company (with column creation)
+  // Query param: ?force=true to bypass "already synced" checks and force update system_values
   app.post("/api/admin/system-columns/sync-company/:companyId", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
     try {
       const { companyId } = req.params;
+      const forceSync = req.query.force === 'true';
       
       // Get the company
       const company = await storage.getCompany(companyId);
@@ -2292,7 +2294,8 @@ ${questionsList}`;
             // Already dropdown - update config to add is_system_column, system_values and merge values
             const currentConfig = existingColumn.config || {};
             const hasSystemValues = Array.isArray((currentConfig as any).system_values) && (currentConfig as any).system_values.length > 0;
-            const needsUpdate = !(currentConfig as any).is_system_column || 
+            const needsUpdate = forceSync || 
+                               !(currentConfig as any).is_system_column || 
                                !hasSystemValues ||
                                mergedOptions.length !== existingConfigOptions.length;
             

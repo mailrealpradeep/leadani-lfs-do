@@ -782,6 +782,21 @@ function SuperAdminContent() {
     },
   });
 
+  const forceSyncCompanyMutation = useMutation({
+    mutationFn: async (companyId: string) => {
+      return await apiRequest("POST", `/api/admin/system-columns/sync-company/${companyId}?force=true`);
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Force sync completed", description: "System values and lock icons refreshed for all columns" });
+      setSyncTargetCompanyId("");
+      setShowSyncPreview(false);
+      setSyncPreviewData(null);
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Force sync failed", description: error.message });
+    },
+  });
+
   const handlePreviewSync = async () => {
     if (!syncTargetCompanyId) return;
     setIsLoadingPreview(true);
@@ -1284,6 +1299,17 @@ function SuperAdminContent() {
                 <div className="text-center py-6 text-muted-foreground">
                   <Check className="h-12 w-12 mx-auto mb-2 text-green-500" />
                   <p className="font-medium">All system columns and values are already synced!</p>
+                  <p className="text-sm mt-2">If lock icons are not showing, use Force Sync below.</p>
+                  <Button 
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => forceSyncCompanyMutation.mutate(syncTargetCompanyId)}
+                    disabled={forceSyncCompanyMutation.isPending}
+                    data-testid="button-force-sync"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-1 ${forceSyncCompanyMutation.isPending ? 'animate-spin' : ''}`} />
+                    {forceSyncCompanyMutation.isPending ? "Force Syncing..." : "Force Sync"}
+                  </Button>
                 </div>
               ) : (
                 <>
