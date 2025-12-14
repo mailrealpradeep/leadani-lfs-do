@@ -267,6 +267,8 @@ export interface CustomColumn {
     dropdown_options?: string[];
     required?: boolean;
     is_system_column?: boolean; // System columns (Full Name, Mobile No) cannot be deleted
+    system_values?: string[]; // Values defined by Super Admin (locked, can't be deleted)
+    hidden_system_values?: string[]; // System values this company has chosen to hide
   };
   order_index: number; // for column ordering
   is_system: boolean; // true = system-defined column that cannot be deleted
@@ -286,6 +288,7 @@ export const insertCustomColumnSchema = z.object({
     required: z.boolean().optional(),
     is_system_column: z.boolean().optional(),
     system_values: z.array(z.string()).optional(),
+    hidden_system_values: z.array(z.string()).optional(),
   }).default({}),
   order_index: z.number().default(0),
   is_system: z.boolean().optional(), // Defaults to false in storage layer
@@ -897,6 +900,8 @@ export const custom_columns = pgTable('custom_columns', {
     default_value?: any;
     dropdown_options?: string[];
     required?: boolean;
+    system_values?: string[];
+    hidden_system_values?: string[];
   }>().default({}).notNull(),
   order_index: integer('order_index').notNull().default(0),
   created_at: timestamp('created_at').defaultNow().notNull(),

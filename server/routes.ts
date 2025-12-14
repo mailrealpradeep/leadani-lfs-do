@@ -7218,6 +7218,139 @@ ${questionsList}`;
     }
   });
 
+  // Toggle system value visibility for a column (Company Admin only)
+  // POST /api/company/columns/:columnId/toggle-system-value
+  app.post("/api/company/columns/:columnId/toggle-system-value", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const column = await storage.getCustomColumnById(req.params.columnId);
+      if (!column) {
+        return res.status(404).json({ error: "Column not found" });
+      }
+
+      // Company admins can only modify columns in their company
+      if (column.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot modify columns from other companies" });
+      }
+
+      // Only works for dropdown columns with system values
+      if (column.type !== "dropdown") {
+        return res.status(400).json({ error: "Only dropdown columns support system value visibility" });
+      }
+
+      const { value, hidden } = req.body;
+      if (!value || typeof value !== "string") {
+        return res.status(400).json({ error: "Value is required" });
+      }
+      if (typeof hidden !== "boolean") {
+        return res.status(400).json({ error: "Hidden must be a boolean" });
+      }
+
+      const config = column.config || {};
+      const systemValues = (config as any).system_values || [];
+      
+      // Verify this is actually a system value
+      if (!systemValues.some((sv: string) => sv.toLowerCase() === value.toLowerCase())) {
+        return res.status(400).json({ error: "Value is not a system value" });
+      }
+
+      // Update hidden_system_values array
+      let hiddenSystemValues: string[] = (config as any).hidden_system_values || [];
+      
+      if (hidden) {
+        // Add to hidden list (case-insensitive check, store original value)
+        if (!hiddenSystemValues.some(hv => hv.toLowerCase() === value.toLowerCase())) {
+          hiddenSystemValues.push(value);
+        }
+      } else {
+        // Remove from hidden list (case-insensitive)
+        hiddenSystemValues = hiddenSystemValues.filter(hv => hv.toLowerCase() !== value.toLowerCase());
+      }
+
+      // Update column config
+      const updatedConfig = {
+        ...config,
+        hidden_system_values: hiddenSystemValues,
+      };
+
+      const updated = await storage.updateCustomColumn(req.params.columnId, { config: updatedConfig });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: column.company_id,
+        action: "update",
+        model: "custom_column",
+        model_id: req.params.columnId,
+        payload: { toggled_system_value: value, hidden },
+      });
+
+      res.json({ 
+        success: true, 
+        value, 
+        hidden,
+        hidden_system_values: hiddenSystemValues 
+      });
+    } catch (error: any) {
+      console.error("Toggle system value visibility error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Bulk toggle all system values visibility (Company Admin only)
+  app.post("/api/company/columns/:columnId/bulk-toggle-system-values", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const column = await storage.getCustomColumnById(req.params.columnId);
+      if (!column) {
+        return res.status(404).json({ error: "Column not found" });
+      }
+
+      if (column.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot modify columns from other companies" });
+      }
+
+      if (column.type !== "dropdown") {
+        return res.status(400).json({ error: "Only dropdown columns support system value visibility" });
+      }
+
+      const { action } = req.body; // "hide_all" or "show_all"
+      if (!["hide_all", "show_all"].includes(action)) {
+        return res.status(400).json({ error: "Action must be 'hide_all' or 'show_all'" });
+      }
+
+      const config = column.config || {};
+      const systemValues: string[] = (config as any).system_values || [];
+      
+      // Update hidden_system_values based on action
+      const hiddenSystemValues = action === "hide_all" ? [...systemValues] : [];
+
+      const updatedConfig = {
+        ...config,
+        hidden_system_values: hiddenSystemValues,
+      };
+
+      const updated = await storage.updateCustomColumn(req.params.columnId, { config: updatedConfig });
+
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: column.company_id,
+        action: "update",
+        model: "custom_column",
+        model_id: req.params.columnId,
+        payload: { bulk_action: action, affected_values: systemValues.length },
+      });
+
+      res.json({ 
+        success: true, 
+        action,
+        hidden_system_values: hiddenSystemValues 
+      });
+    } catch (error: any) {
+      console.error("Bulk toggle system values error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Delete company column (Company Admin only)
   app.delete("/api/company/columns/:columnId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
