@@ -7256,17 +7256,9 @@ ${questionsList}`;
       const isSystemColumn = PROTECTED_SYSTEM_COLUMN_KEYS.includes(column.column_key) || 
                              (column.config && (column.config as any).is_system_column);
 
-      // Protect system columns from critical modifications
+      // Protect system columns from critical modifications (only protect required and system flags, allow type changes)
       if (isSystemColumn) {
-        const { type, config } = req.body;
-        
-        // Block type changes for system columns
-        if (type !== undefined && type !== column.type) {
-          return res.status(400).json({ 
-            error: "Cannot modify system column", 
-            message: `The "${column.name}" column type cannot be changed.` 
-          });
-        }
+        const { config } = req.body;
         
         // Block explicit removal of required or is_system_column flags
         if (config !== undefined) {
