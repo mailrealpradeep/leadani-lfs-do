@@ -3680,6 +3680,53 @@ export function SpreadsheetGrid({
                                 </div>
                               </PopoverContent>
                             </Popover>
+                          ) : col.type === "datetime" ? (
+                            <Input
+                              type="datetime-local"
+                              className="h-8 min-w-[180px]"
+                              defaultValue={editingCell?.originalValue 
+                                ? formatInTimezone(editingCell.originalValue, "yyyy-MM-dd'T'HH:mm")
+                                : ""}
+                              onBlur={(e) => {
+                                const val = e.target.value;
+                                if (val) {
+                                  // Parse as local datetime and convert to ISO
+                                  const localDate = new Date(val);
+                                  const isoDateTime = localDate.toISOString();
+                                  const updatedFields = {
+                                    ...lead.custom_fields,
+                                    [col.key]: isoDateTime,
+                                  };
+                                  updateLeadMutation.mutate({
+                                    leadId: lead.id,
+                                    customFields: updatedFields,
+                                  });
+                                }
+                                setEditingCell(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  const val = (e.target as HTMLInputElement).value;
+                                  if (val) {
+                                    const localDate = new Date(val);
+                                    const isoDateTime = localDate.toISOString();
+                                    const updatedFields = {
+                                      ...lead.custom_fields,
+                                      [col.key]: isoDateTime,
+                                    };
+                                    updateLeadMutation.mutate({
+                                      leadId: lead.id,
+                                      customFields: updatedFields,
+                                    });
+                                  }
+                                  setEditingCell(null);
+                                } else if (e.key === "Escape") {
+                                  setEditingCell(null);
+                                }
+                              }}
+                              autoFocus
+                              data-testid={`input-datetime-${col.key}`}
+                            />
                           ) : (
                             <Input
                               value={editValue}
