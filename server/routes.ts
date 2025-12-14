@@ -2265,7 +2265,7 @@ ${questionsList}`;
             name: columnDisplayNames[columnType] || columnType,
             column_key: columnType,
             type: 'dropdown',
-            config: { dropdown_options: [...systemValuesList], is_system_column: true },
+            config: { dropdown_options: [...systemValuesList], is_system_column: true, system_values: [...systemValuesList] },
             order_index: maxColumnOrderIndex,
           });
           columnsCreated++;
@@ -2286,7 +2286,7 @@ ${questionsList}`;
             // Convert non-dropdown to dropdown type with merged values
             await storage.updateCustomColumn(existingColumn.id, {
               type: 'dropdown',
-              config: { ...existingColumn.config, dropdown_options: mergedOptions, is_system_column: true },
+              config: { ...existingColumn.config, dropdown_options: mergedOptions, is_system_column: true, system_values: [...systemValuesList] },
             });
           } else {
             // Already dropdown - update config to add is_system_column and merge values
@@ -2296,7 +2296,7 @@ ${questionsList}`;
             
             if (needsUpdate) {
               await storage.updateCustomColumn(existingColumn.id, {
-                config: { ...currentConfig, dropdown_options: mergedOptions, is_system_column: true },
+                config: { ...currentConfig, dropdown_options: mergedOptions, is_system_column: true, system_values: [...systemValuesList] },
               });
             }
           }

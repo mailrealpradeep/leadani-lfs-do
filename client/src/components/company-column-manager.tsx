@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, Loader2, Edit2, X, Check, Lightbulb, GripVertical } from "lucide-react";
+import { Plus, Trash2, Loader2, Edit2, X, Check, Lightbulb, GripVertical, Lock } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -315,7 +315,18 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
   };
 
   const handleRemoveEditDropdownOption = (option: string) => {
+    // Don't allow removal of system values
+    const systemVals = (editColumnConfig?.system_values || []).map((v: string) => v.toLowerCase());
+    if (systemVals.includes(option.toLowerCase())) {
+      return;
+    }
     setEditDropdownOptions(editDropdownOptions.filter(o => o !== option));
+  };
+  
+  // Helper to check if an option is a system value
+  const isSystemValue = (option: string) => {
+    const systemVals = (editColumnConfig?.system_values || []).map((v: string) => v.toLowerCase());
+    return systemVals.includes(option.toLowerCase());
   };
 
   const typeLabels: Record<string, string> = {
@@ -512,6 +523,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
                       handleUpdateColumn={handleUpdateColumn}
                       handleAddEditDropdownOption={handleAddEditDropdownOption}
                       handleRemoveEditDropdownOption={handleRemoveEditDropdownOption}
+                      isSystemValue={isSystemValue}
                       startEditingColumn={startEditingColumn}
                       cancelEditing={cancelEditing}
                       onDeleteClick={(col) => {
@@ -619,6 +631,7 @@ function SortableColumnItem({
   handleUpdateColumn,
   handleAddEditDropdownOption,
   handleRemoveEditDropdownOption,
+  isSystemValue,
   startEditingColumn,
   cancelEditing,
   onDeleteClick,
@@ -639,6 +652,7 @@ function SortableColumnItem({
   handleUpdateColumn: (e: React.FormEvent, columnId: string) => void;
   handleAddEditDropdownOption: () => void;
   handleRemoveEditDropdownOption: (option: string) => void;
+  isSystemValue: (option: string) => boolean;
   startEditingColumn: (column: CustomColumn) => void;
   cancelEditing: () => void;
   onDeleteClick: (column: CustomColumn) => void;
@@ -744,14 +758,18 @@ function SortableColumnItem({
                   {editDropdownOptions.map((option, index) => (
                     <Badge key={index} variant="secondary" className="gap-1">
                       {option}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveEditDropdownOption(option)}
-                        className="ml-1 hover:text-destructive"
-                        data-testid={`button-edit-remove-option-${index}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      {isSystemValue(option) ? (
+                        <Lock className="h-3 w-3 ml-1 text-muted-foreground" title="System value - cannot be deleted" data-testid={`icon-lock-system-value-${index}`} />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEditDropdownOption(option)}
+                          className="ml-1 hover:text-destructive"
+                          data-testid={`button-edit-remove-option-${index}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
                     </Badge>
                   ))}
                 </div>
