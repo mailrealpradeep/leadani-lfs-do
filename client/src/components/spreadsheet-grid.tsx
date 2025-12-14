@@ -3681,52 +3681,124 @@ export function SpreadsheetGrid({
                               </PopoverContent>
                             </Popover>
                           ) : col.type === "datetime" ? (
-                            <Input
-                              type="datetime-local"
-                              className="h-8 min-w-[180px]"
-                              defaultValue={editingCell?.originalValue 
-                                ? formatInTimezone(editingCell.originalValue, "yyyy-MM-dd'T'HH:mm")
-                                : ""}
-                              onBlur={(e) => {
-                                const val = e.target.value;
-                                if (val) {
-                                  // Parse as local datetime and convert to ISO
-                                  const localDate = new Date(val);
-                                  const isoDateTime = localDate.toISOString();
-                                  const updatedFields = {
-                                    ...lead.custom_fields,
-                                    [col.key]: isoDateTime,
-                                  };
-                                  updateLeadMutation.mutate({
-                                    leadId: lead.id,
-                                    customFields: updatedFields,
-                                  });
-                                }
-                                setEditingCell(null);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  const val = (e.target as HTMLInputElement).value;
-                                  if (val) {
-                                    const localDate = new Date(val);
-                                    const isoDateTime = localDate.toISOString();
-                                    const updatedFields = {
-                                      ...lead.custom_fields,
-                                      [col.key]: isoDateTime,
-                                    };
-                                    updateLeadMutation.mutate({
-                                      leadId: lead.id,
-                                      customFields: updatedFields,
-                                    });
-                                  }
-                                  setEditingCell(null);
-                                } else if (e.key === "Escape") {
+                            <Popover 
+                              open={datePickerOpen?.leadId === lead.id && datePickerOpen?.field === col.key} 
+                              onOpenChange={(open) => {
+                                if (!open) {
+                                  setDatePickerOpen(null);
                                   setEditingCell(null);
                                 }
                               }}
-                              autoFocus
-                              data-testid={`input-datetime-${col.key}`}
-                            />
+                            >
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className="h-8 w-full justify-start text-left font-normal"
+                                  data-testid={`datetime-picker-trigger-${col.key}`}
+                                >
+                                  {editingCell?.originalValue 
+                                    ? safeFormatDate(editingCell.originalValue, "dd/MM/yy HH:mm", formatInTimezone) 
+                                    : "Pick date & time"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent 
+                                className="w-auto p-0" 
+                                align="start"
+                                onEscapeKeyDown={(e) => {
+                                  e.preventDefault();
+                                  setDatePickerOpen(null);
+                                  setEditingCell(null);
+                                }}
+                              >
+                                <Calendar
+                                  mode="single"
+                                  selected={editingCell?.originalValue ? new Date(editingCell.originalValue) : undefined}
+                                  onSelect={(date) => {
+                                    if (date) {
+                                      // Preserve existing time or default to 09:00
+                                      const existingDate = editingCell?.originalValue ? new Date(editingCell.originalValue) : null;
+                                      if (existingDate) {
+                                        date.setHours(existingDate.getHours(), existingDate.getMinutes());
+                                      } else {
+                                        date.setHours(9, 0);
+                                      }
+                                      const isoDateTime = date.toISOString();
+                                      const updatedFields = {
+                                        ...lead.custom_fields,
+                                        [col.key]: isoDateTime,
+                                      };
+                                      updateLeadMutation.mutate({
+                                        leadId: lead.id,
+                                        customFields: updatedFields,
+                                      });
+                                      // Update editingCell to reflect new value for time input
+                                      setEditingCell({ ...editingCell!, originalValue: isoDateTime });
+                                    }
+                                  }}
+                                  initialFocus
+                                />
+                                <div className="p-3 border-t flex items-center gap-2">
+                                  <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                  <span className="text-sm text-muted-foreground">Time:</span>
+                                  <Input
+                                    type="time"
+                                    className="h-8 w-24"
+                                    defaultValue={editingCell?.originalValue 
+                                      ? format(new Date(editingCell.originalValue), "HH:mm")
+                                      : "09:00"}
+                                    onBlur={(e) => {
+                                      const timeValue = e.target.value;
+                                      if (timeValue && editingCell?.originalValue) {
+                                        const [hours, minutes] = timeValue.split(':').map(Number);
+                                        const existingDate = new Date(editingCell.originalValue);
+                                        existingDate.setHours(hours, minutes);
+                                        const isoDateTime = existingDate.toISOString();
+                                        const updatedFields = {
+                                          ...lead.custom_fields,
+                                          [col.key]: isoDateTime,
+                                        };
+                                        updateLeadMutation.mutate({
+                                          leadId: lead.id,
+                                          customFields: updatedFields,
+                                        });
+                                      }
+                                    }}
+                                    data-testid={`time-input-${col.key}`}
+                                  />
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setDatePickerOpen(null);
+                                      setEditingCell(null);
+                                    }}
+                                    data-testid={`button-done-datetime-${col.key}`}
+                                  >
+                                    Done
+                                  </Button>
+                                </div>
+                                <div className="px-3 pb-3">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full text-muted-foreground"
+                                    onClick={() => {
+                                      const updatedFields = { ...lead.custom_fields };
+                                      delete updatedFields[col.key];
+                                      updateLeadMutation.mutate({
+                                        leadId: lead.id,
+                                        customFields: updatedFields,
+                                      });
+                                      setDatePickerOpen(null);
+                                      setEditingCell(null);
+                                    }}
+                                    data-testid={`button-clear-datetime-${col.key}`}
+                                  >
+                                    Clear
+                                  </Button>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                           ) : (
                             <Input
                               value={editValue}
