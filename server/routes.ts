@@ -6043,16 +6043,18 @@ ${questionsList}`;
       const beforeFields = flattenLeadFields(lead);
 
       // Extract system fields (created_at, attended_at) from custom_fields and apply to lead columns
-      const updatePayload = { ...req.body };
-      if (updatePayload.custom_fields) {
+      const updatePayload: any = { ...req.body };
+      if (req.body.custom_fields) {
+        // Deep copy custom_fields to avoid mutating original
+        updatePayload.custom_fields = { ...req.body.custom_fields };
         // Extract created_at from custom_fields if present
         if (updatePayload.custom_fields.created_at !== undefined) {
-          updatePayload.created_at = updatePayload.custom_fields.created_at;
+          updatePayload.created_at = updatePayload.custom_fields.created_at || null;
           delete updatePayload.custom_fields.created_at;
         }
         // Extract attended_at from custom_fields if present
         if (updatePayload.custom_fields.attended_at !== undefined) {
-          updatePayload.attended_at = updatePayload.custom_fields.attended_at;
+          updatePayload.attended_at = updatePayload.custom_fields.attended_at || null;
           delete updatePayload.custom_fields.attended_at;
         }
       }
