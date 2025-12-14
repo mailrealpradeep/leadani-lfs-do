@@ -3397,6 +3397,13 @@ export class PgStorage implements IStorage {
         const exactFilter = value as { value: string; exactMatch: boolean };
         conditions.push(sql`${dbSchema.leads.custom_fields}->>${key} = ${exactFilter.value}`);
       }
+      // Handle 'in' operator for multiple values (OR logic)
+      else if (typeof value === 'object' && value !== null && 'operator' in value && (value as any).operator === 'in' && Array.isArray((value as any).values)) {
+        const inFilter = value as { values: string[]; operator: string };
+        if (inFilter.values.length > 0) {
+          conditions.push(sql`${dbSchema.leads.custom_fields}->>${key} = ANY(${inFilter.values})`);
+        }
+      }
       // Handle simple string filter (substring match)
       else if (typeof value === 'string') {
         conditions.push(sql`${dbSchema.leads.custom_fields}->>${key} ILIKE ${'%' + value + '%'}`);
