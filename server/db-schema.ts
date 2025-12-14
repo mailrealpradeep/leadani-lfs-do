@@ -108,6 +108,7 @@ export const dropdown_options = pgTable('dropdown_options', {
   column_key: varchar('column_key', { length: 255 }).notNull(),
   value: varchar('value', { length: 255 }).notNull(),
   order_index: integer('order_index').notNull().default(0),
+  is_system: boolean('is_system').notNull().default(false),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -127,6 +128,7 @@ export const custom_columns = pgTable('custom_columns', {
     required?: boolean;
   }>().default({}).notNull(),
   order_index: integer('order_index').notNull().default(0),
+  is_system: boolean('is_system').notNull().default(false),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -197,4 +199,18 @@ export const future_improvements = pgTable('future_improvements', {
   order_index: integer('order_index').notNull().default(0),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ============================================================================
+// SYSTEM VALUE DEFINITIONS (Global System Column Values)
+// ============================================================================
+export const system_value_definitions = pgTable('system_value_definitions', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  column_type: varchar('column_type', { length: 50 }).notNull(), // lead_status, visit_status, visit_type, lost_reason
+  value: varchar('value', { length: 255 }).notNull(),
+  display_order: integer('display_order').notNull().default(0),
+  is_active: boolean('is_active').notNull().default(true),
+  deprecated_at: timestamp('deprecated_at'),
+  replaced_by: varchar('replaced_by'), // points to new value id if deprecated and replaced
+  created_at: timestamp('created_at').defaultNow().notNull(),
 });

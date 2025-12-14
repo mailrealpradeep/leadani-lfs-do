@@ -237,6 +237,7 @@ export interface DropdownOption {
   column_key: string; // matches CustomColumn.column_key
   value: string;
   order_index: number;
+  is_system: boolean; // true = system-defined value that cannot be deleted
   created_at: string;
 }
 
@@ -246,6 +247,7 @@ export const insertDropdownOptionSchema = z.object({
   column_key: z.string(),
   value: z.string().min(1, "Value is required"),
   order_index: z.number(),
+  is_system: z.boolean().optional(), // Defaults to false in storage layer
 });
 
 export type InsertDropdownOption = z.infer<typeof insertDropdownOptionSchema>;
@@ -267,6 +269,7 @@ export interface CustomColumn {
     is_system_column?: boolean; // System columns (Full Name, Mobile No) cannot be deleted
   };
   order_index: number; // for column ordering
+  is_system: boolean; // true = system-defined column that cannot be deleted
   created_at: string;
   updated_at: string;
 }
@@ -284,9 +287,35 @@ export const insertCustomColumnSchema = z.object({
     is_system_column: z.boolean().optional(),
   }).default({}),
   order_index: z.number().default(0),
+  is_system: z.boolean().optional(), // Defaults to false in storage layer
 });
 
 export type InsertCustomColumn = z.infer<typeof insertCustomColumnSchema>;
+
+// ============================================================================
+// SYSTEM VALUE DEFINITIONS (Global System Column Values)
+// ============================================================================
+export type SystemColumnType = 'lead_status' | 'visit_status' | 'visit_type' | 'lost_reason';
+
+export interface SystemValueDefinition {
+  id: string;
+  column_type: SystemColumnType;
+  value: string;
+  display_order: number;
+  is_active: boolean;
+  deprecated_at: string | null;
+  replaced_by: string | null;
+  created_at: string;
+}
+
+export const insertSystemValueDefinitionSchema = z.object({
+  column_type: z.enum(['lead_status', 'visit_status', 'visit_type', 'lost_reason']),
+  value: z.string().min(1, "Value is required"),
+  display_order: z.number().default(0),
+  is_active: z.boolean().default(true),
+});
+
+export type InsertSystemValueDefinition = z.infer<typeof insertSystemValueDefinitionSchema>;
 
 // ============================================================================
 // VALIDATION RULES (Company-scoped Conditional Validations)

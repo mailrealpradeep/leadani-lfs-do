@@ -1293,6 +1293,7 @@ export class MemStorage implements IStorage {
       ...insertOption,
       id,
       sheet_id: insertOption.sheet_id ?? null,
+      is_system: insertOption.is_system ?? false,
       created_at: new Date().toISOString(),
     };
     this.dropdownOptions.set(id, option);
@@ -1349,6 +1350,7 @@ export class MemStorage implements IStorage {
       ...insertColumn,
       sheet_id: insertColumn.sheet_id ?? null,
       id,
+      is_system: insertColumn.is_system ?? false,
       created_at: now,
       updated_at: now,
     };
@@ -3660,6 +3662,7 @@ export class PgStorage implements IStorage {
     const newOption = {
       id,
       ...option,
+      is_system: option.is_system ?? false,
       created_at: now,
     };
     await db.insert(dbSchema.dropdown_options).values(newOption);
@@ -3724,6 +3727,7 @@ export class PgStorage implements IStorage {
     const newColumn = {
       id,
       ...column,
+      is_system: column.is_system ?? false,
       created_at: now,
       updated_at: now,
     };
