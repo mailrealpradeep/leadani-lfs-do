@@ -285,6 +285,7 @@ export const insertCustomColumnSchema = z.object({
     dropdown_options: z.array(z.string()).optional(),
     required: z.boolean().optional(),
     is_system_column: z.boolean().optional(),
+    system_values: z.array(z.string()).optional(),
   }).default({}),
   order_index: z.number().default(0),
   is_system: z.boolean().optional(), // Defaults to false in storage layer

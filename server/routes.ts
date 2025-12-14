@@ -2289,9 +2289,11 @@ ${questionsList}`;
               config: { ...existingColumn.config, dropdown_options: mergedOptions, is_system_column: true, system_values: [...systemValuesList] },
             });
           } else {
-            // Already dropdown - update config to add is_system_column and merge values
+            // Already dropdown - update config to add is_system_column, system_values and merge values
             const currentConfig = existingColumn.config || {};
+            const hasSystemValues = Array.isArray((currentConfig as any).system_values) && (currentConfig as any).system_values.length > 0;
             const needsUpdate = !(currentConfig as any).is_system_column || 
+                               !hasSystemValues ||
                                mergedOptions.length !== existingConfigOptions.length;
             
             if (needsUpdate) {
