@@ -2067,6 +2067,109 @@ ${questionsList}`;
     }
   });
 
+  // Sync system values to a single company
+  app.post("/api/admin/system-columns/sync-company/:companyId", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { companyId } = req.params;
+      
+      // Get the company
+      const company = await storage.getCompany(companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      
+      // Get all system value definitions (only active ones)
+      const systemValues = await storage.getSystemValueDefinitions();
+      const activeSystemValues = systemValues.filter(sv => !sv.deprecated_at);
+      
+      if (activeSystemValues.length === 0) {
+        return res.status(400).json({
+          error: 'No active system value definitions found',
+          message: 'Run seed first before syncing.',
+        });
+      }
+      
+      // Group system values by column_type
+      const systemValuesByType: Record<string, string[]> = {};
+      for (const sv of activeSystemValues) {
+        if (!systemValuesByType[sv.column_type]) {
+          systemValuesByType[sv.column_type] = [];
+        }
+        systemValuesByType[sv.column_type].push(sv.value);
+      }
+      
+      let markedCount = 0;
+      let createdCount = 0;
+      
+      // Check each column type
+      for (const [columnType, systemValuesList] of Object.entries(systemValuesByType)) {
+        // Get existing dropdown options for this company and column type
+        const existingOptions = await storage.getDropdownOptionsByColumn(company.id, columnType);
+        const existingValueMap = new Map(existingOptions.map(opt => [opt.value.toLowerCase(), opt]));
+        
+        // Get max order_index for new entries
+        let maxOrderIndex = existingOptions.reduce((max, opt) => Math.max(max, opt.order_index), -1);
+        
+        for (const systemValue of systemValuesList) {
+          const existingOpt = existingValueMap.get(systemValue.toLowerCase());
+          
+          if (existingOpt) {
+            // Value exists - mark as system if not already
+            if (!existingOpt.is_system) {
+              await storage.updateDropdownOption(existingOpt.id, { is_system: true });
+              markedCount++;
+            }
+          } else {
+            // Value doesn't exist - create it
+            maxOrderIndex++;
+            await storage.createDropdownOption({
+              company_id: company.id,
+              sheet_id: null, // Company-wide
+              column_key: columnType,
+              value: systemValue,
+              order_index: maxOrderIndex,
+              is_system: true,
+            });
+            createdCount++;
+          }
+        }
+      }
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: company.id,
+        action: "system_values_sync_company",
+        model: "dropdown_option",
+        model_id: company.id,
+        payload: { markedAsSystem: markedCount, created: createdCount },
+      });
+      
+      res.json({
+        status: 'completed',
+        companyId: company.id,
+        companyName: company.name,
+        markedAsSystem: markedCount,
+        created: createdCount,
+        message: `Successfully synced ${company.name}: marked ${markedCount} values as system and created ${createdCount} new system values.`,
+      });
+    } catch (error: any) {
+      console.error("Sync company error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all companies (for SuperAdmin dropdown)
+  app.get("/api/admin/companies", authMiddleware, requireSuperAdmin, async (req: AuthRequest, res) => {
+    try {
+      const companies = await storage.getAllCompanies();
+      res.json(companies.map(c => ({ id: c.id, name: c.name, slug: c.slug, status: c.status })));
+    } catch (error: any) {
+      console.error("Get companies error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // SYSTEM VALUE DEFINITIONS CRUD (SuperAdmin Only)
   // ============================================================================

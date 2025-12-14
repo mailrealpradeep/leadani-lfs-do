@@ -699,9 +699,15 @@ function SuperAdminContent() {
   const [selectedColumnType, setSelectedColumnType] = useState<string>("lead_status");
   const [newValueInput, setNewValueInput] = useState("");
   const [isAddingValue, setIsAddingValue] = useState(false);
+  const [syncTargetCompanyId, setSyncTargetCompanyId] = useState<string>("");
 
   const { data: systemValues = [], isLoading: systemValuesLoading, refetch: refetchSystemValues } = useQuery<SystemValueDefinition[]>({
     queryKey: ["/api/admin/system-values"],
+    enabled: isSuperAdmin && activeSection === "system-values",
+  });
+
+  const { data: allCompaniesForSync = [] } = useQuery<{id: string, name: string}[]>({
+    queryKey: ["/api/admin/companies"],
     enabled: isSuperAdmin && activeSection === "system-values",
   });
 
@@ -743,6 +749,31 @@ function SuperAdminContent() {
     },
     onError: (error: any) => {
       toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  const syncAllCompaniesMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/admin/system-columns/sync-execute", { confirm: true });
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Sync completed", description: data.message || "System values synced to all companies" });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Sync failed", description: error.message });
+    },
+  });
+
+  const syncCompanyMutation = useMutation({
+    mutationFn: async (companyId: string) => {
+      return await apiRequest("POST", `/api/admin/system-columns/sync-company/${companyId}`);
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Sync completed", description: data.message || "System values synced to company" });
+      setSyncTargetCompanyId("");
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Sync failed", description: error.message });
     },
   });
 
@@ -826,6 +857,50 @@ function SuperAdminContent() {
           </div>
         </Card>
       )}
+
+      <Card className="p-4">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => syncAllCompaniesMutation.mutate()}
+              disabled={syncAllCompaniesMutation.isPending}
+              data-testid="button-sync-all-companies"
+            >
+              <RefreshCw className={`h-4 w-4 mr-1 ${syncAllCompaniesMutation.isPending ? 'animate-spin' : ''}`} />
+              {syncAllCompaniesMutation.isPending ? "Syncing..." : "Sync to All Companies"}
+            </Button>
+          </div>
+          <div className="h-px sm:h-auto sm:w-px bg-border" />
+          <div className="flex items-center gap-2 flex-1">
+            <Select value={syncTargetCompanyId} onValueChange={setSyncTargetCompanyId}>
+              <SelectTrigger className="w-[200px]" data-testid="select-sync-company">
+                <SelectValue placeholder="Select a company" />
+              </SelectTrigger>
+              <SelectContent>
+                {allCompaniesForSync.map((company) => (
+                  <SelectItem key={company.id} value={company.id}>
+                    {company.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (syncTargetCompanyId) {
+                  syncCompanyMutation.mutate(syncTargetCompanyId);
+                }
+              }}
+              disabled={!syncTargetCompanyId || syncCompanyMutation.isPending}
+              data-testid="button-sync-selected-company"
+            >
+              <RefreshCw className={`h-4 w-4 mr-1 ${syncCompanyMutation.isPending ? 'animate-spin' : ''}`} />
+              {syncCompanyMutation.isPending ? "Syncing..." : "Sync Company"}
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       <Card className="flex-1 flex flex-col min-h-0">
         <CardHeader className="pb-2">
