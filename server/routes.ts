@@ -2642,18 +2642,23 @@ ${questionsList}`;
         return res.status(400).json({ error: "Settings must be an object" });
       }
 
-      // Validate mobile_card_columns if present
-      if (incomingSettings.mobile_card_columns !== undefined) {
-        if (!Array.isArray(incomingSettings.mobile_card_columns)) {
+      // Validate mobile_card_columns if present and actually changed
+      // Only validate when it's different from current value (to avoid blocking saves when other settings change)
+      const currentMobileCardColumns = company.settings?.mobile_card_columns;
+      const incomingMobileCardColumns = incomingSettings.mobile_card_columns;
+      const mobileCardColumnsChanged = JSON.stringify(incomingMobileCardColumns) !== JSON.stringify(currentMobileCardColumns);
+      
+      if (incomingMobileCardColumns !== undefined && mobileCardColumnsChanged) {
+        if (!Array.isArray(incomingMobileCardColumns)) {
           return res.status(400).json({ error: "mobile_card_columns must be an array" });
         }
-        if (!incomingSettings.mobile_card_columns.every((key: any) => typeof key === 'string')) {
+        if (!incomingMobileCardColumns.every((key: any) => typeof key === 'string')) {
           return res.status(400).json({ error: "mobile_card_columns must be an array of strings" });
         }
         // Validate that columns exist for this company
         const companyColumns = await storage.getCompanyColumns(req.companyId);
         const validColumnKeys = new Set(companyColumns.map(c => c.column_key));
-        const invalidKeys = incomingSettings.mobile_card_columns.filter((key: string) => !validColumnKeys.has(key));
+        const invalidKeys = incomingMobileCardColumns.filter((key: string) => !validColumnKeys.has(key));
         if (invalidKeys.length > 0) {
           return res.status(400).json({ error: `Invalid column keys: ${invalidKeys.join(', ')}` });
         }
