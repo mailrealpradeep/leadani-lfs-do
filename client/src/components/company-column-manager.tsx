@@ -374,6 +374,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
     text: "Text",
     number: "Number",
     date: "Date",
+    datetime: "Date/Time",
     dropdown: "Dropdown",
     boolean: "Yes/No",
     mobile: "Mobile No",
