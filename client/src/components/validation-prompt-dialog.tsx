@@ -428,7 +428,7 @@ export function ValidationPromptDialog({
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto px-6 min-h-0">
-            <div className="py-4 space-y-4 pb-2">
+            <div className="py-4 space-y-4 pb-6">
               {requiredCount > 0 && (
                 <motion.div 
                   className="space-y-3"
