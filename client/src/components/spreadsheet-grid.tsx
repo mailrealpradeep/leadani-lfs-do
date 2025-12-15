@@ -389,6 +389,7 @@ export function SpreadsheetGrid({
       operator: string;
       value?: any;
       relative_date?: string;
+      next_operator?: string;
     }>;
     logical_operator: "and" | "or";
   } | null>(null);
@@ -2608,6 +2609,7 @@ export function SpreadsheetGrid({
           operator: c.operator,
           value: c.value,
           relative_date: c.relative_date,
+          next_operator: c.next_operator,
         })),
         logical_operator: hasOrLogic ? "or" : "and",
       });
