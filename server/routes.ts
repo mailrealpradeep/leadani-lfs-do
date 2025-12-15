@@ -6136,8 +6136,8 @@ ${questionsList}`;
       // Convert string timestamps to Date objects for Drizzle compatibility
       const updatePayload: any = { ...req.body };
       if (req.body.custom_fields) {
-        // Deep copy custom_fields to avoid mutating original
-        updatePayload.custom_fields = { ...req.body.custom_fields };
+        // Merge with existing custom_fields to preserve unchanged fields (standard PATCH behavior)
+        updatePayload.custom_fields = { ...(lead.custom_fields || {}), ...req.body.custom_fields };
         // Extract created_at from custom_fields if present and convert to Date
         if (updatePayload.custom_fields.created_at !== undefined) {
           const createdAtValue = updatePayload.custom_fields.created_at;
