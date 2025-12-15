@@ -55,7 +55,20 @@ function parseNumber(value: any): number | null {
 function parseDate(value: any): Date | null {
   if (value === null || value === undefined || value === "") return null;
   if (value instanceof Date) return value;
-  const date = parseISO(String(value));
+  
+  const strValue = String(value);
+  
+  // Check if this is a date-only string (YYYY-MM-DD format without time)
+  // Parse as noon UTC to avoid timezone boundary issues
+  const dateOnlyMatch = strValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    const utcDate = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0, 0));
+    return isValid(utcDate) ? utcDate : null;
+  }
+  
+  // For full ISO strings with time, use parseISO
+  const date = parseISO(strValue);
   return isValid(date) ? date : null;
 }
 

@@ -2026,10 +2026,26 @@ export function SpreadsheetGrid({
   }, [getCurrentDate, getStartOfDay, getEndOfDay]);
 
   // Helper to parse date values consistently (matches highlighting-evaluator pattern)
+  // For date-only strings like "2025-12-15", we parse them as noon UTC to avoid
+  // timezone edge cases where different browser timezones would create different dates
   const parseDateValue = useCallback((value: any): Date | null => {
     if (value === null || value === undefined || value === "") return null;
     if (value instanceof Date) return value;
-    const date = parseISO(String(value));
+    
+    const strValue = String(value);
+    
+    // Check if this is a date-only string (YYYY-MM-DD format without time)
+    const dateOnlyMatch = strValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnlyMatch) {
+      // Parse date-only strings at noon UTC to avoid timezone boundary issues
+      // This ensures "2025-12-15" always represents December 15 regardless of browser timezone
+      const [, year, month, day] = dateOnlyMatch;
+      const utcDate = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0, 0));
+      return isValid(utcDate) ? utcDate : null;
+    }
+    
+    // For full ISO strings with time, use parseISO as before
+    const date = parseISO(strValue);
     return isValid(date) ? date : null;
   }, []);
 
