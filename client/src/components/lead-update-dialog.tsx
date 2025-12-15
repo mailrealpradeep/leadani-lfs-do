@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertLeadUpdateSchema, type InsertLeadUpdate, type CustomColumn } from "@shared/schema";
+import { insertLeadUpdateSchema, type InsertLeadUpdate, type CustomColumn, type Lead } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -100,6 +100,8 @@ export function LeadUpdateDialog({
     prevOpenRef.current = open;
   }, [open, leadId, sheetId]);
 
+  const hasInitializedQuickFields = useRef<boolean>(false);
+
   const { data: settingsData } = useQuery<{ settings: CompanySettings }>({
     queryKey: ["/api/company/settings"],
     enabled: open,
@@ -108,6 +110,11 @@ export function LeadUpdateDialog({
   const { data: companyColumns = [] } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
     enabled: open,
+  });
+
+  const { data: leadData } = useQuery<Lead>({
+    queryKey: ["/api/leads", leadId],
+    enabled: open && !!leadId,
   });
 
   const columnMap = useMemo(() => {
@@ -169,6 +176,38 @@ export function LeadUpdateDialog({
     });
     return map;
   }, [dropdownQueries, dropdownColumns]);
+
+  useEffect(() => {
+    if (!open) {
+      hasInitializedQuickFields.current = false;
+      return;
+    }
+    
+    if (hasInitializedQuickFields.current) return;
+    if (!leadData) return;
+    if (quickUpdateFields.length === 0) return;
+    
+    const initialValues: Record<string, any> = {};
+    for (const field of quickUpdateFields) {
+      if (SYSTEM_COLUMNS.some(c => c.column_key === field.column_key)) {
+        const value = (leadData as any)[field.column_key];
+        if (value !== undefined && value !== null && value !== "") {
+          initialValues[field.column_key] = value;
+        }
+      } else {
+        const customFields = leadData.custom_fields as Record<string, any> | null;
+        const value = customFields?.[field.column_key];
+        if (value !== undefined && value !== null && value !== "") {
+          initialValues[field.column_key] = value;
+        }
+      }
+    }
+    
+    if (Object.keys(initialValues).length > 0) {
+      setQuickFieldValues(initialValues);
+    }
+    hasInitializedQuickFields.current = true;
+  }, [open, leadData, quickUpdateFields]);
 
   const form = useForm<InsertLeadUpdate>({
     resolver: zodResolver(insertLeadUpdateSchema),
