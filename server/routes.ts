@@ -7581,13 +7581,23 @@ ${questionsList}`;
         ? req.query.company_id as string
         : req.companyId!;
 
+      const columnKey = req.params.columnKey;
+      
+      // Map column_key to SystemColumnType for system columns
+      const systemColumnTypeMap: Record<string, 'lead_status' | 'visit_status' | 'visit_type' | 'lost_reason'> = {
+        'status': 'lead_status',
+        'visit_status': 'visit_status',
+        'visit_type': 'visit_type',
+        'lost_reason': 'lost_reason',
+      };
+
       // First try to get from dropdown_options table
-      let options = await storage.getDropdownOptionsByColumn(companyId, req.params.columnKey);
+      let options = await storage.getDropdownOptionsByColumn(companyId, columnKey);
       
       // If no options in table, check the column's config.dropdown_options
       if (options.length === 0) {
         const columns = await storage.getCompanyColumns(companyId);
-        const column = columns.find(c => c.column_key === req.params.columnKey && c.type === "dropdown");
+        const column = columns.find(c => c.column_key === columnKey && c.type === "dropdown");
         
         if (column && column.config && Array.isArray((column.config as any).dropdown_options)) {
           const configOptions = (column.config as any).dropdown_options as string[];
@@ -7596,12 +7606,30 @@ ${questionsList}`;
             id: `${column.id}-${index}`,
             company_id: companyId,
             sheet_id: column.sheet_id,
-            column_key: req.params.columnKey,
+            column_key: columnKey,
             value: value,
             order_index: index,
             created_at: new Date().toISOString(),
           }));
         }
+      }
+      
+      // If still no options, check for system column values
+      if (options.length === 0 && systemColumnTypeMap[columnKey]) {
+        const systemColumnType = systemColumnTypeMap[columnKey];
+        const systemValues = await storage.getSystemValueDefinitionsByType(systemColumnType);
+        const activeSystemValues = systemValues.filter(sv => sv.is_active && !sv.deprecated_at);
+        
+        // Convert system values to DropdownOption format
+        options = activeSystemValues.map((sv, index) => ({
+          id: `system-${sv.id}`,
+          company_id: companyId,
+          sheet_id: 'system',
+          column_key: columnKey,
+          value: sv.value,
+          order_index: sv.display_order ?? index,
+          created_at: new Date().toISOString(),
+        }));
       }
       
       // Sort by order_index
