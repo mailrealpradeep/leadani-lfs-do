@@ -140,8 +140,12 @@ export function LeadUpdateDialog({
     queries: dropdownColumns.map(col => ({
       queryKey: ["/api/company/dropdown-options", col.column_key],
       queryFn: async () => {
+        const token = localStorage.getItem("auth_token");
         const res = await fetch(`/api/company/dropdown-options/${col.column_key}`, {
-          credentials: 'include'
+          credentials: 'include',
+          headers: {
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
         });
         if (!res.ok) throw new Error('Failed to fetch dropdown options');
         return res.json();
