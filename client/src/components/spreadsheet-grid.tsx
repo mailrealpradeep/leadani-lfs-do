@@ -3676,8 +3676,7 @@ export function SpreadsheetGrid({
                                     size="sm"
                                     className="w-full"
                                     onClick={() => {
-                                      const updatedFields = { ...lead.custom_fields };
-                                      delete updatedFields[col.key];
+                                      const updatedFields = { ...lead.custom_fields, [col.key]: null };
                                       updateLeadMutation.mutate({
                                         leadId: lead.id,
                                         customFields: updatedFields,
@@ -3796,8 +3795,7 @@ export function SpreadsheetGrid({
                                     size="sm"
                                     className="w-full text-muted-foreground"
                                     onClick={() => {
-                                      const updatedFields = { ...lead.custom_fields };
-                                      delete updatedFields[col.key];
+                                      const updatedFields = { ...lead.custom_fields, [col.key]: null };
                                       updateLeadMutation.mutate({
                                         leadId: lead.id,
                                         customFields: updatedFields,
