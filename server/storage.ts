@@ -3470,102 +3470,92 @@ export class PgStorage implements IStorage {
         }
       };
       
+      // Store tuples of {sql, nextOperator} to keep indices aligned
+      // This is important because some operators may skip adding SQL (e.g., 'in' with empty array)
+      const quickFilterTuples: { sqlExpr: any; nextOperator: string }[] = [];
+      
       for (const condition of quickFilter.conditions) {
         const { column_key, operator, value, relative_date } = condition;
+        const conditionNextOp = (condition as any).next_operator || quickFilter.logical_operator || 'and';
         
         // Resolve target date for comparison
         const targetDate = relative_date ? resolveRelativeDate(relative_date) : (value || '');
         
+        let sqlExpr: any = null;
+        
         switch (operator) {
           case 'is_empty':
-            quickFilterConditions.push(
-              sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} = '')`
-            );
+            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} = '')`;
             break;
             
           case 'is_not_empty':
-            quickFilterConditions.push(
-              sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '')`
-            );
+            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '')`;
             break;
             
           case 'date_before':
           case 'before':
-            // Date is strictly before the target date
-            quickFilterConditions.push(
-              sql`(${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date`
-            );
+            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date`;
             break;
             
           case 'date_after':
           case 'after':
-            // Date is strictly after the target date
-            quickFilterConditions.push(
-              sql`(${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date`
-            );
+            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date`;
             break;
             
           case 'date_equals':
           case 'equals':
             if (relative_date || (value && typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
-              // Date comparison
-              quickFilterConditions.push(
-                sql`(${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date`
-              );
+              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date`;
             } else {
-              // String comparison
-              quickFilterConditions.push(
-                sql`${dbSchema.leads.custom_fields}->>${column_key} = ${value}`
-              );
+              sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ${value}`;
             }
+            break;
+          
+          case 'not_equals':
+            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} != ${value})`;
             break;
             
           case 'contains':
-            quickFilterConditions.push(
-              sql`${dbSchema.leads.custom_fields}->>${column_key} ILIKE ${'%' + value + '%'}`
-            );
+            sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} ILIKE ${'%' + value + '%'}`;
             break;
             
           case 'not_contains':
-            quickFilterConditions.push(
-              sql`${dbSchema.leads.custom_fields}->>${column_key} NOT ILIKE ${'%' + value + '%'}`
-            );
+            sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} NOT ILIKE ${'%' + value + '%'}`;
             break;
             
           case 'in':
             if (Array.isArray(value) && value.length > 0) {
-              quickFilterConditions.push(
-                sql`${dbSchema.leads.custom_fields}->>${column_key} = ANY(${value})`
-              );
+              sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ANY(${value})`;
             }
             break;
             
           default:
-            // For unknown operators, try basic equals
             if (value !== undefined && value !== null) {
-              quickFilterConditions.push(
-                sql`${dbSchema.leads.custom_fields}->>${column_key} = ${String(value)}`
-              );
+              sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ${String(value)}`;
             }
+        }
+        
+        // Only add to tuples if SQL was generated
+        if (sqlExpr !== null) {
+          quickFilterTuples.push({ sqlExpr, nextOperator: conditionNextOp });
         }
       }
       
       // Combine quick filter conditions with per-condition next_operator logic
       // Supports mixed AND/OR operators between conditions (left-to-right evaluation)
-      if (quickFilterConditions.length > 0) {
-        if (quickFilterConditions.length === 1) {
-          conditions.push(quickFilterConditions[0]);
+      if (quickFilterTuples.length > 0) {
+        if (quickFilterTuples.length === 1) {
+          conditions.push(quickFilterTuples[0].sqlExpr);
         } else {
           // Build the SQL expression tree with per-condition operators
-          let combined = quickFilterConditions[0];
-          for (let i = 1; i < quickFilterConditions.length; i++) {
-            // Get the previous condition's next_operator, falling back to logical_operator or 'and'
-            const prevCondition = quickFilter.conditions[i - 1] as any;
-            const op = prevCondition?.next_operator || quickFilter.logical_operator || 'and';
+          let combined = quickFilterTuples[0].sqlExpr;
+          for (let i = 1; i < quickFilterTuples.length; i++) {
+            // Use the PREVIOUS tuple's nextOperator to join with current
+            const op = quickFilterTuples[i - 1].nextOperator;
             if (op === 'or') {
-              combined = or(combined, quickFilterConditions[i]);
+              combined = or(combined, quickFilterTuples[i].sqlExpr);
             } else {
-              combined = and(combined, quickFilterConditions[i]);
+              combined = and(combined, quickFilterTuples[i].sqlExpr);
             }
           }
           conditions.push(combined);
