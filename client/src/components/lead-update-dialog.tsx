@@ -188,18 +188,12 @@ export function LeadUpdateDialog({
     if (quickUpdateFields.length === 0) return;
     
     const initialValues: Record<string, any> = {};
+    const customFields = leadData.custom_fields as Record<string, any> | null;
+    
     for (const field of quickUpdateFields) {
-      if (SYSTEM_COLUMNS.some(c => c.column_key === field.column_key)) {
-        const value = (leadData as any)[field.column_key];
-        if (value !== undefined && value !== null && value !== "") {
-          initialValues[field.column_key] = value;
-        }
-      } else {
-        const customFields = leadData.custom_fields as Record<string, any> | null;
-        const value = customFields?.[field.column_key];
-        if (value !== undefined && value !== null && value !== "") {
-          initialValues[field.column_key] = value;
-        }
+      const value = customFields?.[field.column_key];
+      if (value !== undefined && value !== null && value !== "") {
+        initialValues[field.column_key] = value;
       }
     }
     
@@ -242,26 +236,16 @@ export function LeadUpdateDialog({
       const safeLeadId = lockedLeadIdRef.current;
       if (!safeLeadId || Object.keys(fieldValues).length === 0) return null;
       
-      const updatePayload: Record<string, any> = {};
       const customFieldUpdates: Record<string, any> = {};
       
       for (const [key, value] of Object.entries(fieldValues)) {
         if (value === undefined || value === "" || value === null) continue;
-        
-        if (SYSTEM_COLUMNS.some(c => c.column_key === key)) {
-          updatePayload[key] = value;
-        } else {
-          customFieldUpdates[key] = value;
-        }
+        customFieldUpdates[key] = value;
       }
       
-      if (Object.keys(customFieldUpdates).length > 0) {
-        updatePayload.custom_fields = customFieldUpdates;
-      }
+      if (Object.keys(customFieldUpdates).length === 0) return null;
       
-      if (Object.keys(updatePayload).length === 0) return null;
-      
-      return await apiRequest("PATCH", `/api/leads/${safeLeadId}`, updatePayload);
+      return await apiRequest("PATCH", `/api/leads/${safeLeadId}`, { custom_fields: customFieldUpdates });
     },
   });
 
