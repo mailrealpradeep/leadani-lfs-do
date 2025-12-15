@@ -3,7 +3,6 @@ import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -112,6 +111,7 @@ export interface FilterCondition {
   value2?: any;
   relative_date?: string;
   date_value_type?: "relative" | "custom";
+  next_operator?: "and" | "or"; // Operator connecting this condition to the next
 }
 
 interface FilterConditionBuilderProps {
@@ -141,8 +141,16 @@ export function FilterConditionBuilder({
   }));
 
   const addCondition = () => {
+    // Set next_operator on the previous last condition
+    const updatedConditions = [...conditions];
+    if (updatedConditions.length > 0) {
+      const lastIdx = updatedConditions.length - 1;
+      if (!updatedConditions[lastIdx].next_operator) {
+        updatedConditions[lastIdx] = { ...updatedConditions[lastIdx], next_operator: "and" };
+      }
+    }
     onChange([
-      ...conditions,
+      ...updatedConditions,
       {
         id: crypto.randomUUID(),
         column_key: "",
@@ -151,6 +159,12 @@ export function FilterConditionBuilder({
         value2: undefined,
       },
     ]);
+  };
+
+  const updateConditionNextOperator = (index: number, op: "and" | "or") => {
+    const newConditions = [...conditions];
+    newConditions[index] = { ...newConditions[index], next_operator: op };
+    onChange(newConditions);
   };
 
   const removeCondition = (index: number) => {
@@ -209,44 +223,16 @@ export function FilterConditionBuilder({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <Label className="text-sm font-medium">Filter Conditions</Label>
-        <div className="flex items-center gap-2">
-          {showLogicalOperator && conditions.length > 1 && onLogicalOperatorChange && (
-            <ToggleGroup
-              type="single"
-              value={logicalOperator}
-              onValueChange={(value) => value && onLogicalOperatorChange(value as "and" | "or")}
-              className="border rounded-md"
-              data-testid="toggle-logical-operator"
-            >
-              <ToggleGroupItem 
-                value="and" 
-                size="sm" 
-                className="px-3 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-                data-testid="button-logical-and"
-              >
-                AND
-              </ToggleGroupItem>
-              <ToggleGroupItem 
-                value="or" 
-                size="sm" 
-                className="px-3 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-                data-testid="button-logical-or"
-              >
-                OR
-              </ToggleGroupItem>
-            </ToggleGroup>
-          )}
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={addCondition}
-            data-testid="button-add-condition"
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            Add Condition
-          </Button>
-        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={addCondition}
+          data-testid="button-add-condition"
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          Add Condition
+        </Button>
       </div>
 
       {conditions.length === 0 && (
@@ -268,13 +254,6 @@ export function FilterConditionBuilder({
 
         return (
           <div key={condition.id || index}>
-            {index > 0 && showLogicalOperator && (
-              <div className="flex justify-center py-1">
-                <Badge variant="secondary" className="text-xs">
-                  {logicalOperator.toUpperCase()}
-                </Badge>
-              </div>
-            )}
             <div className="p-3 border rounded-lg space-y-2 bg-muted/30">
               <div className="flex items-start gap-2">
                 <div className="flex-1">
@@ -553,18 +532,41 @@ export function FilterConditionBuilder({
                 </div>
               )}
             </div>
+
+            {/* AND/OR toggle between conditions (not shown for last condition) */}
+            {index < conditions.length - 1 && (
+              <div className="flex items-center justify-center my-2">
+                <div className="flex items-center gap-1 bg-muted rounded-md p-1">
+                  <button
+                    type="button"
+                    onClick={() => updateConditionNextOperator(index, "and")}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                      condition.next_operator === "and" || !condition.next_operator
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted-foreground/10"
+                    }`}
+                    data-testid={`toggle-and-${index}`}
+                  >
+                    AND
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateConditionNextOperator(index, "or")}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                      condition.next_operator === "or"
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted-foreground/10"
+                    }`}
+                    data-testid={`toggle-or-${index}`}
+                  >
+                    OR
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
-
-      {conditions.length > 1 && showLogicalOperator && (
-        <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-          <span className="font-medium">Logic:</span> Conditions are combined with <Badge variant="outline" className="mx-1 text-xs">{logicalOperator.toUpperCase()}</Badge> - 
-          {logicalOperator === "and" 
-            ? " all conditions must match" 
-            : " any condition can match"}
-        </div>
-      )}
     </div>
   );
 }

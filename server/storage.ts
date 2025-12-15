@@ -3550,12 +3550,25 @@ export class PgStorage implements IStorage {
         }
       }
       
-      // Combine quick filter conditions with specified logic
+      // Combine quick filter conditions with per-condition next_operator logic
+      // Supports mixed AND/OR operators between conditions (left-to-right evaluation)
       if (quickFilterConditions.length > 0) {
-        if (quickFilter.logical_operator === 'or') {
-          conditions.push(or(...quickFilterConditions));
+        if (quickFilterConditions.length === 1) {
+          conditions.push(quickFilterConditions[0]);
         } else {
-          conditions.push(and(...quickFilterConditions));
+          // Build the SQL expression tree with per-condition operators
+          let combined = quickFilterConditions[0];
+          for (let i = 1; i < quickFilterConditions.length; i++) {
+            // Get the previous condition's next_operator, falling back to logical_operator or 'and'
+            const prevCondition = quickFilter.conditions[i - 1] as any;
+            const op = prevCondition?.next_operator || quickFilter.logical_operator || 'and';
+            if (op === 'or') {
+              combined = or(combined, quickFilterConditions[i]);
+            } else {
+              combined = and(combined, quickFilterConditions[i]);
+            }
+          }
+          conditions.push(combined);
         }
       }
     }

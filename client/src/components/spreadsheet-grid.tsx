@@ -2128,19 +2128,25 @@ export function SpreadsheetGrid({
   }, [parseDateValue, resolveRelativeDateRange, getStartOfDay, getEndOfDay, getCurrentDate, isSameDay, isBeforeToday, isAfterToday]);
 
   // Evaluate all quick filter conditions against a lead
+  // Uses per-condition next_operator for sequential evaluation (supports mixed AND/OR)
   const evaluateQuickFilter = useCallback((lead: Lead): boolean => {
     if (!activeQuickFilterConfig) return true; // No filter = show all
     
     const { conditions, logical_operator } = activeQuickFilterConfig;
     if (!conditions || conditions.length === 0) return true;
     
-    if (logical_operator === "or") {
-      // OR: any condition must match
-      return conditions.some(condition => evaluateQuickFilterCondition(lead, condition));
-    } else {
-      // AND: all conditions must match
-      return conditions.every(condition => evaluateQuickFilterCondition(lead, condition));
+    // Evaluate first condition
+    let result = evaluateQuickFilterCondition(lead, conditions[0]);
+    
+    // Sequentially evaluate remaining conditions using each condition's next_operator
+    for (let i = 1; i < conditions.length; i++) {
+      // Use the previous condition's next_operator, falling back to logical_operator or 'and'
+      const op = (conditions[i - 1] as any).next_operator || logical_operator || 'and';
+      const currentResult = evaluateQuickFilterCondition(lead, conditions[i]);
+      result = op === 'or' ? result || currentResult : result && currentResult;
     }
+    
+    return result;
   }, [activeQuickFilterConfig, evaluateQuickFilterCondition]);
 
   // Server handles filtering/sorting for both modes now
