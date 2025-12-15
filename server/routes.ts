@@ -7591,45 +7591,42 @@ ${questionsList}`;
         'lost_reason': 'lost_reason',
       };
 
-      // First try to get from dropdown_options table
+      // Get options from dropdown_options table
       let options = await storage.getDropdownOptionsByColumn(companyId, columnKey);
       
-      // If no options in table, check the column's config.dropdown_options
-      if (options.length === 0) {
-        const columns = await storage.getCompanyColumns(companyId);
-        const column = columns.find(c => c.column_key === columnKey && c.type === "dropdown");
-        
-        if (column && column.config && Array.isArray((column.config as any).dropdown_options)) {
-          const configOptions = (column.config as any).dropdown_options as string[];
-          // Convert config options to DropdownOption format
-          options = configOptions.map((value, index) => ({
-            id: `${column.id}-${index}`,
-            company_id: companyId,
-            sheet_id: column.sheet_id,
-            column_key: columnKey,
-            value: value,
-            order_index: index,
-            created_at: new Date().toISOString(),
-          }));
+      // Track existing values for deduplication (case-insensitive)
+      const existingValuesLower = new Set(options.map(o => o.value.toLowerCase()));
+      let nextOrderIndex = options.length > 0 ? Math.max(...options.map(o => o.order_index)) + 1 : 0;
+      
+      // ALWAYS check column.config.dropdown_options and merge (for legacy custom values)
+      const columns = await storage.getCompanyColumns(companyId);
+      const column = columns.find(c => c.column_key === columnKey && c.type === "dropdown");
+      
+      if (column && column.config && Array.isArray((column.config as any).dropdown_options)) {
+        const configOptions = (column.config as any).dropdown_options as string[];
+        for (const value of configOptions) {
+          if (!existingValuesLower.has(value.toLowerCase())) {
+            options.push({
+              id: `config-${column.id}-${nextOrderIndex}`,
+              company_id: companyId,
+              sheet_id: column.sheet_id,
+              column_key: columnKey,
+              value: value,
+              order_index: nextOrderIndex++,
+              created_at: new Date().toISOString(),
+            });
+            existingValuesLower.add(value.toLowerCase());
+          }
         }
       }
       
-      // For system columns, MERGE system values with company-specific options
+      // For system columns, ALSO merge system values
       if (systemColumnTypeMap[columnKey]) {
         const systemColumnType = systemColumnTypeMap[columnKey];
         const systemValues = await storage.getSystemValueDefinitionsByType(systemColumnType);
         const activeSystemValues = systemValues.filter(sv => sv.is_active && !sv.deprecated_at);
         
-        // Get existing option values (case-insensitive for deduplication)
-        const existingValuesLower = new Set(options.map(o => o.value.toLowerCase()));
-        
-        // Find the max order_index from existing options
-        const maxOrderIndex = options.length > 0 
-          ? Math.max(...options.map(o => o.order_index)) 
-          : -1;
-        
         // Append system values that don't already exist
-        let nextOrderIndex = maxOrderIndex + 1;
         for (const sv of activeSystemValues) {
           if (!existingValuesLower.has(sv.value.toLowerCase())) {
             options.push({
@@ -7641,6 +7638,7 @@ ${questionsList}`;
               order_index: nextOrderIndex++,
               created_at: new Date().toISOString(),
             });
+            existingValuesLower.add(sv.value.toLowerCase());
           }
         }
       }
