@@ -529,6 +529,7 @@ export const filterConditionSchema = z.object({
   ]).optional(),
   value_type: z.enum(["text", "number", "date", "boolean", "array"]).optional(),
   relative_date: z.enum(relativeDateOptions).optional(),
+  next_operator: z.enum(["and", "or"]).optional(), // Operator connecting this condition to the next (undefined for last condition)
 });
 
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
