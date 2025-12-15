@@ -28,9 +28,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarIcon, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueries } from "@tanstack/react-query";
+import { format, parseISO, isValid } from "date-fns";
 
 interface CompanySettings {
   quick_update_fields?: string[];
@@ -45,6 +49,12 @@ interface ColumnInfo {
     dropdown_options?: string[];
     hidden_system_values?: string[];
   };
+}
+
+interface DropdownOption {
+  id: string;
+  value: string;
+  order_index: number;
 }
 
 const SYSTEM_COLUMNS: ColumnInfo[] = [
@@ -70,44 +80,36 @@ export function LeadUpdateDialog({
 }: LeadUpdateDialogProps) {
   const { toast } = useToast();
   const [quickFieldValues, setQuickFieldValues] = useState<Record<string, any>>({});
+  const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
   
-  // CRITICAL FIX: Lock the lead_id ONLY when dialog OPENS (false→true transition)
-  // This ref NEVER changes while dialog is open, preventing race conditions
   const lockedLeadIdRef = useRef<string>(leadId);
   const lockedSheetIdRef = useRef<string | undefined>(sheetId);
-  
-  // Track previous open state to detect false→true transitions
   const prevOpenRef = useRef<boolean>(false);
   
-  // Update the locked ref ONLY on false→true transition of open state
   useEffect(() => {
     const wasOpen = prevOpenRef.current;
     const isNowOpen = open;
     
-    // Only lock the lead_id when dialog is OPENING (false → true)
     if (!wasOpen && isNowOpen) {
       lockedLeadIdRef.current = leadId;
       lockedSheetIdRef.current = sheetId;
       setQuickFieldValues({});
+      setDatePickerOpen(null);
     }
     
-    // Update previous open state
     prevOpenRef.current = open;
   }, [open, leadId, sheetId]);
 
-  // Fetch company settings for quick_update_fields (using non-admin endpoint)
   const { data: settingsData } = useQuery<{ settings: CompanySettings }>({
     queryKey: ["/api/company/settings"],
     enabled: open,
   });
 
-  // Fetch company columns
   const { data: companyColumns = [] } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
     enabled: open,
   });
 
-  // Build column map from system + custom columns
   const columnMap = useMemo(() => {
     const map = new Map<string, ColumnInfo>();
     SYSTEM_COLUMNS.forEach(col => map.set(col.column_key, col));
@@ -122,13 +124,47 @@ export function LeadUpdateDialog({
     return map;
   }, [companyColumns]);
 
-  // Get configured quick update fields
   const quickUpdateFields = useMemo(() => {
     const configuredKeys = settingsData?.settings?.quick_update_fields || [];
     return configuredKeys
       .map(key => columnMap.get(key))
       .filter((col): col is ColumnInfo => !!col);
   }, [settingsData, columnMap]);
+
+  const dropdownColumns = useMemo(() => 
+    quickUpdateFields.filter(col => col.type === "dropdown"),
+    [quickUpdateFields]
+  );
+
+  const dropdownQueries = useQueries({
+    queries: dropdownColumns.map(col => ({
+      queryKey: ["/api/company/dropdown-options", col.column_key],
+      queryFn: async () => {
+        const res = await fetch(`/api/company/dropdown-options/${col.column_key}`, {
+          credentials: 'include'
+        });
+        if (!res.ok) throw new Error('Failed to fetch dropdown options');
+        return res.json();
+      },
+      enabled: open && dropdownColumns.length > 0,
+    })),
+  });
+
+  const dropdownOptionsMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    dropdownColumns.forEach((col, index) => {
+      const queryResult = dropdownQueries[index];
+      if (queryResult?.data) {
+        const data = queryResult.data as DropdownOption[];
+        const hiddenValues = col.config?.hidden_system_values || [];
+        const options = data
+          .map((opt) => opt.value)
+          .filter((val) => !hiddenValues.includes(val));
+        map.set(col.column_key, options);
+      }
+    });
+    return map;
+  }, [dropdownQueries, dropdownColumns]);
 
   const form = useForm<InsertLeadUpdate>({
     resolver: zodResolver(insertLeadUpdateSchema),
@@ -140,15 +176,12 @@ export function LeadUpdateDialog({
     },
   });
 
-  // Reset form ONLY when dialog opens (false→true transition)
-  // Use a separate ref to track this for form reset
   const prevOpenForFormRef = useRef<boolean>(false);
   
   useEffect(() => {
     const wasOpen = prevOpenForFormRef.current;
     const isNowOpen = open;
     
-    // Reset form only when dialog is OPENING (false → true)
     if (!wasOpen && isNowOpen) {
       form.reset({
         lead_id: lockedLeadIdRef.current,
@@ -161,24 +194,20 @@ export function LeadUpdateDialog({
     prevOpenForFormRef.current = open;
   }, [open, form]);
 
-  // Mutation to update the lead with quick field values
   const updateLeadMutation = useMutation({
     mutationFn: async (fieldValues: Record<string, any>) => {
       const safeLeadId = lockedLeadIdRef.current;
       if (!safeLeadId || Object.keys(fieldValues).length === 0) return null;
       
-      // Build update payload - separate system fields from custom fields
       const updatePayload: Record<string, any> = {};
       const customFieldUpdates: Record<string, any> = {};
       
       for (const [key, value] of Object.entries(fieldValues)) {
         if (value === undefined || value === "" || value === null) continue;
         
-        // System columns go to root level
         if (SYSTEM_COLUMNS.some(c => c.column_key === key)) {
           updatePayload[key] = value;
         } else {
-          // Custom columns go to custom_fields
           customFieldUpdates[key] = value;
         }
       }
@@ -195,15 +224,12 @@ export function LeadUpdateDialog({
 
   const createUpdateMutation = useMutation({
     mutationFn: async (data: InsertLeadUpdate) => {
-      // CRITICAL: Always use the locked lead_id, never the form's potentially stale value
       const safeLeadId = lockedLeadIdRef.current;
       
-      // Safety validation: Ensure we have a valid lead_id
       if (!safeLeadId) {
         throw new Error("No lead selected for update");
       }
       
-      // Override the form's lead_id with the locked value to guarantee correctness
       const safeData = {
         ...data,
         lead_id: safeLeadId,
@@ -215,7 +241,6 @@ export function LeadUpdateDialog({
       const safeLeadId = lockedLeadIdRef.current;
       const safeSheetId = lockedSheetIdRef.current;
       
-      // If there are quick field values, update the lead
       const filledFields = Object.fromEntries(
         Object.entries(quickFieldValues).filter(([_, v]) => v !== undefined && v !== "" && v !== null)
       );
@@ -224,12 +249,10 @@ export function LeadUpdateDialog({
         try {
           await updateLeadMutation.mutateAsync(filledFields);
         } catch (error) {
-          // Log error but don't fail the whole operation
           console.error("Failed to update lead fields:", error);
         }
       }
       
-      // Invalidate relevant caches
       queryClient.invalidateQueries({ queryKey: ["/api/leads", safeLeadId, "updates"] });
       if (safeSheetId) {
         queryClient.invalidateQueries({ queryKey: ["/api/sheets", safeSheetId, "leads"] });
@@ -258,14 +281,25 @@ export function LeadUpdateDialog({
     setQuickFieldValues(prev => ({ ...prev, [columnKey]: value }));
   };
 
+  const normalizeDate = (value: any): Date | undefined => {
+    if (!value) return undefined;
+    if (value instanceof Date && isValid(value)) return value;
+    if (typeof value === "string") {
+      try {
+        const parsed = parseISO(value);
+        if (isValid(parsed)) return parsed;
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  };
+
   const renderQuickField = (column: ColumnInfo) => {
     const value = quickFieldValues[column.column_key] ?? "";
     
     if (column.type === "dropdown") {
-      const hiddenValues = column.config?.hidden_system_values || [];
-      const options = (column.config?.dropdown_options || []).filter(
-        opt => !hiddenValues.includes(opt)
-      );
+      const options = dropdownOptionsMap.get(column.column_key) || [];
       
       return (
         <div key={column.column_key} className="space-y-2">
@@ -288,29 +322,98 @@ export function LeadUpdateDialog({
     }
     
     if (column.type === "date") {
+      const dateValue = normalizeDate(value);
       return (
         <div key={column.column_key} className="space-y-2">
           <Label className="text-sm text-muted-foreground">{column.name}</Label>
-          <Input
-            type="date"
-            value={value}
-            onChange={(e) => handleQuickFieldChange(column.column_key, e.target.value)}
-            data-testid={`quick-field-${column.column_key}`}
-          />
+          <Popover 
+            open={datePickerOpen === column.column_key} 
+            onOpenChange={(isOpen) => setDatePickerOpen(isOpen ? column.column_key : null)}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left font-normal"
+                data-testid={`quick-field-${column.column_key}`}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {dateValue ? format(dateValue, "dd/MM/yyyy") : `Select ${column.name}...`}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={dateValue}
+                onSelect={(date) => {
+                  if (date) {
+                    handleQuickFieldChange(column.column_key, format(date, "yyyy-MM-dd"));
+                  }
+                  setDatePickerOpen(null);
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
         </div>
       );
     }
     
     if (column.type === "datetime") {
+      const datetimeValue = normalizeDate(value);
+      const currentTime = datetimeValue ? format(datetimeValue, "HH:mm") : "09:00";
+      
       return (
         <div key={column.column_key} className="space-y-2">
           <Label className="text-sm text-muted-foreground">{column.name}</Label>
-          <Input
-            type="datetime-local"
-            value={value}
-            onChange={(e) => handleQuickFieldChange(column.column_key, e.target.value)}
-            data-testid={`quick-field-${column.column_key}`}
-          />
+          <Popover 
+            open={datePickerOpen === column.column_key} 
+            onOpenChange={(isOpen) => setDatePickerOpen(isOpen ? column.column_key : null)}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left font-normal"
+                data-testid={`quick-field-${column.column_key}`}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {datetimeValue ? format(datetimeValue, "dd/MM/yyyy HH:mm") : `Select ${column.name}...`}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={datetimeValue}
+                onSelect={(date) => {
+                  if (date) {
+                    const newDate = new Date(date.getTime());
+                    if (datetimeValue) {
+                      newDate.setHours(datetimeValue.getHours(), datetimeValue.getMinutes());
+                    } else {
+                      newDate.setHours(9, 0);
+                    }
+                    handleQuickFieldChange(column.column_key, newDate.toISOString());
+                  }
+                }}
+                initialFocus
+              />
+              <div className="p-3 border-t flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">Time:</span>
+                <Input
+                  type="time"
+                  className="h-9 w-28 cursor-pointer"
+                  defaultValue={currentTime}
+                  onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                  onChange={(e) => {
+                    const [hours, minutes] = e.target.value.split(":").map(Number);
+                    const baseDate = new Date(datetimeValue?.getTime() ?? Date.now());
+                    baseDate.setHours(hours, minutes);
+                    handleQuickFieldChange(column.column_key, baseDate.toISOString());
+                  }}
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       );
     }
@@ -330,7 +433,6 @@ export function LeadUpdateDialog({
       );
     }
     
-    // Default: text input
     return (
       <div key={column.column_key} className="space-y-2">
         <Label className="text-sm text-muted-foreground">{column.name}</Label>
@@ -409,7 +511,6 @@ export function LeadUpdateDialog({
               )}
             />
 
-            {/* Quick Update Fields Section */}
             {quickUpdateFields.length > 0 && (
               <div className="space-y-4 pt-2 border-t">
                 <div className="text-sm font-medium text-muted-foreground">
