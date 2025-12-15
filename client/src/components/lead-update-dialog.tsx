@@ -57,13 +57,6 @@ interface DropdownOption {
   order_index: number;
 }
 
-const SYSTEM_COLUMNS: ColumnInfo[] = [
-  { column_key: "status", name: "Lead Status", type: "dropdown" },
-  { column_key: "name", name: "Name", type: "text" },
-  { column_key: "email", name: "Email", type: "text" },
-  { column_key: "mobile", name: "Mobile", type: "mobile" },
-  { column_key: "address", name: "Address", type: "text" },
-];
 
 interface LeadUpdateDialogProps {
   leadId: string;
@@ -119,7 +112,6 @@ export function LeadUpdateDialog({
 
   const columnMap = useMemo(() => {
     const map = new Map<string, ColumnInfo>();
-    SYSTEM_COLUMNS.forEach(col => map.set(col.column_key, col));
     companyColumns.forEach(col => {
       map.set(col.column_key, {
         column_key: col.column_key,

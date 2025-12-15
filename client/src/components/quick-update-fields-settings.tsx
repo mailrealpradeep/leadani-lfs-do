@@ -31,13 +31,6 @@ interface CompanySettings {
   [key: string]: any;
 }
 
-const SYSTEM_COLUMNS = [
-  { column_key: "status", name: "Lead Status", type: "dropdown" },
-  { column_key: "name", name: "Name", type: "text" },
-  { column_key: "email", name: "Email", type: "text" },
-  { column_key: "mobile", name: "Mobile", type: "mobile" },
-  { column_key: "address", name: "Address", type: "text" },
-];
 
 function SortableFieldItem({ 
   column, 
@@ -109,12 +102,11 @@ export function QuickUpdateFieldsSettings({ headless = false }: QuickUpdateField
   });
 
   const allColumns = useMemo(() => {
-    const customCols = companyColumns.map(c => ({
+    return companyColumns.map(c => ({
       column_key: c.column_key,
       name: c.name,
       type: c.type,
     }));
-    return [...SYSTEM_COLUMNS, ...customCols];
   }, [companyColumns]);
 
   const columnMap = useMemo(() => 
