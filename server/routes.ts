@@ -7614,22 +7614,35 @@ ${questionsList}`;
         }
       }
       
-      // If still no options, check for system column values
-      if (options.length === 0 && systemColumnTypeMap[columnKey]) {
+      // For system columns, MERGE system values with company-specific options
+      if (systemColumnTypeMap[columnKey]) {
         const systemColumnType = systemColumnTypeMap[columnKey];
         const systemValues = await storage.getSystemValueDefinitionsByType(systemColumnType);
         const activeSystemValues = systemValues.filter(sv => sv.is_active && !sv.deprecated_at);
         
-        // Convert system values to DropdownOption format
-        options = activeSystemValues.map((sv, index) => ({
-          id: `system-${sv.id}`,
-          company_id: companyId,
-          sheet_id: 'system',
-          column_key: columnKey,
-          value: sv.value,
-          order_index: sv.display_order ?? index,
-          created_at: new Date().toISOString(),
-        }));
+        // Get existing option values (case-insensitive for deduplication)
+        const existingValuesLower = new Set(options.map(o => o.value.toLowerCase()));
+        
+        // Find the max order_index from existing options
+        const maxOrderIndex = options.length > 0 
+          ? Math.max(...options.map(o => o.order_index)) 
+          : -1;
+        
+        // Append system values that don't already exist
+        let nextOrderIndex = maxOrderIndex + 1;
+        for (const sv of activeSystemValues) {
+          if (!existingValuesLower.has(sv.value.toLowerCase())) {
+            options.push({
+              id: `system-${sv.id}`,
+              company_id: companyId,
+              sheet_id: 'system',
+              column_key: columnKey,
+              value: sv.value,
+              order_index: nextOrderIndex++,
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
       }
       
       // Sort by order_index
