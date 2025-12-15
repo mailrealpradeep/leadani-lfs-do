@@ -367,10 +367,32 @@ export function LeadUpdateDialog({
                   if (date) {
                     handleQuickFieldChange(column.column_key, format(date, "yyyy-MM-dd"));
                   }
-                  setDatePickerOpen(null);
                 }}
                 initialFocus
               />
+              <div className="px-3 pb-3 flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-muted-foreground"
+                  onClick={() => {
+                    handleQuickFieldChange(column.column_key, null);
+                    setDatePickerOpen(null);
+                  }}
+                  data-testid={`button-clear-date-${column.column_key}`}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setDatePickerOpen(null)}
+                  data-testid={`button-done-date-${column.column_key}`}
+                >
+                  Done
+                </Button>
+              </div>
             </PopoverContent>
           </Popover>
         </div>
@@ -430,6 +452,29 @@ export function LeadUpdateDialog({
                     handleQuickFieldChange(column.column_key, baseDate.toISOString());
                   }}
                 />
+              </div>
+              <div className="px-3 pb-3 flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-muted-foreground"
+                  onClick={() => {
+                    handleQuickFieldChange(column.column_key, null);
+                    setDatePickerOpen(null);
+                  }}
+                  data-testid={`button-clear-datetime-${column.column_key}`}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setDatePickerOpen(null)}
+                  data-testid={`button-done-datetime-${column.column_key}`}
+                >
+                  Done
+                </Button>
               </div>
             </PopoverContent>
           </Popover>
