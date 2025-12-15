@@ -272,6 +272,7 @@ export function LeadUpdateDialog({
         }
       }
       
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", safeLeadId] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", safeLeadId, "updates"] });
       if (safeSheetId) {
         queryClient.invalidateQueries({ queryKey: ["/api/sheets", safeSheetId, "leads"] });
