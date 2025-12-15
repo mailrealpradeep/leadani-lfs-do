@@ -991,39 +991,25 @@ ${questionsList}`;
         allocationCounts = await migrateAllocationCounts();
         const groupCounts = allocationCounts[conditionGroupKey] || {};
         
-        // Calculate total allocated for this group
+        // Calculate total allocated for this group (for tracking/reporting purposes)
         const totalAllocated = Object.values(groupCounts).reduce((sum, count) => sum + count, 0);
         
-        // Weighted round-robin: find the sheet that is most behind its target percentage
-        // For each sheet, calculate: (current_count / total_allocated) vs (target_percentage / 100)
-        // The sheet with the largest negative gap (most behind) gets the next lead
-        let bestSheetId = applicableRules[0].sheet_id;
-        let bestGap = -Infinity;
+        // Weighted random selection: each lead has probability equal to configured percentage
+        // This ensures fair distribution without "catch-up" behavior when counts are uneven
+        // For example: if Priyanka is 10%, she gets ~10% of leads regardless of current count
+        const random = Math.random() * 100;
+        let cumulativePercentage = 0;
+        let selectedSheetId = applicableRules[0].sheet_id;
         
         for (const rule of applicableRules) {
-          const currentCount = groupCounts[rule.sheet_id] || 0;
-          const targetPercentage = rule.percentage / 100;
-          
-          // Calculate how "behind" this sheet is
-          // If total is 0, use negative percentage (higher percentage = more behind)
-          let gap: number;
-          if (totalAllocated === 0) {
-            // First allocation - prefer higher percentage sheets first
-            gap = targetPercentage;
-          } else {
-            // Gap = target share - actual share (positive means behind target)
-            const actualShare = currentCount / totalAllocated;
-            gap = targetPercentage - actualShare;
-          }
-          
-          // Select the sheet that is most behind its target (largest positive gap)
-          if (gap > bestGap) {
-            bestGap = gap;
-            bestSheetId = rule.sheet_id;
+          cumulativePercentage += rule.percentage;
+          if (random <= cumulativePercentage) {
+            selectedSheetId = rule.sheet_id;
+            break;
           }
         }
         
-        targetSheetId = bestSheetId;
+        targetSheetId = selectedSheetId;
 
         // Verify target sheet exists and belongs to the company
         const targetSheet = await storage.getSheet(targetSheetId);
