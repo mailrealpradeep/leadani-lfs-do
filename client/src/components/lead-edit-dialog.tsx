@@ -1,14 +1,14 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Pencil, Save, X, Calendar as CalendarIcon, Clock, AlertCircle, Star, Sparkles, ChevronRight, CheckCircle2, ArrowUp } from "lucide-react";
+import { 
+  Pencil, Save, X, Calendar as CalendarIcon, Clock, AlertCircle, 
+  Star, Sparkles, ChevronRight, CheckCircle2, ArrowUp, Check,
+  Phone, User, Hash, ChevronDown
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 import { format, parse } from "date-fns";
 import type { Lead, CustomColumn, ValidationRule, DropdownOption } from "@shared/schema";
 import { evaluateCondition } from "@shared/validator";
@@ -51,8 +52,10 @@ interface LeadEditDialogProps {
 
 export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validationRules = [] }: LeadEditDialogProps) {
   const { toast } = useToast();
+  const { applyAutoFillRules } = useAutoFillRules();
   const [formValues, setFormValues] = useState<Record<string, any>>({});
   const [originalValues, setOriginalValues] = useState<Record<string, any>>({});
+  const [editingField, setEditingField] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
   
   // Validation state
@@ -62,8 +65,6 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [showValidationAlert, setShowValidationAlert] = useState(false);
   
-  // Refs for scrolling and focusing
-  const validationSectionRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -77,19 +78,11 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     enabled: !!sheetId && open,
   });
 
-  // Fetch dropdown options for validation fields
-  const { data: dropdownOptions = {} } = useQuery<Record<string, DropdownOption[]>>({
-    queryKey: ["/api/sheets", sheetId, "dropdown-options"],
-    enabled: !!sheetId && open,
-  });
-
-  // Fetch validation rules for this sheet (includes company-wide rules where sheet_id is NULL)
   const { data: fetchedValidationRules = [] } = useQuery<ValidationRule[]>({
     queryKey: ["/api/sheets", sheetId, "validation-rules"],
     enabled: !!sheetId && open,
   });
 
-  // Use fetched validation rules, with prop as fallback for backwards compatibility
   const activeValidationRules = fetchedValidationRules.length > 0 ? fetchedValidationRules : validationRules;
 
   useEffect(() => {
@@ -97,12 +90,12 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       const customFields = { ...lead.custom_fields };
       setFormValues(customFields);
       setOriginalValues(customFields);
-      // Reset validation state when dialog opens
       setTriggeredRule(null);
       setTriggerChange(null);
       setValidationFieldValues({});
       setValidationErrors({});
       setShowValidationAlert(false);
+      setEditingField(null);
     }
   }, [lead, open]);
 
@@ -125,7 +118,6 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     },
   });
 
-  // Get required columns from triggered rule
   const requiredColumns: RequiredColumn[] = useMemo(() => {
     if (!triggeredRule) return [];
     return triggeredRule.required_columns && triggeredRule.required_columns.length > 0
@@ -133,18 +125,10 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       : (triggeredRule.required_fields || []).map((key: string) => ({ column_key: key, is_required: true }));
   }, [triggeredRule]);
 
-  // Check if any validation rule is triggered
   const checkValidationRules = (columnKey: string, newValue: any, updatedFormValues: Record<string, any>) => {
-    console.log('[LeadEditDialog] checkValidationRules called:', {
-      columnKey,
-      newValue,
-      activeValidationRulesCount: activeValidationRules?.length,
-      activeValidationRules: activeValidationRules?.map(r => ({ name: r.name, conditions: r.conditions })),
-    });
     if (!activeValidationRules || activeValidationRules.length === 0) return null;
     if (!lead) return null;
 
-    // Build proposed lead with full lead object + updated custom_fields (matching desktop logic)
     const proposedLead = { 
       ...lead, 
       custom_fields: { ...updatedFormValues } 
@@ -153,7 +137,6 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     for (const rule of activeValidationRules) {
       if (rule.is_active === false) continue;
 
-      // Check new multi-condition format
       if (rule.conditions && rule.conditions.length > 0) {
         const results = rule.conditions.map(condition => {
           const leadValue = proposedLead.custom_fields?.[condition.column_key];
@@ -167,7 +150,6 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
         if (matches) return rule;
       }
       
-      // Check legacy single-condition format using evaluateCondition
       if (rule.trigger_column_key === columnKey && rule.operator) {
         if (evaluateCondition(newValue, rule.operator, rule.trigger_value)) {
           return rule;
@@ -177,36 +159,76 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     return null;
   };
 
+  // Scroll to validation section and focus first error field
+  const scrollToValidationSection = (errors: Record<string, string>) => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    
+    setTimeout(() => {
+      const firstErrorKey = Object.keys(errors)[0];
+      if (firstErrorKey && fieldRefs.current[firstErrorKey]) {
+        fieldRefs.current[firstErrorKey]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const input = fieldRefs.current[firstErrorKey]?.querySelector('input, select, textarea, button');
+        if (input) (input as HTMLElement).focus();
+      }
+    }, 300);
+  };
+
+  // Jump to specific field handler
+  const jumpToField = (columnKey: string) => {
+    if (fieldRefs.current[columnKey]) {
+      fieldRefs.current[columnKey]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const input = fieldRefs.current[columnKey]?.querySelector('input, select, textarea, button');
+      if (input) (input as HTMLElement).focus();
+    }
+  };
+
   const handleFieldChange = (columnKey: string, value: any) => {
-    const newFormValues = {
+    // Compute all changes before any setState to avoid race conditions
+    const baseFormValues = {
       ...formValues,
       [columnKey]: value,
     };
-    setFormValues(newFormValues);
 
-    // Check if this change triggers a validation rule (use newFormValues for up-to-date state)
-    const triggered = checkValidationRules(columnKey, value, newFormValues);
+    // Collect auto-fill updates
+    let autoFillUpdates: Record<string, any> = {};
+    applyAutoFillRules(
+      columnKey,
+      value,
+      baseFormValues,
+      (updates) => {
+        autoFillUpdates = { ...autoFillUpdates, ...updates };
+      },
+      { showToast: true }
+    );
+
+    // Merge all changes into final form values
+    const finalFormValues = { ...baseFormValues, ...autoFillUpdates };
+    
+    // Single setState with all updates
+    setFormValues(finalFormValues);
+
+    // Check validation rules with the fully updated form values
+    const triggered = checkValidationRules(columnKey, value, finalFormValues);
     
     if (triggered && !triggeredRule) {
-      // New rule triggered
       setTriggeredRule(triggered);
       setTriggerChange({
         column_key: columnKey,
         old_value: originalValues[columnKey],
         new_value: value,
       });
-      // Initialize validation field values from current form values
       const initialValues: Record<string, any> = {};
       const cols = triggered.required_columns && triggered.required_columns.length > 0
         ? triggered.required_columns
         : (triggered.required_fields || []).map((key: string) => ({ column_key: key, is_required: true }));
       cols.forEach((rc: RequiredColumn) => {
-        initialValues[rc.column_key] = newFormValues[rc.column_key] ?? "";
+        initialValues[rc.column_key] = finalFormValues[rc.column_key] ?? "";
       });
       setValidationFieldValues(initialValues);
       setValidationErrors({});
     } else if (!triggered && triggeredRule) {
-      // Rule no longer triggered (user changed the triggering field back)
       setTriggeredRule(null);
       setTriggerChange(null);
       setValidationFieldValues({});
@@ -216,9 +238,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
 
   const handleValidationFieldChange = (columnKey: string, value: any) => {
     setValidationFieldValues(prev => ({ ...prev, [columnKey]: value }));
-    // Also update main form values
     setFormValues(prev => ({ ...prev, [columnKey]: value }));
-    // Clear error for this field
     if (validationErrors[columnKey]) {
       setValidationErrors(prev => {
         const newErrors = { ...prev };
@@ -228,7 +248,6 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     }
   };
 
-  // Returns newErrors object so we can use it immediately (avoids stale state issue)
   const validateRequiredFields = (): Record<string, string> => {
     if (!triggeredRule) return {};
     
@@ -248,28 +267,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     return newErrors;
   };
 
-  // Scroll to validation section and focus first error field
-  // Accepts errors directly to avoid stale state from async React updates
-  const scrollToValidationSection = (errors: Record<string, string>) => {
-    // First scroll the container to top to show validation section
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-    
-    // Find first error field and focus it after scroll
-    setTimeout(() => {
-      const firstErrorKey = Object.keys(errors)[0];
-      if (firstErrorKey && fieldRefs.current[firstErrorKey]) {
-        fieldRefs.current[firstErrorKey]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // Try to focus the input inside
-        const input = fieldRefs.current[firstErrorKey]?.querySelector('input, select, textarea, button');
-        if (input) (input as HTMLElement).focus();
-      }
-    }, 300);
-  };
-
   const handleSave = () => {
-    // If validation rule is triggered, validate required fields first
     if (triggeredRule) {
       const errors = validateRequiredFields();
       if (Object.keys(errors).length > 0) {
@@ -279,16 +277,12 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       }
     }
     
-    // Clear alert on successful validation
     setShowValidationAlert(false);
-    
-    // Merge validation field values into form values
     const finalValues = { ...formValues, ...validationFieldValues };
     updateLeadMutation.mutate(finalValues);
   };
 
   const handleCancelValidation = () => {
-    // Revert the triggering change and clear validation state
     if (triggerChange) {
       setFormValues(prev => ({
         ...prev,
@@ -302,25 +296,66 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     setShowValidationAlert(false);
   };
 
-  // Jump to specific field handler
-  const jumpToField = (columnKey: string) => {
-    if (fieldRefs.current[columnKey]) {
-      fieldRefs.current[columnKey]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const input = fieldRefs.current[columnKey]?.querySelector('input, select, textarea, button');
-      if (input) (input as HTMLElement).focus();
-    }
-  };
+  const sortedColumns = useMemo(() => {
+    return [...columns].sort((a, b) => a.order_index - b.order_index);
+  }, [columns]);
 
-  const sortedColumns = [...columns].sort((a, b) => a.order_index - b.order_index);
+  // Group columns by type for better organization
+  const groupedColumns = useMemo(() => {
+    const groups: Record<string, CustomColumn[]> = {
+      status: [],
+      contact: [],
+      dates: [],
+      other: [],
+    };
+
+    sortedColumns.forEach(col => {
+      const nameLower = col.name?.toLowerCase() || "";
+      const keyLower = col.column_key?.toLowerCase() || "";
+      
+      if (col.type === "dropdown" || nameLower.includes("status") || keyLower.includes("status")) {
+        groups.status.push(col);
+      } else if (col.type === "mobile" || nameLower.includes("phone") || nameLower.includes("mobile") || 
+                 nameLower.includes("email") || keyLower.includes("phone") || keyLower.includes("email")) {
+        groups.contact.push(col);
+      } else if (col.type === "date" || col.type === "datetime") {
+        groups.dates.push(col);
+      } else {
+        groups.other.push(col);
+      }
+    });
+
+    return groups;
+  }, [sortedColumns]);
 
   const getFullName = () => {
-    if (!formValues) return "Edit Lead";
+    if (!formValues) return "Lead";
     const namePatterns = [/^full[_\s]?name/i, /^name$/i];
     for (const pattern of namePatterns) {
       const key = Object.keys(formValues).find((k) => pattern.test(k));
       if (key && formValues[key]) return String(formValues[key]);
     }
-    return "Edit Lead";
+    return "Lead";
+  };
+
+  const getPhone = () => {
+    if (!formValues) return "";
+    const phonePatterns = [/mobile/i, /phone/i, /contact/i];
+    for (const pattern of phonePatterns) {
+      const key = Object.keys(formValues).find((k) => pattern.test(k));
+      if (key && formValues[key]) return String(formValues[key]);
+    }
+    return "";
+  };
+
+  const getLeadStatus = () => {
+    if (!formValues) return "";
+    const statusPatterns = [/^lead[_\s]?status/i, /^status$/i];
+    for (const pattern of statusPatterns) {
+      const key = Object.keys(formValues).find((k) => pattern.test(k));
+      if (key && formValues[key]) return String(formValues[key]);
+    }
+    return "";
   };
 
   const normalizeDate = (value: any): Date | undefined => {
@@ -342,6 +377,26 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     }
   };
 
+  const formatDisplayValue = (column: CustomColumn, value: any): string => {
+    if (value === null || value === undefined || value === "") return "—";
+    
+    if (column.type === "date") {
+      const date = normalizeDate(value);
+      return date ? format(date, "dd/MM/yy") : String(value);
+    }
+    
+    if (column.type === "datetime") {
+      const date = normalizeDate(value);
+      return date ? format(date, "dd/MM/yy HH:mm") : String(value);
+    }
+    
+    if (column.type === "boolean") {
+      return value === true || value === "true" ? "Yes" : "No";
+    }
+    
+    return String(value);
+  };
+
   const getColumnByKey = (key: string): CustomColumn | undefined => {
     return columns.find(c => c.column_key === key);
   };
@@ -351,7 +406,8 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     return col?.name || key;
   };
 
-  const renderField = (column: CustomColumn) => {
+  // Render inline field editor
+  const renderInlineEditor = (column: CustomColumn) => {
     const value = formValues[column.column_key];
     const config = column.config as any;
 
@@ -359,26 +415,23 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       case "dropdown":
         const allOptions = config?.dropdown_options || [];
         const hiddenSystemValues = config?.hidden_system_values || [];
-        const currentValue = value;
         return (
           <Select
             value={value ?? ""}
-            onValueChange={(val) => handleFieldChange(column.column_key, val)}
+            onValueChange={(val) => {
+              handleFieldChange(column.column_key, val);
+              setEditingField(null);
+            }}
           >
-            <SelectTrigger className="min-h-[44px]" data-testid={`select-${column.column_key}`}>
+            <SelectTrigger className="h-10 border-primary" data-testid={`select-${column.column_key}`}>
               <SelectValue placeholder={`Select ${column.name}`} />
             </SelectTrigger>
             <SelectContent>
               {allOptions.map((opt: string) => {
                 const isHidden = hiddenSystemValues.includes(opt);
-                // Show hidden values only if they are the current value
-                if (isHidden && opt !== currentValue) return null;
+                if (isHidden && opt !== value) return null;
                 return (
-                  <SelectItem 
-                    key={opt} 
-                    value={opt}
-                    className={isHidden ? "text-muted-foreground opacity-60" : ""}
-                  >
+                  <SelectItem key={opt} value={opt} className={isHidden ? "text-muted-foreground opacity-60" : ""}>
                     {opt}{isHidden ? " (disabled)" : ""}
                   </SelectItem>
                 );
@@ -390,18 +443,11 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       case "date":
         const dateValue = normalizeDate(value);
         return (
-          <Popover 
-            open={datePickerOpen === column.column_key} 
-            onOpenChange={(open) => setDatePickerOpen(open ? column.column_key : null)}
-          >
+          <Popover open={true} onOpenChange={(open) => !open && setEditingField(null)}>
             <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className="w-full min-h-[44px] justify-start text-left font-normal"
-                data-testid={`date-picker-${column.column_key}`}
-              >
+              <Button variant="outline" className="w-full h-10 justify-start text-left font-normal border-primary">
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {dateValue ? format(dateValue, "dd/MM/yy") : `Select ${column.name}`}
+                {dateValue ? format(dateValue, "dd/MM/yy") : `Select date`}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
@@ -412,7 +458,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                   if (date) {
                     handleFieldChange(column.column_key, format(date, "yyyy-MM-dd"));
                   }
-                  setDatePickerOpen(null);
+                  setEditingField(null);
                 }}
                 initialFocus
               />
@@ -424,18 +470,11 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
         const datetimeValue = normalizeDate(value);
         const currentTime = datetimeValue ? format(datetimeValue, "HH:mm") : "09:00";
         return (
-          <Popover 
-            open={datePickerOpen === column.column_key} 
-            onOpenChange={(open) => setDatePickerOpen(open ? column.column_key : null)}
-          >
+          <Popover open={true} onOpenChange={(open) => !open && setEditingField(null)}>
             <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className="w-full min-h-[44px] justify-start text-left font-normal"
-                data-testid={`datetime-picker-${column.column_key}`}
-              >
+              <Button variant="outline" className="w-full h-10 justify-start text-left font-normal border-primary">
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {datetimeValue ? format(datetimeValue, "dd/MM/yy HH:mm") : `Select ${column.name}`}
+                {datetimeValue ? format(datetimeValue, "dd/MM/yy HH:mm") : `Select date & time`}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
@@ -444,7 +483,6 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 selected={datetimeValue}
                 onSelect={(date) => {
                   if (date) {
-                    // Preserve existing time or default to 09:00
                     if (datetimeValue) {
                       date.setHours(datetimeValue.getHours(), datetimeValue.getMinutes());
                     } else {
@@ -456,11 +494,10 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 initialFocus
               />
               <div className="p-3 border-t flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                <span className="text-sm text-muted-foreground">Time:</span>
+                <Clock className="h-4 w-4 text-muted-foreground" />
                 <Input
                   type="time"
-                  className="h-9 w-28 cursor-pointer"
+                  className="h-8 w-24"
                   defaultValue={currentTime}
                   onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                   onChange={(e) => {
@@ -472,76 +509,112 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                       handleFieldChange(column.column_key, newDate.toISOString());
                     }
                   }}
-                  data-testid={`time-input-${column.column_key}`}
                 />
-              </div>
-              <div className="px-3 pb-3 flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1 text-muted-foreground"
-                  onClick={() => {
-                    handleFieldChange(column.column_key, null);
-                    setDatePickerOpen(null);
-                  }}
-                  data-testid={`button-clear-datetime-${column.column_key}`}
-                >
-                  Clear
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setDatePickerOpen(null)}
-                  data-testid={`button-done-datetime-${column.column_key}`}
-                >
-                  Done
-                </Button>
+                <Button size="sm" onClick={() => setEditingField(null)}>Done</Button>
               </div>
             </PopoverContent>
           </Popover>
         );
 
+      case "boolean":
+        return (
+          <div className="flex items-center gap-3 h-10">
+            <Switch
+              checked={value === true || value === "true"}
+              onCheckedChange={(checked) => {
+                handleFieldChange(column.column_key, checked);
+                setEditingField(null);
+              }}
+            />
+            <span className="text-sm">{value === true || value === "true" ? "Yes" : "No"}</span>
+          </div>
+        );
+
       case "number":
       case "percentage":
         return (
-          <Input
-            type="number"
-            value={value ?? ""}
-            onChange={(e) => handleFieldChange(column.column_key, e.target.value)}
-            placeholder={`Enter ${column.name}`}
-            className="min-h-[44px]"
-            data-testid={`input-${column.column_key}`}
-          />
-        );
-
-      case "mobile":
-        return (
-          <Input
-            type="tel"
-            value={value ?? ""}
-            onChange={(e) => handleFieldChange(column.column_key, e.target.value)}
-            placeholder={`Enter ${column.name}`}
-            className="min-h-[44px]"
-            data-testid={`input-${column.column_key}`}
-          />
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              value={value ?? ""}
+              onChange={(e) => handleFieldChange(column.column_key, e.target.value)}
+              className="h-10 flex-1 border-primary"
+              autoFocus
+              onBlur={() => setEditingField(null)}
+              onKeyDown={(e) => e.key === "Enter" && setEditingField(null)}
+            />
+          </div>
         );
 
       default:
+        const isLongText = column.name?.toLowerCase().includes("remark") || 
+                           column.name?.toLowerCase().includes("note") ||
+                           column.name?.toLowerCase().includes("comment");
+        if (isLongText) {
+          return (
+            <div className="space-y-2">
+              <Textarea
+                value={value ?? ""}
+                onChange={(e) => handleFieldChange(column.column_key, e.target.value)}
+                className="min-h-[80px] border-primary"
+                autoFocus
+              />
+              <Button size="sm" onClick={() => setEditingField(null)} className="w-full">
+                <Check className="h-4 w-4 mr-1" /> Done
+              </Button>
+            </div>
+          );
+        }
         return (
           <Input
-            type="text"
+            type={column.type === "mobile" ? "tel" : "text"}
             value={value ?? ""}
             onChange={(e) => handleFieldChange(column.column_key, e.target.value)}
-            placeholder={`Enter ${column.name}`}
-            className="min-h-[44px]"
-            data-testid={`input-${column.column_key}`}
+            className="h-10 border-primary"
+            autoFocus
+            onBlur={() => setEditingField(null)}
+            onKeyDown={(e) => e.key === "Enter" && setEditingField(null)}
           />
         );
     }
   };
 
-  // Render validation field input (similar to ValidationPromptDialog)
+  // Render spreadsheet-style cell
+  const renderCell = (column: CustomColumn) => {
+    const isEditing = editingField === column.column_key;
+    const value = formValues[column.column_key];
+    const displayValue = formatDisplayValue(column, value);
+    const hasValue = value !== null && value !== undefined && value !== "";
+
+    return (
+      <div
+        key={column.id}
+        ref={(el) => { fieldRefs.current[column.column_key] = el; }}
+        className="border-b border-border last:border-b-0"
+        data-testid={`cell-${column.column_key}`}
+      >
+        {isEditing ? (
+          <div className="p-3 bg-primary/5">
+            <Label className="text-xs text-muted-foreground mb-1.5 block">{column.name}</Label>
+            {renderInlineEditor(column)}
+          </div>
+        ) : (
+          <div
+            className="flex items-center justify-between p-3 hover-elevate active-elevate-2 cursor-pointer min-h-[52px]"
+            onClick={() => setEditingField(column.column_key)}
+          >
+            <span className="text-sm text-muted-foreground flex-shrink-0 w-[40%]">{column.name}</span>
+            <span className={`text-sm text-right flex-1 truncate ${hasValue ? "" : "text-muted-foreground/50"}`}>
+              {displayValue}
+            </span>
+            <ChevronRight className="h-4 w-4 text-muted-foreground/50 ml-2 flex-shrink-0" />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render validation field for triggered rules
   const renderValidationFieldInput = (columnKey: string, isRequired: boolean) => {
     const column = getColumnByKey(columnKey);
     const value = validationFieldValues[columnKey] ?? "";
@@ -553,8 +626,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
           value={value}
           onChange={(e) => handleValidationFieldChange(columnKey, e.target.value)}
           placeholder={`Enter ${columnKey}`}
-          className={`min-h-[44px] ${hasError ? "border-destructive" : ""}`}
-          data-testid={`input-validation-${columnKey}`}
+          className={`h-10 ${hasError ? "border-destructive" : ""}`}
         />
       );
     }
@@ -564,21 +636,13 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
         const config = column.config as any;
         const options = config?.dropdown_options || [];
         return (
-          <Select
-            value={value || undefined}
-            onValueChange={(v) => handleValidationFieldChange(columnKey, v)}
-          >
-            <SelectTrigger 
-              className={`min-h-[44px] ${hasError ? "border-destructive" : ""}`}
-              data-testid={`select-validation-${columnKey}`}
-            >
+          <Select value={value || undefined} onValueChange={(v) => handleValidationFieldChange(columnKey, v)}>
+            <SelectTrigger className={`h-10 ${hasError ? "border-destructive" : ""}`}>
               <SelectValue placeholder={`Select ${column.name}`} />
             </SelectTrigger>
             <SelectContent>
               {options.map((opt: string) => (
-                <SelectItem key={opt} value={opt}>
-                  {opt}
-                </SelectItem>
+                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -594,8 +658,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className={`w-full min-h-[44px] justify-start text-left font-normal ${hasError ? "border-destructive" : ""} ${!value ? "text-muted-foreground" : ""}`}
-                data-testid={`date-picker-validation-${columnKey}`}
+                className={`w-full h-10 justify-start text-left font-normal ${hasError ? "border-destructive" : ""}`}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {dateValue ? format(dateValue, "dd/MM/yy") : `Select ${column.name}`}
@@ -606,9 +669,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 mode="single"
                 selected={dateValue}
                 onSelect={(date) => {
-                  if (date) {
-                    handleValidationFieldChange(columnKey, format(date, "yyyy-MM-dd"));
-                  }
+                  if (date) handleValidationFieldChange(columnKey, format(date, "yyyy-MM-dd"));
                   setDatePickerOpen(null);
                 }}
                 initialFocus
@@ -617,195 +678,74 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
           </Popover>
         );
 
-      case "datetime":
-        const datetimeValue = normalizeDate(value);
-        const currentTime = datetimeValue ? format(datetimeValue, "HH:mm") : "09:00";
-        return (
-          <Popover 
-            open={datePickerOpen === `validation-${columnKey}`} 
-            onOpenChange={(open) => setDatePickerOpen(open ? `validation-${columnKey}` : null)}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className={`w-full min-h-[44px] justify-start text-left font-normal ${hasError ? "border-destructive" : ""} ${!value ? "text-muted-foreground" : ""}`}
-                data-testid={`datetime-picker-validation-${columnKey}`}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {datetimeValue ? format(datetimeValue, "dd/MM/yy HH:mm") : `Select ${column.name}`}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={datetimeValue}
-                onSelect={(date) => {
-                  if (date) {
-                    if (datetimeValue) {
-                      date.setHours(datetimeValue.getHours(), datetimeValue.getMinutes());
-                    } else {
-                      date.setHours(9, 0);
-                    }
-                    handleValidationFieldChange(columnKey, date.toISOString());
-                  }
-                }}
-                initialFocus
-              />
-              <div className="p-3 border-t flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                <span className="text-sm text-muted-foreground">Time:</span>
-                <Input
-                  type="time"
-                  className="h-9 w-28 cursor-pointer"
-                  defaultValue={currentTime}
-                  onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                  onChange={(e) => {
-                    const timeValue = e.target.value;
-                    if (timeValue) {
-                      const [hours, minutes] = timeValue.split(':').map(Number);
-                      const newDate = datetimeValue ? new Date(datetimeValue) : new Date();
-                      newDate.setHours(hours, minutes);
-                      handleValidationFieldChange(columnKey, newDate.toISOString());
-                    }
-                  }}
-                  data-testid={`time-input-validation-${columnKey}`}
-                />
-              </div>
-              <div className="px-3 pb-3 flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1 text-muted-foreground"
-                  onClick={() => {
-                    handleValidationFieldChange(columnKey, null);
-                    setDatePickerOpen(null);
-                  }}
-                  data-testid={`button-clear-datetime-validation-${columnKey}`}
-                >
-                  Clear
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setDatePickerOpen(null)}
-                  data-testid={`button-done-datetime-validation-${columnKey}`}
-                >
-                  Done
-                </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
-        );
-
-      case "number":
-      case "percentage":
-        return (
-          <Input
-            type="number"
-            value={value}
-            onChange={(e) => handleValidationFieldChange(columnKey, e.target.value)}
-            placeholder={`Enter ${column.name}`}
-            className={`min-h-[44px] ${hasError ? "border-destructive" : ""}`}
-            data-testid={`input-validation-${columnKey}`}
-          />
-        );
-
-      case "boolean":
-        return (
-          <div className="flex items-center gap-2 min-h-[44px]">
-            <Switch
-              checked={value === true || value === "true"}
-              onCheckedChange={(checked) => handleValidationFieldChange(columnKey, checked)}
-              data-testid={`switch-validation-${columnKey}`}
-            />
-            <span className="text-sm text-muted-foreground">
-              {value === true || value === "true" ? "Yes" : "No"}
-            </span>
-          </div>
-        );
-
-      case "mobile":
-        return (
-          <Input
-            type="tel"
-            value={value}
-            onChange={(e) => handleValidationFieldChange(columnKey, e.target.value)}
-            placeholder="Enter phone number"
-            className={`min-h-[44px] ${hasError ? "border-destructive" : ""}`}
-            data-testid={`input-validation-${columnKey}`}
-          />
-        );
-
-      case "text":
       default:
-        const isLongText = column.name?.toLowerCase().includes("remark") || 
-                           column.name?.toLowerCase().includes("note") ||
-                           column.name?.toLowerCase().includes("comment") ||
-                           column.name?.toLowerCase().includes("description");
-        if (isLongText) {
-          return (
-            <Textarea
-              value={value}
-              onChange={(e) => handleValidationFieldChange(columnKey, e.target.value)}
-              placeholder={`Enter ${column.name}`}
-              className={`min-h-[80px] ${hasError ? "border-destructive" : ""}`}
-              data-testid={`textarea-validation-${columnKey}`}
-            />
-          );
-        }
         return (
           <Input
+            type={column.type === "number" ? "number" : column.type === "mobile" ? "tel" : "text"}
             value={value}
             onChange={(e) => handleValidationFieldChange(columnKey, e.target.value)}
             placeholder={`Enter ${column.name}`}
-            className={`min-h-[44px] ${hasError ? "border-destructive" : ""}`}
-            data-testid={`input-validation-${columnKey}`}
+            className={`h-10 ${hasError ? "border-destructive" : ""}`}
           />
         );
     }
   };
 
   const isLoading = isLoadingLead || isLoadingColumns;
+  const hasChanges = JSON.stringify(formValues) !== JSON.stringify(originalValues);
   const requiredCount = requiredColumns.filter(rc => rc.is_required).length;
   const optionalCount = requiredColumns.filter(rc => !rc.is_required).length;
+  const leadStatus = getLeadStatus();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent 
         side="bottom" 
-        className="h-[85vh] flex flex-col rounded-t-xl"
+        className="h-[90vh] flex flex-col rounded-t-xl p-0"
       >
-        <SheetHeader className="flex-shrink-0 pb-4 border-b">
-          <SheetTitle className="flex items-center gap-2">
-            <Pencil className="h-5 w-5" />
-            {getFullName()}
-          </SheetTitle>
-          <SheetDescription>
-            Edit lead information
-          </SheetDescription>
-        </SheetHeader>
+        {/* Summary Header */}
+        <div className="flex-shrink-0 px-4 pt-4 pb-3 border-b bg-background">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <User className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="font-semibold text-lg truncate" data-testid="text-lead-name">{getFullName()}</h2>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {getPhone() && (
+                  <>
+                    <Phone className="h-3.5 w-3.5" />
+                    <span data-testid="text-lead-phone">{getPhone()}</span>
+                  </>
+                )}
+              </div>
+            </div>
+            {leadStatus && (
+              <Badge variant="secondary" className="flex-shrink-0" data-testid="badge-lead-status">
+                {leadStatus}
+              </Badge>
+            )}
+          </div>
+        </div>
 
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto py-4">
+        {/* Scrollable Content */}
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
           {isLoading ? (
-            <div className="space-y-4">
+            <div className="p-4 space-y-3">
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="space-y-2">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-11 w-full" />
-                </div>
+                <Skeleton key={i} className="h-14 w-full" />
               ))}
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* Inline Validation Error Alert - Shown when save fails validation */}
+            <div className="pb-20">
+              {/* Validation Error Alert */}
               <AnimatePresence>
                 {showValidationAlert && Object.keys(validationErrors).length > 0 && (
                   <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 space-y-2"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mx-4 mt-3 bg-destructive/10 border border-destructive/30 rounded-lg p-3 space-y-2"
                     data-testid="validation-error-alert"
                   >
                     <div className="flex items-center gap-2">
@@ -832,36 +772,30 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 )}
               </AnimatePresence>
 
-              {/* Validation Rule Section - Shown when a rule is triggered */}
+              {/* Validation Rule Section */}
               <AnimatePresence>
                 {triggeredRule && triggerChange && (
                   <motion.div
-                    ref={validationSectionRef}
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="mb-4"
+                    className="mx-4 mt-3"
                   >
                     <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-4">
-                      {/* Header */}
                       <div className="flex items-start gap-3">
                         <div className="p-2 rounded-full bg-primary/10 flex-shrink-0">
                           <Sparkles className="h-4 w-4 text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <h4 className="font-medium text-sm">{triggeredRule.name}</h4>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1 flex-wrap">
-                            <ChevronRight className="h-3 w-3 flex-shrink-0" />
-                            <span>Changing</span>
-                            <strong className="truncate">{getColumnLabel(triggerChange.column_key)}</strong>
-                            <span>to</span>
-                            <Badge variant="secondary" className="text-xs">{String(triggerChange.new_value)}</Badge>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Update required fields for this change
                           </p>
                         </div>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 flex-shrink-0"
+                          className="h-8 w-8"
                           onClick={handleCancelValidation}
                           data-testid="button-cancel-validation"
                         >
@@ -874,7 +808,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                         <div className="space-y-3">
                           <div className="flex items-center gap-2 text-sm font-medium text-destructive">
                             <AlertCircle className="h-4 w-4" />
-                            Required Fields ({requiredCount})
+                            Required ({requiredCount})
                           </div>
                           {requiredColumns
                             .filter(rc => rc.is_required)
@@ -890,8 +824,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                                 </Label>
                                 {renderValidationFieldInput(rc.column_key, true)}
                                 {validationErrors[rc.column_key] && (
-                                  <p className="text-xs text-destructive flex items-center gap-1">
-                                    <AlertCircle className="h-3 w-3" />
+                                  <p className="text-xs text-destructive">
                                     {validationErrors[rc.column_key]}
                                   </p>
                                 )}
@@ -905,7 +838,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                         <div className="space-y-3">
                           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                             <CheckCircle2 className="h-4 w-4" />
-                            Optional Fields ({optionalCount})
+                            Optional ({optionalCount})
                           </div>
                           {requiredColumns
                             .filter(rc => !rc.is_required)
@@ -928,45 +861,83 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 )}
               </AnimatePresence>
 
-              {/* Regular Fields */}
-              {sortedColumns.map((column) => (
-                <div key={column.id} className="space-y-2">
-                  <Label 
-                    htmlFor={column.column_key}
-                    className="text-sm font-medium"
-                  >
-                    {column.name}
-                    {column.config?.required && (
-                      <span className="text-destructive ml-1">*</span>
-                    )}
-                  </Label>
-                  {renderField(column)}
+              {/* Status Fields Section */}
+              {groupedColumns.status.length > 0 && (
+                <div className="mt-3">
+                  <div className="px-4 py-2 bg-muted/50">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</span>
+                  </div>
+                  <div className="bg-background">
+                    {groupedColumns.status.map(col => renderCell(col))}
+                  </div>
                 </div>
-              ))}
+              )}
+
+              {/* Contact Fields Section */}
+              {groupedColumns.contact.length > 0 && (
+                <div className="mt-3">
+                  <div className="px-4 py-2 bg-muted/50">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Contact</span>
+                  </div>
+                  <div className="bg-background">
+                    {groupedColumns.contact.map(col => renderCell(col))}
+                  </div>
+                </div>
+              )}
+
+              {/* Dates Section */}
+              {groupedColumns.dates.length > 0 && (
+                <div className="mt-3">
+                  <div className="px-4 py-2 bg-muted/50">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Dates</span>
+                  </div>
+                  <div className="bg-background">
+                    {groupedColumns.dates.map(col => renderCell(col))}
+                  </div>
+                </div>
+              )}
+
+              {/* Other Fields Section */}
+              {groupedColumns.other.length > 0 && (
+                <div className="mt-3">
+                  <div className="px-4 py-2 bg-muted/50">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Details</span>
+                  </div>
+                  <div className="bg-background">
+                    {groupedColumns.other.map(col => renderCell(col))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        <SheetFooter className="flex-shrink-0 pt-4 border-t gap-2">
+        {/* Sticky Action Bar */}
+        <div className="flex-shrink-0 p-4 border-t bg-background flex gap-3 absolute bottom-0 left-0 right-0">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            className="flex-1 min-h-[44px]"
+            className="flex-1"
             data-testid="button-cancel-edit"
           >
-            <X className="h-4 w-4 mr-2" />
             Cancel
           </Button>
           <Button
             onClick={handleSave}
-            disabled={updateLeadMutation.isPending}
-            className="flex-1 min-h-[44px]"
+            disabled={updateLeadMutation.isPending || !hasChanges}
+            className="flex-1"
             data-testid="button-save-lead"
           >
-            <Save className="h-4 w-4 mr-2" />
-            {updateLeadMutation.isPending ? "Saving..." : "Save Changes"}
+            {updateLeadMutation.isPending ? (
+              "Saving..."
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Save
+              </>
+            )}
           </Button>
-        </SheetFooter>
+        </div>
       </SheetContent>
     </Sheet>
   );
