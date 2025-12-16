@@ -17,6 +17,8 @@ import { registerServiceWorker } from "@/hooks/use-push-notifications";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useBackButtonGuard, BackButtonGuardDialog } from "@/hooks/use-back-button-guard";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -169,12 +171,15 @@ function Router() {
 
 function DashboardHeader() {
   const [location] = useLocation();
-  const { selectedSheetId, activeQuickFilter, quickFilterHandlers } = useDashboard();
+  const { selectedSheetId, activeQuickFilter, quickFilterHandlers, actions } = useDashboard();
   const isMobile = useIsMobile();
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   
   // Only show quick filters on dashboard/root routes when sheet is selected
   const showQuickFilters = (location === "/" || location === "/dashboard") && !!selectedSheetId;
+  
+  // Show Add Lead button when a sheet is selected and the action is available
+  const showAddLead = !!selectedSheetId && !!actions.onAddLead;
   
   const { data: customColumns = [] } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
@@ -205,6 +210,19 @@ function DashboardHeader() {
             />
           </div>
         </>
+      )}
+      
+      {/* Add Lead Button - shown when sheet is selected */}
+      {showAddLead && (
+        <Button
+          size="icon"
+          variant="default"
+          onClick={actions.onAddLead}
+          data-testid="button-add-lead-header"
+          aria-label="Add Lead"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
       )}
       
       <ThemeToggle />
