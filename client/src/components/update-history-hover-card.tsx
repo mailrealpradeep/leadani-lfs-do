@@ -54,7 +54,6 @@ export function UpdateHistoryHoverCard({ leadId, onOpenFullDialog }: UpdateHisto
           size="icon"
           onClick={handleClick}
           data-testid={`button-update-history-${leadId}`}
-          title="View update history (hover for preview)"
           aria-label="View update history"
         >
           <History className="h-4 w-4" />
