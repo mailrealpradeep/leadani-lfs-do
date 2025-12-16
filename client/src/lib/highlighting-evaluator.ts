@@ -238,16 +238,37 @@ function evaluateCondition(condition: HighlightingCondition, lead: Lead, timezon
   }
 }
 
+// Evaluate rule conditions with per-condition next_operator for mixed AND/OR logic
+// Conditions are evaluated left-to-right: each condition's next_operator connects it to the next
 function evaluateRule(rule: HighlightingRule, lead: Lead, timezone: string = DEFAULT_TIMEZONE): boolean {
-  const { conditions, logical_operator } = rule;
+  const { conditions } = rule;
   
   if (!conditions || conditions.length === 0) return false;
   
-  if (logical_operator === "and") {
-    return conditions.every(condition => evaluateCondition(condition, lead, timezone));
-  } else {
-    return conditions.some(condition => evaluateCondition(condition, lead, timezone));
+  // For a single condition, just evaluate it directly
+  if (conditions.length === 1) {
+    return evaluateCondition(conditions[0], lead, timezone);
   }
+  
+  // For multiple conditions, use per-condition next_operator (left-to-right evaluation)
+  let result = evaluateCondition(conditions[0], lead, timezone);
+  
+  for (let i = 1; i < conditions.length; i++) {
+    const prevCondition = conditions[i - 1];
+    const currentConditionResult = evaluateCondition(conditions[i], lead, timezone);
+    
+    // Use the previous condition's next_operator to combine with current result
+    // Default to "and" if not specified
+    const operator = prevCondition.next_operator || "and";
+    
+    if (operator === "and") {
+      result = result && currentConditionResult;
+    } else {
+      result = result || currentConditionResult;
+    }
+  }
+  
+  return result;
 }
 
 export interface HighlightResult {
