@@ -39,7 +39,8 @@ import { HotLeadsConfigManager } from "@/components/hot-leads-config";
 import { ValidationRulesManager } from "@/components/validation-rules-manager";
 import { CustomViewsManager } from "@/components/custom-views-manager";
 import { QuickUpdateFieldsSettings } from "@/components/quick-update-fields-settings";
-import { Flame, ClipboardCheck, Eye } from "lucide-react";
+import { AddLeadFormSettings } from "@/components/add-lead-form-settings";
+import { Flame, ClipboardCheck, Eye, FormInput } from "lucide-react";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -825,6 +826,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <SiteVisitSettings headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="add-lead-form" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-add-lead-form">
+              <div className="flex items-center gap-3">
+                <FormInput className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Add Lead Form</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure fields shown when adding a new lead (required/optional)
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <AddLeadFormSettings headless />
               </div>
             </AccordionContent>
           </AccordionItem>
