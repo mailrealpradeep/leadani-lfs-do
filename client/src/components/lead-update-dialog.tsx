@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertLeadUpdateSchema, type InsertLeadUpdate, type CustomColumn, type Lead } from "@shared/schema";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +73,7 @@ export function LeadUpdateDialog({
   onOpenChange,
 }: LeadUpdateDialogProps) {
   const { toast } = useToast();
+  const { getCurrentDate } = useCompanyTimezone();
   const [quickFieldValues, setQuickFieldValues] = useState<Record<string, any>>({});
   const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
   
@@ -195,12 +197,22 @@ export function LeadUpdateDialog({
     hasInitializedQuickFields.current = true;
   }, [open, leadData, quickUpdateFields]);
 
+  // Get today's date in company timezone (YYYY-MM-DD format)
+  // getCurrentDate() returns a Date object with the correct date in company timezone
+  const getTodayInCompanyTz = () => {
+    const today = getCurrentDate();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   const form = useForm<InsertLeadUpdate>({
     resolver: zodResolver(insertLeadUpdateSchema),
     defaultValues: {
       lead_id: leadId,
       update_via: "call",
-      update_on: new Date().toISOString().split("T")[0],
+      update_on: getTodayInCompanyTz(),
       remark: "",
     },
   });
@@ -215,7 +227,7 @@ export function LeadUpdateDialog({
       form.reset({
         lead_id: lockedLeadIdRef.current,
         update_via: "call",
-        update_on: new Date().toISOString().split("T")[0],
+        update_on: getTodayInCompanyTz(),
         remark: "",
       });
     }

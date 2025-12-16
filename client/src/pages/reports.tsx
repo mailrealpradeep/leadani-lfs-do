@@ -57,12 +57,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import type { DrilldownFilters, SavedReportRecord } from "@shared/schema";
+import { 
+  getCurrentDateInTimezone, 
+  getWeekRangeInTimezone,
+  getMonthRangeInTimezone,
+  formatDateISO,
+  DEFAULT_TIMEZONE,
+} from "@/lib/timezone-utils";
 
 interface ReportDataResponse {
   report: Report;
@@ -102,17 +110,12 @@ const DATE_FILTER_PRESETS = [
   { value: "custom", label: "Custom Range" },
 ];
 
-// Helper to get date range from preset
-function getDateRangeFromPreset(preset: string): { start: string; end: string } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+// Helper to get date range from preset - uses company timezone for consistent dates
+function getDateRangeFromPreset(preset: string, timezone: string = DEFAULT_TIMEZONE): { start: string; end: string } {
+  // Get today's date in company timezone
+  const today = getCurrentDateInTimezone(timezone);
   
-  const formatDate = (d: Date) => {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  };
+  const formatDate = (d: Date) => formatDateISO(d, timezone);
   
   switch (preset) {
     case "today":
@@ -131,17 +134,13 @@ function getDateRangeFromPreset(preset: string): { start: string; end: string } 
     }
     
     case "this_week": {
-      const dayOfWeek = today.getDay();
-      const start = new Date(today);
-      // Assuming week starts on Monday (adjust for Sunday start if needed)
-      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      start.setDate(today.getDate() - daysFromMonday);
-      return { start: formatDate(start), end: formatDate(today) };
+      const weekRange = getWeekRangeInTimezone(timezone);
+      return { start: formatDate(weekRange.start), end: formatDate(today) };
     }
     
     case "this_month": {
-      const start = new Date(today.getFullYear(), today.getMonth(), 1);
-      return { start: formatDate(start), end: formatDate(today) };
+      const monthRange = getMonthRangeInTimezone(timezone);
+      return { start: formatDate(monthRange.start), end: formatDate(today) };
     }
     
     case "last_30_days": {
@@ -159,6 +158,7 @@ function getDateRangeFromPreset(preset: string): { start: string; end: string } 
 export default function Reports() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { timezone } = useCompanyTimezone();
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingReport, setEditingReport] = useState<Report | null>(null);
   const [reportName, setReportName] = useState("");
@@ -1731,6 +1731,8 @@ function ReportCard({
   canEdit: boolean;
   canDelete: boolean;
 }) {
+  const { timezone } = useCompanyTimezone();
+  
   // Initialize date range from report config (normalize to ISO format)
   const initialDateRange = {
     start: normalizeDate(report.config?.date_range?.start || ""),
@@ -1741,11 +1743,11 @@ function ReportCard({
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>(initialDateRange);
   const [datePreset, setDatePreset] = useState<string>("all");
   
-  // Handle date preset change
+  // Handle date preset change - uses company timezone for date range
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
     if (preset !== "custom") {
-      const range = getDateRangeFromPreset(preset);
+      const range = getDateRangeFromPreset(preset, timezone);
       setDateRange(range);
     }
     // For "custom", keep the existing dateRange and let user modify manually

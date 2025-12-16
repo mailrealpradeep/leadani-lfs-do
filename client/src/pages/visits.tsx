@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO, isToday } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO } from "date-fns";
 import { ChevronLeft, ChevronRight, Calendar, MapPin, User, Clock, Building2, AlertCircle, Settings, Phone, MessageCircle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { Link } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import type { Lead, CustomColumn } from "@shared/schema";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 
@@ -56,8 +57,12 @@ function getSheetColor(sheetName: string): string {
 export default function Visits() {
   const { isCompanyAdmin } = useAuth();
   const isMobile = useIsMobile();
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  const { getCurrentDate, isSameDay: isSameDayTz } = useCompanyTimezone();
+  
+  // Initialize with company timezone's current date
+  const todayInTz = getCurrentDate();
+  const [currentMonth, setCurrentMonth] = useState(todayInTz);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(todayInTz);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
 
   const startDate = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
@@ -109,8 +114,9 @@ export default function Visits() {
   const goToPreviousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
   const goToNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
   const goToToday = () => {
-    setCurrentMonth(new Date());
-    setSelectedDate(new Date());
+    const today = getCurrentDate();
+    setCurrentMonth(today);
+    setSelectedDate(today);
   };
 
   const getVisitCount = (date: Date): number => {
@@ -213,6 +219,7 @@ export default function Visits() {
             goToNextMonth={goToNextMonth}
             setSelectedDate={setSelectedDate}
             setSelectedLeadId={setSelectedLeadId}
+            isToday={(date) => isSameDayTz(date, todayInTz)}
           />
         ) : (
           <DesktopLayout
@@ -230,6 +237,7 @@ export default function Visits() {
             goToNextMonth={goToNextMonth}
             setSelectedDate={setSelectedDate}
             setSelectedLeadId={setSelectedLeadId}
+            isToday={(date) => isSameDayTz(date, todayInTz)}
           />
         )}
       </div>
@@ -260,6 +268,7 @@ interface LayoutProps {
   goToNextMonth: () => void;
   setSelectedDate: (date: Date) => void;
   setSelectedLeadId: (id: string | null) => void;
+  isToday: (date: Date) => boolean;
 }
 
 function MobileLayout({
@@ -276,6 +285,7 @@ function MobileLayout({
   goToNextMonth,
   setSelectedDate,
   setSelectedLeadId,
+  isToday,
 }: LayoutProps) {
   return (
     <div className="p-4 pb-24 space-y-4">
@@ -287,6 +297,7 @@ function MobileLayout({
         goToPreviousMonth={goToPreviousMonth}
         goToNextMonth={goToNextMonth}
         setSelectedDate={setSelectedDate}
+        isToday={isToday}
       />
       
       <VisitsList
@@ -317,6 +328,7 @@ function DesktopLayout({
   goToNextMonth,
   setSelectedDate,
   setSelectedLeadId,
+  isToday,
 }: LayoutProps) {
   return (
     <div className="h-full flex gap-4 p-4">
@@ -329,6 +341,7 @@ function DesktopLayout({
           goToPreviousMonth={goToPreviousMonth}
           goToNextMonth={goToNextMonth}
           setSelectedDate={setSelectedDate}
+          isToday={isToday}
         />
       </div>
       
@@ -355,6 +368,7 @@ interface CompactCalendarProps {
   goToPreviousMonth: () => void;
   goToNextMonth: () => void;
   setSelectedDate: (date: Date) => void;
+  isToday: (date: Date) => boolean;
 }
 
 function CompactCalendar({
@@ -365,6 +379,7 @@ function CompactCalendar({
   goToPreviousMonth,
   goToNextMonth,
   setSelectedDate,
+  isToday,
 }: CompactCalendarProps) {
   return (
     <Card className="shadow-sm">
@@ -398,7 +413,7 @@ function CompactCalendar({
           {calendarDays.map(day => {
             const visitCount = getVisitCount(day);
             const isSelected = selectedDate && isSameDay(day, selectedDate);
-            const isDayToday = isToday(day);
+            const isDayToday = isToday(day);  // Using timezone-aware isToday from props
             
             return (
               <button

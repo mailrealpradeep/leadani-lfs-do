@@ -349,7 +349,7 @@ export function SpreadsheetGrid({
   const { toast } = useToast();
   const isMobile = useIsMobile();
   const { theme } = useTheme();
-  const { timezone, formatInTimezone } = useCompanyTimezone();
+  const { timezone, formatInTimezone, getCurrentDate, getStartOfDay, getEndOfDay, isSameDay, isBeforeToday, isAfterToday } = useCompanyTimezone();
   const isDarkMode = theme === "dark";
   const { 
     searchQuery, 
@@ -1375,7 +1375,7 @@ export function SpreadsheetGrid({
   // This creates a Map of lead ID -> column keys that have past NFDT dates
   const leadsWithPastNFDT = useMemo(() => {
     const results = new Map<string, string[]>();
-    const today = startOfDay(new Date());
+    const today = getStartOfDay(getCurrentDate());  // Use company timezone
     
     // Find NFDT columns (match common naming patterns)
     const nfdtColumns = customColumns.filter(col => 
@@ -1956,17 +1956,8 @@ export function SpreadsheetGrid({
     }
   };
 
-  // Get timezone-aware utilities from hook
-  const { 
-    getCurrentDate, 
-    getStartOfDay, 
-    getEndOfDay, 
-    isBeforeToday, 
-    isAfterToday, 
-    isSameDay 
-  } = useCompanyTimezone();
-
   // Helper function to resolve relative dates to a date range (from/to) - timezone aware
+  // Note: timezone-aware utilities (getCurrentDate, getStartOfDay, etc.) are now extracted from useCompanyTimezone at the top of the component
   const resolveRelativeDateRange = useCallback((relativeDate: string): { from: Date; to: Date } => {
     const today = getCurrentDate();
     const todayStart = getStartOfDay(today);
