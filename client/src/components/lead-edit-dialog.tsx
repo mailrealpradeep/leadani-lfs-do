@@ -678,6 +678,62 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
           </Popover>
         );
 
+      case "datetime":
+        const datetimeVal = normalizeDate(value);
+        const currentTimeVal = datetimeVal ? format(datetimeVal, "HH:mm") : "09:00";
+        return (
+          <Popover 
+            open={datePickerOpen === `validation-${columnKey}`} 
+            onOpenChange={(open) => setDatePickerOpen(open ? `validation-${columnKey}` : null)}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className={`w-full h-10 justify-start text-left font-normal ${hasError ? "border-destructive" : ""}`}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {datetimeVal ? format(datetimeVal, "dd/MM/yy HH:mm") : `Select ${column.name}`}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={datetimeVal}
+                onSelect={(date) => {
+                  if (date) {
+                    if (datetimeVal) {
+                      date.setHours(datetimeVal.getHours(), datetimeVal.getMinutes());
+                    } else {
+                      date.setHours(9, 0);
+                    }
+                    handleValidationFieldChange(columnKey, date.toISOString());
+                  }
+                }}
+                initialFocus
+              />
+              <div className="p-3 border-t flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="time"
+                  className="h-8 w-24"
+                  defaultValue={currentTimeVal}
+                  onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                  onChange={(e) => {
+                    const timeValue = e.target.value;
+                    if (timeValue) {
+                      const [hours, minutes] = timeValue.split(':').map(Number);
+                      const newDate = datetimeVal ? new Date(datetimeVal) : new Date();
+                      newDate.setHours(hours, minutes);
+                      handleValidationFieldChange(columnKey, newDate.toISOString());
+                    }
+                  }}
+                />
+                <Button size="sm" onClick={() => setDatePickerOpen(null)}>Done</Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        );
+
       default:
         return (
           <Input
