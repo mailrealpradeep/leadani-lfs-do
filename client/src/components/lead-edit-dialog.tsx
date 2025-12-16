@@ -185,72 +185,54 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
   };
 
   const handleFieldChange = (columnKey: string, value: any) => {
-    try {
-      console.log('[LeadEditDialog] handleFieldChange called:', { columnKey, value, currentTriggeredRule: triggeredRule?.name });
-      
-      // Compute all changes before any setState to avoid race conditions
-      const baseFormValues = {
-        ...formValues,
-        [columnKey]: value,
-      };
+    // Stage base form values with the user's change
+    const baseFormValues = {
+      ...formValues,
+      [columnKey]: value,
+    };
 
-      // Collect auto-fill updates
-      let autoFillUpdates: Record<string, any> = {};
-      try {
-        applyAutoFillRules(
-          columnKey,
-          value,
-          baseFormValues,
-          (updates) => {
-            console.log('[LeadEditDialog] Auto-fill updates:', updates);
-            autoFillUpdates = { ...autoFillUpdates, ...updates };
-          },
-          { showToast: true }
-        );
-      } catch (autoFillError) {
-        console.error('[LeadEditDialog] Auto-fill error:', autoFillError);
-      }
+    // Collect auto-fill updates synchronously
+    let autoFillUpdates: Record<string, any> = {};
+    applyAutoFillRules(
+      columnKey,
+      value,
+      baseFormValues,
+      (updates) => {
+        autoFillUpdates = { ...autoFillUpdates, ...updates };
+      },
+      { showToast: true }
+    );
 
-      // Merge all changes into final form values
-      const finalFormValues = { ...baseFormValues, ...autoFillUpdates };
-      
-      // Single setState with all updates
-      setFormValues(finalFormValues);
+    // Merge user change with auto-fill updates into final form values
+    const mergedFormValues = { ...baseFormValues, ...autoFillUpdates };
+    
+    // Single state update with all changes
+    setFormValues(mergedFormValues);
 
-      // Check validation rules with the fully updated form values
-      const triggered = checkValidationRules(columnKey, value, finalFormValues);
-      console.log('[LeadEditDialog] Validation check result:', { 
-        triggered: triggered?.name, 
-        triggeredRule: triggeredRule?.name,
-        shouldSetRule: triggered && !triggeredRule,
-        activeRulesCount: activeValidationRules?.length
+    // Check validation rules against the fully merged form values
+    const triggered = checkValidationRules(columnKey, value, mergedFormValues);
+    
+    if (triggered && !triggeredRule) {
+      setTriggeredRule(triggered);
+      setTriggerChange({
+        column_key: columnKey,
+        old_value: originalValues[columnKey],
+        new_value: value,
       });
-      
-      if (triggered && !triggeredRule) {
-        console.log('[LeadEditDialog] Setting triggered rule:', triggered.name);
-        setTriggeredRule(triggered);
-        setTriggerChange({
-          column_key: columnKey,
-          old_value: originalValues[columnKey],
-          new_value: value,
-        });
-        const initialValues: Record<string, any> = {};
-        const cols = triggered.required_columns && triggered.required_columns.length > 0
-          ? triggered.required_columns
-          : (triggered.required_fields || []).map((key: string) => ({ column_key: key, is_required: true }));
-        cols.forEach((rc: RequiredColumn) => {
-          initialValues[rc.column_key] = finalFormValues[rc.column_key] ?? "";
-        });
-        setValidationFieldValues(initialValues);
-        setValidationErrors({});
-      } else if (!triggered && triggeredRule) {
-        setTriggeredRule(null);
-        setTriggerChange(null);
-        setValidationFieldValues({});
-        setValidationErrors({});
-      }
-    } catch (error) {
-      console.error('[LeadEditDialog] handleFieldChange error:', error);
+      const initialValues: Record<string, any> = {};
+      const cols = triggered.required_columns && triggered.required_columns.length > 0
+        ? triggered.required_columns
+        : (triggered.required_fields || []).map((key: string) => ({ column_key: key, is_required: true }));
+      cols.forEach((rc: RequiredColumn) => {
+        initialValues[rc.column_key] = mergedFormValues[rc.column_key] ?? "";
+      });
+      setValidationFieldValues(initialValues);
+      setValidationErrors({});
+    } else if (!triggered && triggeredRule) {
+      setTriggeredRule(null);
+      setTriggerChange(null);
+      setValidationFieldValues({});
+      setValidationErrors({});
     }
   };
 
