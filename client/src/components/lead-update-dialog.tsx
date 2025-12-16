@@ -171,6 +171,9 @@ export function LeadUpdateDialog({
     return map;
   }, [dropdownQueries, dropdownColumns]);
 
+  const allDropdownOptionsLoaded = dropdownColumns.length === 0 || 
+    dropdownQueries.every(q => q.isSuccess);
+
   useEffect(() => {
     if (!open) {
       hasInitializedQuickFields.current = false;
@@ -180,6 +183,7 @@ export function LeadUpdateDialog({
     if (hasInitializedQuickFields.current) return;
     if (!leadData) return;
     if (quickUpdateFields.length === 0) return;
+    if (!allDropdownOptionsLoaded) return;
     
     const initialValues: Record<string, any> = {};
     const customFields = leadData.custom_fields as Record<string, any> | null;
@@ -195,7 +199,7 @@ export function LeadUpdateDialog({
       setQuickFieldValues(initialValues);
     }
     hasInitializedQuickFields.current = true;
-  }, [open, leadData, quickUpdateFields]);
+  }, [open, leadData, quickUpdateFields, allDropdownOptionsLoaded]);
 
   // Get today's date in company timezone (YYYY-MM-DD format)
   // getCurrentDate() returns a Date object with the correct date in company timezone
