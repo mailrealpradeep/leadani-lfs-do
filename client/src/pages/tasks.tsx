@@ -4,7 +4,8 @@ import { useAuth } from "@/lib/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { format, isToday, isPast, parseISO, isBefore, startOfDay } from "date-fns";
+import { parseISO } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Plus,
   CheckSquare,
@@ -140,35 +141,44 @@ const PRIORITY_LABELS: Record<string, string> = {
   high: "High",
 };
 
-function getDueDateClass(dueDate: string | null, status: string): string {
-  if (!dueDate || status === "completed") return "";
-  const due = parseISO(dueDate);
-  const today = startOfDay(new Date());
-  
-  if (isBefore(due, today)) {
-    return "text-red-600 dark:text-red-400 font-medium";
-  }
-  if (isToday(due)) {
-    return "text-amber-600 dark:text-amber-400 font-medium";
-  }
-  return "";
-}
-
-function getDueDateBadgeVariant(dueDate: string | null, status: string): "destructive" | "secondary" | "outline" {
-  if (!dueDate || status === "completed") return "secondary";
-  const due = parseISO(dueDate);
-  const today = startOfDay(new Date());
-  
-  if (isBefore(due, today)) return "destructive";
-  if (isToday(due)) return "secondary";
-  return "outline";
-}
+// These functions are now defined inside the component to use timezone-aware comparisons
 
 export default function Tasks() {
   const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const isAdmin = isCompanyAdmin || isSuperAdmin;
+  const { formatInTimezone, isBeforeToday, isSameDay, getCurrentDate } = useCompanyTimezone();
+  
+  // Timezone-aware date formatting and comparison functions
+  const formatTaskDate = (dateStr: string | null, pattern: string = "MMM d, yyyy"): string => {
+    if (!dateStr) return "";
+    return formatInTimezone(dateStr, pattern);
+  };
+  
+  const getDueDateClass = (dueDate: string | null, status: string): string => {
+    if (!dueDate || status === "completed") return "";
+    const due = parseISO(dueDate);
+    const today = getCurrentDate();
+    
+    if (isBeforeToday(due)) {
+      return "text-red-600 dark:text-red-400 font-medium";
+    }
+    if (isSameDay(due, today)) {
+      return "text-amber-600 dark:text-amber-400 font-medium";
+    }
+    return "";
+  };
+  
+  const getDueDateBadgeVariant = (dueDate: string | null, status: string): "destructive" | "secondary" | "outline" => {
+    if (!dueDate || status === "completed") return "secondary";
+    const due = parseISO(dueDate);
+    const today = getCurrentDate();
+    
+    if (isBeforeToday(due)) return "destructive";
+    if (isSameDay(due, today)) return "secondary";
+    return "outline";
+  };
   
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [assignedFilter, setAssignedFilter] = useState<string>("all");
@@ -547,6 +557,8 @@ export default function Tasks() {
                   onStatusChange={(status) => handleStatusChange(task.id, status)}
                   canEdit={canEditTask(task)}
                   canDelete={canDeleteTask(task)}
+                  formatTaskDate={formatTaskDate}
+                  getDueDateBadgeVariant={getDueDateBadgeVariant}
                 />
               ))}
             </div>
@@ -562,6 +574,8 @@ export default function Tasks() {
               onStatusChange={handleStatusChange}
               canEditTask={canEditTask}
               canDeleteTask={canDeleteTask}
+              formatTaskDate={formatTaskDate}
+              getDueDateClass={getDueDateClass}
             />
           </div>
         )}
@@ -728,14 +742,14 @@ export default function Tasks() {
                 {selectedTask.start_date && (
                   <div>
                     <Label className="text-muted-foreground text-xs">Start Date</Label>
-                    <p className="text-sm">{format(parseISO(selectedTask.start_date), "MMM d, yyyy")}</p>
+                    <p className="text-sm">{formatTaskDate(selectedTask.start_date)}</p>
                   </div>
                 )}
                 {selectedTask.due_date && (
                   <div>
                     <Label className="text-muted-foreground text-xs">Due Date</Label>
                     <p className={`text-sm ${getDueDateClass(selectedTask.due_date, selectedTask.status)}`}>
-                      {format(parseISO(selectedTask.due_date), "MMM d, yyyy")}
+                      {formatTaskDate(selectedTask.due_date)}
                     </p>
                   </div>
                 )}
@@ -811,7 +825,7 @@ export default function Tasks() {
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-medium text-xs sm:text-sm">{update.user_name}</span>
                             <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              {format(parseISO(update.created_at), "MMM d, h:mm a")}
+                              {formatInTimezone(update.created_at, "MMM d, h:mm a")}
                             </span>
                           </div>
                           <p className="text-muted-foreground text-xs sm:text-sm">{update.description}</p>
@@ -1017,6 +1031,8 @@ function TaskCard({
   onStatusChange,
   canEdit,
   canDelete,
+  formatTaskDate,
+  getDueDateBadgeVariant,
 }: { 
   task: Task; 
   isAdmin: boolean;
@@ -1026,6 +1042,8 @@ function TaskCard({
   onStatusChange: (status: string) => void;
   canEdit: boolean;
   canDelete: boolean;
+  formatTaskDate: (date: string | null, pattern?: string) => string;
+  getDueDateBadgeVariant: (dueDate: string | null, status: string) => "destructive" | "secondary" | "outline";
 }) {
   return (
     <Card 
@@ -1046,7 +1064,7 @@ function TaskCard({
               {task.due_date && (
                 <Badge variant={getDueDateBadgeVariant(task.due_date, task.status)}>
                   <Calendar className="h-3 w-3 mr-1" />
-                  {format(parseISO(task.due_date), "MMM d")}
+                  {formatTaskDate(task.due_date, "MMM d")}
                 </Badge>
               )}
               {task.recurrence_type && task.recurrence_type !== "none" && (
@@ -1130,6 +1148,8 @@ function TasksGrid({
   onStatusChange,
   canEditTask,
   canDeleteTask,
+  formatTaskDate,
+  getDueDateClass,
 }: { 
   tasks: Task[]; 
   isAdmin: boolean;
@@ -1139,6 +1159,8 @@ function TasksGrid({
   onStatusChange: (taskId: string, status: string) => void;
   canEditTask: (task: Task) => boolean;
   canDeleteTask: (task: Task) => boolean;
+  formatTaskDate: (date: string | null, pattern?: string) => string;
+  getDueDateClass: (dueDate: string | null, status: string) => string;
 }) {
   return (
     <div className="h-full overflow-auto">
@@ -1206,7 +1228,7 @@ function TasksGrid({
               <td className="p-3">
                 {task.due_date ? (
                   <span className={getDueDateClass(task.due_date, task.status)}>
-                    {format(parseISO(task.due_date), "MMM d, yyyy")}
+                    {formatTaskDate(task.due_date)}
                   </span>
                 ) : (
                   <span className="text-muted-foreground">-</span>
