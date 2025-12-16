@@ -46,6 +46,7 @@ import Guide from "@/pages/guide";
 import Visits from "@/pages/visits";
 import HotLeads from "@/pages/hot-leads";
 import CustomViewPage from "@/pages/custom-view";
+import Plan from "@/pages/plan";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -103,6 +104,7 @@ function Router() {
       <Route path="/features" component={Features} />
       <Route path="/help" component={Help} />
       <Route path="/guide" component={Guide} />
+      <Route path="/plan" component={Plan} />
       
       {/* Landing page - public, but redirect if authenticated */}
       <Route path="/">
@@ -276,7 +278,7 @@ function AppLayout() {
   }
   
   // Public pages that should render without sidebar, even when logged in
-  const publicOnlyPages = ['/help', '/features', '/pricing', '/guide'];
+  const publicOnlyPages = ['/help', '/features', '/pricing', '/guide', '/plan'];
   const isPublicOnlyPage = publicOnlyPages.some(p => location.startsWith(p));
   
   // Super Admin has its own independent layout with its own sidebar
