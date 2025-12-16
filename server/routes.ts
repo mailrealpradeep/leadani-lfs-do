@@ -2711,7 +2711,7 @@ ${questionsList}`;
       }
 
       // Merge new settings with existing settings (only allow known fields)
-      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'quick_update_fields', 'add_lead_form_fields'];
+      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules'];
       const sanitizedSettings: Record<string, any> = {};
       for (const field of allowedFields) {
         if (incomingSettings[field] !== undefined) {

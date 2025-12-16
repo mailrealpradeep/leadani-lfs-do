@@ -36,6 +36,15 @@ export interface Company {
       column_key: string;
       required: boolean;
     }[]; // Configurable fields for Add Lead form with required/optional setting
+    auto_fill_rules?: {
+      id: string; // unique identifier for the rule
+      trigger_column_key: string; // which field triggers the rule
+      trigger_value: string; // what value activates the rule
+      target_column_key: string; // which field to auto-fill
+      target_value: string; // what value to set
+      priority: number; // order for conflict resolution (lower = higher priority)
+      enabled: boolean; // whether the rule is active
+    }[]; // Auto-fill rules for automatically setting field values
   };
   status: "active" | "suspended" | "trial";
   attendance_exit_target_id: string | null; // Links to working_targets for attendance exit condition
@@ -73,6 +82,15 @@ export const insertCompanySchema = z.object({
     add_lead_form_fields: z.array(z.object({
       column_key: z.string(),
       required: z.boolean(),
+    })).optional(),
+    auto_fill_rules: z.array(z.object({
+      id: z.string(),
+      trigger_column_key: z.string(),
+      trigger_value: z.string(),
+      target_column_key: z.string(),
+      target_value: z.string(),
+      priority: z.number(),
+      enabled: z.boolean(),
     })).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),

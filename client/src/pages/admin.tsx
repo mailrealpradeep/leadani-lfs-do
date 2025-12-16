@@ -40,7 +40,8 @@ import { ValidationRulesManager } from "@/components/validation-rules-manager";
 import { CustomViewsManager } from "@/components/custom-views-manager";
 import { QuickUpdateFieldsSettings } from "@/components/quick-update-fields-settings";
 import { AddLeadFormSettings } from "@/components/add-lead-form-settings";
-import { Flame, ClipboardCheck, Eye, FormInput } from "lucide-react";
+import { AutoFillRulesSettings } from "@/components/auto-fill-rules-settings";
+import { Flame, ClipboardCheck, Eye, FormInput, Zap } from "lucide-react";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -864,6 +865,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <QuickUpdateFieldsSettings headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="auto-fill-rules" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-auto-fill-rules">
+              <div className="flex items-center gap-3">
+                <Zap className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Auto-Fill Rules</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Automatically set field values when certain conditions are met
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <AutoFillRulesSettings headless />
               </div>
             </AccordionContent>
           </AccordionItem>
