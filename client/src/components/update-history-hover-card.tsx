@@ -61,7 +61,7 @@ export function UpdateHistoryHoverCard({ leadId, onOpenFullDialog }: UpdateHisto
         </Button>
       </HoverCardTrigger>
       <HoverCardContent 
-        className="w-80 max-h-96 overflow-y-auto bg-popover border shadow-lg z-[100]"
+        className="w-80 max-h-96 overflow-y-auto bg-popover border shadow-lg z-[9999]"
         side="right"
         align="start"
         sideOffset={8}
