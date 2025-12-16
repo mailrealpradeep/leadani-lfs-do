@@ -259,7 +259,9 @@ export function AutoFillRulesSettings({ headless = false }: AutoFillRulesSetting
     mutationFn: async (newRules: AutoFillRule[]) => {
       const rulesWithPriority = newRules.map((r, idx) => ({ ...r, priority: idx }));
       return await apiRequest("PATCH", "/api/admin/company/settings", {
-        auto_fill_rules: rulesWithPriority,
+        settings: {
+          auto_fill_rules: rulesWithPriority,
+        },
       });
     },
     onSuccess: () => {
