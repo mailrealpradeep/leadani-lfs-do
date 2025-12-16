@@ -50,7 +50,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useToast } from "@/hooks/use-toast";
 import { 
   DndContext, 
@@ -240,9 +239,6 @@ function SortableRuleItem({ rule, columns, onEdit, onDelete, onToggle }: Sortabl
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm truncate">{rule.name}</span>
-          <Badge variant="outline" className="text-xs">
-            {rule.logical_operator.toUpperCase()}
-          </Badge>
           {!rule.is_active && (
             <Badge variant="secondary" className="text-xs">Disabled</Badge>
           )}
@@ -250,7 +246,11 @@ function SortableRuleItem({ rule, columns, onEdit, onDelete, onToggle }: Sortabl
         <div className="text-xs text-muted-foreground mt-1 truncate">
           {rule.conditions.map((c, i) => (
             <span key={i}>
-              {i > 0 && <span className="mx-1">{rule.logical_operator}</span>}
+              {i > 0 && (
+                <span className="mx-1 font-medium">
+                  {rule.conditions[i - 1]?.next_operator?.toUpperCase() || "AND"}
+                </span>
+              )}
               {getConditionSummary(c)}
             </span>
           ))}
@@ -306,9 +306,8 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
   
   const [ruleName, setRuleName] = useState("");
   const [conditions, setConditions] = useState<HighlightingCondition[]>([
-    { column_key: "", operator: "is_empty", value: null }
+    { column_key: "", operator: "is_empty", value: null, next_operator: "and" }
   ]);
-  const [logicalOperator, setLogicalOperator] = useState<"and" | "or">("and");
   const [rowColor, setRowColor] = useState<string>("yellow");
   
   // Delete confirmation state
@@ -419,8 +418,7 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
 
   const resetForm = () => {
     setRuleName("");
-    setConditions([{ column_key: "", operator: "is_empty", value: null }]);
-    setLogicalOperator("and");
+    setConditions([{ column_key: "", operator: "is_empty", value: null, next_operator: "and" }]);
     setRowColor("yellow");
     setEditingRule(null);
   };
@@ -428,8 +426,14 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
   const handleEdit = (rule: HighlightingRule) => {
     setEditingRule(rule);
     setRuleName(rule.name);
-    setConditions(rule.conditions.length > 0 ? rule.conditions : [{ column_key: "", operator: "is_empty", value: null }]);
-    setLogicalOperator(rule.logical_operator);
+    // Load conditions, ensuring each condition has a next_operator (default to "and")
+    setConditions(rule.conditions.length > 0 
+      ? rule.conditions.map((c, idx, arr) => ({
+          ...c,
+          next_operator: c.next_operator || (idx < arr.length - 1 ? "and" : undefined)
+        }))
+      : [{ column_key: "", operator: "is_empty", value: null, next_operator: "and" }]
+    );
     setRowColor(rule.row_color);
     setDialogOpen(true);
   };
@@ -477,8 +481,8 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
     const data = {
       name: ruleName.trim(),
       conditions: validConditions,
-      logical_operator: logicalOperator,
-      row_color: rowColor,
+      logical_operator: "and" as const, // Keep for backward compat but not used - per-condition next_operator takes precedence
+      row_color: rowColor as HighlightingRule["row_color"],
     };
 
     if (editingRule) {
@@ -489,17 +493,54 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
   };
 
   const addCondition = () => {
-    setConditions([...conditions, { column_key: "", operator: "is_empty", value: null }]);
+    const updated = [...conditions];
+    // Set next_operator on the previous last condition
+    const lastIdx = updated.length - 1;
+    if (lastIdx >= 0 && !updated[lastIdx].next_operator) {
+      updated[lastIdx].next_operator = "and";
+    }
+    updated.push({ column_key: "", operator: "is_empty", value: null });
+    setConditions(updated);
+  };
+
+  const updateConditionNextOperator = (condIndex: number, nextOp: "and" | "or") => {
+    const updated = [...conditions];
+    updated[condIndex].next_operator = nextOp;
+    setConditions(updated);
   };
 
   const removeCondition = (index: number) => {
     if (conditions.length > 1) {
-      setConditions(conditions.filter((_, i) => i !== index));
+      const updated = [...conditions];
+      updated.splice(index, 1);
+      setConditions(updated);
     }
   };
 
   const updateCondition = (index: number, updates: Partial<HighlightingCondition>) => {
-    setConditions(conditions.map((c, i) => i === index ? { ...c, ...updates } : c));
+    const updated = [...conditions];
+    const condition = updated[index];
+    
+    if (updates.column_key !== undefined && updates.column_key !== condition.column_key) {
+      // When changing column, reset operator and value but preserve next_operator
+      updated[index] = {
+        column_key: updates.column_key,
+        operator: "is_empty",
+        value: null,
+        next_operator: condition.next_operator,
+      };
+    } else if (updates.operator !== undefined && NO_VALUE_OPERATORS.includes(updates.operator)) {
+      // When switching to a no-value operator, clear the value
+      updated[index] = {
+        ...condition,
+        operator: updates.operator,
+        value: null,
+      };
+    } else {
+      updated[index] = { ...condition, ...updates };
+    }
+    
+    setConditions(updated);
   };
 
   const getColumnType = (columnKey: string): string => {
@@ -597,21 +638,7 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Conditions</Label>
-                {conditions.length > 1 && (
-                  <ToggleGroup
-                    type="single"
-                    value={logicalOperator}
-                    onValueChange={(v) => v && setLogicalOperator(v as "and" | "or")}
-                    className="border rounded-lg"
-                  >
-                    <ToggleGroupItem value="and" className="text-xs px-3" data-testid="toggle-and">
-                      AND
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="or" className="text-xs px-3" data-testid="toggle-or">
-                      OR
-                    </ToggleGroupItem>
-                  </ToggleGroup>
-                )}
+                <p className="text-xs text-muted-foreground">Use AND/OR between conditions for mixed logic</p>
               </div>
 
               {conditions.map((condition, index) => {
@@ -619,116 +646,145 @@ export function HighlightingRulesManager({ sheetId, sheetName }: HighlightingRul
                 const operators = OPERATORS_BY_TYPE[columnType] || OPERATORS_BY_TYPE.text;
                 const needsValue = !NO_VALUE_OPERATORS.includes(condition.operator);
                 const column = columns.find(c => c.column_key === condition.column_key);
+                const isLastCondition = index === conditions.length - 1;
 
                 return (
-                  <div key={index} className="flex items-start gap-2 p-3 border rounded-lg bg-muted/30">
-                    {index > 0 && (
-                      <Badge variant="outline" className="mt-2 flex-shrink-0">
-                        {logicalOperator.toUpperCase()}
-                      </Badge>
-                    )}
-                    
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
-                      <Select
-                        value={condition.column_key}
-                        onValueChange={(v) => updateCondition(index, { 
-                          column_key: v, 
-                          operator: "is_empty",
-                          value: null 
-                        })}
-                      >
-                        <SelectTrigger data-testid={`select-column-${index}`}>
-                          <SelectValue placeholder="Select column" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {columns.map((col) => (
-                            <SelectItem key={col.id} value={col.column_key}>
-                              {col.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                  <div key={index} className="space-y-2">
+                    <div className="flex items-start gap-2 p-3 border rounded-lg bg-muted/30">
+                      <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <Select
+                          value={condition.column_key}
+                          onValueChange={(v) => updateCondition(index, { 
+                            column_key: v, 
+                            operator: "is_empty",
+                            value: null 
+                          })}
+                        >
+                          <SelectTrigger data-testid={`select-column-${index}`}>
+                            <SelectValue placeholder="Select column" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {columns.map((col) => (
+                              <SelectItem key={col.id} value={col.column_key}>
+                                {col.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
-                      <Select
-                        value={condition.operator}
-                        onValueChange={(v) => updateCondition(index, { operator: v as any })}
-                        disabled={!condition.column_key}
-                      >
-                        <SelectTrigger data-testid={`select-operator-${index}`}>
-                          <SelectValue placeholder="Select operator" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {operators.map((op) => (
-                            <SelectItem key={op.value} value={op.value}>
-                              {op.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <Select
+                          value={condition.operator}
+                          onValueChange={(v) => updateCondition(index, { operator: v as any })}
+                          disabled={!condition.column_key}
+                        >
+                          <SelectTrigger data-testid={`select-operator-${index}`}>
+                            <SelectValue placeholder="Select operator" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {operators.map((op) => (
+                              <SelectItem key={op.value} value={op.value}>
+                                {op.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
-                      {needsValue && (
-                        columnType === "dropdown" && column?.config?.dropdown_options ? (
-                          <Select
-                            value={condition.value as string || ""}
-                            onValueChange={(v) => updateCondition(index, { value: v })}
-                          >
-                            <SelectTrigger data-testid={`select-value-${index}`}>
-                              <SelectValue placeholder="Select value" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {column.config.dropdown_options.map((opt: string) => (
-                                <SelectItem key={opt} value={opt}>
-                                  {opt}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : columnType === "boolean" ? (
-                          <Select
-                            value={condition.value as string || ""}
-                            onValueChange={(v) => updateCondition(index, { value: v })}
-                          >
-                            <SelectTrigger data-testid={`select-value-${index}`}>
-                              <SelectValue placeholder="Select value" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="true">Yes</SelectItem>
-                              <SelectItem value="false">No</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : columnType === "date" || columnType === "datetime" ? (
-                          <Input
-                            type="date"
-                            value={condition.value as string || ""}
-                            onChange={(e) => updateCondition(index, { value: e.target.value })}
-                            data-testid={`input-value-${index}`}
-                          />
-                        ) : (
-                          <Input
-                            type={columnType === "number" || columnType === "percentage" ? "number" : "text"}
-                            placeholder="Enter value"
-                            value={condition.value as string || ""}
-                            onChange={(e) => updateCondition(index, { 
-                              value: columnType === "number" || columnType === "percentage" 
-                                ? parseFloat(e.target.value) || null 
-                                : e.target.value 
-                            })}
-                            data-testid={`input-value-${index}`}
-                          />
-                        )
+                        {needsValue && (
+                          columnType === "dropdown" && column?.config?.dropdown_options ? (
+                            <Select
+                              value={condition.value as string || ""}
+                              onValueChange={(v) => updateCondition(index, { value: v })}
+                            >
+                              <SelectTrigger data-testid={`select-value-${index}`}>
+                                <SelectValue placeholder="Select value" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {column.config.dropdown_options.map((opt: string) => (
+                                  <SelectItem key={opt} value={opt}>
+                                    {opt}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : columnType === "boolean" ? (
+                            <Select
+                              value={condition.value as string || ""}
+                              onValueChange={(v) => updateCondition(index, { value: v })}
+                            >
+                              <SelectTrigger data-testid={`select-value-${index}`}>
+                                <SelectValue placeholder="Select value" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="true">Yes</SelectItem>
+                                <SelectItem value="false">No</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : columnType === "date" || columnType === "datetime" ? (
+                            <Input
+                              type="date"
+                              value={condition.value as string || ""}
+                              onChange={(e) => updateCondition(index, { value: e.target.value })}
+                              data-testid={`input-value-${index}`}
+                            />
+                          ) : (
+                            <Input
+                              type={columnType === "number" || columnType === "percentage" ? "number" : "text"}
+                              placeholder="Enter value"
+                              value={condition.value as string || ""}
+                              onChange={(e) => updateCondition(index, { 
+                                value: columnType === "number" || columnType === "percentage" 
+                                  ? parseFloat(e.target.value) || null 
+                                  : e.target.value 
+                              })}
+                              data-testid={`input-value-${index}`}
+                            />
+                          )
+                        )}
+                      </div>
+
+                      {conditions.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeCondition(index)}
+                          className="flex-shrink-0 mt-0.5"
+                          data-testid={`button-remove-condition-${index}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
                       )}
                     </div>
-
-                    {conditions.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeCondition(index)}
-                        className="flex-shrink-0 mt-0.5"
-                        data-testid={`button-remove-condition-${index}`}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
+                    
+                    {/* AND/OR toggle between conditions (not shown after last condition) */}
+                    {!isLastCondition && (
+                      <div className="flex justify-center">
+                        <div className="flex items-center gap-1 bg-muted rounded-md p-1">
+                          <button
+                            type="button"
+                            onClick={() => updateConditionNextOperator(index, "and")}
+                            className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                              condition.next_operator === "and" || !condition.next_operator
+                                ? "bg-primary text-primary-foreground"
+                                : "hover:bg-muted-foreground/10"
+                            }`}
+                            data-testid={`toggle-and-${index}`}
+                          >
+                            AND
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateConditionNextOperator(index, "or")}
+                            className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                              condition.next_operator === "or"
+                                ? "bg-primary text-primary-foreground"
+                                : "hover:bg-muted-foreground/10"
+                            }`}
+                            data-testid={`toggle-or-${index}`}
+                          >
+                            OR
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 );
