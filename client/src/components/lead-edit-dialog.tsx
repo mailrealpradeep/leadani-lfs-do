@@ -209,15 +209,28 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     // Single state update with all changes
     setFormValues(mergedFormValues);
 
-    // Check validation rules against the fully merged form values
-    const triggered = checkValidationRules(columnKey, value, mergedFormValues);
+    // Check validation rules for user-edited column AND all auto-filled columns
+    const allChangedColumns = [columnKey, ...Object.keys(autoFillUpdates)];
+    let triggered: any = null;
+    let triggerColumnKey = columnKey;
+    let triggerValue = value;
+    
+    for (const changedKey of allChangedColumns) {
+      const changedValue = mergedFormValues[changedKey];
+      triggered = checkValidationRules(changedKey, changedValue, mergedFormValues);
+      if (triggered) {
+        triggerColumnKey = changedKey;
+        triggerValue = changedValue;
+        break;
+      }
+    }
     
     if (triggered && !triggeredRule) {
       setTriggeredRule(triggered);
       setTriggerChange({
-        column_key: columnKey,
-        old_value: originalValues[columnKey],
-        new_value: value,
+        column_key: triggerColumnKey,
+        old_value: originalValues[triggerColumnKey],
+        new_value: triggerValue,
       });
       const initialValues: Record<string, any> = {};
       const cols = triggered.required_columns && triggered.required_columns.length > 0
