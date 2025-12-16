@@ -112,6 +112,7 @@ import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRu
 import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
+import { UpdateHistoryHoverCard } from "./update-history-hover-card";
 import { LeadEditDialog } from "./lead-edit-dialog";
 import { TransitionExplanationDialog } from "./transition-explanation-dialog";
 import { ValidationPromptDialog, useValidationRuleChecker } from "./validation-prompt-dialog";
@@ -3471,10 +3472,9 @@ export function SpreadsheetGrid({
                             >
                               <Edit2 className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
+                            <UpdateHistoryHoverCard 
+                              leadId={lead.id} 
+                              onOpenFullDialog={() => {
                                 if (updateHistoryDialogOpen) return;
                                 if (highlightTimeoutRef.current) {
                                   clearTimeout(highlightTimeoutRef.current);
@@ -3483,12 +3483,7 @@ export function SpreadsheetGrid({
                                 setSelectedLeadForUpdate(lead.id);
                                 setUpdateHistoryDialogOpen(true);
                               }}
-                              data-testid={`button-update-history-${lead.id}`}
-                              title="View update history"
-                              aria-label="View update history"
-                            >
-                              <History className="h-4 w-4" />
-                            </Button>
+                            />
                           </div>
                     
                     {/* Data Cells */}
