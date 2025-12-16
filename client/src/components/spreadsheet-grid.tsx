@@ -3513,7 +3513,8 @@ export function SpreadsheetGrid({
                           isDropdown ? (
                             <Select
                               value={editValue}
-                              onValueChange={(val) => {
+                              onValueChange={(rawVal) => {
+                                const val = rawVal === "__clear__" ? "" : rawVal;
                                 setEditValue(val);
                                 const oldValue = lead.custom_fields?.[col.key] || null;
                                 
@@ -3612,20 +3613,28 @@ export function SpreadsheetGrid({
                                   const allOptions = col.config?.dropdown_options || [];
                                   const hiddenSystemValues = col.config?.hidden_system_values || [];
                                   const currentValue = lead.custom_fields?.[col.key];
-                                  return allOptions.map((opt: string) => {
-                                    const isHidden = hiddenSystemValues.includes(opt);
-                                    // Show hidden values only if they are the current value (with visual indicator)
-                                    if (isHidden && opt !== currentValue) return null;
-                                    return (
-                                      <SelectItem 
-                                        key={opt} 
-                                        value={opt}
-                                        className={isHidden ? "text-muted-foreground opacity-60" : ""}
-                                      >
-                                        {opt}{isHidden ? " (disabled)" : ""}
-                                      </SelectItem>
-                                    );
-                                  });
+                                  return (
+                                    <>
+                                      {currentValue && (
+                                        <SelectItem value="__clear__" className="text-muted-foreground italic">
+                                          Clear selection
+                                        </SelectItem>
+                                      )}
+                                      {allOptions.map((opt: string) => {
+                                        const isHidden = hiddenSystemValues.includes(opt);
+                                        if (isHidden && opt !== currentValue) return null;
+                                        return (
+                                          <SelectItem 
+                                            key={opt} 
+                                            value={opt}
+                                            className={isHidden ? "text-muted-foreground opacity-60" : ""}
+                                          >
+                                            {opt}{isHidden ? " (disabled)" : ""}
+                                          </SelectItem>
+                                        );
+                                      })}
+                                    </>
+                                  );
                                 })()}
                               </SelectContent>
                             </Select>
