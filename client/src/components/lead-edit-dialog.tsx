@@ -432,7 +432,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
           <Select
             value={value ?? ""}
             onValueChange={(val) => {
-              handleFieldChange(column.column_key, val);
+              handleFieldChange(column.column_key, val === "__clear__" ? "" : val);
               setEditingField(null);
             }}
           >
@@ -440,6 +440,11 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
               <SelectValue placeholder={`Select ${column.name}`} />
             </SelectTrigger>
             <SelectContent>
+              {value && (
+                <SelectItem value="__clear__" className="text-muted-foreground italic">
+                  Clear selection
+                </SelectItem>
+              )}
               {allOptions.map((opt: string) => {
                 const isHidden = hiddenSystemValues.includes(opt);
                 if (isHidden && opt !== value) return null;
