@@ -36,6 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery, useQueries } from "@tanstack/react-query";
 import { format, parseISO, isValid } from "date-fns";
+import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 
 interface CompanySettings {
   quick_update_fields?: string[];
@@ -74,6 +75,7 @@ export function LeadUpdateDialog({
 }: LeadUpdateDialogProps) {
   const { toast } = useToast();
   const { getCurrentDate } = useCompanyTimezone();
+  const { applyAutoFillRules } = useAutoFillRules();
   const [quickFieldValues, setQuickFieldValues] = useState<Record<string, any>>({});
   const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
   
@@ -314,7 +316,18 @@ export function LeadUpdateDialog({
   };
 
   const handleQuickFieldChange = (columnKey: string, value: any) => {
-    setQuickFieldValues(prev => ({ ...prev, [columnKey]: value }));
+    const newValues = { ...quickFieldValues, [columnKey]: value };
+    setQuickFieldValues(newValues);
+    
+    // Apply auto-fill rules if this is a dropdown field change
+    applyAutoFillRules(
+      columnKey,
+      value,
+      newValues,
+      (autoFillUpdates) => {
+        setQuickFieldValues(prev => ({ ...prev, ...autoFillUpdates }));
+      }
+    );
   };
 
   const normalizeDate = (value: any): Date | undefined => {

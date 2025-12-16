@@ -29,6 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, GitMerge, XCircle } from "lucide-react";
 import type { Lead, CustomColumn, Sheet } from "@shared/schema";
+import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 
 interface AddLeadFormField {
   column_key: string;
@@ -62,6 +63,7 @@ interface AddLeadDialogProps {
 export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false, open, onOpenChange }: AddLeadDialogProps) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { applyAutoFillRules } = useAutoFillRules();
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [selectedSheetId, setSelectedSheetId] = useState<string>(sheetId);
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicateLeadInfo | null>(null);
@@ -282,10 +284,18 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
   };
 
   const handleChange = (key: string, value: any) => {
-    setFormData((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
+    const newFormData = { ...formData, [key]: value };
+    setFormData(newFormData);
+    
+    // Apply auto-fill rules if this is a dropdown field change
+    applyAutoFillRules(
+      key,
+      value,
+      newFormData,
+      (autoFillUpdates) => {
+        setFormData(prev => ({ ...prev, ...autoFillUpdates }));
+      }
+    );
   };
 
   const renderField = (col: CustomColumn) => {

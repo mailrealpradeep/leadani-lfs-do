@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
+import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -347,6 +348,7 @@ export function SpreadsheetGrid({
   // Custom view mode operates similarly to hot leads mode
   const customViewMode = !!customViewId;
   const { toast } = useToast();
+  const { applyAutoFillRules } = useAutoFillRules();
   const isMobile = useIsMobile();
   const { theme } = useTheme();
   const { timezone, formatInTimezone, getCurrentDate, getStartOfDay, getEndOfDay, isSameDay, isBeforeToday, isAfterToday } = useCompanyTimezone();
@@ -3575,10 +3577,22 @@ export function SpreadsheetGrid({
                                   return;
                                 }
                                 
-                                const updatedFields = {
+                                let updatedFields = {
                                   ...lead.custom_fields,
                                   [col.key]: val,
                                 };
+                                
+                                // Apply auto-fill rules silently (updates are batched into single mutation)
+                                applyAutoFillRules(
+                                  col.key,
+                                  val,
+                                  updatedFields,
+                                  (autoFillUpdates) => {
+                                    updatedFields = { ...updatedFields, ...autoFillUpdates };
+                                  },
+                                  { showToast: true }
+                                );
+                                
                                 updateLeadMutation.mutate({
                                   leadId: lead.id,
                                   customFields: updatedFields,
