@@ -5651,9 +5651,37 @@ ${questionsList}`;
       // Remove owner_user_id from req.body to prevent client spoofing
       const { owner_user_id, ...leadData } = req.body;
       
-      // Validate required custom fields
+      // Validate required custom fields - respect Add Lead Form Configuration
       const customColumns = await storage.getCustomColumns(req.params.id);
-      const requiredColumns = customColumns.filter(col => col.config.required);
+      
+      // Get company settings to check for add_lead_form_fields config
+      const company = await storage.getCompany(sheet.company_id);
+      const formFieldConfig = company?.settings?.add_lead_form_fields as { column_key: string; required: boolean }[] | undefined;
+      const hasCustomFormConfig = formFieldConfig && Array.isArray(formFieldConfig) && formFieldConfig.length > 0;
+      const formFieldMap = new Map(formFieldConfig?.map(f => [f.column_key, f]) || []);
+      
+      // Determine required columns based on form config or default column settings
+      // Mandatory system fields: full_name, mobile_no are always required
+      const MANDATORY_SYSTEM_FIELDS = ["full_name", "mobile_no"];
+      
+      const requiredColumns = customColumns.filter(col => {
+        // Mandatory system fields are always required
+        if (MANDATORY_SYSTEM_FIELDS.includes(col.column_key)) {
+          return true;
+        }
+        
+        // If custom form config exists, use its required setting
+        if (hasCustomFormConfig) {
+          const formField = formFieldMap.get(col.column_key);
+          // If field is not in form config, it's not shown in form, so don't validate
+          if (!formField) return false;
+          return formField.required;
+        }
+        
+        // Default: use column's built-in required setting
+        return col.config.required;
+      });
+      
       const missingFields = requiredColumns.filter(col => {
         const value = leadData.custom_fields?.[col.column_key];
         // Check for null/undefined (nullish), but allow false, 0
