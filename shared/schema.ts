@@ -428,6 +428,7 @@ export const highlightColors = [
 export type HighlightColorId = typeof highlightColors[number]["id"];
 
 // Highlighting condition schema (column + operator + value)
+// Each condition can have next_operator to connect it to the following condition (mixed AND/OR logic)
 export const highlightingConditionSchema = z.object({
   column_key: z.string().min(1, "Column key is required"),
   operator: z.enum([
@@ -444,6 +445,7 @@ export const highlightingConditionSchema = z.object({
   ]),
   value: z.union([z.string(), z.number(), z.array(z.string()), z.null()]).optional(),
   value2: z.union([z.string(), z.number(), z.null()]).optional(), // For "between" operators
+  next_operator: z.enum(["and", "or"]).optional(), // Operator connecting this condition to the next (undefined for last condition)
 });
 
 export type HighlightingCondition = z.infer<typeof highlightingConditionSchema>;
