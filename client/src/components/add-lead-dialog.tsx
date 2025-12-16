@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -29,6 +29,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertTriangle, GitMerge, XCircle } from "lucide-react";
 import type { Lead, CustomColumn, Sheet } from "@shared/schema";
+
+interface AddLeadFormField {
+  column_key: string;
+  required: boolean;
+}
+
+interface CompanySettings {
+  add_lead_form_fields?: AddLeadFormField[];
+  [key: string]: any;
+}
 
 interface DuplicateLeadInfo {
   id: string;
@@ -93,6 +103,23 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
     queryKey: ["/api/sheets", activeSheetId, "columns"],
     enabled: open && !!activeSheetId,
   });
+
+  const { data: companySettings } = useQuery<{ settings: CompanySettings }>({
+    queryKey: ["/api/company/settings"],
+    enabled: open,
+  });
+
+  const formFieldConfig = companySettings?.settings?.add_lead_form_fields;
+
+  const formFieldMap = useMemo(() => {
+    const map = new Map<string, { required: boolean }>();
+    if (formFieldConfig && formFieldConfig.length > 0) {
+      formFieldConfig.forEach(f => map.set(f.column_key, { required: f.required }));
+    }
+    return map;
+  }, [formFieldConfig]);
+
+  const hasCustomFormConfig = formFieldConfig && formFieldConfig.length > 0;
 
   // Check for duplicate mobile number
   const checkDuplicateMutation = useMutation({
@@ -198,10 +225,15 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
     }
     
     // Validate other required fields (handle falsy values like false and 0 correctly)
-    const requiredColumns = columns.filter(col => 
-      col.config.required && 
-      !SYSTEM_COLUMN_KEYS.includes(col.column_key as typeof SYSTEM_COLUMN_KEYS[number])
-    );
+    const requiredColumns = filteredAndSortedColumns.filter(col => {
+      if (SYSTEM_COLUMN_KEYS.includes(col.column_key as typeof SYSTEM_COLUMN_KEYS[number])) {
+        return false;
+      }
+      if (hasCustomFormConfig) {
+        return formFieldMap.get(col.column_key)?.required ?? false;
+      }
+      return col.config.required;
+    });
     const missingFields = requiredColumns.filter(col => {
       const value = formData[col.column_key];
       if (value === null || value === undefined) return true;
@@ -260,7 +292,8 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
     const value = formData[col.column_key] ?? "";
     const isSystemColumn = SYSTEM_COLUMN_KEYS.includes(col.column_key as typeof SYSTEM_COLUMN_KEYS[number]);
     const isMandatorySystemColumn = col.column_key === "full_name" || col.column_key === "mobile_no";
-    const required = col.config.required || isMandatorySystemColumn;
+    const formFieldRequired = formFieldMap.get(col.column_key)?.required ?? false;
+    const required = isMandatorySystemColumn || (hasCustomFormConfig ? formFieldRequired : col.config.required);
 
     switch (col.type) {
       case "text":
@@ -412,19 +445,32 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
     }
   };
 
-  const sortedColumns = [...columns].sort((a, b) => {
-    const systemOrder = { full_name: 0, mobile_no: 1, created_at: 2 };
-    const aIsSystem = SYSTEM_COLUMN_KEYS.includes(a.column_key as typeof SYSTEM_COLUMN_KEYS[number]);
-    const bIsSystem = SYSTEM_COLUMN_KEYS.includes(b.column_key as typeof SYSTEM_COLUMN_KEYS[number]);
+  const filteredAndSortedColumns = useMemo(() => {
+    const columnMap = new Map(columns.map(c => [c.column_key, c]));
+    const MANDATORY_FIELDS = ["full_name", "mobile_no"];
     
-    if (aIsSystem && bIsSystem) {
-      return (systemOrder[a.column_key as keyof typeof systemOrder] ?? 99) - 
-             (systemOrder[b.column_key as keyof typeof systemOrder] ?? 99);
+    if (hasCustomFormConfig) {
+      const orderedKeys = formFieldConfig!.map(f => f.column_key);
+      const missingMandatory = MANDATORY_FIELDS.filter(key => !orderedKeys.includes(key) && columnMap.has(key));
+      const allKeys = [...missingMandatory, ...orderedKeys];
+      return allKeys
+        .filter(key => columnMap.has(key))
+        .map(key => columnMap.get(key)!);
     }
-    if (aIsSystem) return -1;
-    if (bIsSystem) return 1;
-    return a.order_index - b.order_index;
-  });
+    return [...columns].sort((a, b) => {
+      const systemOrder = { full_name: 0, mobile_no: 1, created_at: 2 };
+      const aIsSystem = SYSTEM_COLUMN_KEYS.includes(a.column_key as typeof SYSTEM_COLUMN_KEYS[number]);
+      const bIsSystem = SYSTEM_COLUMN_KEYS.includes(b.column_key as typeof SYSTEM_COLUMN_KEYS[number]);
+      
+      if (aIsSystem && bIsSystem) {
+        return (systemOrder[a.column_key as keyof typeof systemOrder] ?? 99) - 
+               (systemOrder[b.column_key as keyof typeof systemOrder] ?? 99);
+      }
+      if (aIsSystem) return -1;
+      if (bIsSystem) return 1;
+      return a.order_index - b.order_index;
+    });
+  }, [columns, hasCustomFormConfig, formFieldConfig]);
 
   const isPending = createMutation.isPending || checkDuplicateMutation.isPending;
 
@@ -460,7 +506,7 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-              {sortedColumns.map((col) => renderField(col))}
+              {filteredAndSortedColumns.map((col) => renderField(col))}
             </div>
             <DialogFooter className="flex-col sm:flex-row gap-2">
               <Button
