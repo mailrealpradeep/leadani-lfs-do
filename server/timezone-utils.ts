@@ -318,3 +318,44 @@ export function getLastMonthRangeInTimezone(timezone: string): { start: Date; en
   
   return { start, end };
 }
+
+/**
+ * Get today's date as YYYY-MM-DD string in the specified timezone.
+ * This is the core function for consistent date defaults across the application.
+ */
+export function getTodayDateString(timezone: string): string {
+  const now = new Date();
+  return now.toLocaleDateString("en-CA", { timeZone: timezone });
+}
+
+/**
+ * Get the current time as HH:MM string in the specified timezone.
+ * This is used for lead_time defaults.
+ */
+export function getCurrentTimeString(timezone: string): string {
+  const now = new Date();
+  return now.toLocaleTimeString("en-GB", { 
+    timeZone: timezone, 
+    hour: "2-digit", 
+    minute: "2-digit",
+    hour12: false 
+  });
+}
+
+/**
+ * Get tomorrow's date as YYYY-MM-DD string in the specified timezone.
+ */
+export function getTomorrowDateString(timezone: string): string {
+  const now = new Date();
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  return tomorrow.toLocaleDateString("en-CA", { timeZone: timezone });
+}
+
+/**
+ * Get yesterday's date as YYYY-MM-DD string in the specified timezone.
+ */
+export function getYesterdayDateString(timezone: string): string {
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  return yesterday.toLocaleDateString("en-CA", { timeZone: timezone });
+}

@@ -14,7 +14,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Filter, X, CalendarIcon } from "lucide-react";
-import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, startOfDay, endOfDay } from "date-fns";
+import { format } from "date-fns";
+import {
+  getCurrentDateInTimezone,
+  getStartOfDayInTimezone,
+  getEndOfDayInTimezone,
+  getWeekRangeInTimezone,
+  getMonthRangeInTimezone,
+  DEFAULT_TIMEZONE,
+} from "@/lib/timezone-utils";
 
 export type DateFilterValue = {
   type: "today" | "yesterday" | "thisWeek" | "thisMonth" | "last7Days" | "last30Days" | "custom" | "tomorrow";
@@ -26,9 +34,10 @@ interface DateRangeFilterProps {
   value: DateFilterValue;
   onChange: (value: DateFilterValue) => void;
   placeholder?: string;
+  timezone?: string;
 }
 
-export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: DateRangeFilterProps) {
+export function DateRangeFilter({ value, onChange, placeholder = "Filter...", timezone = DEFAULT_TIMEZONE }: DateRangeFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>(value?.type || "");
   const [customFrom, setCustomFrom] = useState<Date | undefined>(value?.from);
@@ -40,34 +49,43 @@ export function DateRangeFilter({ value, onChange, placeholder = "Filter..." }: 
       return;
     }
 
+    // Use company timezone for all date calculations to ensure consistency
+    const today = getCurrentDateInTimezone(timezone);
+    const todayEnd = getEndOfDayInTimezone(today, timezone);
+
     switch (type) {
       case "today": {
-        onChange({ type: "today", from: startOfToday(), to: endOfToday() });
+        onChange({ type: "today", from: today, to: todayEnd });
         break;
       }
       case "yesterday": {
-        const yesterday = subDays(new Date(), 1);
-        onChange({ type: "yesterday", from: startOfDay(yesterday), to: endOfDay(yesterday) });
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+        const yesterdayStart = getStartOfDayInTimezone(yesterday, timezone);
+        const yesterdayEnd = getEndOfDayInTimezone(yesterday, timezone);
+        onChange({ type: "yesterday", from: yesterdayStart, to: yesterdayEnd });
         break;
       }
       case "thisWeek": {
-        const today = new Date();
-        onChange({ type: "thisWeek", from: startOfWeek(today), to: endOfWeek(today) });
+        const weekRange = getWeekRangeInTimezone(timezone);
+        onChange({ type: "thisWeek", from: weekRange.start, to: weekRange.end });
         break;
       }
       case "thisMonth": {
-        const today = new Date();
-        onChange({ type: "thisMonth", from: startOfMonth(today), to: endOfMonth(today) });
+        const monthRange = getMonthRangeInTimezone(timezone);
+        onChange({ type: "thisMonth", from: monthRange.start, to: monthRange.end });
         break;
       }
       case "last7Days": {
-        const today = new Date();
-        onChange({ type: "last7Days", from: subDays(today, 7), to: today });
+        const last7Start = new Date(today);
+        last7Start.setDate(today.getDate() - 7);
+        onChange({ type: "last7Days", from: getStartOfDayInTimezone(last7Start, timezone), to: todayEnd });
         break;
       }
       case "last30Days": {
-        const today = new Date();
-        onChange({ type: "last30Days", from: subDays(today, 30), to: today });
+        const last30Start = new Date(today);
+        last30Start.setDate(today.getDate() - 30);
+        onChange({ type: "last30Days", from: getStartOfDayInTimezone(last30Start, timezone), to: todayEnd });
         break;
       }
       case "custom": {

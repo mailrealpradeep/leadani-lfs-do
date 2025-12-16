@@ -10,7 +10,7 @@ import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { getCompanyTimezone } from "./timezone-utils";
+import { getCompanyTimezone, getTodayDateString, getCurrentTimeString } from "./timezone-utils";
 import { seedData } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { validateLeadAgainstRules } from "@shared/validator";
@@ -1045,7 +1045,12 @@ ${questionsList}`;
       const matchValue = leadData[matchField] || getNestedValue(incomingData, matchField) || 'unknown';
       const updateFieldMappings = webhook.update_field_mappings || [];
       const sourceLabel = webhook.source_label || "Webhook";
-      const today = new Date().toISOString().split('T')[0];
+      
+      // Get company timezone for date/time defaults
+      const webhookCompany = await storage.getCompany(webhook.company_id);
+      const webhookCompanyTimezone = getCompanyTimezone(webhookCompany);
+      const today = getTodayDateString(webhookCompanyTimezone);
+      const currentTime = getCurrentTimeString(webhookCompanyTimezone);
       
       let lead: Lead;
       let existingLead: Lead | undefined = undefined;
@@ -1168,7 +1173,7 @@ ${questionsList}`;
             occupation: leadData.occupation || "",
             qualification: leadData.qualification || "",
             lead_date: leadData.lead_date || today,
-            lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+            lead_time: leadData.lead_time || currentTime,
             lead_status: leadData.lead_status || "New",
             visit_status: leadData.visit_status || "Not Visited",
             ...leadData,
@@ -3914,8 +3919,11 @@ ${questionsList}`;
         }
       }
 
-      // Set default values for required fields
-      const today = new Date().toISOString().split('T')[0];
+      // Set default values for required fields using company timezone
+      const allocCompany = await storage.getCompany(webhook.company_id);
+      const allocTimezone = getCompanyTimezone(allocCompany);
+      const today = getTodayDateString(allocTimezone);
+      const currentTime = getCurrentTimeString(allocTimezone);
       
       // Build the custom fields
       const customFields = {
@@ -3926,7 +3934,7 @@ ${questionsList}`;
         occupation: leadData.occupation || "",
         qualification: leadData.qualification || "",
         lead_date: leadData.lead_date || today,
-        lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+        lead_time: leadData.lead_time || currentTime,
         lead_status: leadData.lead_status || "New",
         visit_status: leadData.visit_status || "Not Visited",
         ...leadData,
@@ -4047,8 +4055,13 @@ ${questionsList}`;
         return current;
       };
 
+      // Get company timezone for date/time defaults
+      const bulkAllocCompany = await storage.getCompany(webhook.company_id);
+      const bulkAllocTimezone = getCompanyTimezone(bulkAllocCompany);
+      const today = getTodayDateString(bulkAllocTimezone);
+      const currentTime = getCurrentTimeString(bulkAllocTimezone);
+      
       const results: { request_id: string; success: boolean; lead_id?: string; error?: string }[] = [];
-      const today = new Date().toISOString().split('T')[0];
 
       for (const requestId of request_ids) {
         try {
@@ -4090,7 +4103,7 @@ ${questionsList}`;
             occupation: leadData.occupation || "",
             qualification: leadData.qualification || "",
             lead_date: leadData.lead_date || today,
-            lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+            lead_time: leadData.lead_time || currentTime,
             lead_status: leadData.lead_status || "New",
             visit_status: leadData.visit_status || "Not Visited",
             ...leadData,
@@ -4260,8 +4273,13 @@ ${questionsList}`;
         }
       };
 
+      // Get company timezone for date/time defaults
+      const reprocessCompany = await storage.getCompany(webhook.company_id);
+      const reprocessTimezone = getCompanyTimezone(reprocessCompany);
+      const today = getTodayDateString(reprocessTimezone);
+      const currentTime = getCurrentTimeString(reprocessTimezone);
+      
       const results: { request_id: string; success: boolean; lead_id?: string; sheet_id?: string; error?: string }[] = [];
-      const today = new Date().toISOString().split('T')[0];
 
       for (const requestId of request_ids) {
         try {
@@ -4365,7 +4383,7 @@ ${questionsList}`;
             occupation: leadData.occupation || "",
             qualification: leadData.qualification || "",
             lead_date: leadData.lead_date || today,
-            lead_time: leadData.lead_time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+            lead_time: leadData.lead_time || currentTime,
             lead_status: leadData.lead_status || "New",
             visit_status: leadData.visit_status || "Not Visited",
             ...leadData,
@@ -5904,10 +5922,14 @@ ${questionsList}`;
       // Refetch lead to get updated attended_at value
       const finalLead = await storage.getLead(existingLead.id) || updatedLead;
       
-      // Create an update entry to track the merge
+      // Create an update entry to track the merge using company timezone
+      const mergeCompany = await storage.getCompany(sheet.company_id);
+      const mergeTimezone = getCompanyTimezone(mergeCompany);
+      const mergeDate = getTodayDateString(mergeTimezone);
+      
       await storage.createLeadUpdate({
         lead_id: existingLead.id,
-        update_on: new Date().toISOString().split('T')[0],
+        update_on: mergeDate,
         remark: `Lead data merged from ${source || "duplicate entry"}`,
         update_via: source === "webhook" ? "webhook" : "merge",
         created_by_user_id: req.userId!,
@@ -6001,10 +6023,14 @@ ${questionsList}`;
             custom_fields: mergedFields,
           });
           
-          // Create an update entry to track the merge
+          // Create an update entry to track the merge using company timezone
+          const bulkMergeCompany = await storage.getCompany(sheet.company_id);
+          const bulkMergeTimezone = getCompanyTimezone(bulkMergeCompany);
+          const bulkMergeDate = getTodayDateString(bulkMergeTimezone);
+          
           await storage.createLeadUpdate({
             lead_id: existingLead.id,
-            update_on: new Date().toISOString().split('T')[0],
+            update_on: bulkMergeDate,
             remark: `Lead data merged from ${source}`,
             update_via: "import",
             created_by_user_id: req.userId!,
@@ -6224,7 +6250,10 @@ ${questionsList}`;
       // Create lead update record if transition_note is provided (for transition explanation rules)
       if (req.body.transition_note && finalLead) {
         const transitionNote = req.body.transition_note as string;
-        const currentDate = new Date().toISOString().split('T')[0];
+        // Use company timezone for update date
+        const transitionCompany = await storage.getCompany(sheet.company_id);
+        const transitionTimezone = getCompanyTimezone(transitionCompany);
+        const currentDate = getTodayDateString(transitionTimezone);
         await storage.createLeadUpdate({
           lead_id: req.params.id,
           update_via: "web",
@@ -6638,8 +6667,10 @@ ${questionsList}`;
             payload: { from_sheet_id: oldSheetId, to_sheet_id: targetSheetId },
           });
 
-          // Create lead update record for transfer (only after successful transfer)
-          const today = new Date().toISOString().split('T')[0];
+          // Create lead update record for transfer using company timezone
+          const transferCompany = await storage.getCompany(targetSheet.company_id);
+          const transferTimezone = getCompanyTimezone(transferCompany);
+          const today = getTodayDateString(transferTimezone);
           await storage.createLeadUpdate({
             lead_id: leadId,
             update_via: "transfer",
@@ -17914,12 +17945,14 @@ ${questionsList}`;
           sheet_id: targetSheetId,
         });
 
-        // Add update history entry
+        // Add update history entry using company timezone
         const updateRemark = remark 
           ? `Transferred from ${sourceSheet.name} to ${targetSheet?.name} by ${transferUserName} - ${remark}`
           : `Transferred from ${sourceSheet.name} to ${targetSheet?.name} by ${transferUserName}`;
         
-        const today = new Date().toISOString().split("T")[0];
+        const bulkTransferCompany = await storage.getCompany(sourceSheet.company_id);
+        const bulkTransferTimezone = getCompanyTimezone(bulkTransferCompany);
+        const today = getTodayDateString(bulkTransferTimezone);
         await storage.createLeadUpdate({
           lead_id: lead.id,
           update_via: "transfer",

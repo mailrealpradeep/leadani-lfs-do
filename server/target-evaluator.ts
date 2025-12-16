@@ -2,9 +2,15 @@ import { storage } from './storage';
 import { 
   getCompanyTimezone, 
   getCurrentDateInTimezone, 
+  getStartOfDayInTimezone,
+  getEndOfDayInTimezone,
   getWeekRangeInTimezone,
-  getMonthRangeInTimezone 
+  getMonthRangeInTimezone,
+  getTodayDateString
 } from './timezone-utils';
+
+// Default timezone for functions without company context
+const DEFAULT_TIMEZONE = 'Asia/Kolkata';
 import type { 
   TargetRecord, 
   TargetGoalRecord,
@@ -18,7 +24,7 @@ import type {
 } from '@shared/schema';
 
 // Condition evaluation functions
-export function evaluateCondition(condition: TargetCondition, leadValue: any): boolean {
+export function evaluateCondition(condition: TargetCondition, leadValue: any, timezone: string = DEFAULT_TIMEZONE): boolean {
   const { operator, value, value2 } = condition;
   
   // Handle null/undefined values - be strict about empty value semantics
@@ -191,18 +197,24 @@ export function evaluateCondition(condition: TargetCondition, leadValue: any): b
     case 'is_overdue':
     case 'within_days':
     case 'days_ago':
-      return evaluateDateCondition(operator, leadValue, value, value2);
+      return evaluateDateCondition(operator, leadValue, value, value2, timezone);
     
     default:
       return false;
   }
 }
 
+/**
+ * Evaluate date-based conditions using company timezone for "today" calculations.
+ * This ensures conditions like is_today, is_this_week use the company's timezone
+ * rather than server time, preventing date mismatches across different devices.
+ */
 function evaluateDateCondition(
   operator: string, 
   leadValue: any, 
   value: any, 
-  value2: any
+  value2: any,
+  timezone: string = DEFAULT_TIMEZONE
 ): boolean {
   let leadDate: Date;
   
@@ -213,33 +225,27 @@ function evaluateDateCondition(
     return false;
   }
   
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Use company timezone for "today" calculations
+  const today = getCurrentDateInTimezone(timezone);
   
-  const leadDateNorm = new Date(leadDate);
-  leadDateNorm.setHours(0, 0, 0, 0);
+  const leadDateNorm = getStartOfDayInTimezone(leadDate, timezone);
   
   switch (operator) {
     case 'date_equals':
-      const compareDate = new Date(value);
-      compareDate.setHours(0, 0, 0, 0);
+      const compareDate = getStartOfDayInTimezone(new Date(value), timezone);
       return leadDateNorm.getTime() === compareDate.getTime();
     
     case 'date_before':
-      const beforeDate = new Date(value);
-      beforeDate.setHours(0, 0, 0, 0);
+      const beforeDate = getStartOfDayInTimezone(new Date(value), timezone);
       return leadDateNorm.getTime() < beforeDate.getTime();
     
     case 'date_after':
-      const afterDate = new Date(value);
-      afterDate.setHours(0, 0, 0, 0);
+      const afterDate = getStartOfDayInTimezone(new Date(value), timezone);
       return leadDateNorm.getTime() > afterDate.getTime();
     
     case 'date_between':
-      const startDate = new Date(value);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(value2);
-      endDate.setHours(23, 59, 59, 999);
+      const startDate = getStartOfDayInTimezone(new Date(value), timezone);
+      const endDate = getEndOfDayInTimezone(new Date(value2), timezone);
       return leadDateNorm.getTime() >= startDate.getTime() && leadDateNorm.getTime() <= endDate.getTime();
     
     case 'is_today':
@@ -252,30 +258,25 @@ function evaluateDateCondition(
       return leadDateNorm.getTime() > today.getTime();
     
     case 'is_this_week':
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay());
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
-      return leadDateNorm.getTime() >= weekStart.getTime() && leadDateNorm.getTime() <= weekEnd.getTime();
+      const weekRange = getWeekRangeInTimezone(timezone);
+      return leadDateNorm.getTime() >= weekRange.start.getTime() && leadDateNorm.getTime() <= weekRange.end.getTime();
     
     case 'is_this_month':
-      return leadDateNorm.getMonth() === today.getMonth() && 
-             leadDateNorm.getFullYear() === today.getFullYear();
+      const monthRange = getMonthRangeInTimezone(timezone);
+      return leadDateNorm.getTime() >= monthRange.start.getTime() && leadDateNorm.getTime() <= monthRange.end.getTime();
     
     case 'is_overdue':
       return leadDateNorm.getTime() < today.getTime();
     
     case 'within_days':
       const daysAhead = parseInt(String(value));
-      const futureDate = new Date(today);
-      futureDate.setDate(today.getDate() + daysAhead);
-      return leadDateNorm.getTime() >= today.getTime() && leadDateNorm.getTime() <= futureDate.getTime();
+      const futureMs = today.getTime() + (daysAhead * 24 * 60 * 60 * 1000);
+      return leadDateNorm.getTime() >= today.getTime() && leadDateNorm.getTime() <= futureMs;
     
     case 'days_ago':
       const daysBack = parseInt(String(value));
-      const pastDate = new Date(today);
-      pastDate.setDate(today.getDate() - daysBack);
+      const pastMs = today.getTime() - (daysBack * 24 * 60 * 60 * 1000);
+      const pastDate = new Date(pastMs);
       return leadDateNorm.getTime() === pastDate.getTime();
     
     default:
@@ -286,7 +287,8 @@ function evaluateDateCondition(
 function evaluateConditions(
   conditions: TargetCondition[], 
   lead: Lead, 
-  logicalOperator: 'and' | 'or'
+  logicalOperator: 'and' | 'or',
+  timezone: string = DEFAULT_TIMEZONE
 ): boolean {
   if (conditions.length === 0) return true;
   
@@ -303,7 +305,7 @@ function evaluateConditions(
       leadValue = null;
     }
     
-    return evaluateCondition(condition, leadValue);
+    return evaluateCondition(condition, leadValue, timezone);
   });
   
   if (logicalOperator === 'and') {
@@ -339,7 +341,8 @@ function processConditionValue(condition: TargetCondition): TargetCondition {
 function calculateRatioValue(
   leads: Lead[],
   config: RatioNumeratorConfig | RatioDenominatorConfig,
-  allLeads: Lead[] // For total_scope mode
+  allLeads: Lead[], // For total_scope mode
+  timezone: string = DEFAULT_TIMEZONE
 ): number {
   // Check if this is a denominator config with total_scope mode
   const isDenominator = 'mode' in config;
@@ -359,7 +362,7 @@ function calculateRatioValue(
   const processedConditions = conditions.map(c => processConditionValue(c as TargetCondition));
   const logicalOp = config.logical_operator || 'and';
   const filteredLeads = processedConditions.length > 0
-    ? leads.filter(lead => evaluateConditions(processedConditions, lead, logicalOp))
+    ? leads.filter(lead => evaluateConditions(processedConditions, lead, logicalOp, timezone))
     : leads;
 
   // Calculate based on aggregation type
@@ -377,10 +380,11 @@ function calculateRatioValue(
 // Calculate ratio-based goal progress
 function calculateRatioGoalProgress(
   leads: Lead[],
-  ratioConfig: RatioConfig
+  ratioConfig: RatioConfig,
+  timezone: string = DEFAULT_TIMEZONE
 ): number {
-  const numeratorValue = calculateRatioValue(leads, ratioConfig.numerator, leads);
-  const denominatorValue = calculateRatioValue(leads, ratioConfig.denominator, leads);
+  const numeratorValue = calculateRatioValue(leads, ratioConfig.numerator, leads, timezone);
+  const denominatorValue = calculateRatioValue(leads, ratioConfig.denominator, leads, timezone);
 
   // Prevent division by zero
   if (denominatorValue === 0) {
@@ -406,6 +410,10 @@ export async function calculateGoalProgress(
 ): Promise<{ currentValue: number; targetValue: number; isAchieved: boolean }> {
   const config = goal.config as TargetGoalConfig;
   const targetValue = config.target_value;
+  
+  // Get company timezone for date comparisons
+  const company = await storage.getCompany(target.company_id);
+  const timezone = getCompanyTimezone(company);
   
   // Get leads based on target scope
   let leads: Lead[] = [];
@@ -441,7 +449,7 @@ export async function calculateGoalProgress(
     case 'count':
       // Count leads matching conditions
       currentValue = leads.filter(lead => 
-        evaluateConditions(config.conditions, lead, config.logical_operator)
+        evaluateConditions(config.conditions, lead, config.logical_operator, timezone)
       ).length;
       break;
     
@@ -449,7 +457,7 @@ export async function calculateGoalProgress(
       // Sum of a numeric column
       if (config.column_key) {
         currentValue = leads
-          .filter(lead => evaluateConditions(config.conditions, lead, config.logical_operator))
+          .filter(lead => evaluateConditions(config.conditions, lead, config.logical_operator, timezone))
           .reduce((sum, lead) => {
             const val = getLeadFieldValue(lead, config.column_key!);
             return sum + (parseFloat(String(val)) || 0);
@@ -460,11 +468,11 @@ export async function calculateGoalProgress(
     case 'average':
       // Average of a numeric column - use ratio_config if available
       if (config.ratio_config) {
-        currentValue = calculateRatioGoalProgress(leads, config.ratio_config);
+        currentValue = calculateRatioGoalProgress(leads, config.ratio_config, timezone);
       } else if (config.column_key) {
         // Legacy fallback
         const matchingLeads = leads.filter(lead => 
-          evaluateConditions(config.conditions, lead, config.logical_operator)
+          evaluateConditions(config.conditions, lead, config.logical_operator, timezone)
         );
         if (matchingLeads.length > 0) {
           const total = matchingLeads.reduce((sum, lead) => {
@@ -479,15 +487,15 @@ export async function calculateGoalProgress(
     case 'percentage':
       // Percentage of leads matching numerator vs denominator - use ratio_config if available
       if (config.ratio_config) {
-        currentValue = calculateRatioGoalProgress(leads, config.ratio_config);
+        currentValue = calculateRatioGoalProgress(leads, config.ratio_config, timezone);
       } else if (config.numerator_conditions && config.denominator_conditions) {
         // Legacy fallback
         const denominator = leads.filter(lead => 
-          evaluateConditions(config.denominator_conditions!, lead, config.logical_operator)
+          evaluateConditions(config.denominator_conditions!, lead, config.logical_operator, timezone)
         ).length;
         
         const numerator = leads.filter(lead => 
-          evaluateConditions(config.numerator_conditions!, lead, config.logical_operator)
+          evaluateConditions(config.numerator_conditions!, lead, config.logical_operator, timezone)
         ).length;
         
         if (denominator > 0) {
@@ -513,15 +521,15 @@ export async function calculateGoalProgress(
     case 'conversion':
       // Conversion rate from one status to another - use ratio_config if available
       if (config.ratio_config) {
-        currentValue = calculateRatioGoalProgress(leads, config.ratio_config);
+        currentValue = calculateRatioGoalProgress(leads, config.ratio_config, timezone);
       } else if (config.numerator_conditions && config.denominator_conditions) {
         // Legacy fallback
         const startLeads = leads.filter(lead => 
-          evaluateConditions(config.denominator_conditions!, lead, config.logical_operator)
+          evaluateConditions(config.denominator_conditions!, lead, config.logical_operator, timezone)
         );
         
         const convertedLeads = leads.filter(lead => 
-          evaluateConditions(config.numerator_conditions!, lead, config.logical_operator)
+          evaluateConditions(config.numerator_conditions!, lead, config.logical_operator, timezone)
         );
         
         if (startLeads.length > 0) {
@@ -533,9 +541,10 @@ export async function calculateGoalProgress(
     case 'compliance':
       // NFDT compliance rate - use ratio_config if available
       if (config.ratio_config) {
-        currentValue = calculateRatioGoalProgress(leads, config.ratio_config);
+        currentValue = calculateRatioGoalProgress(leads, config.ratio_config, timezone);
       } else {
-        // Legacy fallback
+        // Legacy fallback using company timezone for "now"
+        const now = getCurrentDateInTimezone(timezone);
         const leadsWithNFDT = leads.filter(lead => {
           const nfdt = getLeadFieldValue(lead, 'next_follow_up_date_time');
           if (!nfdt) return false;
@@ -546,7 +555,6 @@ export async function calculateGoalProgress(
         const compliantLeads = leadsWithNFDT.filter(lead => {
           const nfdt = getLeadFieldValue(lead, 'next_follow_up_date_time');
           const nfdtDate = new Date(nfdt);
-          const now = new Date();
           // Lead is compliant if NFDT is in the future or there's a recent update
           return nfdtDate >= now;
         });
@@ -595,7 +603,9 @@ export function getCurrentPeriod(target: TargetRecord, timezone: string = 'Asia/
     
     default:
       const defaultToday = getCurrentDateInTimezone(timezone);
-      return { start: defaultToday, end: new Date() };
+      const defaultDayEnd = new Date(defaultToday);
+      defaultDayEnd.setHours(23, 59, 59, 999);
+      return { start: defaultToday, end: defaultDayEnd };
   }
 }
 
@@ -684,10 +694,18 @@ export async function recalculateTargetProgress(targetId: string): Promise<void>
   }
 }
 
-// Check if today is a company holiday
-export async function isHoliday(companyId: string, date: Date = new Date()): Promise<boolean> {
-  const checkDate = new Date(date);
-  checkDate.setHours(0, 0, 0, 0);
+// Check if today is a company holiday (uses company timezone for default date)
+export async function isHoliday(companyId: string, date?: Date): Promise<boolean> {
+  // If no date provided, use current date in company timezone
+  let checkDate: Date;
+  if (!date) {
+    const company = await storage.getCompany(companyId);
+    const timezone = getCompanyTimezone(company);
+    checkDate = getCurrentDateInTimezone(timezone);
+  } else {
+    checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+  }
   
   const nextDay = new Date(checkDate);
   nextDay.setDate(nextDay.getDate() + 1);

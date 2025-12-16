@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ArrowUpDown, ArrowUp, ArrowDown, Filter, X, Calendar, ListFilter, Trash2 } from "lucide-react";
 import { DateRangeFilter, type DateFilterValue } from "./filters/date-range-filter";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 
 interface Column {
   key: string;
@@ -39,6 +40,7 @@ export function MobileFilterSheet({
   onSortChange,
   onFilterChange,
 }: MobileFilterSheetProps) {
+  const { timezone } = useCompanyTimezone();
   const [localSortColumn, setLocalSortColumn] = useState<string | null>(sortColumn);
   const [localSortDirection, setLocalSortDirection] = useState<"asc" | "desc">(sortDirection);
   const [localFilters, setLocalFilters] = useState<Record<string, string | DateFilterValue | null>>(columnFilters);
@@ -301,6 +303,7 @@ export function MobileFilterSheet({
                             }))
                           }
                           placeholder="Select date range"
+                          timezone={timezone}
                         />
                       )}
                     </div>

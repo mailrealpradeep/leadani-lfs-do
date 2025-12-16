@@ -3330,6 +3330,7 @@ export function SpreadsheetGrid({
                                     [col.key]: value,
                                   }))
                                 }
+                                timezone={timezone}
                               />
                             ) : col.type === "dropdown" ? (
                               <DropdownFilter
