@@ -32,6 +32,10 @@ export interface Company {
       date_column?: string; // column_key for visit date (e.g., "nfdt")
       card_columns?: string[]; // column keys to display in visit schedule card
     };
+    add_lead_form_fields?: {
+      column_key: string;
+      required: boolean;
+    }[]; // Configurable fields for Add Lead form with required/optional setting
   };
   status: "active" | "suspended" | "trial";
   attendance_exit_target_id: string | null; // Links to working_targets for attendance exit condition
@@ -66,6 +70,10 @@ export const insertCompanySchema = z.object({
       date_column: z.string().optional(),
       card_columns: z.array(z.string()).optional(),
     }).optional(),
+    add_lead_form_fields: z.array(z.object({
+      column_key: z.string(),
+      required: z.boolean(),
+    })).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),
 });
