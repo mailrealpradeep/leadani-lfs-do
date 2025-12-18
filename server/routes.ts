@@ -18280,21 +18280,21 @@ ${questionsList}`;
         ? req.body.company_id 
         : req.companyId!;
 
-      const { action_type, points, daily_cap, description, requires_approval, is_active } = req.body;
+      const { name, action_type, config, points, daily_cap, requires_approval, is_enabled } = req.body;
       
-      if (!action_type || points === undefined) {
-        return res.status(400).json({ error: "action_type and points are required" });
+      if (!name || !action_type || points === undefined) {
+        return res.status(400).json({ error: "name, action_type and points are required" });
       }
 
       const rule = await storage.createPowerScoreRule({
         company_id: companyId,
+        name,
         action_type,
+        config: config || {},
         points,
         daily_cap: daily_cap || null,
-        description: description || null,
         requires_approval: requires_approval || false,
-        is_active: is_active !== undefined ? is_active : true,
-        created_by_user_id: req.userId!,
+        is_enabled: is_enabled !== undefined ? is_enabled : true,
       });
 
       res.status(201).json(rule);

@@ -7723,13 +7723,15 @@ export class PgStorage implements IStorage {
     return result.map(row => ({
       id: row.id,
       company_id: row.company_id,
+      name: row.name,
       action_type: row.action_type as PowerScoreActionType,
+      config: row.config as { column_key?: string; from_values?: string[]; to_values?: string[] },
       points: row.points,
       daily_cap: row.daily_cap,
       requires_approval: row.requires_approval ?? false,
-      enabled: row.enabled ?? true,
-      created_at: row.created_at?.toISOString() || new Date().toISOString(),
-      updated_at: row.updated_at?.toISOString() || new Date().toISOString(),
+      is_enabled: row.is_enabled ?? true,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     }));
   }
 
@@ -7743,13 +7745,15 @@ export class PgStorage implements IStorage {
     return {
       id: row.id,
       company_id: row.company_id,
+      name: row.name,
       action_type: row.action_type as PowerScoreActionType,
+      config: row.config as { column_key?: string; from_values?: string[]; to_values?: string[] },
       points: row.points,
       daily_cap: row.daily_cap,
       requires_approval: row.requires_approval ?? false,
-      enabled: row.enabled ?? true,
-      created_at: row.created_at?.toISOString() || new Date().toISOString(),
-      updated_at: row.updated_at?.toISOString() || new Date().toISOString(),
+      is_enabled: row.is_enabled ?? true,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     };
   }
 
@@ -7760,11 +7764,13 @@ export class PgStorage implements IStorage {
       .values({
         id,
         company_id: rule.company_id,
+        name: rule.name,
         action_type: rule.action_type,
+        config: rule.config || {},
         points: rule.points,
         daily_cap: rule.daily_cap,
         requires_approval: rule.requires_approval,
-        enabled: rule.enabled,
+        is_enabled: rule.is_enabled,
         created_at: now,
         updated_at: now,
       })
@@ -7773,23 +7779,27 @@ export class PgStorage implements IStorage {
     return {
       id: row.id,
       company_id: row.company_id,
+      name: row.name,
       action_type: row.action_type as PowerScoreActionType,
+      config: row.config as { column_key?: string; from_values?: string[]; to_values?: string[] },
       points: row.points,
       daily_cap: row.daily_cap,
       requires_approval: row.requires_approval ?? false,
-      enabled: row.enabled ?? true,
-      created_at: row.created_at?.toISOString() || now.toISOString(),
-      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+      is_enabled: row.is_enabled ?? true,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     };
   }
 
   async updatePowerScoreRule(id: string, updates: Partial<PowerScoreRule>): Promise<PowerScoreRule | undefined> {
     const now = new Date();
     const dbUpdates: any = { updated_at: now };
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.config !== undefined) dbUpdates.config = updates.config;
     if (updates.points !== undefined) dbUpdates.points = updates.points;
     if (updates.daily_cap !== undefined) dbUpdates.daily_cap = updates.daily_cap;
     if (updates.requires_approval !== undefined) dbUpdates.requires_approval = updates.requires_approval;
-    if (updates.enabled !== undefined) dbUpdates.enabled = updates.enabled;
+    if (updates.is_enabled !== undefined) dbUpdates.is_enabled = updates.is_enabled;
     
     const rows = await db.update(dbSchema.powerscore_rules)
       .set(dbUpdates)
@@ -7800,13 +7810,15 @@ export class PgStorage implements IStorage {
     return {
       id: row.id,
       company_id: row.company_id,
+      name: row.name,
       action_type: row.action_type as PowerScoreActionType,
+      config: row.config as { column_key?: string; from_values?: string[]; to_values?: string[] },
       points: row.points,
       daily_cap: row.daily_cap,
       requires_approval: row.requires_approval ?? false,
-      enabled: row.enabled ?? true,
-      created_at: row.created_at?.toISOString() || new Date().toISOString(),
-      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+      is_enabled: row.is_enabled ?? true,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     };
   }
 

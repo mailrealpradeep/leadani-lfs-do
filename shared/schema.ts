@@ -3711,15 +3711,9 @@ export type InsertWatchlistLeadData = z.infer<typeof insertWatchlistLeadSchema>;
 
 // PowerScore Action Types (predefined action categories)
 export const powerScoreActionTypes = [
-  "lead_update",
-  "status_transition", 
-  "visit_scheduled",
-  "visit_completed",
-  "lead_converted",
-  "lead_created",
-  "milestone_bonus",
-  "login_bonus",
-  "admin_appreciation",
+  "lead_update",      // Points for any lead record update (adds to lead history)
+  "login",            // Points for logging in (once per 24 hours)
+  "dropdown_change",  // Points when a dropdown field value changes
 ] as const;
 
 export type PowerScoreActionType = typeof powerScoreActionTypes[number];
@@ -3728,12 +3722,13 @@ export type PowerScoreActionType = typeof powerScoreActionTypes[number];
 export const powerscore_rules = pgTable('powerscore_rules', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
-  action_type: varchar('action_type', { length: 50 }).notNull(), // From powerScoreActionTypes
-  // For status transitions, specify which column and from/to values
+  name: varchar('name', { length: 100 }).notNull(), // Rule name for identification
+  action_type: varchar('action_type', { length: 50 }).notNull(), // lead_update, login, dropdown_change
+  // For dropdown_change, specify column and from/to values (arrays for multi-select)
   config: json('config').$type<{
     column_key?: string; // e.g., "lead_status" or "visit_status"
-    from_value?: string; // optional - any value if not specified
-    to_value?: string; // required for transitions
+    from_values?: string[]; // Array of "from" values (multi-select)
+    to_values?: string[]; // Array of "to" values (multi-select)
   }>().default({}).notNull(),
   points: integer('points').notNull().default(0),
   daily_cap: integer('daily_cap'), // null = no cap

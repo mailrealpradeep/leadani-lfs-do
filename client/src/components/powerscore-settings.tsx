@@ -1,9 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Sparkles, AlertTriangle, CheckCircle2, Clock, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, AlertTriangle, CheckCircle2, X, ChevronRight, ChevronLeft, RefreshCw, LogIn, FileEdit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,81 +11,71 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { PowerScoreRule, PowerScorePendingApproval } from "@shared/schema";
+import type { PowerScoreRule, PowerScorePendingApproval, CustomColumn } from "@shared/schema";
 
-const ACTION_TYPE_LABELS: Record<string, string> = {
-  lead_update: "Lead Update",
-  status_transition: "Status Transition",
-  visit_scheduled: "Visit Scheduled",
-  visit_completed: "Visit Completed",
-  lead_converted: "Lead Converted",
-  lead_created: "Lead Created",
-  milestone_bonus: "Milestone Bonus",
-  login_bonus: "Login Bonus",
-  admin_appreciation: "Admin Appreciation",
-};
-
-const ACTION_TYPE_DESCRIPTIONS: Record<string, string> = {
-  lead_update: "Points earned when user updates a lead",
-  status_transition: "Points for transitioning lead status",
-  visit_scheduled: "Points when a visit is scheduled",
-  visit_completed: "Points when a visit is completed",
-  lead_converted: "Points when a lead is converted to customer",
-  lead_created: "Points when a new lead is created",
-  milestone_bonus: "Bonus points for hitting milestones",
-  login_bonus: "Points for logging in during bonus window",
-  admin_appreciation: "Points given by admin as recognition",
-};
+const ACTION_TYPES = [
+  { 
+    value: "lead_update", 
+    label: "Lead Update",
+    description: "Points for updating a lead record (adds to lead history)",
+    icon: FileEdit,
+  },
+  { 
+    value: "login", 
+    label: "Login",
+    description: "Points for logging in (once per 24 hours)",
+    icon: LogIn,
+  },
+  { 
+    value: "dropdown_change", 
+    label: "Dropdown Field Change",
+    description: "Points when a dropdown field value changes",
+    icon: RefreshCw,
+  },
+] as const;
 
 interface PendingApprovalWithUser extends PowerScorePendingApproval {
   user_name?: string;
   lead_full_name?: string;
 }
 
-const ruleFormSchema = z.object({
-  action_type: z.string().min(1, "Action type is required"),
-  points: z.number().min(0, "Points must be 0 or more"),
-  daily_cap: z.number().nullable(),
-  requires_approval: z.boolean(),
-  is_enabled: z.boolean(),
-});
+interface WizardState {
+  step: 1 | 2 | 3;
+  actionType: "lead_update" | "login" | "dropdown_change";
+  columnKey: string;
+  fromValues: string[];
+  toValues: string[];
+  name: string;
+  points: number;
+  dailyCap: number | null;
+  requiresApproval: boolean;
+}
 
-type RuleFormData = z.infer<typeof ruleFormSchema>;
+const initialWizardState: WizardState = {
+  step: 1,
+  actionType: "lead_update",
+  columnKey: "",
+  fromValues: [],
+  toValues: [],
+  name: "",
+  points: 10,
+  dailyCap: null,
+  requiresApproval: false,
+};
 
 export function PowerScoreSettings() {
   const { toast } = useToast();
-  const [editingRule, setEditingRule] = useState<PowerScoreRule | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<PowerScoreRule | null>(null);
   const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
   const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
-
-  const createForm = useForm<RuleFormData>({
-    resolver: zodResolver(ruleFormSchema),
-    defaultValues: {
-      action_type: "lead_update",
-      points: 10,
-      daily_cap: null,
-      requires_approval: false,
-      is_enabled: true,
-    },
-  });
-
-  const editForm = useForm<RuleFormData>({
-    resolver: zodResolver(ruleFormSchema),
-    defaultValues: {
-      action_type: "lead_update",
-      points: 10,
-      daily_cap: null,
-      requires_approval: false,
-      is_enabled: true,
-    },
-  });
+  const [wizard, setWizard] = useState<WizardState>(initialWizardState);
 
   const { data: rules = [], isLoading: rulesLoading } = useQuery<PowerScoreRule[]>({
     queryKey: ["/api/powerscore/rules"],
@@ -97,19 +85,31 @@ export function PowerScoreSettings() {
     queryKey: ["/api/powerscore/pending-approvals"],
   });
 
+  const { data: columns = [] } = useQuery<CustomColumn[]>({
+    queryKey: ["/api/company/columns"],
+  });
+
   const pendingApprovals = pendingApprovalsData?.approvals || [];
 
+  const dropdownColumns = columns.filter(col => col.type === "dropdown");
+
+  const selectedColumn = dropdownColumns.find(col => col.column_key === wizard.columnKey);
+  const dropdownOptions = selectedColumn?.config?.dropdown_options || [];
+
   const createRuleMutation = useMutation({
-    mutationFn: async (data: RuleFormData) => {
-      return await apiRequest("POST", "/api/powerscore/rules", {
-        ...data,
-        config: {},
-      });
+    mutationFn: async (data: {
+      name: string;
+      action_type: string;
+      config: { column_key?: string; from_values?: string[]; to_values?: string[] };
+      points: number;
+      daily_cap: number | null;
+      requires_approval: boolean;
+    }) => {
+      return await apiRequest("POST", "/api/powerscore/rules", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/powerscore/rules"] });
-      setIsCreateDialogOpen(false);
-      createForm.reset();
+      handleCloseDialog();
       toast({
         title: "Rule created",
         description: "New scoring rule has been added.",
@@ -125,13 +125,12 @@ export function PowerScoreSettings() {
   });
 
   const updateRuleMutation = useMutation({
-    mutationFn: async ({ id, ...data }: Partial<RuleFormData> & { id: string }) => {
+    mutationFn: async ({ id, ...data }: any) => {
       return await apiRequest("PATCH", `/api/powerscore/rules/${id}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/powerscore/rules"] });
-      setEditingRule(null);
-      editForm.reset();
+      handleCloseDialog();
       toast({
         title: "Rule updated",
         description: "Scoring rule has been updated.",
@@ -192,25 +191,110 @@ export function PowerScoreSettings() {
     },
   });
 
+  const handleCloseDialog = () => {
+    setIsCreateDialogOpen(false);
+    setEditingRule(null);
+    setWizard(initialWizardState);
+  };
+
+  const openCreateDialog = () => {
+    setWizard(initialWizardState);
+    setIsCreateDialogOpen(true);
+  };
+
   const openEditDialog = (rule: PowerScoreRule) => {
     setEditingRule(rule);
-    editForm.reset({
-      action_type: rule.action_type,
+    const startStep = rule.action_type === "dropdown_change" ? 2 : 3;
+    setWizard({
+      step: startStep as 1 | 2 | 3,
+      actionType: rule.action_type as WizardState["actionType"],
+      columnKey: rule.config?.column_key || "",
+      fromValues: rule.config?.from_values || [],
+      toValues: rule.config?.to_values || [],
+      name: rule.name,
       points: rule.points,
-      daily_cap: rule.daily_cap,
-      requires_approval: rule.requires_approval,
-      is_enabled: rule.is_enabled,
+      dailyCap: rule.daily_cap,
+      requiresApproval: rule.requires_approval,
     });
+    setIsCreateDialogOpen(true);
   };
 
-  const onCreateSubmit = (data: RuleFormData) => {
-    createRuleMutation.mutate(data);
+  const handleNext = () => {
+    if (wizard.step === 1) {
+      if (!canProceedFromStep1) return;
+      if (wizard.actionType === "dropdown_change") {
+        setWizard(prev => ({ ...prev, step: 2 }));
+      } else {
+        setWizard(prev => ({ ...prev, step: 3 }));
+      }
+    } else if (wizard.step === 2) {
+      if (!canProceedFromStep2) return;
+      setWizard(prev => ({ ...prev, step: 3 }));
+    }
   };
 
-  const onEditSubmit = (data: RuleFormData) => {
+  const handleBack = () => {
+    if (wizard.step === 3) {
+      if (wizard.actionType === "dropdown_change") {
+        setWizard(prev => ({ ...prev, step: 2 }));
+      } else {
+        setWizard(prev => ({ ...prev, step: 1 }));
+      }
+    } else if (wizard.step === 2) {
+      setWizard(prev => ({ ...prev, step: 1 }));
+    }
+  };
+
+  const handleSubmit = () => {
+    const data = {
+      name: wizard.name,
+      action_type: wizard.actionType,
+      config: wizard.actionType === "dropdown_change" ? {
+        column_key: wizard.columnKey,
+        from_values: wizard.fromValues,
+        to_values: wizard.toValues,
+      } : {},
+      points: wizard.points,
+      daily_cap: wizard.dailyCap,
+      requires_approval: wizard.requiresApproval,
+    };
+
     if (editingRule) {
       updateRuleMutation.mutate({ id: editingRule.id, ...data });
+    } else {
+      createRuleMutation.mutate(data);
     }
+  };
+
+  const canProceedFromStep1 = !!wizard.actionType;
+  const canProceedFromStep2 = wizard.actionType !== "dropdown_change" || 
+    (wizard.columnKey && wizard.toValues.length > 0);
+  const canSubmit = wizard.name.trim() !== "" && wizard.points >= 0;
+
+  const toggleFromValue = (value: string) => {
+    setWizard(prev => ({
+      ...prev,
+      fromValues: prev.fromValues.includes(value)
+        ? prev.fromValues.filter(v => v !== value)
+        : [...prev.fromValues, value],
+    }));
+  };
+
+  const toggleToValue = (value: string) => {
+    setWizard(prev => ({
+      ...prev,
+      toValues: prev.toValues.includes(value)
+        ? prev.toValues.filter(v => v !== value)
+        : [...prev.toValues, value],
+    }));
+  };
+
+  const getActionLabel = (actionType: string) => {
+    return ACTION_TYPES.find(a => a.value === actionType)?.label || actionType;
+  };
+
+  const getColumnLabel = (columnKey: string) => {
+    return columns.find(c => c.column_key === columnKey)?.name || columnKey;
   };
 
   if (rulesLoading) {
@@ -224,19 +308,17 @@ export function PowerScoreSettings() {
   }
 
   return (
-    <Tabs defaultValue="rules" className="space-y-4">
-      <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="rules" data-testid="tab-powerscore-rules">
+    <Tabs defaultValue="rules" className="w-full">
+      <TabsList className="mb-4">
+        <TabsTrigger value="rules" data-testid="tab-rules">
           <Sparkles className="h-4 w-4 mr-2" />
           Scoring Rules
         </TabsTrigger>
-        <TabsTrigger value="approvals" data-testid="tab-powerscore-approvals">
-          <Clock className="h-4 w-4 mr-2" />
+        <TabsTrigger value="approvals" data-testid="tab-approvals">
+          <AlertTriangle className="h-4 w-4 mr-2" />
           Pending Approvals
           {pendingApprovals.length > 0 && (
-            <Badge variant="secondary" className="ml-2">
-              {pendingApprovals.length}
-            </Badge>
+            <Badge variant="destructive" className="ml-2">{pendingApprovals.length}</Badge>
           )}
         </TabsTrigger>
       </TabsList>
@@ -244,9 +326,9 @@ export function PowerScoreSettings() {
       <TabsContent value="rules" className="space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Configure how users earn points for different actions
+            Configure scoring rules for PowerScore
           </p>
-          <Button onClick={() => setIsCreateDialogOpen(true)} data-testid="button-create-rule">
+          <Button onClick={openCreateDialog} data-testid="button-add-rule">
             <Plus className="h-4 w-4 mr-2" />
             Add Rule
           </Button>
@@ -256,9 +338,9 @@ export function PowerScoreSettings() {
           <Card>
             <CardContent className="py-8 text-center">
               <Sparkles className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-              <p className="text-muted-foreground">No scoring rules configured yet</p>
+              <p className="text-muted-foreground">No scoring rules configured</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Add rules to start tracking user achievements
+                Create your first rule to start awarding points
               </p>
             </CardContent>
           </Card>
@@ -266,13 +348,13 @@ export function PowerScoreSettings() {
           <ScrollArea className="h-[400px]">
             <div className="space-y-3">
               {rules.map((rule) => (
-                <Card key={rule.id} className={!rule.is_enabled ? "opacity-60" : ""}>
+                <Card key={rule.id}>
                   <CardContent className="py-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">
-                            {ACTION_TYPE_LABELS[rule.action_type] || rule.action_type}
+                          <span className="font-medium text-base">
+                            {rule.name}
                           </span>
                           <Badge variant={rule.points > 0 ? "default" : "secondary"}>
                             {rule.points > 0 ? "+" : ""}{rule.points} pts
@@ -280,7 +362,7 @@ export function PowerScoreSettings() {
                           {rule.requires_approval && (
                             <Badge variant="outline" className="text-yellow-600 border-yellow-600">
                               <AlertTriangle className="h-3 w-3 mr-1" />
-                              Requires Approval
+                              Approval Required
                             </Badge>
                           )}
                           {rule.daily_cap && (
@@ -293,14 +375,24 @@ export function PowerScoreSettings() {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">
-                          {ACTION_TYPE_DESCRIPTIONS[rule.action_type]}
+                          {getActionLabel(rule.action_type)}
+                          {rule.action_type === "dropdown_change" && rule.config?.column_key && (
+                            <span> - {getColumnLabel(rule.config.column_key)}</span>
+                          )}
                         </p>
-                        {rule.config && (rule.config.column_key || rule.config.to_value) && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {rule.config.column_key && `Column: ${rule.config.column_key}`}
-                            {rule.config.from_value && ` | From: ${rule.config.from_value}`}
-                            {rule.config.to_value && ` | To: ${rule.config.to_value}`}
-                          </p>
+                        {rule.action_type === "dropdown_change" && rule.config && (
+                          <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-1">
+                            {rule.config.from_values && rule.config.from_values.length > 0 && (
+                              <span>From: {rule.config.from_values.join(", ")}</span>
+                            )}
+                            {rule.config.from_values && rule.config.from_values.length > 0 && 
+                             rule.config.to_values && rule.config.to_values.length > 0 && (
+                              <span>→</span>
+                            )}
+                            {rule.config.to_values && rule.config.to_values.length > 0 && (
+                              <span>To: {rule.config.to_values.join(", ")}</span>
+                            )}
+                          </div>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
@@ -372,7 +464,7 @@ export function PowerScoreSettings() {
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground mt-1">
-                            {ACTION_TYPE_LABELS[approval.action_type] || approval.action_type}
+                            {getActionLabel(approval.action_type)}
                             {approval.lead_full_name && ` - ${approval.lead_full_name}`}
                           </p>
                           {approval.description && (
@@ -416,256 +508,300 @@ export function PowerScoreSettings() {
         )}
       </TabsContent>
 
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent>
+      {/* Create/Edit Rule Wizard Dialog */}
+      <Dialog open={isCreateDialogOpen} onOpenChange={(open) => !open && handleCloseDialog()}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create Scoring Rule</DialogTitle>
+            <DialogTitle>
+              {editingRule ? "Edit Scoring Rule" : "Create Scoring Rule"}
+            </DialogTitle>
             <DialogDescription>
-              Add a new rule to define how users earn points
+              Step {wizard.step} of 3: {
+                wizard.step === 1 ? "Choose action type" :
+                wizard.step === 2 ? "Configure conditions" :
+                "Set points and options"
+              }
             </DialogDescription>
           </DialogHeader>
-          <Form {...createForm}>
-            <form onSubmit={createForm.handleSubmit(onCreateSubmit)} className="space-y-4">
-              <FormField
-                control={createForm.control}
-                name="action_type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Action Type</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-action-type">
-                          <SelectValue placeholder="Select action type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {Object.entries(ACTION_TYPE_LABELS).map(([key, label]) => (
-                          <SelectItem key={key} value={key}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
+
+          {/* Step indicator */}
+          <div className="flex items-center justify-center gap-2 py-2">
+            {[1, 2, 3].map((step) => (
+              <div
+                key={step}
+                className={`h-2 w-8 rounded-full transition-colors ${
+                  step <= wizard.step ? "bg-primary" : "bg-muted"
+                }`}
               />
-              <FormField
-                control={createForm.control}
-                name="points"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Points</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                        data-testid="input-points"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={createForm.control}
-                name="daily_cap"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Daily Cap (optional)</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        value={field.value || ""}
-                        onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
-                        placeholder="No limit"
-                        data-testid="input-daily-cap"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Maximum points per day for this action type
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={createForm.control}
-                name="requires_approval"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-                    <div className="space-y-0.5">
-                      <FormLabel>Requires Approval</FormLabel>
-                      <FormDescription>
-                        Admin must approve before points are credited
-                      </FormDescription>
+            ))}
+          </div>
+
+          <div className="py-4">
+            {/* Step 1: Action Type Selection */}
+            {wizard.step === 1 && (
+              <div className="space-y-3">
+                <Label className="text-base font-medium">Select Action Type</Label>
+                {ACTION_TYPES.map((action) => {
+                  const Icon = action.icon;
+                  const isSelected = wizard.actionType === action.value;
+                  return (
+                    <Card
+                      key={action.value}
+                      className={`cursor-pointer transition-colors hover-elevate ${
+                        isSelected ? "border-primary bg-primary/5" : ""
+                      }`}
+                      onClick={() => setWizard(prev => ({ ...prev, actionType: action.value as WizardState["actionType"] }))}
+                      data-testid={`action-type-${action.value}`}
+                    >
+                      <CardContent className="py-3 flex items-center gap-3">
+                        <div className={`p-2 rounded-md ${isSelected ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium">{action.label}</div>
+                          <div className="text-sm text-muted-foreground">{action.description}</div>
+                        </div>
+                        {isSelected && (
+                          <CheckCircle2 className="h-5 w-5 text-primary" />
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Step 2: Measure Action (only for dropdown_change) */}
+            {wizard.step === 2 && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-base font-medium">Select Dropdown Column</Label>
+                  <Select
+                    value={wizard.columnKey}
+                    onValueChange={(value) => setWizard(prev => ({ 
+                      ...prev, 
+                      columnKey: value,
+                      fromValues: [],
+                      toValues: [],
+                    }))}
+                  >
+                    <SelectTrigger data-testid="select-column" className={!wizard.columnKey ? "border-yellow-500" : ""}>
+                      <SelectValue placeholder="Choose a dropdown column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dropdownColumns.map((col) => (
+                        <SelectItem key={col.column_key} value={col.column_key}>
+                          {col.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {!wizard.columnKey && (
+                    <p className="text-xs text-yellow-600">Please select a column to continue</p>
+                  )}
+                </div>
+
+                {wizard.columnKey && dropdownOptions.length > 0 && (
+                  <>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">From Values (optional)</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Leave empty to match any previous value
+                      </p>
+                      <ScrollArea className="h-32 border rounded-md p-2">
+                        <div className="space-y-2">
+                          {dropdownOptions.map((option) => (
+                            <div key={option} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`from-${option}`}
+                                checked={wizard.fromValues.includes(option)}
+                                onCheckedChange={() => toggleFromValue(option)}
+                                data-testid={`from-value-${option}`}
+                              />
+                              <label
+                                htmlFor={`from-${option}`}
+                                className="text-sm cursor-pointer"
+                              >
+                                {option}
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
                     </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="toggle-requires-approval"
-                      />
-                    </FormControl>
-                  </FormItem>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">To Values (required)</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Select which new values trigger points
+                      </p>
+                      <ScrollArea className={`h-32 border rounded-md p-2 ${wizard.toValues.length === 0 ? "border-yellow-500" : ""}`}>
+                        <div className="space-y-2">
+                          {dropdownOptions.map((option) => (
+                            <div key={option} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`to-${option}`}
+                                checked={wizard.toValues.includes(option)}
+                                onCheckedChange={() => toggleToValue(option)}
+                                data-testid={`to-value-${option}`}
+                              />
+                              <label
+                                htmlFor={`to-${option}`}
+                                className="text-sm cursor-pointer"
+                              >
+                                {option}
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                      {wizard.toValues.length === 0 && (
+                        <p className="text-xs text-yellow-600">Select at least one target value</p>
+                      )}
+                    </div>
+                  </>
                 )}
-              />
-              <DialogFooter>
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => setIsCreateDialogOpen(false)}
-                  data-testid="button-cancel-create"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createRuleMutation.isPending}
-                  data-testid="button-save-rule"
-                >
-                  {createRuleMutation.isPending ? "Creating..." : "Create Rule"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
+
+                {wizard.columnKey && dropdownOptions.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    This column has no dropdown options configured.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Step 3: Points and Options */}
+            {wizard.step === 3 && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="rule-name" className="text-base font-medium">Rule Name</Label>
+                  <Input
+                    id="rule-name"
+                    placeholder="e.g., Visit Completion Bonus"
+                    value={wizard.name}
+                    onChange={(e) => setWizard(prev => ({ ...prev, name: e.target.value }))}
+                    data-testid="input-rule-name"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="points" className="text-base font-medium">Points</Label>
+                  <Input
+                    id="points"
+                    type="number"
+                    min={0}
+                    value={wizard.points}
+                    onChange={(e) => setWizard(prev => ({ ...prev, points: parseInt(e.target.value) || 0 }))}
+                    data-testid="input-points"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="daily-cap" className="text-base font-medium">Daily Cap (optional)</Label>
+                  <Input
+                    id="daily-cap"
+                    type="number"
+                    min={0}
+                    placeholder="No limit"
+                    value={wizard.dailyCap ?? ""}
+                    onChange={(e) => setWizard(prev => ({ 
+                      ...prev, 
+                      dailyCap: e.target.value ? parseInt(e.target.value) : null 
+                    }))}
+                    data-testid="input-daily-cap"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Maximum points per day for this action
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <Label className="text-base font-medium">Requires Approval</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Admin must approve before points are credited
+                    </p>
+                  </div>
+                  <Switch
+                    checked={wizard.requiresApproval}
+                    onCheckedChange={(checked) => setWizard(prev => ({ ...prev, requiresApproval: checked }))}
+                    data-testid="toggle-requires-approval"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            {wizard.step > 1 && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleBack}
+                data-testid="button-back"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+            )}
+            {wizard.step === 1 && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCloseDialog}
+                data-testid="button-cancel"
+              >
+                Cancel
+              </Button>
+            )}
+            {wizard.step < 3 && (
+              <Button
+                type="button"
+                onClick={handleNext}
+                disabled={
+                  (wizard.step === 1 && !canProceedFromStep1) ||
+                  (wizard.step === 2 && !canProceedFromStep2)
+                }
+                data-testid="button-next"
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            )}
+            {wizard.step === 3 && (
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!canSubmit || createRuleMutation.isPending || updateRuleMutation.isPending}
+                data-testid="button-submit"
+              >
+                {(createRuleMutation.isPending || updateRuleMutation.isPending) 
+                  ? "Saving..." 
+                  : editingRule ? "Update Rule" : "Create Rule"
+                }
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editingRule} onOpenChange={() => setEditingRule(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Scoring Rule</DialogTitle>
-            <DialogDescription>
-              Modify the scoring rule settings
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...editForm}>
-            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
-              <FormField
-                control={editForm.control}
-                name="action_type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Action Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-edit-action-type">
-                          <SelectValue placeholder="Select action type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {Object.entries(ACTION_TYPE_LABELS).map(([key, label]) => (
-                          <SelectItem key={key} value={key}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={editForm.control}
-                name="points"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Points</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                        data-testid="input-edit-points"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={editForm.control}
-                name="daily_cap"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Daily Cap (optional)</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        value={field.value || ""}
-                        onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
-                        placeholder="No limit"
-                        data-testid="input-edit-daily-cap"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Maximum points per day for this action type
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={editForm.control}
-                name="requires_approval"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-                    <div className="space-y-0.5">
-                      <FormLabel>Requires Approval</FormLabel>
-                      <FormDescription>
-                        Admin must approve before points are credited
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="toggle-edit-requires-approval"
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <DialogFooter>
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => setEditingRule(null)}
-                  data-testid="button-cancel-edit"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={updateRuleMutation.isPending}
-                  data-testid="button-save-edit"
-                >
-                  {updateRuleMutation.isPending ? "Saving..." : "Save Changes"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={!!deleteRuleId} onOpenChange={() => setDeleteRuleId(null)}>
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteRuleId} onOpenChange={(open) => !open && setDeleteRuleId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Scoring Rule</AlertDialogTitle>
+            <AlertDialogTitle>Delete Scoring Rule?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this scoring rule? This action cannot be undone.
+              This action cannot be undone. This will permanently delete the scoring rule.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteRuleId && deleteRuleMutation.mutate(deleteRuleId)}
-              className="bg-destructive text-destructive-foreground"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-testid="button-confirm-delete"
             >
-              {deleteRuleMutation.isPending ? "Deleting..." : "Delete Rule"}
+              {deleteRuleMutation.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
