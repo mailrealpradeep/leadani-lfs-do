@@ -34,18 +34,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionStorage.getItem("impersonating") === "true" || localStorage.getItem("impersonating") === "true"
   );
 
-  const { data, isLoading, isError } = useQuery<AuthMeResponse>({
+  // Keep track of the last successfully loaded user data
+  // This prevents showing logged-out state during transient network errors
+  const [cachedAuthData, setCachedAuthData] = useState<AuthMeResponse | null>(null);
+  
+  const { data, isLoading, isError, error, isFetching } = useQuery<AuthMeResponse>({
     queryKey: ["/api/auth/me"],
     enabled: !!token,
-    retry: false,
+    // Retry on network errors (transient), but not on auth errors (permanent)
+    retry: (failureCount, err: any) => {
+      // Don't retry 401/403 - these are auth failures
+      if (err?.status === 401 || err?.status === 403) {
+        return false;
+      }
+      // Retry up to 3 times for network errors
+      return failureCount < 3;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    // Keep previous data while refetching to prevent flash of logged-out state
+    placeholderData: (previousData) => previousData,
   });
 
+  // Cache successful auth data so we can maintain auth state during network errors
   useEffect(() => {
-    if (isError && token) {
-      setToken(null);
-      localStorage.removeItem("auth_token");
+    if (data) {
+      setCachedAuthData(data);
     }
-  }, [isError, token]);
+  }, [data]);
+
+  useEffect(() => {
+    // Only clear token on genuine 401 auth errors, not network errors
+    if (isError && token && error) {
+      const status = (error as any)?.status;
+      // Only logout if we got a definitive 401/403 from the server
+      if (status === 401 || status === 403) {
+        console.log("Auth token invalid, logging out");
+        setToken(null);
+        setCachedAuthData(null);
+        localStorage.removeItem("auth_token");
+        sessionStorage.removeItem("auth_token");
+      }
+      // For network errors (no status), keep the token and cached data
+    }
+  }, [isError, token, error]);
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginRequest) => {
@@ -114,8 +145,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [token, isImpersonating]);
 
-  const user = data?.user || null;
-  const company = data?.company || null;
+  // Use fresh data if available, fall back to cached data during network errors
+  // This ensures user stays "authenticated" during transient network issues
+  const effectiveData = data || cachedAuthData;
+  const user = effectiveData?.user || null;
+  const company = effectiveData?.company || null;
+  
+  // Consider authenticated if we have a token AND either:
+  // 1. We have valid user data (fresh or cached)
+  // 2. We're still loading (don't flash logged-out state during initial load)
+  const isAuthenticated = !!token && (!!user || isLoading);
 
   return (
     <AuthContext.Provider
@@ -123,7 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         company,
         token,
-        isLoading,
+        isLoading: isLoading || isFetching,
         login: async (credentials) => {
           await loginMutation.mutateAsync(credentials);
         },
@@ -132,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         logout,
         authenticate,
-        isAuthenticated: !!user,
+        isAuthenticated,
         isSuperAdmin: user?.role === "super_admin",
         isCompanyAdmin: user?.role === "company_admin",
         isRegularUser: user?.role === "user",

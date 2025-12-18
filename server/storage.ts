@@ -2959,7 +2959,8 @@ export class PgStorage implements IStorage {
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const result = await db.select().from(dbSchema.users).where(eq(dbSchema.users.email, email));
+    // Case-insensitive email lookup to handle user typing "John@Example.com" vs "john@example.com"
+    const result = await db.select().from(dbSchema.users).where(ilike(dbSchema.users.email, email));
     if (result.length === 0) return undefined;
     return this.mapUser(result[0]);
   }

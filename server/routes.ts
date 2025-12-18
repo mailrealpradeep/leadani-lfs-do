@@ -233,26 +233,33 @@ function generateMockValue(fieldKey: string, fieldType?: string): string {
   return 'Sample Value';
 }
 
-// Rate limiters - disable trust proxy validation for Replit deployment
+// Rate limiters configuration
+// Using skipFailedRequests to not count failed attempts against successful users
+// Using standardHeaders for proper rate limit headers in response
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 15, // Increased from 5 to accommodate shared WiFi networks where multiple users share same IP
-  message: "Too many login attempts, please try again later",
-  validate: { trustProxy: false },
+  max: 30, // Increased significantly for shared networks/offices
+  message: { error: "Too many login attempts, please try again in 15 minutes" },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip successful requests - only count failed login attempts
+  skipSuccessfulRequests: true,
 });
 
 const webhookLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 30,
-  message: "Too many webhook requests",
-  validate: { trustProxy: false },
+  max: 60, // Increased for high-volume webhook scenarios
+  message: { error: "Too many webhook requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 const signupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3,
-  message: "Too many signup attempts, please try again later",
-  validate: { trustProxy: false },
+  max: 5, // Slightly increased for offices
+  message: { error: "Too many signup attempts, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
