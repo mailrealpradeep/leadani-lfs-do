@@ -3271,6 +3271,25 @@ export function SpreadsheetGrid({
                             >
                               <MessageCircle className="h-4 w-4" />
                             </Button>
+                            <Button
+                              variant={watchlistSet.has(lead.id) ? "default" : "outline"}
+                              size="icon"
+                              className="min-h-[44px] min-w-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const isOnWatchlist = watchlistSet.has(lead.id);
+                                toggleWatchlistMutation.mutate({ leadId: lead.id, isOnWatchlist });
+                              }}
+                              disabled={toggleWatchlistMutation.isPending}
+                              data-testid={`button-watchlist-mobile-${lead.id}`}
+                              title={watchlistSet.has(lead.id) ? "Remove from watchlist" : "Add to watchlist"}
+                            >
+                              {watchlistSet.has(lead.id) ? (
+                                <Eye className="h-4 w-4" />
+                              ) : (
+                                <EyeOff className="h-4 w-4" />
+                              )}
+                            </Button>
                           </div>
                         </div>
                       </div>
