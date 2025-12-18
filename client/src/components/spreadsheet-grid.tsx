@@ -2910,8 +2910,8 @@ export function SpreadsheetGrid({
               <div className="flex-shrink-0 pb-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-sm text-muted-foreground">
-                      {filteredAndSortedLeads.length} lead{filteredAndSortedLeads.length !== 1 ? 's' : ''}
+                    <span className="text-sm text-muted-foreground" data-testid="text-mobile-leads-count">
+                      Showing {leads.length.toLocaleString()} of {totalLeads.toLocaleString()} leads
                     </span>
                     {hasActiveFiltersOrSort && (
                       <Badge variant="secondary" className="text-xs">
