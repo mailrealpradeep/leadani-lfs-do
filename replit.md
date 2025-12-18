@@ -54,10 +54,13 @@ The system features a customizable grid interface with dynamic column management
 *   **Auto-Fill Rules**: Company Admins can configure rules that automatically populate target fields when trigger conditions are met. For example, when "Lead Status" changes to "Visit Scheduled", automatically set "Visit Status" to "Scheduled". Rules support priority ordering (higher priority rules apply first), enable/disable toggles, and work across all lead editing contexts (Add Lead dialog, Lead Update dialog, and spreadsheet grid inline editing). Uses `useAutoFillRules` hook for consistent client-side rule evaluation.
 *   **Watchlist**: Personal lead watchlist for users to track important leads that need attention. Leads can be added/removed via eye icon toggle. Watchlist page displays all tracked leads sorted by next follow-up date with real-time updates via Socket.io.
 *   **PowerScore**: Gamified leaderboard system with animated score counters, period-based views (Today/Yesterday/This Week/This Month/All Time), and personal stats comparison. Features include:
-    - Config-driven scoring rules (action_type, points, daily_cap, requires_approval)
+    - Config-driven scoring rules (action_type, points, daily_cap, requires_approval) with 3-step wizard UI
+    - Scoring engine (`server/powerscore-service.ts`) that awards points for: login, lead_update, dropdown_change
+    - Daily cap enforcement counting both approved transactions and pending approvals
+    - Idempotency guards preventing duplicate pending approvals per rule per day
     - Admin approval workflow for high-value actions (Visit/Converted)
     - Milestone bonuses with badge rewards
-    - Login bonuses with streak tracking
+    - Login bonuses with streak tracking (once per day per user)
     - Admin appreciation system with custom messages
     - Stock-ticker animated counters using framer-motion
     - ChampionCard (#1), PodiumCard (#2-3), ContenderGrid (#4+) component hierarchy

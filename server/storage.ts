@@ -754,7 +754,7 @@ export interface IStorage {
   getPowerScorePendingApprovals(companyId: string): Promise<PowerScorePendingApproval[]>;
   getPowerScorePendingApproval(id: string): Promise<PowerScorePendingApproval | undefined>;
   getPendingApprovalsByRuleAndDate(userId: string, ruleId: string, scoreDate: string): Promise<PowerScorePendingApproval[]>;
-  createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval>;
+  createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by_user_id' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval>;
   approvePowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined>;
   rejectPowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined>;
 
@@ -3027,7 +3027,7 @@ export class MemStorage implements IStorage {
   async getPowerScorePendingApprovals(_companyId: string): Promise<PowerScorePendingApproval[]> { return []; }
   async getPowerScorePendingApproval(_id: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async getPendingApprovalsByRuleAndDate(_userId: string, _ruleId: string, _scoreDate: string): Promise<PowerScorePendingApproval[]> { return []; }
-  async createPowerScorePendingApproval(_approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async createPowerScorePendingApproval(_approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by_user_id' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> { throw new Error("PowerScore not implemented in MemStorage"); }
   async approvePowerScoreApproval(_id: string, _reviewedBy: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async rejectPowerScoreApproval(_id: string, _reviewedBy: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async getPowerScoreBadges(_companyId: string): Promise<PowerScoreBadge[]> { return []; }
@@ -8205,7 +8205,7 @@ export class PgStorage implements IStorage {
     }));
   }
 
-  async createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> {
+  async createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by_user_id' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> {
     const id = randomUUID();
     const now = new Date();
     const rows = await db.insert(dbSchema.powerscore_pending_approvals)

@@ -55,8 +55,8 @@ async function processLeadUpdateRule(
 ): Promise<{ awarded: number; pending: number }> {
   const { pointsAwarded, hasPending } = await getDailyPointsAndPending(context.userId, rule.id, scoreDate);
   
-  // Check daily cap - count both approved and pending points
-  if (rule.daily_cap && pointsAwarded >= rule.daily_cap) {
+  // Check daily cap - ensure adding this award won't exceed the cap
+  if (rule.daily_cap && pointsAwarded + rule.points > rule.daily_cap) {
     return { awarded: 0, pending: 0 };
   }
 
@@ -129,8 +129,8 @@ async function processDropdownChangeRule(
 
   const { pointsAwarded, hasPending } = await getDailyPointsAndPending(context.userId, rule.id, scoreDate);
   
-  // Check daily cap - count both approved and pending points
-  if (rule.daily_cap && pointsAwarded >= rule.daily_cap) {
+  // Check daily cap - ensure adding this award won't exceed the cap
+  if (rule.daily_cap && pointsAwarded + rule.points > rule.daily_cap) {
     return { awarded: 0, pending: 0 };
   }
 
