@@ -19,6 +19,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useBackButtonGuard, BackButtonGuardDialog } from "@/hooks/use-back-button-guard";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { MobileHeader } from "@/components/mobile-header";
 import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -264,6 +266,7 @@ function AppLayout() {
   const [location] = useLocation();
   const shouldShowInstall = useShouldShowInstallPrompt();
   const { showExitDialog, handleConfirmExit, handleCancelExit } = useBackButtonGuard();
+  const isMobile = useIsMobile();
   
   useEffect(() => {
     registerServiceWorker();
@@ -302,6 +305,32 @@ function AppLayout() {
     "--sidebar-width-icon": "3rem",
   };
 
+  // Mobile Layout: Bottom nav + Header + Content
+  if (isMobile) {
+    return (
+      <DashboardProvider>
+        <SidebarProvider style={sidebarStyle as React.CSSProperties}>
+          <div className="flex flex-col h-screen w-full">
+            <ImpersonationBanner />
+            <MobileHeader />
+            <main className="flex-1 overflow-hidden pb-16">
+              <Router />
+            </main>
+            <MobileBottomNav />
+            <AppSidebar />
+          </div>
+          {shouldShowInstall && <PWAInstallPrompt forceMobile />}
+          <BackButtonGuardDialog
+            open={showExitDialog}
+            onConfirm={handleConfirmExit}
+            onCancel={handleCancelExit}
+          />
+        </SidebarProvider>
+      </DashboardProvider>
+    );
+  }
+
+  // Desktop Layout: Sidebar + Header + Content
   return (
     <DashboardProvider>
       <SidebarProvider style={sidebarStyle as React.CSSProperties}>
