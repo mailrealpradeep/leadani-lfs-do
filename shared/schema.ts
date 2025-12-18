@@ -3704,3 +3704,298 @@ export const insertWatchlistLeadSchema = createInsertSchema(watchlist_leads).omi
 });
 
 export type InsertWatchlistLeadData = z.infer<typeof insertWatchlistLeadSchema>;
+
+// ============================================================================
+// POWERSCORE - Gamified Scoring System
+// ============================================================================
+
+// PowerScore Action Types (predefined action categories)
+export const powerScoreActionTypes = [
+  "lead_update",
+  "status_transition", 
+  "visit_scheduled",
+  "visit_completed",
+  "lead_converted",
+  "lead_created",
+  "milestone_bonus",
+  "login_bonus",
+  "admin_appreciation",
+] as const;
+
+export type PowerScoreActionType = typeof powerScoreActionTypes[number];
+
+// PowerScore Rules - Company-configurable point values for actions
+export const powerscore_rules = pgTable('powerscore_rules', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  action_type: varchar('action_type', { length: 50 }).notNull(), // From powerScoreActionTypes
+  // For status transitions, specify which column and from/to values
+  config: json('config').$type<{
+    column_key?: string; // e.g., "lead_status" or "visit_status"
+    from_value?: string; // optional - any value if not specified
+    to_value?: string; // required for transitions
+  }>().default({}).notNull(),
+  points: integer('points').notNull().default(0),
+  daily_cap: integer('daily_cap'), // null = no cap
+  requires_approval: boolean('requires_approval').notNull().default(false), // For high-value actions
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type PowerScoreRule = typeof powerscore_rules.$inferSelect;
+export type InsertPowerScoreRule = typeof powerscore_rules.$inferInsert;
+
+export const insertPowerScoreRuleSchema = createInsertSchema(powerscore_rules).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertPowerScoreRuleData = z.infer<typeof insertPowerScoreRuleSchema>;
+
+// PowerScore Transactions - Log of every point earned/deducted
+export const powerscore_transactions = pgTable('powerscore_transactions', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  rule_id: varchar('rule_id').references(() => powerscore_rules.id, { onDelete: 'set null' }), // Which rule triggered this
+  action_type: varchar('action_type', { length: 50 }).notNull(),
+  points: integer('points').notNull(), // Can be negative for deductions
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }), // Related lead if applicable
+  description: varchar('description', { length: 500 }), // e.g., "Status changed to Converted"
+  // For tracking daily caps
+  score_date: varchar('score_date', { length: 10 }).notNull(), // YYYY-MM-DD format (based on freeze time)
+  // Approval tracking
+  approval_id: varchar('approval_id'), // Reference to pending approval if applicable
+  is_approved: boolean('is_approved'), // null = no approval needed, true/false = approved/rejected
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScoreTransaction = typeof powerscore_transactions.$inferSelect;
+export type InsertPowerScoreTransaction = typeof powerscore_transactions.$inferInsert;
+
+export const insertPowerScoreTransactionSchema = createInsertSchema(powerscore_transactions).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertPowerScoreTransactionData = z.infer<typeof insertPowerScoreTransactionSchema>;
+
+// PowerScore Pending Approvals - Queue for high-value actions (Visit/Conversion)
+export const powerscore_pending_approvals = pgTable('powerscore_pending_approvals', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  rule_id: varchar('rule_id').notNull().references(() => powerscore_rules.id, { onDelete: 'cascade' }),
+  action_type: varchar('action_type', { length: 50 }).notNull(),
+  points: integer('points').notNull(),
+  description: varchar('description', { length: 500 }),
+  score_date: varchar('score_date', { length: 10 }).notNull(), // YYYY-MM-DD
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // pending, approved, rejected
+  reviewed_by_user_id: varchar('reviewed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  reviewed_at: timestamp('reviewed_at'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScorePendingApproval = typeof powerscore_pending_approvals.$inferSelect;
+export type InsertPowerScorePendingApproval = typeof powerscore_pending_approvals.$inferInsert;
+
+export const insertPowerScorePendingApprovalSchema = createInsertSchema(powerscore_pending_approvals).omit({
+  id: true,
+  reviewed_by_user_id: true,
+  reviewed_at: true,
+  created_at: true,
+});
+
+export type InsertPowerScorePendingApprovalData = z.infer<typeof insertPowerScorePendingApprovalSchema>;
+
+// PowerScore Badges - Configurable badge thresholds
+export const powerscore_badges = pgTable('powerscore_badges', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(), // e.g., "Rising Star", "Top Performer"
+  icon: varchar('icon', { length: 50 }).notNull().default('star'), // Lucide icon name
+  color: varchar('color', { length: 20 }).notNull().default('blue'), // Color theme
+  min_score: integer('min_score').notNull(), // Minimum score to earn badge
+  period: varchar('period', { length: 20 }).notNull().default('daily'), // daily, weekly, monthly, all_time
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScoreBadge = typeof powerscore_badges.$inferSelect;
+export type InsertPowerScoreBadge = typeof powerscore_badges.$inferInsert;
+
+export const insertPowerScoreBadgeSchema = createInsertSchema(powerscore_badges).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertPowerScoreBadgeData = z.infer<typeof insertPowerScoreBadgeSchema>;
+
+// PowerScore Milestone Bonuses - Auto-bonus when hitting targets
+export const powerscore_milestone_bonuses = pgTable('powerscore_milestone_bonuses', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(), // e.g., "Double Visit Day"
+  action_type: varchar('action_type', { length: 50 }).notNull(), // Which action to count
+  threshold: integer('threshold').notNull(), // How many to trigger bonus
+  period: varchar('period', { length: 20 }).notNull().default('daily'), // daily, weekly
+  bonus_points: integer('bonus_points').notNull(),
+  message: varchar('message', { length: 255 }), // Celebration message
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScoreMilestoneBonus = typeof powerscore_milestone_bonuses.$inferSelect;
+export type InsertPowerScoreMilestoneBonus = typeof powerscore_milestone_bonuses.$inferInsert;
+
+export const insertPowerScoreMilestoneBonusSchema = createInsertSchema(powerscore_milestone_bonuses).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertPowerScoreMilestoneBonusData = z.infer<typeof insertPowerScoreMilestoneBonusSchema>;
+
+// PowerScore Login Bonus - Time-window based login rewards
+export const powerscore_login_bonuses = pgTable('powerscore_login_bonuses', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(), // e.g., "Early Bird Bonus"
+  start_time: varchar('start_time', { length: 5 }).notNull(), // HH:MM format
+  end_time: varchar('end_time', { length: 5 }).notNull(), // HH:MM format
+  points: integer('points').notNull(),
+  message: varchar('message', { length: 255 }), // Welcome message
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScoreLoginBonus = typeof powerscore_login_bonuses.$inferSelect;
+export type InsertPowerScoreLoginBonus = typeof powerscore_login_bonuses.$inferInsert;
+
+export const insertPowerScoreLoginBonusSchema = createInsertSchema(powerscore_login_bonuses).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertPowerScoreLoginBonusData = z.infer<typeof insertPowerScoreLoginBonusSchema>;
+
+// PowerScore Appreciation - Admin-given manual rewards
+export const powerscore_appreciations = pgTable('powerscore_appreciations', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }), // Recipient
+  given_by_user_id: varchar('given_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }), // Admin who gave
+  points: integer('points').notNull(),
+  message: varchar('message', { length: 500 }).notNull(),
+  is_seen: boolean('is_seen').notNull().default(false), // For gamified reveal
+  score_date: varchar('score_date', { length: 10 }).notNull(), // YYYY-MM-DD
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScoreAppreciation = typeof powerscore_appreciations.$inferSelect;
+export type InsertPowerScoreAppreciation = typeof powerscore_appreciations.$inferInsert;
+
+export const insertPowerScoreAppreciationSchema = createInsertSchema(powerscore_appreciations).omit({
+  id: true,
+  is_seen: true,
+  created_at: true,
+});
+
+export type InsertPowerScoreAppreciationData = z.infer<typeof insertPowerScoreAppreciationSchema>;
+
+// PowerScore Notification Thresholds - Messages at point milestones
+export const powerscore_notification_thresholds = pgTable('powerscore_notification_thresholds', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  min_points: integer('min_points').notNull(), // Trigger when reaching this many points
+  max_points: integer('max_points').notNull(), // Up to this many points
+  message: varchar('message', { length: 255 }).notNull(), // e.g., "Great work! Keep it up!"
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScoreNotificationThreshold = typeof powerscore_notification_thresholds.$inferSelect;
+export type InsertPowerScoreNotificationThreshold = typeof powerscore_notification_thresholds.$inferInsert;
+
+export const insertPowerScoreNotificationThresholdSchema = createInsertSchema(powerscore_notification_thresholds).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertPowerScoreNotificationThresholdData = z.infer<typeof insertPowerScoreNotificationThresholdSchema>;
+
+// PowerScore Config - Company-level settings
+export interface PowerScoreConfig {
+  freeze_time: string; // HH:MM format - when daily scores freeze
+  is_enabled: boolean; // Master switch for PowerScore
+}
+
+// Add to Company settings interface extension
+export const powerScoreConfigSchema = z.object({
+  freeze_time: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid time format (HH:MM)").default("19:00"),
+  is_enabled: z.boolean().default(true),
+});
+
+export type PowerScoreConfigData = z.infer<typeof powerScoreConfigSchema>;
+
+// Login bonus tracking - To prevent multiple claims per day
+export const powerscore_login_claims = pgTable('powerscore_login_claims', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  login_bonus_id: varchar('login_bonus_id').notNull().references(() => powerscore_login_bonuses.id, { onDelete: 'cascade' }),
+  claim_date: varchar('claim_date', { length: 10 }).notNull(), // YYYY-MM-DD
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScoreLoginClaim = typeof powerscore_login_claims.$inferSelect;
+export type InsertPowerScoreLoginClaim = typeof powerscore_login_claims.$inferInsert;
+
+// Milestone bonus tracking - To prevent multiple claims
+export const powerscore_milestone_claims = pgTable('powerscore_milestone_claims', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  milestone_id: varchar('milestone_id').notNull().references(() => powerscore_milestone_bonuses.id, { onDelete: 'cascade' }),
+  claim_date: varchar('claim_date', { length: 10 }).notNull(), // YYYY-MM-DD
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type PowerScoreMilestoneClaim = typeof powerscore_milestone_claims.$inferSelect;
+export type InsertPowerScoreMilestoneClaim = typeof powerscore_milestone_claims.$inferInsert;
+
+// ============================================================================
+// POWERSCORE API TYPES (For frontend use)
+// ============================================================================
+
+export interface PowerScoreLeaderboardEntry {
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  score: number;
+  rank: number;
+  points_to_top_3: number | null; // null for top 3
+  badges: PowerScoreBadge[];
+  avatar_url?: string;
+}
+
+export interface PowerScorePersonalStats {
+  today: number;
+  yesterday: number;
+  this_week: number;
+  last_week: number;
+  this_month: number;
+  last_month: number;
+  today_vs_yesterday_percent: number; // e.g., +10 or -5
+  this_week_vs_last_week_percent: number;
+}
+
+export interface PowerScoreHistoryEntry {
+  id: string;
+  action_type: string;
+  points: number;
+  description: string | null;
+  created_at: string;
+  lead_id: string | null;
+}
