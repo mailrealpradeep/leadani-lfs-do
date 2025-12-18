@@ -18075,25 +18075,37 @@ ${questionsList}`;
         return res.status(400).json({ error: "User not associated with a company" });
       }
       
-      // Get sheets user has access to
-      let accessibleSheetIds: string[] = [];
+      // Get sheets user has access to and build sheet name map
+      let accessibleSheets: any[] = [];
       
       if (userRole === 'company_admin' || userRole === 'super_admin') {
         // Admins can see all company sheets
         const companySheets = await storage.getSheetsByCompanyId(companyId);
-        accessibleSheetIds = companySheets.filter(s => !s.deleted_at).map(s => s.id);
+        accessibleSheets = companySheets.filter(s => !s.deleted_at);
       } else {
         // Regular users can only see sheets they have access to
         const userSheets = await storage.getSheetsByUserId(userId);
-        accessibleSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
+        accessibleSheets = userSheets.filter(s => !s.deleted_at);
       }
       
-      if (accessibleSheetIds.length === 0) {
-        return res.json([]);
+      if (accessibleSheets.length === 0) {
+        return res.json({ leads: [], count: 0 });
       }
       
+      // Build sheet name map upfront to avoid N+1 queries
+      const sheetNameMap = new Map<string, string>();
+      accessibleSheets.forEach(s => sheetNameMap.set(s.id, s.name));
+      
+      const accessibleSheetIds = accessibleSheets.map(s => s.id);
       const leads = await storage.getWatchlistLeadsBySheetAccess(userId, accessibleSheetIds);
-      res.json(leads);
+      
+      // Add sheet names to leads using prefetched map
+      const leadsWithSheetNames = leads.map((lead: any) => ({
+        ...lead,
+        sheet_name: sheetNameMap.get(lead.sheet_id) || 'Unknown Sheet'
+      }));
+      
+      res.json({ leads: leadsWithSheetNames, count: leadsWithSheetNames.length });
     } catch (error: any) {
       console.error("Error fetching watchlist leads:", error);
       res.status(500).json({ error: error.message });
