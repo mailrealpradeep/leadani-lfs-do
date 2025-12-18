@@ -65,6 +65,7 @@ The system features a customizable grid interface with dynamic column management
     - Stock-ticker animated counters using framer-motion
     - ChampionCard (#1), PodiumCard (#2-3), ContenderGrid (#4+) component hierarchy
     - Personal stats with today vs yesterday and week vs week percentage comparisons
+    - Backfill script (`server/powerscore-backfill.ts`) to retroactively award points from historical lead updates. Usage: `npx tsx server/powerscore-backfill.ts <company_id>`. Detects existing backfill data and prevents duplicate runs (use `--force` to override).
 
 ### Security
 
