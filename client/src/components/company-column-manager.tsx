@@ -283,8 +283,18 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
   const handleUpdateColumn = (e: React.FormEvent, columnId: string) => {
     e.preventDefault();
     if (editColumnName.trim()) {
+      // Get the CURRENT column data from the query to preserve hidden_system_values
+      // (system value toggles save directly to DB, so editColumnConfig may be stale)
+      const currentColumn = companyColumns.find(c => c.id === columnId);
+      const currentHiddenSystemValues = (currentColumn?.config as any)?.hidden_system_values;
+      
       // Preserve existing config and merge with new values
       const config = { ...editColumnConfig };
+      
+      // Always use the current hidden_system_values from the DB, not the stale editColumnConfig
+      if (currentHiddenSystemValues !== undefined) {
+        config.hidden_system_values = currentHiddenSystemValues;
+      }
       
       if (editColumnType === "dropdown") {
         if (editDropdownOptions.length === 0) {
