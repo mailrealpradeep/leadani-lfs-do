@@ -18049,6 +18049,106 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // WATCHLIST (User's personal lead watchlist)
+  // ============================================================================
+
+  // Get user's watchlist lead IDs (for quick lookup)
+  app.get("/api/watchlist/ids", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      const leadIds = await storage.getWatchlistLeadIds(userId);
+      res.json(leadIds);
+    } catch (error: any) {
+      console.error("Error fetching watchlist IDs:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all watchlist leads (filtered by sheet access)
+  app.get("/api/watchlist/leads", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      const companyId = req.user!.company_id;
+      const userRole = req.user!.role;
+      
+      if (!companyId) {
+        return res.status(400).json({ error: "User not associated with a company" });
+      }
+      
+      // Get sheets user has access to
+      let accessibleSheetIds: string[] = [];
+      
+      if (userRole === 'company_admin' || userRole === 'super_admin') {
+        // Admins can see all company sheets
+        const companySheets = await storage.getSheetsByCompanyId(companyId);
+        accessibleSheetIds = companySheets.filter(s => !s.deleted_at).map(s => s.id);
+      } else {
+        // Regular users can only see sheets they have access to
+        const userSheets = await storage.getSheetsByUserId(userId);
+        accessibleSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
+      }
+      
+      if (accessibleSheetIds.length === 0) {
+        return res.json([]);
+      }
+      
+      const leads = await storage.getWatchlistLeadsBySheetAccess(userId, accessibleSheetIds);
+      res.json(leads);
+    } catch (error: any) {
+      console.error("Error fetching watchlist leads:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Add lead to watchlist
+  app.post("/api/watchlist/:leadId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      const { leadId } = req.params;
+      
+      // Verify lead exists
+      const lead = await storage.getLead(leadId);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      const watchlistEntry = await storage.addToWatchlist(userId, leadId);
+      res.json(watchlistEntry);
+    } catch (error: any) {
+      console.error("Error adding to watchlist:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Remove lead from watchlist
+  app.delete("/api/watchlist/:leadId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      const { leadId } = req.params;
+      
+      const removed = await storage.removeFromWatchlist(userId, leadId);
+      res.json({ success: removed });
+    } catch (error: any) {
+      console.error("Error removing from watchlist:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check if lead is on watchlist
+  app.get("/api/watchlist/:leadId/status", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.id;
+      const { leadId } = req.params;
+      
+      const isOnWatchlist = await storage.isOnWatchlist(userId, leadId);
+      res.json({ isOnWatchlist });
+    } catch (error: any) {
+      console.error("Error checking watchlist status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
