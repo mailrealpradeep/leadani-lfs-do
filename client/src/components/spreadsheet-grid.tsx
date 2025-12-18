@@ -374,6 +374,7 @@ export function SpreadsheetGrid({
   // For hot leads/custom view mode, we don't need activeSheetIds - data comes from their own APIs
   const activeSheetIds = (hotLeadsMode || customViewMode) ? [] : (isMultiSheetMode ? selectedSheetIds : []);
   const containerRef = useRef<HTMLDivElement>(null);
+  const mobileContainerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [sortColumn, setSortColumn] = useState<string | null>("created_at");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
@@ -2234,7 +2235,7 @@ export function SpreadsheetGrid({
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // Attach scroll listener
+  // Attach scroll listener for desktop
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -2242,6 +2243,30 @@ export function SpreadsheetGrid({
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
+
+  // Mobile scroll handler - same logic but for mobile container
+  const handleMobileScroll = useCallback(() => {
+    const container = mobileContainerRef.current;
+    if (!container) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+    
+    if (scrollPercentage > 0.8 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Attach scroll listener for mobile (depends on isMobile to re-attach when view changes)
+  useEffect(() => {
+    if (!isMobile) return; // Only attach when in mobile view
+    
+    const container = mobileContainerRef.current;
+    if (!container) return;
+    
+    container.addEventListener('scroll', handleMobileScroll);
+    return () => container.removeEventListener('scroll', handleMobileScroll);
+  }, [handleMobileScroll, isMobile]);
 
   // Toggle column visibility and save to backend
   const toggleColumnVisibility = useCallback((columnKey: string) => {
@@ -3007,7 +3032,7 @@ export function SpreadsheetGrid({
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto" ref={mobileContainerRef}>
                 <div className="space-y-3">
                   {filteredAndSortedLeads.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground">
@@ -3220,6 +3245,34 @@ export function SpreadsheetGrid({
                       </div>
                       );
                     })
+                  )}
+                  
+                  {/* Mobile Load More / Status Section */}
+                  {leads.length > 0 && (
+                    <div className="flex items-center justify-center py-4 gap-3">
+                      {isFetchingNextPage && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Loading more...</span>
+                        </div>
+                      )}
+                      {hasNextPage && !isFetchingNextPage && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => fetchNextPage()}
+                          data-testid="button-mobile-load-more"
+                          className="min-h-[44px]"
+                        >
+                          Load more leads
+                        </Button>
+                      )}
+                      {!hasNextPage && leads.length >= totalLeads && (
+                        <span className="text-sm text-muted-foreground">
+                          All leads loaded
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
