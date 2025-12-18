@@ -1,33 +1,25 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { 
-  Trophy, 
   Zap, 
-  Calendar,
   TrendingUp,
   TrendingDown,
   Minus,
   Sparkles,
   RefreshCw,
   Target,
-  LogIn,
-  FileEdit,
-  ArrowRightLeft,
-  Clock,
-  Flame,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
-import { ChampionCard } from "@/components/powerscore/champion-card";
-import { PodiumCard } from "@/components/powerscore/podium-card";
-import { ContenderGrid } from "@/components/powerscore/contender-row";
+import { AnimatedPodium } from "@/components/powerscore/animated-podium";
+import { FullRankings } from "@/components/powerscore/full-rankings";
 import { ScoreTicker } from "@/components/powerscore/animated-counter";
 import { cn } from "@/lib/utils";
 import type { PowerScoreLeaderboardEntry, PowerScorePersonalStats } from "@shared/schema";
@@ -45,143 +37,6 @@ const periodLabels: Record<Period, string> = {
 interface LeaderboardResponse {
   leaderboard: PowerScoreLeaderboardEntry[];
   period: string;
-}
-
-interface HistoryEntry {
-  id: string;
-  action_type: string;
-  points: number;
-  description: string;
-  created_at: string;
-  rule_name?: string;
-}
-
-interface HistoryResponse {
-  history: HistoryEntry[];
-}
-
-const actionTypeConfig: Record<string, { icon: typeof Zap; color: string; bgColor: string; label: string }> = {
-  login: { 
-    icon: LogIn, 
-    color: "text-blue-600 dark:text-blue-400", 
-    bgColor: "bg-blue-100 dark:bg-blue-900/40",
-    label: "Login Bonus" 
-  },
-  lead_update: { 
-    icon: FileEdit, 
-    color: "text-emerald-600 dark:text-emerald-400", 
-    bgColor: "bg-emerald-100 dark:bg-emerald-900/40",
-    label: "Lead Update" 
-  },
-  dropdown_change: { 
-    icon: ArrowRightLeft, 
-    color: "text-purple-600 dark:text-purple-400", 
-    bgColor: "bg-purple-100 dark:bg-purple-900/40",
-    label: "Status Change" 
-  },
-};
-
-function AnimatedNumber({ value, className }: { value: number; className?: string }) {
-  return (
-    <motion.span
-      key={value}
-      initial={{ opacity: 0, y: -10, scale: 0.8 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ type: "spring", damping: 15 }}
-      className={className}
-    >
-      {value.toLocaleString()}
-    </motion.span>
-  );
-}
-
-function PointsBreakdownCard({ history }: { history: HistoryEntry[] }) {
-  const recentHistory = history.slice(0, 8);
-  
-  if (recentHistory.length === 0) {
-    return null;
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.3 }}
-    >
-      <Card className="border-0 shadow-lg bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800" data-testid="card-points-breakdown">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <motion.div
-              animate={{ rotate: [0, 10, -10, 0] }}
-              transition={{ repeat: Infinity, duration: 2, repeatDelay: 3 }}
-            >
-              <Flame className="h-5 w-5 text-orange-500" />
-            </motion.div>
-            <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent font-bold">
-              Recent Points Earned
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-2" data-testid="list-points-history">
-            <AnimatePresence mode="popLayout">
-              {recentHistory.map((entry, index) => {
-                const config = actionTypeConfig[entry.action_type] || actionTypeConfig.lead_update;
-                const Icon = config.icon;
-                
-                return (
-                  <motion.div
-                    key={entry.id}
-                    initial={{ opacity: 0, x: -20, scale: 0.9 }}
-                    animate={{ opacity: 1, x: 0, scale: 1 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    transition={{ delay: index * 0.05, type: "spring", damping: 20 }}
-                    className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm border border-slate-100 dark:border-slate-700 hover:shadow-md transition-shadow"
-                    data-testid={`row-points-entry-${entry.id}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <motion.div 
-                        className={cn("p-2 rounded-lg", config.bgColor)}
-                        whileHover={{ scale: 1.1, rotate: 5 }}
-                        transition={{ type: "spring", damping: 10 }}
-                      >
-                        <Icon className={cn("h-4 w-4", config.color)} />
-                      </motion.div>
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium truncate max-w-[180px] sm:max-w-none">
-                          {entry.description || config.label}
-                        </span>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {new Date(entry.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                    <motion.div
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ delay: index * 0.05 + 0.2, type: "spring" }}
-                    >
-                      <Badge 
-                        variant="secondary" 
-                        className={cn(
-                          "font-bold text-sm px-3 py-1",
-                          "bg-gradient-to-r from-emerald-500 to-green-500 text-white border-0 shadow-sm"
-                        )}
-                        data-testid={`badge-points-${entry.id}`}
-                      >
-                        +{entry.points}
-                      </Badge>
-                    </motion.div>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          </div>
-        </CardContent>
-      </Card>
-    </motion.div>
-  );
 }
 
 function CompactPersonalStats({ stats }: { stats: PowerScorePersonalStats }) {
@@ -330,22 +185,12 @@ export default function PowerScore() {
     queryKey: ["/api/powerscore/my-stats"],
   });
 
-  const { data: historyData } = useQuery<HistoryResponse>({
-    queryKey: ["/api/powerscore/history?limit=10"],
-  });
-
   const handleRefresh = () => {
     refetchLeaderboard();
     queryClient.invalidateQueries({ queryKey: ["/api/powerscore/my-stats"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/powerscore/history?limit=10"] });
   };
 
   const leaderboard = leaderboardData?.leaderboard || [];
-  const champion = leaderboard[0];
-  const podium = leaderboard.slice(1, 3);
-  const contenders = leaderboard.slice(3);
-  const history = historyData?.history || [];
-
   const userRank = leaderboard.findIndex(e => e.user_id === user?.id) + 1;
 
   if (leaderboardLoading || statsLoading) {
@@ -353,10 +198,7 @@ export default function PowerScore() {
       <div className="flex-1 p-4 sm:p-6 space-y-4 overflow-auto">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-[200px]" />
-        <div className="grid gap-4 md:grid-cols-2">
-          <Skeleton className="h-[150px]" />
-          <Skeleton className="h-[150px]" />
-        </div>
+        <Skeleton className="h-[300px]" />
       </div>
     );
   }
@@ -399,6 +241,7 @@ export default function PowerScore() {
                   initial={{ opacity: 0, scale: 0.5 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ type: "spring" }}
+                  data-testid="badge-user-rank"
                 >
                   #{userRank}
                 </motion.span>
@@ -454,7 +297,7 @@ export default function PowerScore() {
             <Card className="border-0 shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Trophy className="h-5 w-5 text-amber-500" />
+                  <Zap className="h-5 w-5 text-amber-500" />
                   No Scores Yet
                 </CardTitle>
               </CardHeader>
@@ -472,87 +315,31 @@ export default function PowerScore() {
           </motion.div>
         ) : (
           <div className="space-y-6">
-            {champion && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                transition={{ type: "spring", damping: 15 }}
-              >
-                <ChampionCard entry={champion} />
-              </motion.div>
-            )}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: "spring", damping: 15 }}
+            >
+              <Card className="border-0 shadow-lg overflow-hidden bg-gradient-to-br from-amber-50/50 to-white dark:from-amber-950/20 dark:to-slate-900">
+                <AnimatedPodium 
+                  leaderboard={leaderboard} 
+                  currentUserId={user?.id}
+                />
+              </Card>
+            </motion.div>
 
-            {podium.length > 0 && (
-              <motion.div 
-                className="grid gap-4 sm:grid-cols-2"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2 }}
-              >
-                {podium[0] && (
-                  <motion.div
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.2, type: "spring" }}
-                  >
-                    <PodiumCard 
-                      entry={podium[0]} 
-                      rank={2}
-                      pointsToFirst={champion ? champion.score - podium[0].score : undefined}
-                    />
-                  </motion.div>
-                )}
-                {podium[1] && (
-                  <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.25, type: "spring" }}
-                  >
-                    <PodiumCard 
-                      entry={podium[1]} 
-                      rank={3}
-                      pointsToFirst={champion ? champion.score - podium[1].score : undefined}
-                    />
-                  </motion.div>
-                )}
-              </motion.div>
-            )}
-
-            {contenders.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-              >
-                <Card className="border-0 shadow-lg">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium flex items-center gap-2">
-                      <motion.div
-                        animate={{ y: [0, -2, 0] }}
-                        transition={{ repeat: Infinity, duration: 1.5 }}
-                      >
-                        <Calendar className="h-4 w-4 text-blue-500" />
-                      </motion.div>
-                      <span className="bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent font-bold">
-                        Contenders
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-0 px-3 pb-3">
-                    <ContenderGrid 
-                      entries={contenders}
-                      currentUserId={user?.id}
-                      top3Score={podium[1]?.score || champion?.score}
-                    />
-                  </CardContent>
-                </Card>
-              </motion.div>
-            )}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+            >
+              <FullRankings 
+                leaderboard={leaderboard} 
+                currentUserId={user?.id}
+                period={period}
+              />
+            </motion.div>
           </div>
-        )}
-
-        {history.length > 0 && (
-          <PointsBreakdownCard history={history} />
         )}
 
         {personalStats && (

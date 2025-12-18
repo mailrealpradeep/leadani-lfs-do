@@ -18307,6 +18307,72 @@ ${questionsList}`;
     }
   });
 
+  // Get user breakdown by rule for a period
+  app.get("/api/powerscore/breakdown/:userId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+      const period = (req.query.period as string) || 'today';
+      
+      const user = await storage.getUser(req.userId!);
+      if (!user?.company_id) {
+        return res.status(400).json({ error: "Company not found" });
+      }
+      
+      const company = await storage.getCompany(user.company_id);
+      const timezone = company?.settings?.timezone || 'Asia/Kolkata';
+      
+      const now = new Date();
+      const todayStr = formatInTimeZone(now, timezone, 'yyyy-MM-dd');
+      
+      const startOfTodayUtc = fromZonedTime(`${todayStr}T00:00:00`, timezone);
+      
+      const yesterdayDate = new Date(startOfTodayUtc);
+      yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+      const yesterdayStr = formatInTimeZone(yesterdayDate, timezone, 'yyyy-MM-dd');
+      const startOfYesterdayUtc = fromZonedTime(`${yesterdayStr}T00:00:00`, timezone);
+      
+      const zonedNow = new Date(formatInTimeZone(now, timezone, "yyyy-MM-dd'T'HH:mm:ss"));
+      const dayOfWeek = zonedNow.getDay();
+      const daysToMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
+      const mondayDate = new Date(startOfTodayUtc);
+      mondayDate.setDate(mondayDate.getDate() - daysToMonday);
+      const mondayStr = formatInTimeZone(mondayDate, timezone, 'yyyy-MM-dd');
+      const startOfThisWeekUtc = fromZonedTime(`${mondayStr}T00:00:00`, timezone);
+      
+      const firstOfMonth = `${todayStr.substring(0, 7)}-01`;
+      const startOfThisMonthUtc = fromZonedTime(`${firstOfMonth}T00:00:00`, timezone);
+      
+      let startDate: Date;
+      let endDate = new Date();
+      
+      switch (period) {
+        case 'yesterday':
+          startDate = startOfYesterdayUtc;
+          endDate = startOfTodayUtc;
+          break;
+        case 'this_week':
+          startDate = startOfThisWeekUtc;
+          break;
+        case 'this_month':
+          startDate = startOfThisMonthUtc;
+          break;
+        case 'all_time':
+          startDate = new Date(0);
+          break;
+        case 'today':
+        default:
+          startDate = startOfTodayUtc;
+          break;
+      }
+      
+      const breakdown = await storage.getUserPowerScoreBreakdown(userId, startDate, endDate);
+      res.json({ breakdown });
+    } catch (error: any) {
+      console.error("Error fetching PowerScore breakdown:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get PowerScore rules (Company Admin or read for users)
   app.get("/api/powerscore/rules", authMiddleware, async (req: AuthRequest, res) => {
     try {
