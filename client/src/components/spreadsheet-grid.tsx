@@ -2906,56 +2906,58 @@ export function SpreadsheetGrid({
 
           return (
             <div className="h-full flex flex-col overflow-hidden">
-              {/* Mobile Filter Header - Premium Design */}
-              <div className="flex-shrink-0 pb-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <span className="text-2xl font-bold">
-                      {filteredAndSortedLeads.length}
-                    </span>
-                    <span className="text-base text-muted-foreground">
-                      lead{filteredAndSortedLeads.length !== 1 ? 's' : ''}
+              {/* Mobile Filter Header */}
+              <div className="flex-shrink-0 pb-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-sm text-muted-foreground">
+                      {filteredAndSortedLeads.length} lead{filteredAndSortedLeads.length !== 1 ? 's' : ''}
                     </span>
                     {hasActiveFiltersOrSort && (
-                      <Badge variant="secondary" className="text-sm px-2.5 py-0.5">
-                        {(sortColumn ? 1 : 0) + activeFilterCount} active
+                      <Badge variant="secondary" className="text-xs">
+                        {sortColumn ? 1 : 0} sort, {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
                       </Badge>
                     )}
                   </div>
                   <Button
                     variant={hasActiveFiltersOrSort ? "default" : "outline"}
-                    size="lg"
-                    className="min-h-[48px] gap-2 px-4"
+                    size="sm"
+                    className="min-h-[44px] gap-2"
                     onClick={() => setMobileFilterSheetOpen(true)}
                     data-testid="button-mobile-filter"
                   >
-                    <Filter className="h-5 w-5" />
-                    Filter
+                    <Filter className="h-4 w-4" />
+                    Sort & Filter
+                    {hasActiveFiltersOrSort && (
+                      <Badge variant="secondary" className="ml-1 bg-primary-foreground/20 text-xs">
+                        {(sortColumn ? 1 : 0) + activeFilterCount}
+                      </Badge>
+                    )}
                   </Button>
                 </div>
 
-                {/* Active Filters Display - Larger chips */}
+                {/* Active Filters Display */}
                 {hasActiveFiltersOrSort && (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {sortColumn && (
                       <Badge 
                         variant="outline" 
-                        className="text-sm py-1.5 px-3 flex items-center gap-2"
+                        className="text-xs flex items-center gap-1 pr-1"
                       >
-                        <ArrowUpDown className="h-4 w-4" />
+                        <ArrowUpDown className="h-3 w-3" />
                         {columns.find(c => c.key === sortColumn)?.label || sortColumn}
                         {sortDirection === "asc" ? " ↑" : " ↓"}
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-5 w-5 -mr-1 hover:bg-transparent"
+                          className="h-4 w-4 ml-0.5 hover:bg-transparent"
                           onClick={() => {
                             setSortColumn(null);
                             setSortDirection("asc");
                           }}
                           data-testid="button-clear-sort"
                         >
-                          <X className="h-4 w-4" />
+                          <X className="h-3 w-3" />
                         </Button>
                       </Badge>
                     )}
@@ -2965,13 +2967,13 @@ export function SpreadsheetGrid({
                         <Badge 
                           key={key}
                           variant="outline" 
-                          className="text-sm py-1.5 px-3 flex items-center gap-2"
+                          className="text-xs flex items-center gap-1 pr-1"
                         >
                           {getFilterLabel(key, value)}
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-5 w-5 -mr-1 hover:bg-transparent"
+                            className="h-4 w-4 ml-0.5 hover:bg-transparent"
                             onClick={() => {
                               setColumnFilters(prev => {
                                 const updated = { ...prev };
@@ -2981,46 +2983,41 @@ export function SpreadsheetGrid({
                             }}
                             data-testid={`button-clear-filter-${key}`}
                           >
-                            <X className="h-4 w-4" />
+                            <X className="h-3 w-3" />
                           </Button>
                         </Badge>
                       );
                     })}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-3 text-sm text-muted-foreground"
-                      onClick={() => {
-                        setSortColumn(null);
-                        setSortDirection("asc");
-                        setColumnFilters({});
-                      }}
-                      data-testid="button-clear-all-mobile"
-                    >
-                      Clear all
-                    </Button>
+                    {hasActiveFiltersOrSort && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-muted-foreground"
+                        onClick={() => {
+                          setSortColumn(null);
+                          setSortDirection("asc");
+                          setColumnFilters({});
+                        }}
+                        data-testid="button-clear-all-mobile"
+                      >
+                        Clear all
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
 
               <div className="flex-1 overflow-y-auto">
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {filteredAndSortedLeads.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4">
-                        <Filter className="h-10 w-10 text-muted-foreground" />
-                      </div>
-                      <h3 className="text-lg font-semibold mb-1">No leads found</h3>
-                      <p className="text-base text-muted-foreground mb-4">
-                        {hasActiveFiltersOrSort 
-                          ? "Try adjusting your filters" 
-                          : "Add your first lead to get started"}
-                      </p>
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Filter className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+                      <p>No leads found.</p>
                       {hasActiveFiltersOrSort && (
                         <Button
-                          variant="default"
-                          size="lg"
-                          className="min-h-[48px]"
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 text-primary"
                           onClick={() => {
                             setSortColumn(null);
                             setSortDirection("asc");
@@ -3028,7 +3025,7 @@ export function SpreadsheetGrid({
                           }}
                           data-testid="button-clear-filters-empty"
                         >
-                          Clear all filters
+                          Clear filters
                         </Button>
                       )}
                     </div>
@@ -3065,22 +3062,10 @@ export function SpreadsheetGrid({
                         return `${mobileThoughtClass} ${activeClass}`;
                       };
                       
-                      // Get status for color rail
-                      const leadStatus = lead.custom_fields?.lead_status || lead.custom_fields?.status;
-                      const getStatusColor = () => {
-                        const status = String(leadStatus || "").toLowerCase();
-                        if (status.includes("visit") && status.includes("done")) return "border-l-emerald-500";
-                        if (status.includes("visit") && status.includes("scheduled")) return "border-l-blue-500";
-                        if (status.includes("talked") || status.includes("contacted")) return "border-l-amber-500";
-                        if (status.includes("not") && (status.includes("interested") || status.includes("respond"))) return "border-l-red-400";
-                        if (status.includes("new") || status.includes("fresh")) return "border-l-purple-500";
-                        return "border-l-muted-foreground/30";
-                      };
-
                       return (
                       <div
                         key={lead.id}
-                        className={`border rounded-lg border-l-4 ${getStatusColor()} p-5 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
+                        className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
                         style={getMobileCardStyle()}
                         data-testid={`card-lead-${lead.id}`}
                         onClick={() => {
@@ -3094,56 +3079,41 @@ export function SpreadsheetGrid({
                           : undefined
                         }
                       >
-                        {/* Header: Name + Status Badge */}
-                        <div className="flex items-start justify-between gap-3 mb-4">
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
                             {mobileLeadThought === "sure" && (
-                              <Star className="h-6 w-6 text-emerald-500 fill-emerald-500 flex-shrink-0" />
+                              <Star className="h-5 w-5 text-emerald-500 fill-emerald-500 flex-shrink-0" />
                             )}
                             {mobileLeadThought === "maybe" && (
-                              <HelpCircle className="h-6 w-6 text-amber-500 flex-shrink-0" />
+                              <HelpCircle className="h-5 w-5 text-amber-500 flex-shrink-0" />
                             )}
                             <div className="min-w-0 flex-1">
-                              {titleColumns.slice(0, 1).map((col) => {
+                              {titleColumns.map((col) => {
                                 const value = getLeadValue(lead, col.key);
                                 return value ? (
-                                  <p key={col.key} className="text-lg font-semibold truncate leading-tight">
-                                    {value}
-                                  </p>
-                                ) : null;
-                              })}
-                              {titleColumns.slice(1, 2).map((col) => {
-                                const value = getLeadValue(lead, col.key);
-                                return value ? (
-                                  <p key={col.key} className="text-base text-muted-foreground truncate">
-                                    {value}
+                                  <p key={col.key} className="text-sm truncate">
+                                    <span className="font-medium">{value}</span>
                                   </p>
                                 ) : null;
                               })}
                             </div>
                           </div>
-                          {leadStatus && (
-                            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground flex-shrink-0">
-                              {leadStatus}
-                            </span>
-                          )}
                         </div>
                         
-                        {/* Details: Single column layout with label above value */}
-                        <div className="space-y-3 mb-4">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                           {detailColumns.map((col) => {
                             const value = getLeadValue(lead, col.key);
                             const isPastNFDT = leadsWithPastNFDT.get(lead.id)?.includes(col.key);
                             return (
                               <div 
                                 key={col.key}
-                                className={isPastNFDT ? "px-3 py-2 rounded-lg bg-amber-100 dark:bg-amber-900/30" : ""}
+                                className={isPastNFDT ? "px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30" : ""}
                                 title={isPastNFDT ? "Past follow-up date" : undefined}
                               >
-                                <span className="text-xs uppercase tracking-wide text-muted-foreground">{col.label}</span>
-                                <p className={`text-base font-medium truncate ${isPastNFDT ? "text-amber-700 dark:text-amber-400" : ""}`}>
+                                <span className="text-muted-foreground">{col.label}:</span>
+                                <p className={`truncate ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
                                   {(col.type === "date" || col.type === "datetime") && value 
-                                    ? formatInTimezone(value, col.type === "datetime" ? "dd MMM yyyy, HH:mm" : "dd MMM yyyy")
+                                    ? formatInTimezone(value, col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy")
                                     : value || "—"}
                                 </p>
                               </div>
@@ -3151,50 +3121,12 @@ export function SpreadsheetGrid({
                           })}
                         </div>
 
-                        {/* Quick Actions: Call + WhatsApp prominent */}
-                        <div className="flex gap-2 mb-3" onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            variant="outline"
-                            size="lg"
-                            className="flex-1 min-h-[48px] bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-950/50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const mobileNo = lead.custom_fields?.mobile_no || lead.custom_fields?.mobile || lead.custom_fields?.phone;
-                              if (mobileNo) {
-                                window.location.href = `tel:${mobileNo}`;
-                              }
-                            }}
-                            data-testid={`button-call-lead-${lead.id}`}
-                          >
-                            <Phone className="h-5 w-5 mr-2" />
-                            Call
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="lg"
-                            className="flex-1 min-h-[48px] bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-950/50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const whatsappNo = lead.custom_fields?.whatsapp_no || lead.custom_fields?.whatsapp || lead.custom_fields?.mobile_no || lead.custom_fields?.mobile;
-                              if (whatsappNo) {
-                                const cleanNumber = String(whatsappNo).replace(/[\s-]/g, '');
-                                const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
-                                window.open(`https://wa.me/${formattedNumber}`, '_blank');
-                              }
-                            }}
-                            data-testid={`button-whatsapp-lead-${lead.id}`}
-                          >
-                            <MessageCircle className="h-5 w-5 mr-2" />
-                            WhatsApp
-                          </Button>
-                        </div>
-
-                        {/* Secondary Actions */}
-                        <div className="flex gap-2 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
+                        <div className="mt-3 pt-3 border-t space-y-2" onClick={(e) => e.stopPropagation()}>
+                          {/* Primary Edit Button */}
                           <Button
                             variant="default"
                             size="sm"
-                            className="flex-1 min-h-[44px]"
+                            className="w-full min-h-[44px]"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedLeadForEdit(lead.id);
@@ -3203,46 +3135,87 @@ export function SpreadsheetGrid({
                             data-testid={`button-edit-lead-${lead.id}`}
                           >
                             <Pencil className="h-4 w-4 mr-2" />
-                            Edit
+                            Edit Lead
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1 min-h-[44px]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (updateDialogOpen) return;
-                              if (highlightTimeoutRef.current) {
-                                clearTimeout(highlightTimeoutRef.current);
-                              }
-                              setHighlightedLeadId(lead.id);
-                              setSelectedLeadForUpdate(lead.id);
-                              setUpdateDialogOpen(true);
-                            }}
-                            data-testid={`button-update-lead-${lead.id}`}
-                          >
-                            <Edit2 className="h-4 w-4 mr-2" />
-                            Update
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1 min-h-[44px]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (updateHistoryDialogOpen) return;
-                              if (highlightTimeoutRef.current) {
-                                clearTimeout(highlightTimeoutRef.current);
-                              }
-                              setHighlightedLeadId(lead.id);
-                              setSelectedLeadForUpdate(lead.id);
-                              setUpdateHistoryDialogOpen(true);
-                            }}
-                            data-testid={`button-update-history-${lead.id}`}
-                          >
-                            <History className="h-4 w-4 mr-2" />
-                            History
-                          </Button>
+                          {/* Secondary Actions Row */}
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 min-h-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Prevent switching leads while dialog is already open
+                                if (updateDialogOpen) return;
+                                // Clear any existing timeout and set highlight
+                                if (highlightTimeoutRef.current) {
+                                  clearTimeout(highlightTimeoutRef.current);
+                                }
+                                setHighlightedLeadId(lead.id);
+                                setSelectedLeadForUpdate(lead.id);
+                                setUpdateDialogOpen(true);
+                              }}
+                              data-testid={`button-update-lead-${lead.id}`}
+                            >
+                              <Edit2 className="h-4 w-4 mr-2" />
+                              Update
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 min-h-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Prevent switching leads while dialog is already open
+                                if (updateHistoryDialogOpen) return;
+                                // Clear any existing timeout and set highlight
+                                if (highlightTimeoutRef.current) {
+                                  clearTimeout(highlightTimeoutRef.current);
+                                }
+                                setHighlightedLeadId(lead.id);
+                                setSelectedLeadForUpdate(lead.id);
+                                setUpdateHistoryDialogOpen(true);
+                              }}
+                              data-testid={`button-update-history-${lead.id}`}
+                            >
+                              <History className="h-4 w-4 mr-2" />
+                              History
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="min-h-[44px] min-w-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const mobileNo = lead.custom_fields?.mobile_no || lead.custom_fields?.mobile || lead.custom_fields?.phone;
+                                if (mobileNo) {
+                                  window.location.href = `tel:${mobileNo}`;
+                                }
+                              }}
+                              data-testid={`button-call-lead-${lead.id}`}
+                              title="Call"
+                            >
+                              <Phone className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="min-h-[44px] min-w-[44px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const whatsappNo = lead.custom_fields?.whatsapp_no || lead.custom_fields?.whatsapp || lead.custom_fields?.mobile_no || lead.custom_fields?.mobile;
+                                if (whatsappNo) {
+                                  const cleanNumber = String(whatsappNo).replace(/[\s-]/g, '');
+                                  const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
+                                  window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                                }
+                              }}
+                              data-testid={`button-whatsapp-lead-${lead.id}`}
+                              title="WhatsApp"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                       );

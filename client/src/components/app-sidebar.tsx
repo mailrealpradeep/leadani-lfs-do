@@ -324,32 +324,9 @@ export function AppSidebar() {
     <>
       <Sidebar>
         <SidebarContent>
-          {/* Mobile: User Profile Header */}
-          {isMobile && !isSuperAdminAccount && (
-            <div className="px-4 py-4 border-b bg-muted/30">
-              <div className="flex items-center gap-3">
-                <Avatar className="h-12 w-12">
-                  <AvatarFallback className="text-base font-semibold bg-primary text-primary-foreground">
-                    {user?.name?.substring(0, 2).toUpperCase() || "??"}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="text-base font-semibold truncate" data-testid="text-user-name-mobile">
-                    {user?.name}
-                  </p>
-                  {company && (
-                    <p className="text-sm text-muted-foreground truncate">
-                      {company.name}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-          
           <SidebarGroup>
             <SidebarGroupLabel className="text-lg font-semibold px-4 py-3">
-              {isMobile ? "Navigation" : "Leadani LFS"}
+              Leadani LFS
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
@@ -362,8 +339,8 @@ export function AppSidebar() {
                       data-testid={item.testId}
                     >
                       <Link href={item.url} onClick={handleNavClick}>
-                        <item.icon className="h-5 w-5" />
-                        <span className="text-base">{item.title}</span>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -375,13 +352,12 @@ export function AppSidebar() {
                       asChild
                       isActive={location === item.url}
                       data-testid={item.testId}
-                      className={isMobile ? "min-h-[48px]" : ""}
                     >
                       <Link href={item.url} onClick={handleNavClick}>
-                        <item.icon className={item.url === "/hot-leads" ? "h-5 w-5 text-orange-500" : "h-5 w-5"} />
-                        <span className={`flex-1 ${isMobile ? "text-base" : ""}`}>{item.title}</span>
+                        <item.icon className={item.url === "/hot-leads" ? "h-4 w-4 text-orange-500" : "h-4 w-4"} />
+                        <span className="flex-1">{item.title}</span>
                         {"badge" in item && (item as any).badge > 0 && (
-                          <span className="ml-auto flex h-6 min-w-[24px] items-center justify-center rounded-full bg-orange-500 px-2 text-sm font-medium text-white">
+                          <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-medium text-white animate-pulse">
                             {(item as any).badge}
                           </span>
                         )}
@@ -396,9 +372,7 @@ export function AppSidebar() {
           {/* Custom Views Section */}
           {!isSuperAdminAccount && enabledViews.length > 0 && (
             <SidebarGroup>
-              <SidebarGroupLabel className={`px-4 ${isMobile ? "text-sm font-semibold text-muted-foreground" : ""}`}>
-                Custom Views
-              </SidebarGroupLabel>
+              <SidebarGroupLabel className="px-4">Custom Views</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {enabledViews.map((view) => {
@@ -413,13 +387,12 @@ export function AppSidebar() {
                           asChild
                           isActive={location === viewUrl}
                           data-testid={`link-custom-view-${view.id}`}
-                          className={isMobile ? "min-h-[48px]" : ""}
                         >
                           <Link href={viewUrl} onClick={handleNavClick}>
-                            <IconComponent className={`h-5 w-5 ${colorClass}`} />
-                            <span className={`flex-1 ${isMobile ? "text-base" : ""}`}>{view.name}</span>
+                            <IconComponent className={`h-4 w-4 ${colorClass}`} />
+                            <span className="flex-1">{view.name}</span>
                             {view.show_badge && count > 0 && (
-                              <span className={`ml-auto flex h-6 min-w-[24px] items-center justify-center rounded-full ${getBadgeColor(view.icon_color)} px-2 text-sm font-medium text-white`}>
+                              <span className={`ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full ${getBadgeColor(view.icon_color)} px-1.5 text-xs font-medium text-white`}>
                                 {count}
                               </span>
                             )}
@@ -435,9 +408,7 @@ export function AppSidebar() {
 
           {adminItems.length > 0 && (
             <SidebarGroup>
-              <SidebarGroupLabel className={`px-4 ${isMobile ? "text-sm font-semibold text-muted-foreground" : ""}`}>
-                Administration
-              </SidebarGroupLabel>
+              <SidebarGroupLabel className="px-4">Administration</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {adminItems.map((item) => (
@@ -446,11 +417,10 @@ export function AppSidebar() {
                         asChild
                         isActive={location === item.url}
                         data-testid={item.testId}
-                        className={isMobile ? "min-h-[48px]" : ""}
                       >
                         <Link href={item.url} onClick={handleNavClick}>
-                          <item.icon className="h-5 w-5" />
-                          <span className={isMobile ? "text-base" : ""}>{item.title}</span>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
