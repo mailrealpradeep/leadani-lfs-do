@@ -171,6 +171,31 @@ import type {
   // Watchlist Leads
   WatchlistLead,
   watchlist_leads,
+  // PowerScore (Gamified Leaderboard System)
+  PowerScoreRule,
+  powerscore_rules,
+  PowerScoreTransaction,
+  powerscore_transactions,
+  PowerScorePendingApproval,
+  powerscore_pending_approvals,
+  PowerScoreBadge,
+  powerscore_badges,
+  PowerScoreMilestoneBonus,
+  powerscore_milestone_bonuses,
+  PowerScoreLoginBonus,
+  powerscore_login_bonuses,
+  PowerScoreAppreciation,
+  powerscore_appreciations,
+  PowerScoreNotificationThreshold,
+  powerscore_notification_thresholds,
+  PowerScoreLoginClaim,
+  powerscore_login_claims,
+  PowerScoreMilestoneClaim,
+  powerscore_milestone_claims,
+  PowerScoreLeaderboardEntry,
+  PowerScorePersonalStats,
+  PowerScoreHistoryEntry,
+  PowerScoreActionType,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -700,6 +725,70 @@ export interface IStorage {
   addToWatchlist(userId: string, leadId: string): Promise<WatchlistLead>;
   removeFromWatchlist(userId: string, leadId: string): Promise<boolean>;
   isOnWatchlist(userId: string, leadId: string): Promise<boolean>;
+
+  // =========================================================================
+  // POWERSCORE (Gamified Leaderboard System)
+  // =========================================================================
+
+  // PowerScore Rules (Action -> Points Configuration)
+  getPowerScoreRules(companyId: string): Promise<PowerScoreRule[]>;
+  getPowerScoreRule(id: string): Promise<PowerScoreRule | undefined>;
+  createPowerScoreRule(rule: Omit<PowerScoreRule, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreRule>;
+  updatePowerScoreRule(id: string, updates: Partial<PowerScoreRule>): Promise<PowerScoreRule | undefined>;
+  deletePowerScoreRule(id: string): Promise<boolean>;
+
+  // PowerScore Transactions (Score History)
+  getPowerScoreTransactions(userId: string, limit?: number): Promise<PowerScoreTransaction[]>;
+  getPowerScoreTransactionsByCompany(companyId: string, startDate?: Date, endDate?: Date): Promise<PowerScoreTransaction[]>;
+  createPowerScoreTransaction(transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction>;
+  getDailyActionCount(userId: string, actionType: PowerScoreActionType, date: Date): Promise<number>;
+
+  // PowerScore Leaderboard & Stats
+  getPowerScoreLeaderboard(companyId: string, startDate: Date, endDate: Date): Promise<PowerScoreLeaderboardEntry[]>;
+  getUserPowerScore(userId: string, startDate: Date, endDate: Date): Promise<number>;
+  getUserPowerScorePersonalStats(userId: string, companyTimezone: string): Promise<PowerScorePersonalStats>;
+  getUserPowerScoreHistory(userId: string, limit?: number): Promise<PowerScoreHistoryEntry[]>;
+
+  // PowerScore Pending Approvals (For high-value actions)
+  getPowerScorePendingApprovals(companyId: string): Promise<PowerScorePendingApproval[]>;
+  getPowerScorePendingApproval(id: string): Promise<PowerScorePendingApproval | undefined>;
+  createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval>;
+  approvePowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined>;
+  rejectPowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined>;
+
+  // PowerScore Badges
+  getPowerScoreBadges(companyId: string): Promise<PowerScoreBadge[]>;
+  createPowerScoreBadge(badge: Omit<PowerScoreBadge, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreBadge>;
+  updatePowerScoreBadge(id: string, updates: Partial<PowerScoreBadge>): Promise<PowerScoreBadge | undefined>;
+  deletePowerScoreBadge(id: string): Promise<boolean>;
+
+  // PowerScore Milestone Bonuses
+  getPowerScoreMilestones(companyId: string): Promise<PowerScoreMilestoneBonus[]>;
+  createPowerScoreMilestone(milestone: Omit<PowerScoreMilestoneBonus, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreMilestoneBonus>;
+  updatePowerScoreMilestone(id: string, updates: Partial<PowerScoreMilestoneBonus>): Promise<PowerScoreMilestoneBonus | undefined>;
+  deletePowerScoreMilestone(id: string): Promise<boolean>;
+
+  // PowerScore Login Bonuses
+  getPowerScoreLoginBonuses(companyId: string): Promise<PowerScoreLoginBonus[]>;
+  createPowerScoreLoginBonus(bonus: Omit<PowerScoreLoginBonus, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreLoginBonus>;
+  updatePowerScoreLoginBonus(id: string, updates: Partial<PowerScoreLoginBonus>): Promise<PowerScoreLoginBonus | undefined>;
+  deletePowerScoreLoginBonus(id: string): Promise<boolean>;
+
+  // PowerScore Appreciations (Admin -> User rewards)
+  getPowerScoreAppreciations(userId: string, unseenOnly?: boolean): Promise<PowerScoreAppreciation[]>;
+  createPowerScoreAppreciation(appreciation: Omit<PowerScoreAppreciation, 'id' | 'seen' | 'created_at'>): Promise<PowerScoreAppreciation>;
+  markPowerScoreAppreciationSeen(id: string): Promise<boolean>;
+
+  // PowerScore Notification Thresholds
+  getPowerScoreNotificationThresholds(companyId: string): Promise<PowerScoreNotificationThreshold[]>;
+  createPowerScoreNotificationThreshold(threshold: Omit<PowerScoreNotificationThreshold, 'id' | 'created_at'>): Promise<PowerScoreNotificationThreshold>;
+  deletePowerScoreNotificationThreshold(id: string): Promise<boolean>;
+
+  // PowerScore Login/Milestone Claims (to prevent double-claiming)
+  hasClaimedLoginBonus(userId: string, bonusId: string, date: Date): Promise<boolean>;
+  createLoginBonusClaim(userId: string, bonusId: string, date: Date): Promise<PowerScoreLoginClaim>;
+  hasClaimedMilestone(userId: string, milestoneId: string): Promise<boolean>;
+  createMilestoneClaim(userId: string, milestoneId: string, score: number): Promise<PowerScoreMilestoneClaim>;
 }
 
 export class MemStorage implements IStorage {
@@ -2917,6 +3006,48 @@ export class MemStorage implements IStorage {
   async isOnWatchlist(_userId: string, _leadId: string): Promise<boolean> {
     return false;
   }
+
+  // PowerScore (not implemented in MemStorage - requires PostgreSQL)
+  async getPowerScoreRules(_companyId: string): Promise<PowerScoreRule[]> { return []; }
+  async getPowerScoreRule(_id: string): Promise<PowerScoreRule | undefined> { return undefined; }
+  async createPowerScoreRule(_rule: Omit<PowerScoreRule, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreRule> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async updatePowerScoreRule(_id: string, _updates: Partial<PowerScoreRule>): Promise<PowerScoreRule | undefined> { return undefined; }
+  async deletePowerScoreRule(_id: string): Promise<boolean> { return false; }
+  async getPowerScoreTransactions(_userId: string, _limit?: number): Promise<PowerScoreTransaction[]> { return []; }
+  async getPowerScoreTransactionsByCompany(_companyId: string, _startDate?: Date, _endDate?: Date): Promise<PowerScoreTransaction[]> { return []; }
+  async createPowerScoreTransaction(_transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async getDailyActionCount(_userId: string, _actionType: PowerScoreActionType, _date: Date): Promise<number> { return 0; }
+  async getPowerScoreLeaderboard(_companyId: string, _startDate: Date, _endDate: Date): Promise<PowerScoreLeaderboardEntry[]> { return []; }
+  async getUserPowerScore(_userId: string, _startDate: Date, _endDate: Date): Promise<number> { return 0; }
+  async getUserPowerScorePersonalStats(_userId: string, _companyTimezone: string): Promise<PowerScorePersonalStats> { return { today: 0, yesterday: 0, this_week: 0, last_week: 0, this_month: 0, last_month: 0, today_vs_yesterday_percent: 0, this_week_vs_last_week_percent: 0 }; }
+  async getUserPowerScoreHistory(_userId: string, _limit?: number): Promise<PowerScoreHistoryEntry[]> { return []; }
+  async getPowerScorePendingApprovals(_companyId: string): Promise<PowerScorePendingApproval[]> { return []; }
+  async getPowerScorePendingApproval(_id: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
+  async createPowerScorePendingApproval(_approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async approvePowerScoreApproval(_id: string, _reviewedBy: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
+  async rejectPowerScoreApproval(_id: string, _reviewedBy: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
+  async getPowerScoreBadges(_companyId: string): Promise<PowerScoreBadge[]> { return []; }
+  async createPowerScoreBadge(_badge: Omit<PowerScoreBadge, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreBadge> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async updatePowerScoreBadge(_id: string, _updates: Partial<PowerScoreBadge>): Promise<PowerScoreBadge | undefined> { return undefined; }
+  async deletePowerScoreBadge(_id: string): Promise<boolean> { return false; }
+  async getPowerScoreMilestones(_companyId: string): Promise<PowerScoreMilestoneBonus[]> { return []; }
+  async createPowerScoreMilestone(_milestone: Omit<PowerScoreMilestoneBonus, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreMilestoneBonus> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async updatePowerScoreMilestone(_id: string, _updates: Partial<PowerScoreMilestoneBonus>): Promise<PowerScoreMilestoneBonus | undefined> { return undefined; }
+  async deletePowerScoreMilestone(_id: string): Promise<boolean> { return false; }
+  async getPowerScoreLoginBonuses(_companyId: string): Promise<PowerScoreLoginBonus[]> { return []; }
+  async createPowerScoreLoginBonus(_bonus: Omit<PowerScoreLoginBonus, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreLoginBonus> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async updatePowerScoreLoginBonus(_id: string, _updates: Partial<PowerScoreLoginBonus>): Promise<PowerScoreLoginBonus | undefined> { return undefined; }
+  async deletePowerScoreLoginBonus(_id: string): Promise<boolean> { return false; }
+  async getPowerScoreAppreciations(_userId: string, _unseenOnly?: boolean): Promise<PowerScoreAppreciation[]> { return []; }
+  async createPowerScoreAppreciation(_appreciation: Omit<PowerScoreAppreciation, 'id' | 'seen' | 'created_at'>): Promise<PowerScoreAppreciation> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async markPowerScoreAppreciationSeen(_id: string): Promise<boolean> { return false; }
+  async getPowerScoreNotificationThresholds(_companyId: string): Promise<PowerScoreNotificationThreshold[]> { return []; }
+  async createPowerScoreNotificationThreshold(_threshold: Omit<PowerScoreNotificationThreshold, 'id' | 'created_at'>): Promise<PowerScoreNotificationThreshold> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async deletePowerScoreNotificationThreshold(_id: string): Promise<boolean> { return false; }
+  async hasClaimedLoginBonus(_userId: string, _bonusId: string, _date: Date): Promise<boolean> { return false; }
+  async createLoginBonusClaim(_userId: string, _bonusId: string, _date: Date): Promise<PowerScoreLoginClaim> { throw new Error("PowerScore not implemented in MemStorage"); }
+  async hasClaimedMilestone(_userId: string, _milestoneId: string): Promise<boolean> { return false; }
+  async createMilestoneClaim(_userId: string, _milestoneId: string, _score: number): Promise<PowerScoreMilestoneClaim> { throw new Error("PowerScore not implemented in MemStorage"); }
 }
 
 // ============================================================================
@@ -7578,6 +7709,957 @@ export class PgStorage implements IStorage {
         )
       );
     return result.length > 0;
+  }
+
+  // =========================================================================
+  // POWERSCORE (Gamified Leaderboard System)
+  // =========================================================================
+
+  async getPowerScoreRules(companyId: string): Promise<PowerScoreRule[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_rules)
+      .where(eq(dbSchema.powerscore_rules.company_id, companyId))
+      .orderBy(dbSchema.powerscore_rules.action_type);
+    return result.map(row => ({
+      id: row.id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      daily_cap: row.daily_cap,
+      requires_approval: row.requires_approval ?? false,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async getPowerScoreRule(id: string): Promise<PowerScoreRule | undefined> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_rules)
+      .where(eq(dbSchema.powerscore_rules.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    const row = result[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      daily_cap: row.daily_cap,
+      requires_approval: row.requires_approval ?? false,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || new Date().toISOString(),
+    };
+  }
+
+  async createPowerScoreRule(rule: Omit<PowerScoreRule, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreRule> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_rules)
+      .values({
+        id,
+        company_id: rule.company_id,
+        action_type: rule.action_type,
+        points: rule.points,
+        daily_cap: rule.daily_cap,
+        requires_approval: rule.requires_approval,
+        enabled: rule.enabled,
+        created_at: now,
+        updated_at: now,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      daily_cap: row.daily_cap,
+      requires_approval: row.requires_approval ?? false,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || now.toISOString(),
+      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async updatePowerScoreRule(id: string, updates: Partial<PowerScoreRule>): Promise<PowerScoreRule | undefined> {
+    const now = new Date();
+    const dbUpdates: any = { updated_at: now };
+    if (updates.points !== undefined) dbUpdates.points = updates.points;
+    if (updates.daily_cap !== undefined) dbUpdates.daily_cap = updates.daily_cap;
+    if (updates.requires_approval !== undefined) dbUpdates.requires_approval = updates.requires_approval;
+    if (updates.enabled !== undefined) dbUpdates.enabled = updates.enabled;
+    
+    const rows = await db.update(dbSchema.powerscore_rules)
+      .set(dbUpdates)
+      .where(eq(dbSchema.powerscore_rules.id, id))
+      .returning();
+    if (rows.length === 0) return undefined;
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      daily_cap: row.daily_cap,
+      requires_approval: row.requires_approval ?? false,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async deletePowerScoreRule(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.powerscore_rules)
+      .where(eq(dbSchema.powerscore_rules.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getPowerScoreTransactions(userId: string, limit: number = 50): Promise<PowerScoreTransaction[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_transactions)
+      .where(eq(dbSchema.powerscore_transactions.user_id, userId))
+      .orderBy(desc(dbSchema.powerscore_transactions.created_at))
+      .limit(limit);
+    return result.map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async getPowerScoreTransactionsByCompany(companyId: string, startDate?: Date, endDate?: Date): Promise<PowerScoreTransaction[]> {
+    let query = db.select()
+      .from(dbSchema.powerscore_transactions)
+      .where(eq(dbSchema.powerscore_transactions.company_id, companyId))
+      .orderBy(desc(dbSchema.powerscore_transactions.created_at));
+    
+    if (startDate && endDate) {
+      const result = await db.select()
+        .from(dbSchema.powerscore_transactions)
+        .where(
+          and(
+            eq(dbSchema.powerscore_transactions.company_id, companyId),
+            gte(dbSchema.powerscore_transactions.created_at, startDate),
+            lte(dbSchema.powerscore_transactions.created_at, endDate)
+          )
+        )
+        .orderBy(desc(dbSchema.powerscore_transactions.created_at));
+      return result.map(row => ({
+        id: row.id,
+        user_id: row.user_id,
+        company_id: row.company_id,
+        action_type: row.action_type as PowerScoreActionType,
+        points: row.points,
+        reference_id: row.reference_id,
+        reference_type: row.reference_type,
+        description: row.description,
+        created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      }));
+    }
+    
+    const result = await query;
+    return result.map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async createPowerScoreTransaction(transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_transactions)
+      .values({
+        id,
+        user_id: transaction.user_id,
+        company_id: transaction.company_id,
+        action_type: transaction.action_type,
+        points: transaction.points,
+        reference_id: transaction.reference_id,
+        reference_type: transaction.reference_type,
+        description: transaction.description,
+        created_at: now,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+      created_at: row.created_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async getDailyActionCount(userId: string, actionType: PowerScoreActionType, date: Date): Promise<number> {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(dbSchema.powerscore_transactions)
+      .where(
+        and(
+          eq(dbSchema.powerscore_transactions.user_id, userId),
+          eq(dbSchema.powerscore_transactions.action_type, actionType),
+          gte(dbSchema.powerscore_transactions.created_at, startOfDay),
+          lte(dbSchema.powerscore_transactions.created_at, endOfDay)
+        )
+      );
+    return Number(result[0]?.count || 0);
+  }
+
+  async getPowerScoreLeaderboard(companyId: string, startDate: Date, endDate: Date): Promise<PowerScoreLeaderboardEntry[]> {
+    const result = await db.select({
+      user_id: dbSchema.powerscore_transactions.user_id,
+      total_points: sql<number>`sum(${dbSchema.powerscore_transactions.points})`,
+    })
+      .from(dbSchema.powerscore_transactions)
+      .where(
+        and(
+          eq(dbSchema.powerscore_transactions.company_id, companyId),
+          gte(dbSchema.powerscore_transactions.created_at, startDate),
+          lte(dbSchema.powerscore_transactions.created_at, endDate)
+        )
+      )
+      .groupBy(dbSchema.powerscore_transactions.user_id)
+      .orderBy(sql`sum(${dbSchema.powerscore_transactions.points}) desc`);
+    
+    // Fetch user details for leaderboard entries
+    const userIds = result.map(r => r.user_id);
+    if (userIds.length === 0) return [];
+    
+    const users = await db.select({ id: dbSchema.users.id, name: dbSchema.users.name })
+      .from(dbSchema.users)
+      .where(inArray(dbSchema.users.id, userIds));
+    
+    const userMap = new Map(users.map(u => [u.id, u.name]));
+    
+    // Get badges for each user
+    const badges = await db.select()
+      .from(dbSchema.powerscore_badges)
+      .where(eq(dbSchema.powerscore_badges.company_id, companyId));
+    
+    return result.map((row, index) => ({
+      user_id: row.user_id,
+      user_name: userMap.get(row.user_id) || 'Unknown User',
+      avatar_url: undefined,
+      score: Number(row.total_points || 0),
+      rank: index + 1,
+      badges: badges.filter(b => b.enabled).map(b => ({
+        id: b.id,
+        name: b.name,
+        icon: b.icon,
+        color: b.color,
+        description: b.description,
+      })),
+    }));
+  }
+
+  async getUserPowerScore(userId: string, startDate: Date, endDate: Date): Promise<number> {
+    const result = await db.select({
+      total: sql<number>`coalesce(sum(${dbSchema.powerscore_transactions.points}), 0)`,
+    })
+      .from(dbSchema.powerscore_transactions)
+      .where(
+        and(
+          eq(dbSchema.powerscore_transactions.user_id, userId),
+          gte(dbSchema.powerscore_transactions.created_at, startDate),
+          lte(dbSchema.powerscore_transactions.created_at, endDate)
+        )
+      );
+    return Number(result[0]?.total || 0);
+  }
+
+  async getUserPowerScorePersonalStats(userId: string, companyTimezone: string): Promise<PowerScorePersonalStats> {
+    const now = new Date();
+    
+    // Helper to get date ranges in company timezone
+    const getDateRange = (type: 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month') => {
+      const start = new Date(now);
+      const end = new Date(now);
+      
+      switch (type) {
+        case 'today':
+          start.setHours(0, 0, 0, 0);
+          end.setHours(23, 59, 59, 999);
+          break;
+        case 'yesterday':
+          start.setDate(start.getDate() - 1);
+          start.setHours(0, 0, 0, 0);
+          end.setDate(end.getDate() - 1);
+          end.setHours(23, 59, 59, 999);
+          break;
+        case 'this_week':
+          const dayOfWeek = start.getDay();
+          start.setDate(start.getDate() - dayOfWeek);
+          start.setHours(0, 0, 0, 0);
+          end.setHours(23, 59, 59, 999);
+          break;
+        case 'last_week':
+          const dow = start.getDay();
+          start.setDate(start.getDate() - dow - 7);
+          start.setHours(0, 0, 0, 0);
+          end.setDate(end.getDate() - dow - 1);
+          end.setHours(23, 59, 59, 999);
+          break;
+        case 'this_month':
+          start.setDate(1);
+          start.setHours(0, 0, 0, 0);
+          break;
+        case 'last_month':
+          start.setMonth(start.getMonth() - 1);
+          start.setDate(1);
+          start.setHours(0, 0, 0, 0);
+          end.setDate(0);
+          end.setHours(23, 59, 59, 999);
+          break;
+      }
+      return { start, end };
+    };
+
+    const [today, yesterday, thisWeek, lastWeek, thisMonth, lastMonth] = await Promise.all([
+      this.getUserPowerScore(userId, getDateRange('today').start, getDateRange('today').end),
+      this.getUserPowerScore(userId, getDateRange('yesterday').start, getDateRange('yesterday').end),
+      this.getUserPowerScore(userId, getDateRange('this_week').start, getDateRange('this_week').end),
+      this.getUserPowerScore(userId, getDateRange('last_week').start, getDateRange('last_week').end),
+      this.getUserPowerScore(userId, getDateRange('this_month').start, getDateRange('this_month').end),
+      this.getUserPowerScore(userId, getDateRange('last_month').start, getDateRange('last_month').end),
+    ]);
+
+    // Calculate percentage changes
+    const todayVsYesterdayPercent = yesterday === 0 
+      ? (today > 0 ? 100 : 0)
+      : Math.round(((today - yesterday) / yesterday) * 100);
+    
+    const thisWeekVsLastWeekPercent = lastWeek === 0 
+      ? (thisWeek > 0 ? 100 : 0)
+      : Math.round(((thisWeek - lastWeek) / lastWeek) * 100);
+    
+    return {
+      today,
+      yesterday,
+      this_week: thisWeek,
+      last_week: lastWeek,
+      this_month: thisMonth,
+      last_month: lastMonth,
+      today_vs_yesterday_percent: todayVsYesterdayPercent,
+      this_week_vs_last_week_percent: thisWeekVsLastWeekPercent,
+    };
+  }
+
+  async getUserPowerScoreHistory(userId: string, limit: number = 50): Promise<PowerScoreHistoryEntry[]> {
+    const transactions = await this.getPowerScoreTransactions(userId, limit);
+    return transactions.map(t => ({
+      id: t.id,
+      action_type: t.action_type,
+      points: t.points,
+      description: t.description || '',
+      created_at: t.created_at,
+    }));
+  }
+
+  async getPowerScorePendingApprovals(companyId: string): Promise<PowerScorePendingApproval[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_pending_approvals)
+      .where(
+        and(
+          eq(dbSchema.powerscore_pending_approvals.company_id, companyId),
+          eq(dbSchema.powerscore_pending_approvals.status, 'pending')
+        )
+      )
+      .orderBy(desc(dbSchema.powerscore_pending_approvals.created_at));
+    return result.map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+      status: row.status as 'pending' | 'approved' | 'rejected',
+      reviewed_by: row.reviewed_by,
+      reviewed_at: row.reviewed_at?.toISOString() || null,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async getPowerScorePendingApproval(id: string): Promise<PowerScorePendingApproval | undefined> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_pending_approvals)
+      .where(eq(dbSchema.powerscore_pending_approvals.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    const row = result[0];
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+      status: row.status as 'pending' | 'approved' | 'rejected',
+      reviewed_by: row.reviewed_by,
+      reviewed_at: row.reviewed_at?.toISOString() || null,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    };
+  }
+
+  async createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_pending_approvals)
+      .values({
+        id,
+        user_id: approval.user_id,
+        company_id: approval.company_id,
+        action_type: approval.action_type,
+        points: approval.points,
+        reference_id: approval.reference_id,
+        reference_type: approval.reference_type,
+        description: approval.description,
+        status: 'pending',
+        created_at: now,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+      status: 'pending',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: row.created_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async approvePowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined> {
+    const now = new Date();
+    const rows = await db.update(dbSchema.powerscore_pending_approvals)
+      .set({ status: 'approved', reviewed_by: reviewedBy, reviewed_at: now })
+      .where(eq(dbSchema.powerscore_pending_approvals.id, id))
+      .returning();
+    if (rows.length === 0) return undefined;
+    
+    const row = rows[0];
+    
+    // Create the actual transaction now that it's approved
+    await this.createPowerScoreTransaction({
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+    });
+    
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+      status: 'approved',
+      reviewed_by: reviewedBy,
+      reviewed_at: now.toISOString(),
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    };
+  }
+
+  async rejectPowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined> {
+    const now = new Date();
+    const rows = await db.update(dbSchema.powerscore_pending_approvals)
+      .set({ status: 'rejected', reviewed_by: reviewedBy, reviewed_at: now })
+      .where(eq(dbSchema.powerscore_pending_approvals.id, id))
+      .returning();
+    if (rows.length === 0) return undefined;
+    const row = rows[0];
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      reference_id: row.reference_id,
+      reference_type: row.reference_type,
+      description: row.description,
+      status: 'rejected',
+      reviewed_by: reviewedBy,
+      reviewed_at: now.toISOString(),
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    };
+  }
+
+  async getPowerScoreBadges(companyId: string): Promise<PowerScoreBadge[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_badges)
+      .where(eq(dbSchema.powerscore_badges.company_id, companyId))
+      .orderBy(dbSchema.powerscore_badges.name);
+    return result.map(row => ({
+      id: row.id,
+      company_id: row.company_id,
+      name: row.name,
+      description: row.description,
+      icon: row.icon,
+      color: row.color,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async createPowerScoreBadge(badge: Omit<PowerScoreBadge, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreBadge> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_badges)
+      .values({
+        id,
+        company_id: badge.company_id,
+        name: badge.name,
+        description: badge.description,
+        icon: badge.icon,
+        color: badge.color,
+        enabled: badge.enabled,
+        created_at: now,
+        updated_at: now,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      name: row.name,
+      description: row.description,
+      icon: row.icon,
+      color: row.color,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || now.toISOString(),
+      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async updatePowerScoreBadge(id: string, updates: Partial<PowerScoreBadge>): Promise<PowerScoreBadge | undefined> {
+    const now = new Date();
+    const dbUpdates: any = { updated_at: now };
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.description !== undefined) dbUpdates.description = updates.description;
+    if (updates.icon !== undefined) dbUpdates.icon = updates.icon;
+    if (updates.color !== undefined) dbUpdates.color = updates.color;
+    if (updates.enabled !== undefined) dbUpdates.enabled = updates.enabled;
+    
+    const rows = await db.update(dbSchema.powerscore_badges)
+      .set(dbUpdates)
+      .where(eq(dbSchema.powerscore_badges.id, id))
+      .returning();
+    if (rows.length === 0) return undefined;
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      name: row.name,
+      description: row.description,
+      icon: row.icon,
+      color: row.color,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async deletePowerScoreBadge(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.powerscore_badges)
+      .where(eq(dbSchema.powerscore_badges.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getPowerScoreMilestones(companyId: string): Promise<PowerScoreMilestoneBonus[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_milestone_bonuses)
+      .where(eq(dbSchema.powerscore_milestone_bonuses.company_id, companyId))
+      .orderBy(dbSchema.powerscore_milestone_bonuses.threshold_score);
+    return result.map(row => ({
+      id: row.id,
+      company_id: row.company_id,
+      name: row.name,
+      threshold_score: row.threshold_score,
+      bonus_points: row.bonus_points,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async createPowerScoreMilestone(milestone: Omit<PowerScoreMilestoneBonus, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreMilestoneBonus> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_milestone_bonuses)
+      .values({
+        id,
+        company_id: milestone.company_id,
+        name: milestone.name,
+        threshold_score: milestone.threshold_score,
+        bonus_points: milestone.bonus_points,
+        enabled: milestone.enabled,
+        created_at: now,
+        updated_at: now,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      name: row.name,
+      threshold_score: row.threshold_score,
+      bonus_points: row.bonus_points,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || now.toISOString(),
+      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async updatePowerScoreMilestone(id: string, updates: Partial<PowerScoreMilestoneBonus>): Promise<PowerScoreMilestoneBonus | undefined> {
+    const now = new Date();
+    const dbUpdates: any = { updated_at: now };
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.threshold_score !== undefined) dbUpdates.threshold_score = updates.threshold_score;
+    if (updates.bonus_points !== undefined) dbUpdates.bonus_points = updates.bonus_points;
+    if (updates.enabled !== undefined) dbUpdates.enabled = updates.enabled;
+    
+    const rows = await db.update(dbSchema.powerscore_milestone_bonuses)
+      .set(dbUpdates)
+      .where(eq(dbSchema.powerscore_milestone_bonuses.id, id))
+      .returning();
+    if (rows.length === 0) return undefined;
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      name: row.name,
+      threshold_score: row.threshold_score,
+      bonus_points: row.bonus_points,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async deletePowerScoreMilestone(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.powerscore_milestone_bonuses)
+      .where(eq(dbSchema.powerscore_milestone_bonuses.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getPowerScoreLoginBonuses(companyId: string): Promise<PowerScoreLoginBonus[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_login_bonuses)
+      .where(eq(dbSchema.powerscore_login_bonuses.company_id, companyId))
+      .orderBy(dbSchema.powerscore_login_bonuses.consecutive_days);
+    return result.map(row => ({
+      id: row.id,
+      company_id: row.company_id,
+      consecutive_days: row.consecutive_days,
+      bonus_points: row.bonus_points,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async createPowerScoreLoginBonus(bonus: Omit<PowerScoreLoginBonus, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreLoginBonus> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_login_bonuses)
+      .values({
+        id,
+        company_id: bonus.company_id,
+        consecutive_days: bonus.consecutive_days,
+        bonus_points: bonus.bonus_points,
+        enabled: bonus.enabled,
+        created_at: now,
+        updated_at: now,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      consecutive_days: row.consecutive_days,
+      bonus_points: row.bonus_points,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || now.toISOString(),
+      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async updatePowerScoreLoginBonus(id: string, updates: Partial<PowerScoreLoginBonus>): Promise<PowerScoreLoginBonus | undefined> {
+    const now = new Date();
+    const dbUpdates: any = { updated_at: now };
+    if (updates.consecutive_days !== undefined) dbUpdates.consecutive_days = updates.consecutive_days;
+    if (updates.bonus_points !== undefined) dbUpdates.bonus_points = updates.bonus_points;
+    if (updates.enabled !== undefined) dbUpdates.enabled = updates.enabled;
+    
+    const rows = await db.update(dbSchema.powerscore_login_bonuses)
+      .set(dbUpdates)
+      .where(eq(dbSchema.powerscore_login_bonuses.id, id))
+      .returning();
+    if (rows.length === 0) return undefined;
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      consecutive_days: row.consecutive_days,
+      bonus_points: row.bonus_points,
+      enabled: row.enabled ?? true,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      updated_at: row.updated_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async deletePowerScoreLoginBonus(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.powerscore_login_bonuses)
+      .where(eq(dbSchema.powerscore_login_bonuses.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getPowerScoreAppreciations(userId: string, unseenOnly: boolean = false): Promise<PowerScoreAppreciation[]> {
+    let query = db.select()
+      .from(dbSchema.powerscore_appreciations)
+      .where(eq(dbSchema.powerscore_appreciations.recipient_id, userId))
+      .orderBy(desc(dbSchema.powerscore_appreciations.created_at));
+    
+    if (unseenOnly) {
+      const result = await db.select()
+        .from(dbSchema.powerscore_appreciations)
+        .where(
+          and(
+            eq(dbSchema.powerscore_appreciations.recipient_id, userId),
+            eq(dbSchema.powerscore_appreciations.seen, false)
+          )
+        )
+        .orderBy(desc(dbSchema.powerscore_appreciations.created_at));
+      return result.map(row => ({
+        id: row.id,
+        giver_id: row.giver_id,
+        recipient_id: row.recipient_id,
+        points: row.points,
+        message: row.message,
+        seen: row.seen ?? false,
+        created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      }));
+    }
+    
+    const result = await query;
+    return result.map(row => ({
+      id: row.id,
+      giver_id: row.giver_id,
+      recipient_id: row.recipient_id,
+      points: row.points,
+      message: row.message,
+      seen: row.seen ?? false,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async createPowerScoreAppreciation(appreciation: Omit<PowerScoreAppreciation, 'id' | 'seen' | 'created_at'>): Promise<PowerScoreAppreciation> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_appreciations)
+      .values({
+        id,
+        giver_id: appreciation.giver_id,
+        recipient_id: appreciation.recipient_id,
+        points: appreciation.points,
+        message: appreciation.message,
+        seen: false,
+        created_at: now,
+      })
+      .returning();
+    
+    // Also create a transaction for the appreciation points
+    const user = await this.getUser(appreciation.recipient_id);
+    if (user?.company_id) {
+      await this.createPowerScoreTransaction({
+        user_id: appreciation.recipient_id,
+        company_id: user.company_id,
+        action_type: 'admin_appreciation',
+        points: appreciation.points,
+        reference_id: id,
+        reference_type: 'appreciation',
+        description: `Admin appreciation: ${appreciation.message}`,
+      });
+    }
+    
+    const row = rows[0];
+    return {
+      id: row.id,
+      giver_id: row.giver_id,
+      recipient_id: row.recipient_id,
+      points: row.points,
+      message: row.message,
+      seen: false,
+      created_at: row.created_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async markPowerScoreAppreciationSeen(id: string): Promise<boolean> {
+    const result = await db.update(dbSchema.powerscore_appreciations)
+      .set({ seen: true })
+      .where(eq(dbSchema.powerscore_appreciations.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getPowerScoreNotificationThresholds(companyId: string): Promise<PowerScoreNotificationThreshold[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_notification_thresholds)
+      .where(eq(dbSchema.powerscore_notification_thresholds.company_id, companyId))
+      .orderBy(dbSchema.powerscore_notification_thresholds.threshold_score);
+    return result.map(row => ({
+      id: row.id,
+      company_id: row.company_id,
+      threshold_score: row.threshold_score,
+      message: row.message,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async createPowerScoreNotificationThreshold(threshold: Omit<PowerScoreNotificationThreshold, 'id' | 'created_at'>): Promise<PowerScoreNotificationThreshold> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_notification_thresholds)
+      .values({
+        id,
+        company_id: threshold.company_id,
+        threshold_score: threshold.threshold_score,
+        message: threshold.message,
+        created_at: now,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      threshold_score: row.threshold_score,
+      message: row.message,
+      created_at: row.created_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async deletePowerScoreNotificationThreshold(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.powerscore_notification_thresholds)
+      .where(eq(dbSchema.powerscore_notification_thresholds.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  async hasClaimedLoginBonus(userId: string, bonusId: string, date: Date): Promise<boolean> {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    const result = await db.select({ id: dbSchema.powerscore_login_claims.id })
+      .from(dbSchema.powerscore_login_claims)
+      .where(
+        and(
+          eq(dbSchema.powerscore_login_claims.user_id, userId),
+          eq(dbSchema.powerscore_login_claims.bonus_id, bonusId),
+          gte(dbSchema.powerscore_login_claims.claimed_at, startOfDay),
+          lte(dbSchema.powerscore_login_claims.claimed_at, endOfDay)
+        )
+      )
+      .limit(1);
+    return result.length > 0;
+  }
+
+  async createLoginBonusClaim(userId: string, bonusId: string, date: Date): Promise<PowerScoreLoginClaim> {
+    const id = randomUUID();
+    const rows = await db.insert(dbSchema.powerscore_login_claims)
+      .values({
+        id,
+        user_id: userId,
+        bonus_id: bonusId,
+        claimed_at: date,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      bonus_id: row.bonus_id,
+      claimed_at: row.claimed_at?.toISOString() || date.toISOString(),
+    };
+  }
+
+  async hasClaimedMilestone(userId: string, milestoneId: string): Promise<boolean> {
+    const result = await db.select({ id: dbSchema.powerscore_milestone_claims.id })
+      .from(dbSchema.powerscore_milestone_claims)
+      .where(
+        and(
+          eq(dbSchema.powerscore_milestone_claims.user_id, userId),
+          eq(dbSchema.powerscore_milestone_claims.milestone_id, milestoneId)
+        )
+      )
+      .limit(1);
+    return result.length > 0;
+  }
+
+  async createMilestoneClaim(userId: string, milestoneId: string, score: number): Promise<PowerScoreMilestoneClaim> {
+    const id = randomUUID();
+    const now = new Date();
+    const rows = await db.insert(dbSchema.powerscore_milestone_claims)
+      .values({
+        id,
+        user_id: userId,
+        milestone_id: milestoneId,
+        score_at_claim: score,
+        claimed_at: now,
+      })
+      .returning();
+    const row = rows[0];
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      milestone_id: row.milestone_id,
+      score_at_claim: row.score_at_claim,
+      claimed_at: row.claimed_at?.toISOString() || now.toISOString(),
+    };
   }
 }
 

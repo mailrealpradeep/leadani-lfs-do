@@ -18161,6 +18161,392 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // POWERSCORE (Gamified Leaderboard System)
+  // ============================================================================
+
+  // Get PowerScore leaderboard for a period
+  app.get("/api/powerscore/leaderboard", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const period = (req.query.period as string) || 'today';
+      const now = new Date();
+      let startDate: Date;
+      let endDate: Date;
+
+      switch (period) {
+        case 'yesterday': {
+          startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - 1);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(now);
+          endDate.setDate(endDate.getDate() - 1);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        }
+        case 'this_week': {
+          startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - startDate.getDay());
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(now);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        }
+        case 'this_month': {
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(now);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        }
+        case 'all_time': {
+          startDate = new Date(0);
+          endDate = new Date(now);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        }
+        case 'today':
+        default: {
+          startDate = new Date(now);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(now);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        }
+      }
+
+      const leaderboard = await storage.getPowerScoreLeaderboard(req.companyId, startDate, endDate);
+      res.json({ leaderboard, period });
+    } catch (error: any) {
+      console.error("Error fetching PowerScore leaderboard:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get user's personal PowerScore stats
+  app.get("/api/powerscore/my-stats", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.userId!;
+      const company = req.companyId ? await storage.getCompany(req.companyId) : null;
+      const timezone = company?.settings?.timezone || 'Asia/Kolkata';
+      
+      const stats = await storage.getUserPowerScorePersonalStats(userId, timezone);
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Error fetching PowerScore personal stats:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get user's PowerScore history
+  app.get("/api/powerscore/history", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.userId!;
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      const history = await storage.getUserPowerScoreHistory(userId, limit);
+      res.json({ history });
+    } catch (error: any) {
+      console.error("Error fetching PowerScore history:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get PowerScore rules (Company Admin or read for users)
+  app.get("/api/powerscore/rules", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const rules = await storage.getPowerScoreRules(req.companyId);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Error fetching PowerScore rules:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create PowerScore rule (Company Admin only)
+  app.post("/api/powerscore/rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.body.company_id 
+        ? req.body.company_id 
+        : req.companyId!;
+
+      const { action_type, points, daily_cap, description, requires_approval, is_active } = req.body;
+      
+      if (!action_type || points === undefined) {
+        return res.status(400).json({ error: "action_type and points are required" });
+      }
+
+      const rule = await storage.createPowerScoreRule({
+        company_id: companyId,
+        action_type,
+        points,
+        daily_cap: daily_cap || null,
+        description: description || null,
+        requires_approval: requires_approval || false,
+        is_active: is_active !== undefined ? is_active : true,
+        created_by_user_id: req.userId!,
+      });
+
+      res.status(201).json(rule);
+    } catch (error: any) {
+      console.error("Error creating PowerScore rule:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update PowerScore rule (Company Admin only)
+  app.patch("/api/powerscore/rules/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { ruleId } = req.params;
+      const rule = await storage.getPowerScoreRule(ruleId);
+      
+      if (!rule) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+
+      if (req.userRole !== "super_admin" && rule.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Not authorized to update this rule" });
+      }
+
+      const updated = await storage.updatePowerScoreRule(ruleId, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating PowerScore rule:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete PowerScore rule (Company Admin only)
+  app.delete("/api/powerscore/rules/:ruleId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { ruleId } = req.params;
+      const rule = await storage.getPowerScoreRule(ruleId);
+      
+      if (!rule) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+
+      if (req.userRole !== "super_admin" && rule.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Not authorized to delete this rule" });
+      }
+
+      await storage.deletePowerScoreRule(ruleId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting PowerScore rule:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get pending approvals (Company Admin only)
+  app.get("/api/powerscore/pending-approvals", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const approvals = await storage.getPowerScorePendingApprovals(req.companyId);
+      res.json(approvals);
+    } catch (error: any) {
+      console.error("Error fetching pending approvals:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Approve or reject a pending approval (Company Admin only)
+  app.post("/api/powerscore/pending-approvals/:approvalId/review", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { approvalId } = req.params;
+      const { action, rejection_reason } = req.body;
+
+      if (!['approve', 'reject'].includes(action)) {
+        return res.status(400).json({ error: "Action must be 'approve' or 'reject'" });
+      }
+
+      const approval = await storage.getPowerScorePendingApproval(approvalId);
+      if (!approval) {
+        return res.status(404).json({ error: "Approval not found" });
+      }
+
+      if (req.userRole !== "super_admin" && approval.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+
+      if (approval.status !== 'pending') {
+        return res.status(400).json({ error: "Approval already processed" });
+      }
+
+      if (action === 'approve') {
+        const result = await storage.approvePowerScoreApproval(approvalId, req.userId!);
+        res.json(result);
+      } else {
+        const result = await storage.rejectPowerScoreApproval(approvalId, req.userId!, rejection_reason);
+        res.json(result);
+      }
+    } catch (error: any) {
+      console.error("Error reviewing approval:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get badges earned by a user
+  app.get("/api/powerscore/badges/:userId?", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.params.userId || req.userId!;
+      const badges = await storage.getUserPowerScoreBadges(userId);
+      res.json(badges);
+    } catch (error: any) {
+      console.error("Error fetching badges:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get milestone bonuses for company
+  app.get("/api/powerscore/milestones", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const milestones = await storage.getPowerScoreMilestoneBonuses(req.companyId);
+      res.json(milestones);
+    } catch (error: any) {
+      console.error("Error fetching milestones:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create milestone bonus (Company Admin only)
+  app.post("/api/powerscore/milestones", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.body.company_id 
+        ? req.body.company_id 
+        : req.companyId!;
+
+      const { name, threshold_points, bonus_points, badge_name, badge_icon, is_active } = req.body;
+      
+      if (!name || threshold_points === undefined || bonus_points === undefined) {
+        return res.status(400).json({ error: "name, threshold_points, and bonus_points are required" });
+      }
+
+      const milestone = await storage.createPowerScoreMilestoneBonus({
+        company_id: companyId,
+        name,
+        threshold_points,
+        bonus_points,
+        badge_name: badge_name || null,
+        badge_icon: badge_icon || null,
+        is_active: is_active !== undefined ? is_active : true,
+      });
+
+      res.status(201).json(milestone);
+    } catch (error: any) {
+      console.error("Error creating milestone:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Send appreciation to a user (Company Admin only)
+  app.post("/api/powerscore/appreciation", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.body.company_id 
+        ? req.body.company_id 
+        : req.companyId!;
+
+      const { user_id, points, message } = req.body;
+      
+      if (!user_id || points === undefined || !message) {
+        return res.status(400).json({ error: "user_id, points, and message are required" });
+      }
+
+      // Verify user belongs to the same company
+      const user = await storage.getUser(user_id);
+      if (!user || (user.company_id !== companyId && req.userRole !== "super_admin")) {
+        return res.status(404).json({ error: "User not found or not in your company" });
+      }
+
+      const appreciation = await storage.createPowerScoreAppreciation({
+        company_id: companyId,
+        user_id,
+        from_user_id: req.userId!,
+        points,
+        message,
+      });
+
+      res.status(201).json(appreciation);
+    } catch (error: any) {
+      console.error("Error sending appreciation:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get user's appreciations
+  app.get("/api/powerscore/appreciations", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.userId!;
+      const appreciations = await storage.getUserAppreciations(userId);
+      res.json(appreciations);
+    } catch (error: any) {
+      console.error("Error fetching appreciations:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Claim login bonus
+  app.post("/api/powerscore/login-bonus/claim", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.userId!;
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      // Check if already claimed today
+      const alreadyClaimed = await storage.hasClaimedLoginBonusToday(userId);
+      if (alreadyClaimed) {
+        return res.status(400).json({ error: "Login bonus already claimed today", already_claimed: true });
+      }
+
+      const loginBonus = await storage.claimLoginBonus(userId, req.companyId);
+      res.json(loginBonus);
+    } catch (error: any) {
+      console.error("Error claiming login bonus:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check login bonus status
+  app.get("/api/powerscore/login-bonus/status", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.userId!;
+      const claimed = await storage.hasClaimedLoginBonusToday(userId);
+      const currentStreak = await storage.getLoginBonusStreak(userId);
+      
+      res.json({ claimed_today: claimed, current_streak: currentStreak });
+    } catch (error: any) {
+      console.error("Error checking login bonus status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup

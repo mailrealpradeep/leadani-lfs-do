@@ -49,6 +49,7 @@ import HotLeads from "@/pages/hot-leads";
 import CustomViewPage from "@/pages/custom-view";
 import Plan from "@/pages/plan";
 import Watchlist from "@/pages/watchlist";
+import PowerScore from "@/pages/powerscore";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -140,6 +141,9 @@ function Router() {
       </Route>
       <Route path="/watchlist">
         {() => <ProtectedRoute component={Watchlist} />}
+      </Route>
+      <Route path="/powerscore">
+        {() => <ProtectedRoute component={PowerScore} />}
       </Route>
       <Route path="/custom-view/:viewId">
         {() => <ProtectedRoute component={CustomViewPage} />}

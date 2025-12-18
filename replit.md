@@ -52,6 +52,16 @@ The system features a customizable grid interface with dynamic column management
 *   **Validation Rules**: Configurable rules that prompt users to update related fields when specific conditions are met during lead editing. Supports multi-condition logic with AND/OR operators, a beautiful mobile-responsive dialog for field updates, and server-side enforcement for imports/webhooks/API calls.
 *   **Add Lead Form Configuration**: Company Admins can configure which fields appear when adding a new lead, mark them as Required or Optional, and reorder them via drag-drop. Full Name and Mobile No are always required and cannot be removed. Falls back to showing all columns if not configured.
 *   **Auto-Fill Rules**: Company Admins can configure rules that automatically populate target fields when trigger conditions are met. For example, when "Lead Status" changes to "Visit Scheduled", automatically set "Visit Status" to "Scheduled". Rules support priority ordering (higher priority rules apply first), enable/disable toggles, and work across all lead editing contexts (Add Lead dialog, Lead Update dialog, and spreadsheet grid inline editing). Uses `useAutoFillRules` hook for consistent client-side rule evaluation.
+*   **Watchlist**: Personal lead watchlist for users to track important leads that need attention. Leads can be added/removed via eye icon toggle. Watchlist page displays all tracked leads sorted by next follow-up date with real-time updates via Socket.io.
+*   **PowerScore**: Gamified leaderboard system with animated score counters, period-based views (Today/Yesterday/This Week/This Month/All Time), and personal stats comparison. Features include:
+    - Config-driven scoring rules (action_type, points, daily_cap, requires_approval)
+    - Admin approval workflow for high-value actions (Visit/Converted)
+    - Milestone bonuses with badge rewards
+    - Login bonuses with streak tracking
+    - Admin appreciation system with custom messages
+    - Stock-ticker animated counters using framer-motion
+    - ChampionCard (#1), PodiumCard (#2-3), ContenderGrid (#4+) component hierarchy
+    - Personal stats with today vs yesterday and week vs week percentage comparisons
 
 ### Security
 
