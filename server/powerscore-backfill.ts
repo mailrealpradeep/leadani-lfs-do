@@ -4,26 +4,42 @@ import { eq, and, sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 interface BackfillResult {
-  totalUpdatesProcessed: number;
+  totalLogsProcessed: number;
   totalPointsAwarded: number;
   transactionsCreated: number;
   userBreakdown: Record<string, { points: number; transactions: number }>;
+  ruleBreakdown: Record<string, { points: number; transactions: number }>;
 }
 
-// Key format: userId:ruleId:date
 type DailyCapKey = string;
+
+interface FieldChange {
+  field_key: string;
+  field_label: string;
+  old_value: any;
+  new_value: any;
+  old_display?: string;
+  new_display?: string;
+}
+
+interface ActivityLogDetails {
+  changes?: FieldChange[];
+  bulk_meta?: any;
+  extra?: Record<string, any>;
+}
 
 export async function backfillPowerScoreForCompany(companyId: string, forceRerun = false): Promise<BackfillResult> {
   console.log(`[PowerScore Backfill] Starting backfill for company: ${companyId}`);
   
   const result: BackfillResult = {
-    totalUpdatesProcessed: 0,
+    totalLogsProcessed: 0,
     totalPointsAwarded: 0,
     transactionsCreated: 0,
-    userBreakdown: {}
+    userBreakdown: {},
+    ruleBreakdown: {}
   };
 
-  // Check if backfill already ran (look for "(backfill)" in descriptions)
+  // Check if backfill already ran
   const existingBackfill = await db.execute(sql`
     SELECT COUNT(*) as count FROM powerscore_transactions 
     WHERE company_id = ${companyId} AND description LIKE '%(backfill)%'
@@ -50,9 +66,19 @@ export async function backfillPowerScoreForCompany(companyId: string, forceRerun
     return result;
   }
 
-  console.log(`[PowerScore Backfill] Found ${rules.length} enabled rules`);
+  console.log(`[PowerScore Backfill] Found ${rules.length} enabled rules:`);
+  for (const rule of rules) {
+    const config = rule.config as { column_key?: string; from_values?: string[]; to_values?: string[] } || {};
+    console.log(`  - ${rule.name} (${rule.action_type}): ${rule.points} pts, cap: ${rule.daily_cap || 'none'}`);
+    if (rule.action_type === 'dropdown_change') {
+      console.log(`    column_key: ${config.column_key}`);
+      console.log(`    from_values: ${config.from_values?.join(', ') || 'any'}`);
+      console.log(`    to_values: ${config.to_values?.join(', ') || 'any'}`);
+    }
+    result.ruleBreakdown[rule.id] = { points: 0, transactions: 0 };
+  }
 
-  // Load existing transactions to respect caps (prevents re-running issues)
+  // Load existing transactions to respect caps
   const existingTx = await db.execute(sql`
     SELECT user_id, rule_id, score_date, SUM(points) as total_points
     FROM powerscore_transactions
@@ -60,7 +86,6 @@ export async function backfillPowerScoreForCompany(companyId: string, forceRerun
     GROUP BY user_id, rule_id, score_date
   `);
 
-  // Build cap tracker from existing transactions: key = userId:ruleId:date
   const dailyPointsPerRule: Record<DailyCapKey, number> = {};
   for (const row of existingTx.rows) {
     const key = `${row.user_id}:${row.rule_id}:${row.score_date}`;
@@ -69,50 +94,105 @@ export async function backfillPowerScoreForCompany(companyId: string, forceRerun
 
   console.log(`[PowerScore Backfill] Loaded ${existingTx.rows.length} existing cap records`);
 
-  // Get all lead updates for this company (exclude admin users)
-  const leadUpdates = await db.execute(sql`
-    SELECT lu.id, lu.lead_id, lu.remark, lu.created_at, lu.created_by_user_id,
-           DATE(lu.created_at) as score_date
-    FROM lead_updates lu
-    JOIN leads l ON lu.lead_id = l.id
-    JOIN sheets s ON l.sheet_id = s.id
-    JOIN users u ON lu.created_by_user_id = u.id
-    WHERE s.company_id = ${companyId}
+  // Get activity_logs for lead_updated actions (this has structured field changes)
+  const activityLogs = await db.execute(sql`
+    SELECT 
+      al.id,
+      al.user_id,
+      al.target_id as lead_id,
+      al.details,
+      al.occurred_at,
+      DATE(al.occurred_at) as score_date
+    FROM activity_logs al
+    JOIN users u ON al.user_id = u.id
+    WHERE al.company_id = ${companyId}
+      AND al.action = 'lead_updated'
+      AND al.user_id IS NOT NULL
       AND u.role = 'user'
-    ORDER BY lu.created_at ASC
+    ORDER BY al.occurred_at ASC
   `);
 
-  console.log(`[PowerScore Backfill] Found ${leadUpdates.rows.length} lead updates to process`);
+  console.log(`[PowerScore Backfill] Found ${activityLogs.rows.length} activity logs to process`);
 
-  // Process each lead update
-  for (const update of leadUpdates.rows) {
-    const userId = update.created_by_user_id as string | null;
-    
-    // Skip updates without a user (system-generated)
-    if (!userId) {
-      continue;
-    }
-    
-    const leadId = update.lead_id as string;
-    const remark = (update.remark as string) || '';
-    const scoreDateRaw = update.score_date as string | Date;
+  // Process each activity log
+  for (const log of activityLogs.rows) {
+    const userId = log.user_id as string;
+    const leadId = log.lead_id as string | null;
+    const details = log.details as ActivityLogDetails | null;
+    const scoreDateRaw = log.score_date as string | Date;
     const scoreDate = typeof scoreDateRaw === 'string' ? scoreDateRaw.split('T')[0] : scoreDateRaw.toISOString().split('T')[0];
-    const createdAt = new Date(update.created_at as string | Date);
+    const createdAt = new Date(log.occurred_at as string | Date);
 
-    result.totalUpdatesProcessed++;
+    result.totalLogsProcessed++;
 
     if (!result.userBreakdown[userId]) {
       result.userBreakdown[userId] = { points: 0, transactions: 0 };
     }
 
-    // Process lead_update rules
+    // Skip if no details or no changes
+    if (!details?.changes || details.changes.length === 0) {
+      continue;
+    }
+
+    // Process each field change in this activity log
+    for (const change of details.changes) {
+      const fieldKey = change.field_key;
+      const oldValue = String(change.old_value || '');
+      const newValue = String(change.new_value || '');
+
+      // Find matching dropdown_change rules
+      for (const rule of rules) {
+        if (rule.action_type === 'dropdown_change') {
+          const config = rule.config as { column_key?: string; from_values?: string[]; to_values?: string[] } || {};
+          
+          // Check if column_key matches
+          if (config.column_key !== fieldKey) {
+            continue;
+          }
+
+          // Check from_values constraint
+          const fromMatches = !config.from_values || 
+                             config.from_values.length === 0 || 
+                             config.from_values.includes(oldValue);
+
+          // Check to_values constraint
+          const toMatches = !config.to_values || 
+                           config.to_values.length === 0 || 
+                           config.to_values.includes(newValue);
+          
+          if (fromMatches && toMatches) {
+            const awarded = await tryAwardPoints({
+              companyId,
+              userId,
+              rule,
+              leadId: leadId || '',
+              actionType: 'dropdown_change',
+              description: `${rule.name}: ${oldValue || '(empty)'} → ${newValue} (backfill)`,
+              scoreDate,
+              createdAt,
+              dailyPointsPerRule,
+              result
+            });
+            
+            if (awarded) {
+              result.userBreakdown[userId].points += rule.points;
+              result.userBreakdown[userId].transactions++;
+              result.ruleBreakdown[rule.id].points += rule.points;
+              result.ruleBreakdown[rule.id].transactions++;
+            }
+          }
+        }
+      }
+    }
+
+    // Process lead_update rules (any lead update awards points)
     for (const rule of rules) {
       if (rule.action_type === 'lead_update') {
         const awarded = await tryAwardPoints({
           companyId,
           userId,
           rule,
-          leadId,
+          leadId: leadId || '',
           actionType: 'lead_update',
           description: `Lead update (backfill)`,
           scoreDate,
@@ -120,64 +200,26 @@ export async function backfillPowerScoreForCompany(companyId: string, forceRerun
           dailyPointsPerRule,
           result
         });
+        
         if (awarded) {
           result.userBreakdown[userId].points += rule.points;
           result.userBreakdown[userId].transactions++;
+          result.ruleBreakdown[rule.id].points += rule.points;
+          result.ruleBreakdown[rule.id].transactions++;
         }
       }
     }
 
-    // Parse remark for dropdown changes: [Field Name: from → to]
-    const dropdownChangePattern = /\[([^:]+):\s*([^→]+)\s*→\s*([^\]]+)\]/g;
-    let match;
-    
-    while ((match = dropdownChangePattern.exec(remark)) !== null) {
-      const fieldName = match[1].trim();
-      const fromValue = match[2].trim();
-      const toValue = match[3].trim();
-
-      // Map field name to column_key
-      const columnKey = fieldNameToColumnKey(fieldName);
-
-      // Find matching dropdown_change rules
-      for (const rule of rules) {
-        if (rule.action_type === 'dropdown_change') {
-          const config = rule.config as { column_key?: string; from_values?: string[]; to_values?: string[] } || {};
-          
-          if (config.column_key === columnKey) {
-            const fromMatches = !config.from_values || config.from_values.length === 0 || config.from_values.includes(fromValue);
-            const toMatches = !config.to_values || config.to_values.length === 0 || config.to_values.includes(toValue);
-            
-            if (fromMatches && toMatches) {
-              const awarded = await tryAwardPoints({
-                companyId,
-                userId,
-                rule,
-                leadId,
-                actionType: 'dropdown_change',
-                description: `${rule.name}: ${fromValue} → ${toValue} (backfill)`,
-                scoreDate,
-                createdAt,
-                dailyPointsPerRule,
-                result
-              });
-              if (awarded) {
-                result.userBreakdown[userId].points += rule.points;
-                result.userBreakdown[userId].transactions++;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Log progress every 1000 updates
-    if (result.totalUpdatesProcessed % 1000 === 0) {
-      console.log(`[PowerScore Backfill] Processed ${result.totalUpdatesProcessed} updates, awarded ${result.totalPointsAwarded} points`);
+    // Log progress every 1000 logs
+    if (result.totalLogsProcessed % 1000 === 0) {
+      console.log(`[PowerScore Backfill] Processed ${result.totalLogsProcessed} logs, awarded ${result.totalPointsAwarded} points`);
     }
   }
 
-  console.log(`[PowerScore Backfill] Complete! Processed ${result.totalUpdatesProcessed} updates, awarded ${result.totalPointsAwarded} points in ${result.transactionsCreated} transactions`);
+  console.log(`\n[PowerScore Backfill] Complete!`);
+  console.log(`  Processed ${result.totalLogsProcessed} activity logs`);
+  console.log(`  Awarded ${result.totalPointsAwarded} points`);
+  console.log(`  Created ${result.transactionsCreated} transactions`);
   
   return result;
 }
@@ -226,18 +268,6 @@ async function tryAwardPoints(params: {
   return true;
 }
 
-function fieldNameToColumnKey(fieldName: string): string {
-  // Map display names to column keys
-  const mappings: Record<string, string> = {
-    'Lead Status': 'lead_status',
-    'Visit Status': 'visit_status',
-    'Source': 'source',
-    'Assigned To': 'assigned_to',
-  };
-  
-  return mappings[fieldName] || fieldName.toLowerCase().replace(/\s+/g, '_');
-}
-
 async function createTransaction(params: {
   companyId: string;
   userId: string;
@@ -273,14 +303,26 @@ const forceFlag = process.argv.includes('--force');
 if (companyIdArg && companyIdArg !== '--force') {
   backfillPowerScoreForCompany(companyIdArg, forceFlag)
     .then(result => {
-      console.log('\n=== BACKFILL COMPLETE ===');
-      console.log(`Total updates processed: ${result.totalUpdatesProcessed}`);
+      console.log('\n=== BACKFILL SUMMARY ===');
+      console.log(`Total activity logs processed: ${result.totalLogsProcessed}`);
       console.log(`Total points awarded: ${result.totalPointsAwarded}`);
       console.log(`Transactions created: ${result.transactionsCreated}`);
-      console.log('\nUser breakdown:');
-      for (const [userId, data] of Object.entries(result.userBreakdown)) {
+      
+      console.log('\n--- Rule Breakdown ---');
+      for (const [ruleId, data] of Object.entries(result.ruleBreakdown)) {
+        if (data.transactions > 0) {
+          console.log(`  ${ruleId}: ${data.points} points (${data.transactions} transactions)`);
+        }
+      }
+      
+      console.log('\n--- User Breakdown (Top 10) ---');
+      const sortedUsers = Object.entries(result.userBreakdown)
+        .sort((a, b) => b[1].points - a[1].points)
+        .slice(0, 10);
+      for (const [userId, data] of sortedUsers) {
         console.log(`  ${userId}: ${data.points} points (${data.transactions} transactions)`);
       }
+      
       process.exit(0);
     })
     .catch(err => {
