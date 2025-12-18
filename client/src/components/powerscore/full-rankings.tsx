@@ -33,6 +33,7 @@ interface BreakdownEntry {
   rule_name: string;
   action_type: string;
   points_earned: number;
+  transaction_count: number;
   daily_cap: number | null;
 }
 
@@ -101,7 +102,8 @@ function PointsBreakdown({ userId, period }: { userId: string; period: string })
           {breakdown.map((entry, index) => {
             const config = actionTypeIcons[entry.action_type] || actionTypeIcons.lead_update;
             const Icon = config.icon;
-            const percentage = entry.daily_cap 
+            const capReached = entry.daily_cap && entry.points_earned >= entry.daily_cap;
+            const progressValue = entry.daily_cap 
               ? Math.min(100, Math.round((entry.points_earned / entry.daily_cap) * 100))
               : 100;
             
@@ -122,23 +124,24 @@ function PointsBreakdown({ userId, period }: { userId: string; period: string })
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium truncate">{entry.rule_name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {entry.points_earned}{entry.daily_cap ? ` / ${entry.daily_cap}` : ''}
+                      {entry.transaction_count} {entry.transaction_count === 1 ? 'action' : 'actions'}, {entry.points_earned} pts
                     </span>
                   </div>
-                  <Progress value={percentage} className="h-1.5" />
+                  <Progress value={progressValue} className="h-1.5" />
                 </div>
                 
-                <Badge 
-                  variant="outline" 
-                  className={cn(
-                    "text-xs font-bold min-w-[48px] justify-center",
-                    percentage >= 100 
-                      ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-700" 
-                      : ""
-                  )}
-                >
-                  {percentage}%
-                </Badge>
+                {capReached ? (
+                  <Badge 
+                    variant="outline" 
+                    className="text-xs font-medium min-w-[85px] justify-center bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-700"
+                  >
+                    Cap Reached
+                  </Badge>
+                ) : entry.daily_cap ? (
+                  <span className="text-xs text-muted-foreground min-w-[85px] text-right">
+                    {entry.points_earned} / {entry.daily_cap}
+                  </span>
+                ) : null}
               </motion.div>
             );
           })}

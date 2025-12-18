@@ -749,7 +749,7 @@ export interface IStorage {
   getUserPowerScore(userId: string, startDate: Date, endDate: Date): Promise<number>;
   getUserPowerScorePersonalStats(userId: string, companyTimezone: string): Promise<PowerScorePersonalStats>;
   getUserPowerScoreHistory(userId: string, limit?: number): Promise<PowerScoreHistoryEntry[]>;
-  getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; daily_cap: number | null; }[]>;
+  getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }[]>;
 
   // PowerScore Pending Approvals (For high-value actions)
   getPowerScorePendingApprovals(companyId: string): Promise<PowerScorePendingApproval[]>;
@@ -3025,7 +3025,7 @@ export class MemStorage implements IStorage {
   async getUserPowerScore(_userId: string, _startDate: Date, _endDate: Date): Promise<number> { return 0; }
   async getUserPowerScorePersonalStats(_userId: string, _companyTimezone: string): Promise<PowerScorePersonalStats> { return { today: 0, yesterday: 0, this_week: 0, last_week: 0, this_month: 0, last_month: 0, today_vs_yesterday_percent: 0, this_week_vs_last_week_percent: 0 }; }
   async getUserPowerScoreHistory(_userId: string, _limit?: number): Promise<PowerScoreHistoryEntry[]> { return []; }
-  async getUserPowerScoreBreakdown(_userId: string, _startDate: Date, _endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; daily_cap: number | null; }[]> { return []; }
+  async getUserPowerScoreBreakdown(_userId: string, _startDate: Date, _endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }[]> { return []; }
   async getPowerScorePendingApprovals(_companyId: string): Promise<PowerScorePendingApproval[]> { return []; }
   async getPowerScorePendingApproval(_id: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async getPendingApprovalsByRuleAndDate(_userId: string, _ruleId: string, _scoreDate: string): Promise<PowerScorePendingApproval[]> { return []; }
@@ -8129,7 +8129,7 @@ export class PgStorage implements IStorage {
     }));
   }
 
-  async getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; daily_cap: number | null; }[]> {
+  async getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }[]> {
     const result = await db
       .select({
         rule_id: dbSchema.powerscore_transactions.rule_id,
@@ -8151,19 +8151,21 @@ export class PgStorage implements IStorage {
         )
       );
 
-    const breakdown = new Map<string, { rule_id: string; rule_name: string; action_type: string; points_earned: number; daily_cap: number | null; }>();
+    const breakdown = new Map<string, { rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }>();
     
     for (const row of result) {
       const ruleId = row.rule_id || 'unknown';
       const existing = breakdown.get(ruleId);
       if (existing) {
         existing.points_earned += row.points;
+        existing.transaction_count += 1;
       } else {
         breakdown.set(ruleId, {
           rule_id: ruleId,
           rule_name: row.rule_name || 'Unknown Rule',
           action_type: row.action_type,
           points_earned: row.points,
+          transaction_count: 1,
           daily_cap: row.daily_cap ?? null,
         });
       }
