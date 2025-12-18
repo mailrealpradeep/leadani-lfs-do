@@ -41,7 +41,8 @@ import { CustomViewsManager } from "@/components/custom-views-manager";
 import { QuickUpdateFieldsSettings } from "@/components/quick-update-fields-settings";
 import { AddLeadFormSettings } from "@/components/add-lead-form-settings";
 import { AutoFillRulesSettings } from "@/components/auto-fill-rules-settings";
-import { Flame, ClipboardCheck, Eye, FormInput, Zap } from "lucide-react";
+import { Flame, ClipboardCheck, Eye, FormInput, Zap, Sparkles, ThumbsUp, Gift, Trophy, Award } from "lucide-react";
+import { PowerScoreSettings } from "@/components/powerscore-settings";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -1124,6 +1125,25 @@ function CompanyAdminView() {
             </AccordionContent>
           </AccordionItem>
           */}
+
+          <AccordionItem value="powerscore" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-powerscore">
+              <div className="flex items-center gap-3">
+                <Sparkles className="h-5 w-5 text-yellow-500" />
+                <div className="text-left">
+                  <div className="font-semibold">PowerScore Settings</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure scoring rules, milestones, and gamification
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <PowerScoreSettings />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
 
           <AccordionItem value="sheets" className="border rounded-lg px-4 bg-card">
             <AccordionTrigger className="hover:no-underline" data-testid="accordion-sheets">

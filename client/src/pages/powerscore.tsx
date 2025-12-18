@@ -47,14 +47,7 @@ export default function PowerScore() {
     error: leaderboardError,
     refetch: refetchLeaderboard 
   } = useQuery<LeaderboardResponse>({
-    queryKey: ["/api/powerscore/leaderboard", period],
-    queryFn: async () => {
-      const res = await fetch(`/api/powerscore/leaderboard?period=${period}`, {
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
+    queryKey: [`/api/powerscore/leaderboard?period=${period}`],
   });
 
   const { 
