@@ -21,6 +21,12 @@ export async function awardLeadUpdatePoints(
   context: ScoringContext,
   changes: DropdownChange[]
 ): Promise<{ awarded: number; pending: number }> {
+  // Admin accounts don't participate in PowerScore
+  const user = await storage.getUser(context.userId);
+  if (!user || user.role === 'super_admin' || user.role === 'company_admin') {
+    return { awarded: 0, pending: 0 };
+  }
+
   let totalAwarded = 0;
   let totalPending = 0;
 
@@ -175,6 +181,12 @@ export async function awardLoginBonus(
   companyId: string,
   companyTimezone: string
 ): Promise<{ awarded: number; pending: number }> {
+  // Admin accounts don't participate in PowerScore
+  const user = await storage.getUser(userId);
+  if (!user || user.role === 'super_admin' || user.role === 'company_admin') {
+    return { awarded: 0, pending: 0 };
+  }
+
   const rules = await storage.getPowerScoreRules(companyId);
   const loginRule = rules.find(r => r.action_type === "login" && r.is_enabled);
   

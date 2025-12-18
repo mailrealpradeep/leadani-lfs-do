@@ -69,14 +69,16 @@ export async function backfillPowerScoreForCompany(companyId: string, forceRerun
 
   console.log(`[PowerScore Backfill] Loaded ${existingTx.rows.length} existing cap records`);
 
-  // Get all lead updates for this company
+  // Get all lead updates for this company (exclude admin users)
   const leadUpdates = await db.execute(sql`
     SELECT lu.id, lu.lead_id, lu.remark, lu.created_at, lu.created_by_user_id,
            DATE(lu.created_at) as score_date
     FROM lead_updates lu
     JOIN leads l ON lu.lead_id = l.id
     JOIN sheets s ON l.sheet_id = s.id
+    JOIN users u ON lu.created_by_user_id = u.id
     WHERE s.company_id = ${companyId}
+      AND u.role = 'user'
     ORDER BY lu.created_at ASC
   `);
 
