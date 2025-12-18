@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Switch, Route, Redirect, useLocation } from "wouter";
+import { Switch, Route, Redirect, useLocation, Link } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -19,7 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useBackButtonGuard, BackButtonGuardDialog } from "@/hooks/use-back-button-guard";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Eye } from "lucide-react";
 import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -48,6 +48,7 @@ import Visits from "@/pages/visits";
 import HotLeads from "@/pages/hot-leads";
 import CustomViewPage from "@/pages/custom-view";
 import Plan from "@/pages/plan";
+import Watchlist from "@/pages/watchlist";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -137,6 +138,9 @@ function Router() {
       <Route path="/hot-leads">
         {() => <ProtectedRoute component={HotLeads} />}
       </Route>
+      <Route path="/watchlist">
+        {() => <ProtectedRoute component={Watchlist} />}
+      </Route>
       <Route path="/custom-view/:viewId">
         {() => <ProtectedRoute component={CustomViewPage} />}
       </Route>
@@ -214,6 +218,18 @@ function DashboardHeader() {
           </div>
         </>
       )}
+      
+      {/* Watchlist Button - hidden on mobile (uses bottom tab bar instead) */}
+      <Link href="/watchlist" className="hidden md:block">
+        <Button
+          size="icon"
+          variant={location === "/watchlist" ? "default" : "ghost"}
+          data-testid="button-watchlist-header"
+          aria-label="Watchlist"
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
+      </Link>
       
       {/* Add Lead Button - shown when sheet is selected */}
       {showAddLead && (

@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { ClipboardList, Trophy, BarChart3, CalendarCheck } from "lucide-react";
+import { ClipboardList, Trophy, BarChart3, CalendarCheck, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TabItem {
@@ -15,6 +15,12 @@ const tabs: TabItem[] = [
     icon: ClipboardList,
     path: "/",
     paths: ["/", "/dashboard"],
+  },
+  {
+    label: "Watchlist",
+    icon: Eye,
+    path: "/watchlist",
+    paths: ["/watchlist"],
   },
   {
     label: "Leaderboard",

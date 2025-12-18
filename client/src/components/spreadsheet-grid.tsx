@@ -150,7 +150,13 @@ interface SpreadsheetGridProps {
   onOpenDropdownManager?: (columnKey: string) => void; // Optional for hot leads mode
   onScroll?: (scrollTop: number, scrollingDown: boolean) => void;
   hotLeadsMode?: boolean;
+  watchlistMode?: boolean;
   customViewId?: string; // For custom view mode
+}
+
+interface WatchlistLeadsResponse {
+  leads: (Lead & { sheet_name: string; sheet_id: string })[];
+  count: number;
 }
 
 interface CustomViewLeadsResponse {
@@ -346,6 +352,7 @@ export function SpreadsheetGrid({
   onOpenDropdownManager,
   onScroll,
   hotLeadsMode = false,
+  watchlistMode = false,
   customViewId,
 }: SpreadsheetGridProps) {
   // Custom view mode operates similarly to hot leads mode
@@ -369,12 +376,12 @@ export function SpreadsheetGrid({
     setColumnVisibilityConfig,
   } = useDashboard();
   
-  // Hot leads mode and custom view mode act like multi-mode (shows sheet column, uses company columns)
-  // But hot leads/custom view doesn't rely on selectedSheetIds - it uses its own data source
-  const isMultiMode = hotLeadsMode || customViewMode || (isMultiSheetMode && selectedSheetIds.length > 0);
+  // Hot leads mode, watchlist mode, and custom view mode act like multi-mode (shows sheet column, uses company columns)
+  // But these modes don't rely on selectedSheetIds - they use their own data source
+  const isMultiMode = hotLeadsMode || watchlistMode || customViewMode || (isMultiSheetMode && selectedSheetIds.length > 0);
   const activeSheetId = sheetId || "";
-  // For hot leads/custom view mode, we don't need activeSheetIds - data comes from their own APIs
-  const activeSheetIds = (hotLeadsMode || customViewMode) ? [] : (isMultiSheetMode ? selectedSheetIds : []);
+  // For hot leads/watchlist/custom view mode, we don't need activeSheetIds - data comes from their own APIs
+  const activeSheetIds = (hotLeadsMode || watchlistMode || customViewMode) ? [] : (isMultiSheetMode ? selectedSheetIds : []);
   const containerRef = useRef<HTMLDivElement>(null);
   const mobileContainerRef = useRef<HTMLDivElement>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
@@ -767,6 +774,122 @@ export function SpreadsheetGrid({
     return names;
   }, [hotLeadsData?.leads]);
 
+  // Watchlist mode data fetching - uses /api/watchlist/leads endpoint
+  const { 
+    data: watchlistData,
+    isLoading: isLoadingWatchlist,
+    isFetching: isFetchingWatchlist,
+    refetch: refetchWatchlist,
+  } = useQuery<WatchlistLeadsResponse>({
+    queryKey: ["/api/watchlist/leads"],
+    enabled: watchlistMode,
+  });
+
+  // Process watchlist data with client-side filtering/sorting (similar to hot leads)
+  const watchlistProcessed = useMemo(() => {
+    if (!watchlistData?.leads) return [];
+    let filtered = [...watchlistData.leads];
+    
+    // Apply search filter
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      filtered = filtered.filter(lead => {
+        const name = lead.custom_fields?.full_name?.toString().toLowerCase() || "";
+        const mobile = lead.custom_fields?.mobile_no?.toString().toLowerCase() || "";
+        const sheetName = lead.sheet_name?.toLowerCase() || "";
+        return name.includes(searchLower) || mobile.includes(searchLower) || sheetName.includes(searchLower);
+      });
+    }
+    
+    // Apply column filters
+    for (const [key, value] of Object.entries(columnFilters)) {
+      if (!value) continue;
+      if (typeof value === 'string' && value.trim()) {
+        const filterLower = value.toLowerCase();
+        filtered = filtered.filter(lead => {
+          const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
+          return fieldValue.includes(filterLower);
+        });
+      }
+    }
+    
+    // Apply thought filter
+    if (thoughtFilter) {
+      filtered = filtered.filter(lead => {
+        const thought = (lead.meta as any)?.thought;
+        return thought === thoughtFilter;
+      });
+    }
+    
+    // Default sort by next follow-up date (upcoming first) for watchlist
+    // This makes it easy to prioritize leads needing attention soon
+    filtered.sort((a, b) => {
+      // Find the next follow-up date column
+      const nfdtKey = columns.find(col => 
+        col.key.includes('next_follow') || col.key.includes('nfdt') || col.key.includes('follow_up')
+      )?.key;
+      
+      if (nfdtKey) {
+        const aDate = a.custom_fields?.[nfdtKey];
+        const bDate = b.custom_fields?.[nfdtKey];
+        
+        // Leads with dates come before those without
+        if (aDate && !bDate) return -1;
+        if (!aDate && bDate) return 1;
+        if (aDate && bDate) {
+          const aTime = new Date(aDate).getTime();
+          const bTime = new Date(bDate).getTime();
+          if (!isNaN(aTime) && !isNaN(bTime)) {
+            return aTime - bTime; // Upcoming first
+          }
+        }
+      }
+      
+      // Fallback to created_at descending
+      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bTime - aTime;
+    });
+    
+    // Apply user's custom sorting if specified
+    if (sortColumn) {
+      filtered.sort((a, b) => {
+        let aVal: any, bVal: any;
+        
+        if (sortColumn === "__sheet_name__") {
+          aVal = a.sheet_name || "";
+          bVal = b.sheet_name || "";
+        } else if (sortColumn === "created_at") {
+          aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
+          bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+        } else {
+          aVal = a.custom_fields?.[sortColumn] || "";
+          bVal = b.custom_fields?.[sortColumn] || "";
+        }
+        
+        if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+        if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+        
+        if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+    
+    return filtered;
+  }, [watchlistData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection, columns]);
+
+  const watchlistSheetNames = useMemo(() => {
+    if (!watchlistData?.leads) return {};
+    const names: Record<string, string> = {};
+    watchlistData.leads.forEach(lead => {
+      if (lead.sheet_id && lead.sheet_name) {
+        names[lead.sheet_id] = lead.sheet_name;
+      }
+    });
+    return names;
+  }, [watchlistData?.leads]);
+
   // Custom view mode data fetching - uses /api/custom-views/:id/leads endpoint
   const { 
     data: customViewData,
@@ -862,6 +985,13 @@ export function SpreadsheetGrid({
         total: hotLeadsProcessed.length,
         totalPages: 1,
       });
+    } else if (watchlistMode && watchlistProcessed.length >= 0) {
+      setPagination({
+        page: 1,
+        limit: watchlistProcessed.length || 50,
+        total: watchlistProcessed.length,
+        totalPages: 1,
+      });
     } else if (customViewMode && customViewProcessed.length >= 0) {
       setPagination({
         page: 1,
@@ -884,7 +1014,7 @@ export function SpreadsheetGrid({
         totalPages: Math.ceil(singleSheetTotal / INFINITE_SCROLL_LIMIT),
       });
     }
-  }, [multiSheetTotal, singleSheetTotal, isMultiMode, hotLeadsMode, customViewMode, hotLeadsProcessed.length, customViewProcessed.length, setPagination]);
+  }, [multiSheetTotal, singleSheetTotal, isMultiMode, hotLeadsMode, watchlistMode, customViewMode, hotLeadsProcessed.length, watchlistProcessed.length, customViewProcessed.length, setPagination]);
 
   // Reset to page 1 when sheet selection, search, filters, or sort changes
   // Use JSON.stringify for stable dependency reference of columnFilters
@@ -923,28 +1053,34 @@ export function SpreadsheetGrid({
     };
   }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
 
-  // Unified data access - using infinite scroll data, hot leads data, or custom view data
+  // Unified data access - using infinite scroll data, hot leads data, watchlist data, or custom view data
   const leads = hotLeadsMode 
     ? hotLeadsProcessed 
-    : customViewMode
-      ? customViewProcessed
-      : (isMultiMode ? multiSheetLeads : singleSheetLeads);
+    : watchlistMode
+      ? watchlistProcessed
+      : customViewMode
+        ? customViewProcessed
+        : (isMultiMode ? multiSheetLeads : singleSheetLeads);
   const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
   const sheetNamesMap = hotLeadsMode 
     ? hotLeadsSheetNames 
-    : customViewMode 
-      ? customViewSheetNames 
-      : multiSheetNames;
+    : watchlistMode 
+      ? watchlistSheetNames
+      : customViewMode 
+        ? customViewSheetNames 
+        : multiSheetNames;
   
-  // Unified infinite scroll helpers (hot leads/custom view mode doesn't use infinite scroll)
-  const hasNextPage = (hotLeadsMode || customViewMode) ? false : (isMultiMode ? hasNextMultiPage : hasNextSinglePage);
-  const isFetchingNextPage = (hotLeadsMode || customViewMode) ? false : (isMultiMode ? isFetchingNextMultiPage : isFetchingNextSinglePage);
-  const fetchNextPage = (hotLeadsMode || customViewMode) ? (() => Promise.resolve()) : (isMultiMode ? fetchNextMultiPage : fetchNextSinglePage);
+  // Unified infinite scroll helpers (hot leads/watchlist/custom view mode doesn't use infinite scroll)
+  const hasNextPage = (hotLeadsMode || watchlistMode || customViewMode) ? false : (isMultiMode ? hasNextMultiPage : hasNextSinglePage);
+  const isFetchingNextPage = (hotLeadsMode || watchlistMode || customViewMode) ? false : (isMultiMode ? isFetchingNextMultiPage : isFetchingNextSinglePage);
+  const fetchNextPage = (hotLeadsMode || watchlistMode || customViewMode) ? (() => Promise.resolve()) : (isMultiMode ? fetchNextMultiPage : fetchNextSinglePage);
   const totalLeads = hotLeadsMode 
     ? hotLeadsProcessed.length 
-    : customViewMode 
-      ? customViewProcessed.length 
-      : (isMultiMode ? multiSheetTotal : singleSheetTotal);
+    : watchlistMode
+      ? watchlistProcessed.length
+      : customViewMode 
+        ? customViewProcessed.length 
+        : (isMultiMode ? multiSheetTotal : singleSheetTotal);
 
   // Debug logging for column rendering issue
   if (isMultiMode) {
