@@ -18055,7 +18055,7 @@ ${questionsList}`;
   // Get user's watchlist lead IDs (for quick lookup)
   app.get("/api/watchlist/ids", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.userId!;
       const leadIds = await storage.getWatchlistLeadIds(userId);
       res.json(leadIds);
     } catch (error: any) {
@@ -18067,9 +18067,9 @@ ${questionsList}`;
   // Get all watchlist leads (filtered by sheet access)
   app.get("/api/watchlist/leads", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user!.id;
-      const companyId = req.user!.company_id;
-      const userRole = req.user!.role;
+      const userId = req.userId!;
+      const companyId = req.companyId;
+      const userRole = req.userRole;
       
       if (!companyId) {
         return res.status(400).json({ error: "User not associated with a company" });
@@ -18103,7 +18103,7 @@ ${questionsList}`;
   // Add lead to watchlist
   app.post("/api/watchlist/:leadId", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.userId!;
       const { leadId } = req.params;
       
       // Verify lead exists
@@ -18123,7 +18123,7 @@ ${questionsList}`;
   // Remove lead from watchlist
   app.delete("/api/watchlist/:leadId", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.userId!;
       const { leadId } = req.params;
       
       const removed = await storage.removeFromWatchlist(userId, leadId);
@@ -18137,7 +18137,7 @@ ${questionsList}`;
   // Check if lead is on watchlist
   app.get("/api/watchlist/:leadId/status", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.userId!;
       const { leadId } = req.params;
       
       const isOnWatchlist = await storage.isOnWatchlist(userId, leadId);
