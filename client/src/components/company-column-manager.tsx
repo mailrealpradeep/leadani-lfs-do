@@ -282,6 +282,13 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
 
   const handleUpdateColumn = (e: React.FormEvent, columnId: string) => {
     e.preventDefault();
+    console.log('[DEBUG handleUpdateColumn] Called with:', {
+      columnId,
+      editColumnName,
+      editColumnType,
+      editDropdownOptions,
+      editColumnConfig,
+    });
     if (editColumnName.trim()) {
       // Preserve existing config and merge with new values
       const config = { ...editColumnConfig };
@@ -301,6 +308,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
         delete config.dropdown_options;
       }
 
+      console.log('[DEBUG handleUpdateColumn] Final config being sent:', config);
       updateColumnMutation.mutate({
         columnId,
         updates: {
@@ -313,6 +321,13 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
   };
 
   const startEditingColumn = (column: CustomColumn) => {
+    console.log('[DEBUG startEditingColumn] Loading column:', {
+      id: column.id,
+      name: column.name,
+      config: column.config,
+      dropdown_options: column.config?.dropdown_options,
+      system_values: (column.config as any)?.system_values,
+    });
     setEditingColumnId(column.id);
     setEditColumnName(column.name);
     setEditColumnKey(column.column_key);
@@ -349,8 +364,18 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
   };
 
   const handleAddEditDropdownOption = () => {
-    if (editDropdownInput.trim() && !editDropdownOptions.includes(editDropdownInput.trim())) {
-      setEditDropdownOptions([...editDropdownOptions, editDropdownInput.trim()]);
+    const trimmedInput = editDropdownInput.trim();
+    const alreadyExists = editDropdownOptions.includes(trimmedInput);
+    console.log('[DEBUG handleAddEditDropdownOption]', {
+      trimmedInput,
+      currentOptions: editDropdownOptions,
+      alreadyExists,
+      willAdd: trimmedInput && !alreadyExists,
+    });
+    if (trimmedInput && !alreadyExists) {
+      const newOptions = [...editDropdownOptions, trimmedInput];
+      console.log('[DEBUG handleAddEditDropdownOption] Setting new options:', newOptions);
+      setEditDropdownOptions(newOptions);
       setEditDropdownInput("");
     }
   };
