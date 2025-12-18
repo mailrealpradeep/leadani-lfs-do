@@ -3255,22 +3255,23 @@ export function SpreadsheetGrid({
                       };
                       
                       return (
-                      <div
-                        key={lead.id}
-                        className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
-                        style={getMobileCardStyle()}
-                        data-testid={`card-lead-${lead.id}`}
-                        onClick={() => {
-                          setHighlightedLeadId(lead.id);
-                          onOpenLeadDetail(lead.id);
-                        }}
-                        title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
-                          ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
-                          : mobileHighlightResult
-                          ? `Highlighted by rule: ${mobileHighlightResult.ruleName}`
-                          : undefined
-                        }
-                      >
+                      <ContextMenu key={lead.id}>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
+                            style={getMobileCardStyle()}
+                            data-testid={`card-lead-${lead.id}`}
+                            onClick={() => {
+                              setHighlightedLeadId(lead.id);
+                              onOpenLeadDetail(lead.id);
+                            }}
+                            title={invalidLeadIds.has(lead.id) && leadValidationResults.get(lead.id) 
+                              ? `Missing required fields: ${leadValidationResults.get(lead.id)?.missingFields.join(', ')}`
+                              : mobileHighlightResult
+                              ? `Highlighted by rule: ${mobileHighlightResult.ruleName}`
+                              : undefined
+                            }
+                          >
                         <div className="flex items-start justify-between gap-3 mb-3">
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             {mobileLeadThought === "sure" && (
@@ -3429,6 +3430,30 @@ export function SpreadsheetGrid({
                           </div>
                         </div>
                       </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            onClick={() => {
+                              const isOnWatchlist = watchlistSet.has(lead.id);
+                              toggleWatchlistMutation.mutate({ leadId: lead.id, isOnWatchlist });
+                            }}
+                            disabled={toggleWatchlistMutation.isPending}
+                            data-testid={`context-watchlist-${lead.id}`}
+                          >
+                            {watchlistSet.has(lead.id) ? (
+                              <>
+                                <EyeOff className="h-4 w-4 mr-2" />
+                                Remove from Watchlist
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="h-4 w-4 mr-2" />
+                                Add to Watchlist
+                              </>
+                            )}
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                       );
                     })
                   )}
