@@ -824,10 +824,17 @@ export function SpreadsheetGrid({
     // Default sort by next follow-up date (upcoming first) for watchlist
     // This makes it easy to prioritize leads needing attention soon
     filtered.sort((a, b) => {
-      // Find the next follow-up date column
-      const nfdtKey = columns.find(col => 
-        col.key.includes('next_follow') || col.key.includes('nfdt') || col.key.includes('follow_up')
-      )?.key;
+      // Find the next follow-up date field key by searching the lead's custom_fields
+      const findNfdtKey = (lead: any) => {
+        if (!lead.custom_fields) return null;
+        return Object.keys(lead.custom_fields).find(key => 
+          key.includes('next_follow') || key.includes('nfdt') || key.includes('follow_up')
+        );
+      };
+      
+      const nfdtKeyA = findNfdtKey(a);
+      const nfdtKeyB = findNfdtKey(b);
+      const nfdtKey = nfdtKeyA || nfdtKeyB; // Use whichever key we find
       
       if (nfdtKey) {
         const aDate = a.custom_fields?.[nfdtKey];
@@ -877,7 +884,7 @@ export function SpreadsheetGrid({
     }
     
     return filtered;
-  }, [watchlistData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection, columns]);
+  }, [watchlistData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection]);
 
   const watchlistSheetNames = useMemo(() => {
     if (!watchlistData?.leads) return {};
