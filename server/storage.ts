@@ -740,6 +740,7 @@ export interface IStorage {
   // PowerScore Transactions (Score History)
   getPowerScoreTransactions(userId: string, limit?: number): Promise<PowerScoreTransaction[]>;
   getPowerScoreTransactionsByCompany(companyId: string, startDate?: Date, endDate?: Date): Promise<PowerScoreTransaction[]>;
+  getPowerScoreTransactionsByRuleAndDate(userId: string, ruleId: string, scoreDate: string): Promise<PowerScoreTransaction[]>;
   createPowerScoreTransaction(transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction>;
   getDailyActionCount(userId: string, actionType: PowerScoreActionType, date: Date): Promise<number>;
 
@@ -752,6 +753,7 @@ export interface IStorage {
   // PowerScore Pending Approvals (For high-value actions)
   getPowerScorePendingApprovals(companyId: string): Promise<PowerScorePendingApproval[]>;
   getPowerScorePendingApproval(id: string): Promise<PowerScorePendingApproval | undefined>;
+  getPendingApprovalsByRuleAndDate(userId: string, ruleId: string, scoreDate: string): Promise<PowerScorePendingApproval[]>;
   createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval>;
   approvePowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined>;
   rejectPowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined>;
@@ -3015,6 +3017,7 @@ export class MemStorage implements IStorage {
   async deletePowerScoreRule(_id: string): Promise<boolean> { return false; }
   async getPowerScoreTransactions(_userId: string, _limit?: number): Promise<PowerScoreTransaction[]> { return []; }
   async getPowerScoreTransactionsByCompany(_companyId: string, _startDate?: Date, _endDate?: Date): Promise<PowerScoreTransaction[]> { return []; }
+  async getPowerScoreTransactionsByRuleAndDate(_userId: string, _ruleId: string, _scoreDate: string): Promise<PowerScoreTransaction[]> { return []; }
   async createPowerScoreTransaction(_transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> { throw new Error("PowerScore not implemented in MemStorage"); }
   async getDailyActionCount(_userId: string, _actionType: PowerScoreActionType, _date: Date): Promise<number> { return 0; }
   async getPowerScoreLeaderboard(_companyId: string, _startDate: Date, _endDate: Date): Promise<PowerScoreLeaderboardEntry[]> { return []; }
@@ -3023,6 +3026,7 @@ export class MemStorage implements IStorage {
   async getUserPowerScoreHistory(_userId: string, _limit?: number): Promise<PowerScoreHistoryEntry[]> { return []; }
   async getPowerScorePendingApprovals(_companyId: string): Promise<PowerScorePendingApproval[]> { return []; }
   async getPowerScorePendingApproval(_id: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
+  async getPendingApprovalsByRuleAndDate(_userId: string, _ruleId: string, _scoreDate: string): Promise<PowerScorePendingApproval[]> { return []; }
   async createPowerScorePendingApproval(_approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> { throw new Error("PowerScore not implemented in MemStorage"); }
   async approvePowerScoreApproval(_id: string, _reviewedBy: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async rejectPowerScoreApproval(_id: string, _reviewedBy: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
@@ -7892,6 +7896,32 @@ export class PgStorage implements IStorage {
     }));
   }
 
+  async getPowerScoreTransactionsByRuleAndDate(userId: string, ruleId: string, scoreDate: string): Promise<PowerScoreTransaction[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_transactions)
+      .where(
+        and(
+          eq(dbSchema.powerscore_transactions.user_id, userId),
+          eq(dbSchema.powerscore_transactions.rule_id, ruleId),
+          eq(dbSchema.powerscore_transactions.score_date, scoreDate)
+        )
+      );
+    return result.map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      rule_id: row.rule_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      lead_id: row.lead_id,
+      description: row.description,
+      score_date: row.score_date,
+      approval_id: row.approval_id,
+      is_approved: row.is_approved,
+      created_at: row.created_at,
+    }));
+  }
+
   async createPowerScoreTransaction(transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> {
     const id = randomUUID();
     const now = new Date();
@@ -7900,11 +7930,14 @@ export class PgStorage implements IStorage {
         id,
         user_id: transaction.user_id,
         company_id: transaction.company_id,
+        rule_id: transaction.rule_id,
         action_type: transaction.action_type,
         points: transaction.points,
-        reference_id: transaction.reference_id,
-        reference_type: transaction.reference_type,
+        lead_id: transaction.lead_id,
         description: transaction.description,
+        score_date: transaction.score_date,
+        approval_id: transaction.approval_id,
+        is_approved: transaction.is_approved,
         created_at: now,
       })
       .returning();
@@ -7913,12 +7946,15 @@ export class PgStorage implements IStorage {
       id: row.id,
       user_id: row.user_id,
       company_id: row.company_id,
+      rule_id: row.rule_id,
       action_type: row.action_type as PowerScoreActionType,
       points: row.points,
-      reference_id: row.reference_id,
-      reference_type: row.reference_type,
+      lead_id: row.lead_id,
       description: row.description,
-      created_at: row.created_at?.toISOString() || now.toISOString(),
+      score_date: row.score_date,
+      approval_id: row.approval_id,
+      is_approved: row.is_approved,
+      created_at: row.created_at,
     };
   }
 
@@ -8128,16 +8164,45 @@ export class PgStorage implements IStorage {
       id: row.id,
       user_id: row.user_id,
       company_id: row.company_id,
+      lead_id: row.lead_id,
+      rule_id: row.rule_id,
       action_type: row.action_type as PowerScoreActionType,
       points: row.points,
-      reference_id: row.reference_id,
-      reference_type: row.reference_type,
       description: row.description,
+      score_date: row.score_date,
       status: row.status as 'pending' | 'approved' | 'rejected',
-      reviewed_by: row.reviewed_by,
-      reviewed_at: row.reviewed_at?.toISOString() || null,
-      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      reviewed_by_user_id: row.reviewed_by_user_id,
+      reviewed_at: row.reviewed_at,
+      created_at: row.created_at,
     };
+  }
+
+  async getPendingApprovalsByRuleAndDate(userId: string, ruleId: string, scoreDate: string): Promise<PowerScorePendingApproval[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_pending_approvals)
+      .where(
+        and(
+          eq(dbSchema.powerscore_pending_approvals.user_id, userId),
+          eq(dbSchema.powerscore_pending_approvals.rule_id, ruleId),
+          eq(dbSchema.powerscore_pending_approvals.score_date, scoreDate),
+          eq(dbSchema.powerscore_pending_approvals.status, 'pending')
+        )
+      );
+    return result.map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      lead_id: row.lead_id,
+      rule_id: row.rule_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      description: row.description,
+      score_date: row.score_date,
+      status: row.status as 'pending' | 'approved' | 'rejected',
+      reviewed_by_user_id: row.reviewed_by_user_id,
+      reviewed_at: row.reviewed_at,
+      created_at: row.created_at,
+    }));
   }
 
   async createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> {

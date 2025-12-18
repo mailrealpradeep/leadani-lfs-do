@@ -50,6 +50,7 @@ import {
   startBackupScheduler,
 } from "./google-sheets-backup";
 import { extractGoogleSheetId } from "@shared/schema";
+import { awardLeadUpdatePoints, awardLoginBonus } from "./powerscore-service";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -611,6 +612,14 @@ ${questionsList}`;
         model_id: user.id,
         payload: {},
       });
+
+      // Award login bonus if PowerScore is enabled for this company
+      if (user.company_id && company) {
+        const companyTimezone = getCompanyTimezone(company);
+        awardLoginBonus(user.id, user.company_id, companyTimezone).catch(err => 
+          console.error("PowerScore login bonus error:", err)
+        );
+      }
 
       const { password_hash: _, ...userWithoutPassword } = user;
       res.json({ user: userWithoutPassword, company, token });
@@ -6227,6 +6236,38 @@ ${questionsList}`;
         payload: req.body,
       });
 
+      // Award PowerScore points for dropdown field changes
+      if (req.body.custom_fields) {
+        const company = await storage.getCompany(sheet.company_id);
+        if (company) {
+          const customColumns = await storage.getCustomColumns(lead.sheet_id);
+          const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+          const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
+          
+          for (const col of dropdownColumns) {
+            const oldVal = lead.custom_fields?.[col.column_key] ?? null;
+            const newVal = req.body.custom_fields[col.column_key];
+            if (newVal !== undefined && oldVal !== newVal) {
+              dropdownChanges.push({
+                columnKey: col.column_key,
+                oldValue: oldVal,
+                newValue: newVal,
+              });
+            }
+          }
+          
+          if (dropdownChanges.length > 0) {
+            const companyTimezone = getCompanyTimezone(company);
+            awardLeadUpdatePoints({
+              userId: req.userId!,
+              companyId: sheet.company_id,
+              companyTimezone,
+              leadId: lead.id,
+            }, dropdownChanges).catch(err => console.error("PowerScore dropdown change error:", err));
+          }
+        }
+      }
+
       // Activity log for lead update (capture all field-level changes)
       if (finalLead) {
         const user = await storage.getUser(req.userId!);
@@ -6834,6 +6875,18 @@ ${questionsList}`;
         model_id: update.id,
         payload: req.body,
       });
+
+      // Award PowerScore points for lead update
+      const company = await storage.getCompany(sheet.company_id);
+      if (company) {
+        const companyTimezone = getCompanyTimezone(company);
+        awardLeadUpdatePoints({
+          userId: req.userId!,
+          companyId: sheet.company_id,
+          companyTimezone,
+          leadId: lead.id,
+        }, []).catch(err => console.error("PowerScore lead update error:", err));
+      }
 
       // Activity log for lead update (remarks/NFDT)
       const user = await storage.getUser(req.userId!);

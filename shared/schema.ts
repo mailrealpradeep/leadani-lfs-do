@@ -3782,7 +3782,7 @@ export const powerscore_pending_approvals = pgTable('powerscore_pending_approval
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'cascade' }), // Nullable for login bonuses
   rule_id: varchar('rule_id').notNull().references(() => powerscore_rules.id, { onDelete: 'cascade' }),
   action_type: varchar('action_type', { length: 50 }).notNull(),
   points: integer('points').notNull(),
