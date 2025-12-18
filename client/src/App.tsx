@@ -13,6 +13,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { QuickFiltersBar } from "@/components/quick-filters-bar";
 import { GlobalSearch } from "@/components/global-search";
 import { PWAInstallPrompt, useShouldShowInstallPrompt } from "@/components/pwa-install-prompt";
+import { BottomTabBar } from "@/components/bottom-tab-bar";
 import { registerServiceWorker } from "@/hooks/use-push-notifications";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -311,12 +312,13 @@ function AppLayout() {
             <AppSidebar />
             <div className="flex flex-col flex-1 min-w-0">
               <DashboardHeader />
-              <main className="flex-1 overflow-hidden">
+              <main className="flex-1 overflow-hidden pb-14 md:pb-0">
                 <Router />
               </main>
             </div>
           </div>
         </div>
+        <BottomTabBar />
         {shouldShowInstall && <PWAInstallPrompt forceMobile />}
         <BackButtonGuardDialog
           open={showExitDialog}
