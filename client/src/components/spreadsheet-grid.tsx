@@ -47,6 +47,8 @@ import {
   HelpCircle,
   XCircle,
   GripVertical,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -1027,6 +1029,35 @@ export function SpreadsheetGrid({
   const { data: userRowFilters = [] } = useQuery<UserRowFilterRecord[]>({
     queryKey: ["/api/sheets", activeSheetId, "row-filters"],
     enabled: !!activeSheetId && !isMultiMode,
+  });
+
+  // Watchlist - user's watched lead IDs for quick lookup
+  const { data: watchlistIds = [] } = useQuery<string[]>({
+    queryKey: ["/api/watchlist/ids"],
+  });
+  const watchlistSet = useMemo(() => new Set(watchlistIds), [watchlistIds]);
+
+  // Toggle watchlist mutation
+  const toggleWatchlistMutation = useMutation({
+    mutationFn: async ({ leadId, isOnWatchlist }: { leadId: string; isOnWatchlist: boolean }) => {
+      if (isOnWatchlist) {
+        return await apiRequest("DELETE", `/api/watchlist/${leadId}`);
+      } else {
+        return await apiRequest("POST", `/api/watchlist/${leadId}`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/watchlist/ids"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/watchlist/leads"] });
+    },
+    onError: (error: any) => {
+      console.error("Failed to toggle watchlist:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update watchlist",
+        variant: "destructive",
+      });
+    },
   });
 
   // Column order state (derived from user sheet view or default)
@@ -3537,6 +3568,26 @@ export function SpreadsheetGrid({
                                 setUpdateHistoryDialogOpen(true);
                               }}
                             />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const isOnWatchlist = watchlistSet.has(lead.id);
+                                toggleWatchlistMutation.mutate({ leadId: lead.id, isOnWatchlist });
+                              }}
+                              disabled={toggleWatchlistMutation.isPending}
+                              data-testid={`button-watchlist-${lead.id}`}
+                              title={watchlistSet.has(lead.id) ? "Remove from watchlist" : "Add to watchlist"}
+                              aria-label={watchlistSet.has(lead.id) ? "Remove from watchlist" : "Add to watchlist"}
+                            >
+                              {watchlistSet.has(lead.id) ? (
+                                <Eye className="h-4 w-4 text-primary" />
+                              ) : (
+                                <EyeOff className="h-4 w-4 text-muted-foreground" />
+                              )}
+                            </Button>
                           </div>
                     
                     {/* Data Cells */}
