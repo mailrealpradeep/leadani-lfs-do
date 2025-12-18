@@ -3684,3 +3684,23 @@ export const customViewFormSchema = z.object({
 });
 
 export type CustomViewFormData = z.infer<typeof customViewFormSchema>;
+
+// ============================================================================
+// WATCHLIST LEADS (User's personal lead watchlist)
+// ============================================================================
+export const watchlist_leads = pgTable('watchlist_leads', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type WatchlistLead = typeof watchlist_leads.$inferSelect;
+export type InsertWatchlistLead = typeof watchlist_leads.$inferInsert;
+
+export const insertWatchlistLeadSchema = createInsertSchema(watchlist_leads).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertWatchlistLeadData = z.infer<typeof insertWatchlistLeadSchema>;

@@ -168,6 +168,9 @@ import type {
   SystemValueDefinition,
   InsertSystemValueDefinition,
   SystemColumnType,
+  // Watchlist Leads
+  WatchlistLead,
+  watchlist_leads,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -686,6 +689,17 @@ export interface IStorage {
   // =========================================================================
   
   executeRawQuery(query: string, params?: any[]): Promise<{ rows: any[]; rowCount: number }>;
+
+  // =========================================================================
+  // WATCHLIST LEADS (User's personal lead watchlist)
+  // =========================================================================
+  
+  getWatchlistByUserId(userId: string): Promise<WatchlistLead[]>;
+  getWatchlistLeadIds(userId: string): Promise<string[]>;
+  getWatchlistLeadsBySheetAccess(userId: string, sheetIds: string[]): Promise<Lead[]>;
+  addToWatchlist(userId: string, leadId: string): Promise<WatchlistLead>;
+  removeFromWatchlist(userId: string, leadId: string): Promise<boolean>;
+  isOnWatchlist(userId: string, leadId: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -2882,6 +2896,26 @@ export class MemStorage implements IStorage {
   // Raw SQL (not implemented in MemStorage)
   async executeRawQuery(_query: string, _params?: any[]): Promise<{ rows: any[]; rowCount: number }> {
     throw new Error("Raw SQL queries not implemented in MemStorage");
+  }
+
+  // Watchlist Leads (not implemented in MemStorage - requires PostgreSQL)
+  async getWatchlistByUserId(_userId: string): Promise<WatchlistLead[]> {
+    return [];
+  }
+  async getWatchlistLeadIds(_userId: string): Promise<string[]> {
+    return [];
+  }
+  async getWatchlistLeadsBySheetAccess(_userId: string, _sheetIds: string[]): Promise<Lead[]> {
+    return [];
+  }
+  async addToWatchlist(_userId: string, _leadId: string): Promise<WatchlistLead> {
+    throw new Error("Watchlist not implemented in MemStorage");
+  }
+  async removeFromWatchlist(_userId: string, _leadId: string): Promise<boolean> {
+    return false;
+  }
+  async isOnWatchlist(_userId: string, _leadId: string): Promise<boolean> {
+    return false;
   }
 }
 
@@ -7436,6 +7470,114 @@ export class PgStorage implements IStorage {
       rows: result.rows || [],
       rowCount: result.rowCount || 0,
     };
+  }
+
+  // =========================================================================
+  // WATCHLIST LEADS (User's personal lead watchlist)
+  // =========================================================================
+
+  async getWatchlistByUserId(userId: string): Promise<WatchlistLead[]> {
+    const result = await db.select()
+      .from(dbSchema.watchlist_leads)
+      .where(eq(dbSchema.watchlist_leads.user_id, userId))
+      .orderBy(desc(dbSchema.watchlist_leads.created_at));
+    return result.map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      lead_id: row.lead_id,
+      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+    }));
+  }
+
+  async getWatchlistLeadIds(userId: string): Promise<string[]> {
+    const result = await db.select({ lead_id: dbSchema.watchlist_leads.lead_id })
+      .from(dbSchema.watchlist_leads)
+      .where(eq(dbSchema.watchlist_leads.user_id, userId));
+    return result.map(row => row.lead_id);
+  }
+
+  async getWatchlistLeadsBySheetAccess(userId: string, sheetIds: string[]): Promise<Lead[]> {
+    if (sheetIds.length === 0) return [];
+    
+    // Get all watchlist lead IDs from any user (collaborative watchlist)
+    const watchlistEntries = await db.select({ lead_id: dbSchema.watchlist_leads.lead_id })
+      .from(dbSchema.watchlist_leads);
+    
+    if (watchlistEntries.length === 0) return [];
+    
+    const watchlistLeadIds = watchlistEntries.map(w => w.lead_id);
+    
+    // Get leads that are on any watchlist AND belong to accessible sheets
+    const result = await db.select()
+      .from(dbSchema.leads)
+      .where(
+        and(
+          inArray(dbSchema.leads.id, watchlistLeadIds),
+          inArray(dbSchema.leads.sheet_id, sheetIds),
+          isNull(dbSchema.leads.deleted_at)
+        )
+      );
+    
+    return result.map(this.mapLead);
+  }
+
+  async addToWatchlist(userId: string, leadId: string): Promise<WatchlistLead> {
+    const id = randomUUID();
+    const now = new Date();
+    
+    // Check if already exists
+    const existing = await db.select()
+      .from(dbSchema.watchlist_leads)
+      .where(
+        and(
+          eq(dbSchema.watchlist_leads.user_id, userId),
+          eq(dbSchema.watchlist_leads.lead_id, leadId)
+        )
+      );
+    
+    if (existing.length > 0) {
+      return {
+        id: existing[0].id,
+        user_id: existing[0].user_id,
+        lead_id: existing[0].lead_id,
+        created_at: existing[0].created_at?.toISOString() || now.toISOString(),
+      };
+    }
+    
+    const rows = await db.insert(dbSchema.watchlist_leads)
+      .values({ id, user_id: userId, lead_id: leadId, created_at: now })
+      .returning();
+    
+    return {
+      id: rows[0].id,
+      user_id: rows[0].user_id,
+      lead_id: rows[0].lead_id,
+      created_at: rows[0].created_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  async removeFromWatchlist(userId: string, leadId: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.watchlist_leads)
+      .where(
+        and(
+          eq(dbSchema.watchlist_leads.user_id, userId),
+          eq(dbSchema.watchlist_leads.lead_id, leadId)
+        )
+      )
+      .returning();
+    return result.length > 0;
+  }
+
+  async isOnWatchlist(userId: string, leadId: string): Promise<boolean> {
+    const result = await db.select({ id: dbSchema.watchlist_leads.id })
+      .from(dbSchema.watchlist_leads)
+      .where(
+        and(
+          eq(dbSchema.watchlist_leads.user_id, userId),
+          eq(dbSchema.watchlist_leads.lead_id, leadId)
+        )
+      );
+    return result.length > 0;
   }
 }
 
