@@ -35,6 +35,12 @@ export async function awardLeadUpdatePoints(
 
   const today = getScoreDate(context.companyTimezone);
 
+  // Award login bonus if not yet awarded today (for users with persistent sessions)
+  // This ensures users get their daily login bonus even if they stayed logged in
+  const loginResult = await awardLoginBonusInternal(context.userId, context.companyId, context.companyTimezone, rules, today);
+  totalAwarded += loginResult.awarded;
+  totalPending += loginResult.pending;
+
   for (const rule of rules) {
     if (!rule.is_enabled) continue;
 
@@ -182,28 +188,18 @@ async function processDropdownChangeRule(
   return { awarded: rule.points, pending: 0 };
 }
 
-export async function awardLoginBonus(
+async function awardLoginBonusInternal(
   userId: string,
   companyId: string,
-  companyTimezone: string
+  companyTimezone: string,
+  rules: PowerScoreRule[],
+  scoreDate: string
 ): Promise<{ awarded: number; pending: number }> {
-  // Admin accounts don't participate in PowerScore
-  const user = await storage.getUser(userId);
-  if (!user || user.role === 'super_admin' || user.role === 'company_admin') {
-    return { awarded: 0, pending: 0 };
-  }
-
-  const rules = await storage.getPowerScoreRules(companyId);
   const loginRule = rules.find(r => r.action_type === "login" && r.is_enabled);
-  
   if (!loginRule) return { awarded: 0, pending: 0 };
 
-  const scoreDate = getScoreDate(companyTimezone);
-
-  // Check both transactions and pending approvals for idempotency
   const { pointsAwarded, hasPending } = await getDailyPointsAndPending(userId, loginRule.id, scoreDate);
   
-  // Already has points or pending approval for today - skip
   if (pointsAwarded > 0 || hasPending) {
     return { awarded: 0, pending: 0 };
   }
@@ -236,6 +232,22 @@ export async function awardLoginBonus(
   });
 
   return { awarded: loginRule.points, pending: 0 };
+}
+
+export async function awardLoginBonus(
+  userId: string,
+  companyId: string,
+  companyTimezone: string
+): Promise<{ awarded: number; pending: number }> {
+  const user = await storage.getUser(userId);
+  if (!user || user.role === 'super_admin' || user.role === 'company_admin') {
+    return { awarded: 0, pending: 0 };
+  }
+
+  const rules = await storage.getPowerScoreRules(companyId);
+  const scoreDate = getScoreDate(companyTimezone);
+  
+  return awardLoginBonusInternal(userId, companyId, companyTimezone, rules, scoreDate);
 }
 
 async function getDailyPointsAndPending(userId: string, ruleId: string, scoreDate: string): Promise<{ pointsAwarded: number; hasPending: boolean }> {

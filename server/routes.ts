@@ -6324,13 +6324,15 @@ ${questionsList}`;
         payload: req.body,
       });
 
-      // Award PowerScore points for dropdown field changes
-      if (req.body.custom_fields) {
-        const company = await storage.getCompany(sheet.company_id);
-        if (company) {
+      // Award PowerScore points for lead updates (including login bonus for first activity of the day)
+      const company = await storage.getCompany(sheet.company_id);
+      if (company) {
+        const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
+        
+        // Calculate dropdown changes if custom_fields were updated
+        if (req.body.custom_fields) {
           const customColumns = await storage.getCustomColumns(lead.sheet_id);
           const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
-          const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
           
           for (const col of dropdownColumns) {
             const oldVal = lead.custom_fields?.[col.column_key] ?? null;
@@ -6343,17 +6345,17 @@ ${questionsList}`;
               });
             }
           }
-          
-          if (dropdownChanges.length > 0) {
-            const companyTimezone = getCompanyTimezone(company);
-            awardLeadUpdatePoints({
-              userId: req.userId!,
-              companyId: sheet.company_id,
-              companyTimezone,
-              leadId: lead.id,
-            }, dropdownChanges).catch(err => console.error("PowerScore dropdown change error:", err));
-          }
         }
+        
+        // Always call awardLeadUpdatePoints for any lead update
+        // This ensures login bonus is awarded even for non-dropdown updates
+        const companyTimezone = getCompanyTimezone(company);
+        awardLeadUpdatePoints({
+          userId: req.userId!,
+          companyId: sheet.company_id,
+          companyTimezone,
+          leadId: lead.id,
+        }, dropdownChanges).catch(err => console.error("PowerScore lead update error:", err));
       }
 
       // Activity log for lead update (capture all field-level changes)
