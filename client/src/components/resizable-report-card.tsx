@@ -16,6 +16,7 @@ interface ResizableReportCardProps {
 }
 
 const STORAGE_KEY = "report-card-dimensions";
+const MOBILE_BREAKPOINT = 768;
 
 interface StoredDimensions {
   [reportId: string]: { width: number | null; height: number | null };
@@ -40,6 +41,11 @@ function setStoredDimensions(reportId: string, width: number | null, height: num
   }
 }
 
+function isMobile(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth < MOBILE_BREAKPOINT;
+}
+
 export function ResizableReportCard({
   reportId,
   children,
@@ -52,24 +58,67 @@ export function ResizableReportCard({
   maxHeight = 900,
 }: ResizableReportCardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState<"width" | "height" | "both" | null>(null);
   const [dimensions, setDimensions] = useState<{ width: number | null; height: number | null }>({
     width: null,
     height: null,
   });
+  const [isMobileView, setIsMobileView] = useState(isMobile());
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const startPos = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
+  const pendingDimensions = useRef<{ width: number | null; height: number | null }>({ width: null, height: null });
 
+  // Track container width using ResizeObserver
+  useEffect(() => {
+    if (!wrapperRef.current) return;
+    
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    
+    observer.observe(wrapperRef.current);
+    
+    // Initial measurement
+    setContainerWidth(wrapperRef.current.offsetWidth);
+    
+    return () => observer.disconnect();
+  }, []);
+
+  // Handle responsive behavior on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileView(isMobile());
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Load stored dimensions but clamp to available space
   useEffect(() => {
     const stored = getStoredDimensions()[reportId];
     if (stored) {
-      setDimensions(stored);
+      // Clamp width to container width if available
+      const availableWidth = containerWidth || defaultWidth;
+      const clampedWidth = stored.width ? Math.min(stored.width, availableWidth) : null;
+      // Clamp height to viewport height (minus some padding)
+      const maxViewportHeight = typeof window !== "undefined" ? window.innerHeight - 100 : maxHeight;
+      const clampedHeight = stored.height ? Math.min(stored.height, maxViewportHeight) : null;
+      setDimensions({ 
+        width: clampedWidth, 
+        height: clampedHeight 
+      });
     }
-  }, [reportId]);
+  }, [reportId, containerWidth, defaultWidth, maxHeight]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, direction: "width" | "height" | "both") => {
       e.preventDefault();
       e.stopPropagation();
+      
+      if (isMobileView) return; // Disable resizing on mobile
       
       const container = containerRef.current;
       if (!container) return;
@@ -81,9 +130,10 @@ export function ResizableReportCard({
         width: dimensions.width ?? rect.width,
         height: dimensions.height ?? rect.height,
       };
+      pendingDimensions.current = { ...dimensions };
       setIsResizing(direction);
     },
-    [dimensions]
+    [dimensions, isMobileView]
   );
 
   useEffect(() => {
@@ -92,23 +142,28 @@ export function ResizableReportCard({
     const handleMouseMove = (e: MouseEvent) => {
       const deltaX = e.clientX - startPos.current.x;
       const deltaY = e.clientY - startPos.current.y;
+      // Use container width as the constraint, not window width
+      const availableWidth = containerWidth || maxWidth;
 
       let newWidth = startPos.current.width;
       let newHeight = startPos.current.height;
 
       if (isResizing === "width" || isResizing === "both") {
-        newWidth = Math.max(minWidth, Math.min(maxWidth, startPos.current.width + deltaX));
+        newWidth = Math.max(minWidth, Math.min(Math.min(maxWidth, availableWidth), startPos.current.width + deltaX));
       }
       if (isResizing === "height" || isResizing === "both") {
         newHeight = Math.max(minHeight, Math.min(maxHeight, startPos.current.height + deltaY));
       }
 
+      pendingDimensions.current = { width: newWidth, height: newHeight };
       setDimensions({ width: newWidth, height: newHeight });
     };
 
     const handleMouseUp = () => {
-      if (dimensions.width !== null || dimensions.height !== null) {
-        setStoredDimensions(reportId, dimensions.width, dimensions.height);
+      // Persist dimensions on mouse up
+      const { width, height } = pendingDimensions.current;
+      if (width !== null || height !== null) {
+        setStoredDimensions(reportId, width, height);
       }
       setIsResizing(null);
     };
@@ -124,7 +179,7 @@ export function ResizableReportCard({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
-  }, [isResizing, dimensions, reportId, minWidth, minHeight, maxWidth, maxHeight]);
+  }, [isResizing, reportId, minWidth, minHeight, maxWidth, maxHeight, containerWidth]);
 
   const handleReset = useCallback(() => {
     setDimensions({ width: null, height: null });
@@ -132,89 +187,116 @@ export function ResizableReportCard({
   }, [reportId]);
 
   const handleExpand = useCallback(() => {
-    setDimensions({ width: maxWidth, height: maxHeight });
-    setStoredDimensions(reportId, maxWidth, maxHeight);
-  }, [reportId, maxWidth, maxHeight]);
+    const availableWidth = containerWidth || maxWidth;
+    const expandWidth = Math.min(maxWidth, availableWidth);
+    setDimensions({ width: expandWidth, height: maxHeight });
+    setStoredDimensions(reportId, expandWidth, maxHeight);
+  }, [reportId, maxWidth, maxHeight, containerWidth]);
 
   const hasCustomSize = dimensions.width !== null || dimensions.height !== null;
 
-  return (
-    <div
-      ref={containerRef}
-      className={`relative group ${className}`}
-      style={{
-        width: dimensions.width ?? defaultWidth,
-        height: dimensions.height ?? defaultHeight,
-        transition: isResizing ? "none" : "width 0.2s, height 0.2s",
-      }}
-      data-testid={`resizable-report-${reportId}`}
-    >
-      <Card className="w-full h-full overflow-hidden flex flex-col">
-        {children}
-      </Card>
-
-      {/* Quick action buttons - top right */}
-      <div className="absolute top-2 right-12 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-6 w-6 bg-background/80 backdrop-blur-sm"
-          onClick={handleExpand}
-          title="Expand to max size"
-          data-testid={`button-expand-report-${reportId}`}
+  // On mobile, use full width and auto height
+  if (isMobileView) {
+    return (
+      <div ref={wrapperRef} className={`w-full ${className}`}>
+        <div
+          ref={containerRef}
+          data-testid={`resizable-report-${reportId}`}
         >
-          <Maximize2 className="h-3 w-3" />
-        </Button>
-        {hasCustomSize && (
+          <Card className="w-full overflow-hidden flex flex-col" style={{ minHeight: minHeight }}>
+            {children}
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Calculate actual width, clamped to container width
+  const availableWidth = containerWidth || defaultWidth;
+  const actualWidth = dimensions.width !== null 
+    ? Math.min(dimensions.width, availableWidth) 
+    : Math.min(defaultWidth, availableWidth);
+
+  return (
+    <div ref={wrapperRef} className={`w-full ${className}`}>
+      <div
+        ref={containerRef}
+        className="relative group"
+        style={{
+          width: actualWidth,
+          height: dimensions.height ?? defaultHeight,
+          maxWidth: "100%",
+          transition: isResizing ? "none" : "width 0.2s, height 0.2s",
+        }}
+        data-testid={`resizable-report-${reportId}`}
+      >
+        <Card className="w-full h-full overflow-hidden flex flex-col">
+          {children}
+        </Card>
+
+        {/* Quick action buttons - top right */}
+        <div className="absolute top-2 right-12 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
           <Button
             variant="outline"
             size="icon"
             className="h-6 w-6 bg-background/80 backdrop-blur-sm"
-            onClick={handleReset}
-            title="Reset to default size"
-            data-testid={`button-reset-report-${reportId}`}
+            onClick={handleExpand}
+            title="Expand to max size"
+            data-testid={`button-expand-report-${reportId}`}
           >
-            <RotateCcw className="h-3 w-3" />
+            <Maximize2 className="h-3 w-3" />
           </Button>
+          {hasCustomSize && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-6 w-6 bg-background/80 backdrop-blur-sm"
+              onClick={handleReset}
+              title="Reset to default size"
+              data-testid={`button-reset-report-${reportId}`}
+            >
+              <RotateCcw className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+
+        {/* Right edge resize handle (width) */}
+        <div
+          className="absolute top-1/2 -right-1 -translate-y-1/2 w-3 h-12 flex items-center justify-center cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-primary/10 rounded"
+          onMouseDown={(e) => handleMouseDown(e, "width")}
+          title="Drag to resize width"
+          data-testid={`handle-width-report-${reportId}`}
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+        </div>
+
+        {/* Bottom edge resize handle (height) */}
+        <div
+          className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-3 w-12 flex items-center justify-center cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-primary/10 rounded"
+          onMouseDown={(e) => handleMouseDown(e, "height")}
+          title="Drag to resize height"
+          data-testid={`handle-height-report-${reportId}`}
+        >
+          <GripHorizontal className="h-4 w-4 text-muted-foreground" />
+        </div>
+
+        {/* Corner resize handle (both) */}
+        <div
+          className="absolute -bottom-1 -right-1 w-4 h-4 flex items-center justify-center cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-primary/10 rounded"
+          onMouseDown={(e) => handleMouseDown(e, "both")}
+          title="Drag to resize"
+          data-testid={`handle-corner-report-${reportId}`}
+        >
+          <div className="w-2 h-2 border-r-2 border-b-2 border-muted-foreground" />
+        </div>
+
+        {/* Size indicator when resizing */}
+        {isResizing && (
+          <div className="absolute bottom-2 left-2 bg-background/90 backdrop-blur-sm text-xs px-2 py-1 rounded border shadow-sm z-30">
+            {Math.round(dimensions.width || 0)} × {Math.round(dimensions.height || 0)}
+          </div>
         )}
       </div>
-
-      {/* Right edge resize handle (width) */}
-      <div
-        className="absolute top-1/2 -right-1 -translate-y-1/2 w-3 h-12 flex items-center justify-center cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-primary/10 rounded"
-        onMouseDown={(e) => handleMouseDown(e, "width")}
-        title="Drag to resize width"
-        data-testid={`handle-width-report-${reportId}`}
-      >
-        <GripVertical className="h-4 w-4 text-muted-foreground" />
-      </div>
-
-      {/* Bottom edge resize handle (height) */}
-      <div
-        className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-3 w-12 flex items-center justify-center cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-primary/10 rounded"
-        onMouseDown={(e) => handleMouseDown(e, "height")}
-        title="Drag to resize height"
-        data-testid={`handle-height-report-${reportId}`}
-      >
-        <GripHorizontal className="h-4 w-4 text-muted-foreground" />
-      </div>
-
-      {/* Corner resize handle (both) */}
-      <div
-        className="absolute -bottom-1 -right-1 w-4 h-4 flex items-center justify-center cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:bg-primary/10 rounded"
-        onMouseDown={(e) => handleMouseDown(e, "both")}
-        title="Drag to resize"
-        data-testid={`handle-corner-report-${reportId}`}
-      >
-        <div className="w-2 h-2 border-r-2 border-b-2 border-muted-foreground" />
-      </div>
-
-      {/* Size indicator when resizing */}
-      {isResizing && (
-        <div className="absolute bottom-2 left-2 bg-background/90 backdrop-blur-sm text-xs px-2 py-1 rounded border shadow-sm z-30">
-          {Math.round(dimensions.width || 0)} × {Math.round(dimensions.height || 0)}
-        </div>
-      )}
     </div>
   );
 }
