@@ -1300,6 +1300,37 @@ ${questionsList}`;
             created_by_user_id: webhook.created_by_user_id,
           });
           
+          // Award PowerScore points for webhook dropdown changes
+          if (webhookCompany) {
+            const sheetForScoring = await storage.getSheet(existingLead.sheet_id);
+            if (sheetForScoring) {
+              const customColumns = await storage.getCustomColumns(existingLead.sheet_id);
+              const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+              const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
+              
+              for (const col of dropdownColumns) {
+                const oldVal = existingLead.custom_fields?.[col.column_key] ?? null;
+                const newVal = mergedCustomFields[col.column_key];
+                if (newVal !== undefined && oldVal !== newVal) {
+                  dropdownChanges.push({
+                    columnKey: col.column_key,
+                    oldValue: oldVal,
+                    newValue: newVal,
+                  });
+                }
+              }
+              
+              if (dropdownChanges.length > 0) {
+                awardLeadUpdatePoints({
+                  userId: webhook.created_by_user_id,
+                  companyId: webhook.company_id,
+                  companyTimezone: webhookCompanyTimezone,
+                  leadId: existingLead.id,
+                }, dropdownChanges).catch(err => console.error("PowerScore webhook update error:", err));
+              }
+            }
+          }
+          
         } else if (matchMode === "match_and_add_update") {
           // Just add a Lead Update without modifying the lead fields
           lead = existingLead;
@@ -1474,6 +1505,36 @@ ${questionsList}`;
       } else if (targetSheetId) {
         // New lead created
         io.to(`sheet:${targetSheetId}`).emit("lead_created", lead);
+      }
+      
+      // Award PowerScore points for new lead creation (dropdown values set on create)
+      if (!isDuplicate && webhookCompany && lead.custom_fields) {
+        const sheetForScoring = await storage.getSheet(lead.sheet_id);
+        if (sheetForScoring) {
+          const customColumns = await storage.getCustomColumns(lead.sheet_id);
+          const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+          const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
+          
+          for (const col of dropdownColumns) {
+            const newVal = lead.custom_fields[col.column_key];
+            if (newVal !== undefined && newVal !== null && newVal !== "") {
+              dropdownChanges.push({
+                columnKey: col.column_key,
+                oldValue: null, // New lead - old value is always null
+                newValue: newVal,
+              });
+            }
+          }
+          
+          if (dropdownChanges.length > 0) {
+            awardLeadUpdatePoints({
+              userId: webhook.created_by_user_id,
+              companyId: webhook.company_id,
+              companyTimezone: webhookCompanyTimezone,
+              leadId: lead.id,
+            }, dropdownChanges).catch(err => console.error("PowerScore webhook lead creation error:", err));
+          }
+        }
       }
 
       // Trigger outgoing webhooks for lead creation (for new leads only, not updates)
@@ -5809,6 +5870,33 @@ ${questionsList}`;
         model_id: lead.id,
         payload: req.body,
       });
+
+      // Award PowerScore points for initial dropdown values on lead creation
+      if (company && lead.custom_fields) {
+        const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+        const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
+        
+        for (const col of dropdownColumns) {
+          const newVal = lead.custom_fields[col.column_key];
+          if (newVal !== undefined && newVal !== null && newVal !== "") {
+            dropdownChanges.push({
+              columnKey: col.column_key,
+              oldValue: null, // New lead - old value is always null
+              newValue: newVal,
+            });
+          }
+        }
+        
+        if (dropdownChanges.length > 0) {
+          const companyTimezone = getCompanyTimezone(company);
+          awardLeadUpdatePoints({
+            userId: req.userId!,
+            companyId: sheet.company_id,
+            companyTimezone,
+            leadId: lead.id,
+          }, dropdownChanges).catch(err => console.error("PowerScore lead creation dropdown error:", err));
+        }
+      }
 
       // Activity log for lead creation (awaited for reliability)
       const user = await storage.getUser(req.userId!);

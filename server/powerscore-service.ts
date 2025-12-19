@@ -127,8 +127,9 @@ async function processDropdownChangeRule(
     if (config.from_values && config.from_values.length > 0) {
       const normalizedOldValue = change.oldValue?.trim() || "";
       if (normalizedOldValue === "") {
-        // Only allow empty/null old values if allow_empty_from flag is true
-        return config.allow_empty_from === true;
+        // Allow empty/null old values by default (SaaS-wide)
+        // Use allow_empty_from: false to explicitly block empty→value transitions
+        return config.allow_empty_from !== false;
       }
       return config.from_values.includes(normalizedOldValue);
     }
