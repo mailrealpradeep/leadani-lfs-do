@@ -18629,7 +18629,7 @@ ${questionsList}`;
     }
   });
 
-  // Claim login bonus
+  // Claim login bonus (called when user opens PowerScore page)
   app.post("/api/powerscore/login-bonus/claim", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const userId = req.userId!;
@@ -18637,14 +18637,21 @@ ${questionsList}`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      // Check if already claimed today
-      const alreadyClaimed = await storage.hasClaimedLoginBonusToday(userId);
-      if (alreadyClaimed) {
-        return res.status(400).json({ error: "Login bonus already claimed today", already_claimed: true });
+      // Get company timezone
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
       }
+      const companyTimezone = getCompanyTimezone(company);
 
-      const loginBonus = await storage.claimLoginBonus(userId, req.companyId);
-      res.json(loginBonus);
+      // Award login bonus using the PowerScore service (handles idempotency)
+      const result = await awardLoginBonus(userId, req.companyId, companyTimezone);
+      
+      res.json({ 
+        awarded: result.awarded,
+        pending: result.pending,
+        already_claimed: result.awarded === 0 && result.pending === 0
+      });
     } catch (error: any) {
       console.error("Error claiming login bonus:", error);
       res.status(500).json({ error: error.message });

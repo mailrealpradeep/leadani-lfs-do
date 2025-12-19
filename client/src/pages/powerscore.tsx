@@ -21,6 +21,7 @@ import { queryClient } from "@/lib/queryClient";
 import { AnimatedPodium } from "@/components/powerscore/animated-podium";
 import { FullRankings } from "@/components/powerscore/full-rankings";
 import { ScoreTicker } from "@/components/powerscore/animated-counter";
+import { LoginBonusCelebration } from "@/components/powerscore/login-bonus-celebration";
 import { cn } from "@/lib/utils";
 import type { PowerScoreLeaderboardEntry, PowerScorePersonalStats } from "@shared/schema";
 
@@ -217,6 +218,7 @@ export default function PowerScore() {
 
   return (
     <div className="flex-1 flex flex-col overflow-auto h-full bg-gradient-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900" data-testid="powerscore-page">
+      <LoginBonusCelebration />
       <motion.div 
         className="p-4 sm:p-6 pb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
         initial={{ opacity: 0, y: -20 }}
