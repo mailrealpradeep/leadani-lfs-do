@@ -13,6 +13,7 @@ import {
   Crown,
   Medal,
   Award,
+  TrendingUp,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -158,6 +159,7 @@ function RankingRow({
   period,
   isExpanded,
   onToggle,
+  leaderboard,
 }: { 
   entry: PowerScoreLeaderboardEntry; 
   rank: number; 
@@ -165,6 +167,7 @@ function RankingRow({
   period: string;
   isExpanded: boolean;
   onToggle: () => void;
+  leaderboard: PowerScoreLeaderboardEntry[];
 }) {
   const initials = entry.user_name
     .split(" ")
@@ -175,6 +178,28 @@ function RankingRow({
 
   const RankIcon = rankIcons[rank]?.icon || Trophy;
   const rankColor = rankIcons[rank]?.color || "text-muted-foreground";
+
+  const getPointsToReach = () => {
+    if (rank === 1) return null;
+    
+    if (rank === 2) {
+      const top1Score = leaderboard[0]?.score || 0;
+      const gap = Math.max(0, top1Score - entry.score);
+      return { points: gap, targetRank: "#1" };
+    }
+    
+    if (rank === 3) {
+      const top2Score = leaderboard[1]?.score || 0;
+      const gap = Math.max(0, top2Score - entry.score);
+      return { points: gap, targetRank: "#2" };
+    }
+    
+    const top3Score = leaderboard[2]?.score || 0;
+    const gap = Math.max(0, top3Score - entry.score);
+    return { points: gap, targetRank: "Top 3" };
+  };
+
+  const pointsToReach = getPointsToReach();
 
   return (
     <motion.div
@@ -230,6 +255,17 @@ function RankingRow({
         <div className="flex items-center gap-3">
           <div className="text-right">
             <ScoreTicker value={entry.score} size="md" className="font-bold" />
+            {pointsToReach && pointsToReach.points > 0 && (
+              <div className="flex items-center justify-end gap-1 mt-0.5">
+                <TrendingUp className="h-3 w-3 text-emerald-500" />
+                <span 
+                  className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium"
+                  data-testid={`text-gap-to-rank-${rank}`}
+                >
+                  {pointsToReach.points} pts to {pointsToReach.targetRank}
+                </span>
+              </div>
+            )}
           </div>
           
           <motion.div
@@ -281,6 +317,7 @@ export function FullRankings({ leaderboard, currentUserId, period }: FullRanking
               period={period}
               isExpanded={expandedUserId === entry.user_id}
               onToggle={() => handleToggle(entry.user_id)}
+              leaderboard={leaderboard}
             />
           ))}
         </div>
