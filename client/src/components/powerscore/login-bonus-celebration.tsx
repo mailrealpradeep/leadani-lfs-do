@@ -24,8 +24,13 @@ export function LoginBonusCelebration() {
       if (data.awarded > 0) {
         setPointsAwarded(data.awarded);
         setShowCelebration(true);
-        queryClient.invalidateQueries({ queryKey: ["/api/powerscore/leaderboard"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/powerscore/my-stats"] });
+        // Invalidate all powerscore-related queries using predicate matching
+        queryClient.invalidateQueries({ 
+          predicate: (query) => {
+            const key = query.queryKey[0];
+            return typeof key === 'string' && key.startsWith('/api/powerscore/');
+          }
+        });
         
         setTimeout(() => {
           setShowCelebration(false);
