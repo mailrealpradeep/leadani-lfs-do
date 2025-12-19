@@ -61,6 +61,7 @@ import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ReportDrilldownModal } from "@/components/report-drilldown-modal";
+import { ResizableReportCard } from "@/components/resizable-report-card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import type { DrilldownFilters, SavedReportRecord } from "@shared/schema";
@@ -1864,7 +1865,7 @@ function ReportCard({
   const renderVisualization = () => {
     if (dateValidationError) {
       return (
-        <div className="flex items-center justify-center h-64">
+        <div className="flex items-center justify-center flex-1 min-h-[200px]">
           <div className="text-sm text-destructive">{dateValidationError}</div>
         </div>
       );
@@ -1872,7 +1873,7 @@ function ReportCard({
     
     if (isLoading) {
       return (
-        <div className="flex items-center justify-center h-64">
+        <div className="flex items-center justify-center flex-1 min-h-[200px]">
           <div className="text-sm text-muted-foreground">Loading data...</div>
         </div>
       );
@@ -1880,7 +1881,7 @@ function ReportCard({
 
     if (error) {
       return (
-        <div className="flex items-center justify-center h-64">
+        <div className="flex items-center justify-center flex-1 min-h-[200px]">
           <div className="text-sm text-destructive">Error: {error.message}</div>
         </div>
       );
@@ -1888,7 +1889,7 @@ function ReportCard({
 
     if (!reportData || !reportData.data) {
       return (
-        <div className="flex items-center justify-center h-64">
+        <div className="flex items-center justify-center flex-1 min-h-[200px]">
           <div className="text-sm text-muted-foreground">No data available</div>
         </div>
       );
@@ -1905,7 +1906,7 @@ function ReportCard({
       // Simple table (no column pivot)
       if (data.type === "simple") {
         return (
-          <div className="overflow-x-auto max-h-96 -mx-2 md:mx-0">
+          <div className="overflow-auto -mx-2 md:mx-0">
             <table className="text-xs md:text-sm" style={{ width: "auto", minWidth: "100%" }}>
               <thead className="bg-muted">
                 <tr>
@@ -1951,7 +1952,7 @@ function ReportCard({
 
       // Full pivot table (with column pivot)
       return (
-        <div className="overflow-x-auto max-h-96 -mx-2 md:mx-0">
+        <div className="overflow-auto -mx-2 md:mx-0">
           <table className="text-xs md:text-sm" style={{ width: "auto", minWidth: "100%" }}>
             <thead className="bg-muted">
               <tr>
@@ -2054,12 +2055,12 @@ function ReportCard({
     // Render charts
     const chartType = report.config?.chart_type || "bar";
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const chartHeight = isMobile ? 300 : chartType === "pie" ? 400 : 250;
+    const chartMinHeight = isMobile ? 250 : chartType === "pie" ? 300 : 200;
 
     switch (chartType) {
       case "pie":
         return (
-          <ResponsiveContainer width="100%" height={chartHeight}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={chartMinHeight}>
             <RechartsPieChart>
               <Pie
                 data={data}
@@ -2109,7 +2110,7 @@ function ReportCard({
 
       case "line":
         return (
-          <ResponsiveContainer width="100%" height={chartHeight}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={chartMinHeight}>
             <RechartsLineChart data={data}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
@@ -2129,7 +2130,7 @@ function ReportCard({
       case "bar":
       default:
         return (
-          <ResponsiveContainer width="100%" height={chartHeight}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={chartMinHeight}>
             <RechartsBarChart data={data}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
@@ -2162,11 +2163,16 @@ function ReportCard({
 
   return (
     <>
-      <Card 
-        data-testid={`card-report-${report.id}`}
-        className="w-full lg:w-auto lg:min-w-[450px] lg:max-w-[600px]"
+      <ResizableReportCard
+        reportId={report.id}
+        defaultWidth={500}
+        defaultHeight={480}
+        minWidth={350}
+        minHeight={300}
+        maxWidth={1200}
+        maxHeight={900}
       >
-        <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 space-y-0 pb-2">
+        <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 space-y-0 pb-2 shrink-0">
           <div className="flex-1 min-w-0">
             <CardTitle className="text-base md:text-lg truncate">{report.name}</CardTitle>
             {reportData && (
@@ -2200,7 +2206,7 @@ function ReportCard({
             )}
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="flex-1 overflow-auto space-y-3">
           {/* Compact Inline Filter Bar */}
           {sheets && sheets.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 p-2 rounded-md bg-muted/30">
@@ -2338,7 +2344,7 @@ function ReportCard({
           )}
           {renderVisualization()}
         </CardContent>
-      </Card>
+      </ResizableReportCard>
       <ReportDrilldownModal
         open={drilldownOpen}
         onOpenChange={setDrilldownOpen}
