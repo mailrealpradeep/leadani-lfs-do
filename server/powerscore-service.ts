@@ -110,6 +110,7 @@ async function processDropdownChangeRule(
     column_key?: string;
     from_values?: string[];
     to_values?: string[];
+    allow_empty_from?: boolean;
   };
 
   if (!config.column_key || !config.to_values || config.to_values.length === 0) {
@@ -124,8 +125,12 @@ async function processDropdownChangeRule(
     if (!toMatch) return false;
     
     if (config.from_values && config.from_values.length > 0) {
-      if (!change.oldValue) return false;
-      return config.from_values.includes(change.oldValue);
+      const normalizedOldValue = change.oldValue?.trim() || "";
+      if (normalizedOldValue === "") {
+        // Only allow empty/null old values if allow_empty_from flag is true
+        return config.allow_empty_from === true;
+      }
+      return config.from_values.includes(normalizedOldValue);
     }
     
     return true;
