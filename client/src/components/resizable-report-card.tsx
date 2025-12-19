@@ -58,34 +58,14 @@ export function ResizableReportCard({
   maxHeight = 900,
 }: ResizableReportCardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState<"width" | "height" | "both" | null>(null);
   const [dimensions, setDimensions] = useState<{ width: number | null; height: number | null }>({
     width: null,
     height: null,
   });
   const [isMobileView, setIsMobileView] = useState(isMobile());
-  const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const startPos = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
   const pendingDimensions = useRef<{ width: number | null; height: number | null }>({ width: null, height: null });
-
-  // Track container width using ResizeObserver
-  useEffect(() => {
-    if (!wrapperRef.current) return;
-    
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
-      }
-    });
-    
-    observer.observe(wrapperRef.current);
-    
-    // Initial measurement
-    setContainerWidth(wrapperRef.current.offsetWidth);
-    
-    return () => observer.disconnect();
-  }, []);
 
   // Handle responsive behavior on resize
   useEffect(() => {
@@ -96,22 +76,19 @@ export function ResizableReportCard({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Load stored dimensions but clamp to available space
+  // Load stored dimensions
   useEffect(() => {
     const stored = getStoredDimensions()[reportId];
     if (stored) {
-      // Clamp width to container width if available
-      const availableWidth = containerWidth || defaultWidth;
-      const clampedWidth = stored.width ? Math.min(stored.width, availableWidth) : null;
       // Clamp height to viewport height (minus some padding)
       const maxViewportHeight = typeof window !== "undefined" ? window.innerHeight - 100 : maxHeight;
       const clampedHeight = stored.height ? Math.min(stored.height, maxViewportHeight) : null;
       setDimensions({ 
-        width: clampedWidth, 
+        width: stored.width, 
         height: clampedHeight 
       });
     }
-  }, [reportId, containerWidth, defaultWidth, maxHeight]);
+  }, [reportId, maxHeight]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, direction: "width" | "height" | "both") => {
@@ -142,14 +119,12 @@ export function ResizableReportCard({
     const handleMouseMove = (e: MouseEvent) => {
       const deltaX = e.clientX - startPos.current.x;
       const deltaY = e.clientY - startPos.current.y;
-      // Use container width as the constraint, not window width
-      const availableWidth = containerWidth || maxWidth;
 
       let newWidth = startPos.current.width;
       let newHeight = startPos.current.height;
 
       if (isResizing === "width" || isResizing === "both") {
-        newWidth = Math.max(minWidth, Math.min(Math.min(maxWidth, availableWidth), startPos.current.width + deltaX));
+        newWidth = Math.max(minWidth, Math.min(maxWidth, startPos.current.width + deltaX));
       }
       if (isResizing === "height" || isResizing === "both") {
         newHeight = Math.max(minHeight, Math.min(maxHeight, startPos.current.height + deltaY));
@@ -179,7 +154,7 @@ export function ResizableReportCard({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
-  }, [isResizing, reportId, minWidth, minHeight, maxWidth, maxHeight, containerWidth]);
+  }, [isResizing, reportId, minWidth, minHeight, maxWidth, maxHeight]);
 
   const handleReset = useCallback(() => {
     setDimensions({ width: null, height: null });
@@ -187,49 +162,43 @@ export function ResizableReportCard({
   }, [reportId]);
 
   const handleExpand = useCallback(() => {
-    const availableWidth = containerWidth || maxWidth;
-    const expandWidth = Math.min(maxWidth, availableWidth);
-    setDimensions({ width: expandWidth, height: maxHeight });
-    setStoredDimensions(reportId, expandWidth, maxHeight);
-  }, [reportId, maxWidth, maxHeight, containerWidth]);
+    setDimensions({ width: maxWidth, height: maxHeight });
+    setStoredDimensions(reportId, maxWidth, maxHeight);
+  }, [reportId, maxWidth, maxHeight]);
 
   const hasCustomSize = dimensions.width !== null || dimensions.height !== null;
 
   // On mobile, use full width and auto height
   if (isMobileView) {
     return (
-      <div ref={wrapperRef} className={`w-full ${className}`}>
-        <div
-          ref={containerRef}
-          data-testid={`resizable-report-${reportId}`}
-        >
-          <Card className="w-full overflow-hidden flex flex-col" style={{ minHeight: minHeight }}>
-            {children}
-          </Card>
-        </div>
+      <div 
+        ref={containerRef}
+        className={`w-full ${className}`}
+        data-testid={`resizable-report-${reportId}`}
+      >
+        <Card className="w-full overflow-hidden flex flex-col" style={{ minHeight: minHeight }}>
+          {children}
+        </Card>
       </div>
     );
   }
 
-  // Calculate actual width, clamped to container width
-  const availableWidth = containerWidth || defaultWidth;
-  const actualWidth = dimensions.width !== null 
-    ? Math.min(dimensions.width, availableWidth) 
-    : Math.min(defaultWidth, availableWidth);
+  // Calculate actual width - use default or stored dimensions
+  const actualWidth = dimensions.width ?? defaultWidth;
+  const actualHeight = dimensions.height ?? defaultHeight;
 
   return (
-    <div ref={wrapperRef} className={`w-full ${className}`}>
-      <div
-        ref={containerRef}
-        className="relative group"
-        style={{
-          width: actualWidth,
-          height: dimensions.height ?? defaultHeight,
-          maxWidth: "100%",
-          transition: isResizing ? "none" : "width 0.2s, height 0.2s",
-        }}
-        data-testid={`resizable-report-${reportId}`}
-      >
+    <div
+      ref={containerRef}
+      className={`relative group ${className}`}
+      style={{
+        width: actualWidth,
+        height: actualHeight,
+        maxWidth: "100%",
+        transition: isResizing ? "none" : "width 0.2s, height 0.2s",
+      }}
+      data-testid={`resizable-report-${reportId}`}
+    >
         <Card className="w-full h-full overflow-hidden flex flex-col">
           {children}
         </Card>
@@ -296,7 +265,6 @@ export function ResizableReportCard({
             {Math.round(dimensions.width || 0)} × {Math.round(dimensions.height || 0)}
           </div>
         )}
-      </div>
     </div>
   );
 }
