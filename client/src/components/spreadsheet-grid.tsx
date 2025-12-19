@@ -424,6 +424,8 @@ export function SpreadsheetGrid({
   }, []);
   
   const [isScrolled, setIsScrolled] = useState(false);
+  const [mobileFilterHidden, setMobileFilterHidden] = useState(false);
+  const lastScrollTop = useRef(0);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
@@ -2418,7 +2420,7 @@ export function SpreadsheetGrid({
     return () => container.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  // Mobile scroll handler - same logic but for mobile container
+  // Mobile scroll handler - same logic but for mobile container + hide/show filter on scroll
   const handleMobileScroll = useCallback(() => {
     const container = mobileContainerRef.current;
     if (!container) return;
@@ -2429,6 +2431,15 @@ export function SpreadsheetGrid({
     if (scrollPercentage > 0.8 && hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
     }
+    
+    // Hide filter row on scroll down, show on scroll up
+    const scrollDelta = scrollTop - lastScrollTop.current;
+    if (scrollDelta > 10 && scrollTop > 50) {
+      setMobileFilterHidden(true);
+    } else if (scrollDelta < -10 || scrollTop < 20) {
+      setMobileFilterHidden(false);
+    }
+    lastScrollTop.current = scrollTop;
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Attach scroll listener for mobile (depends on isMobile to re-attach when view changes)
@@ -3105,109 +3116,65 @@ export function SpreadsheetGrid({
 
           return (
             <div className="h-full flex flex-col overflow-hidden">
-              {/* Mobile Filter Header */}
-              <div className="flex-shrink-0 pb-3 space-y-2">
+              {/* Mobile Filter Header - Compact with hide on scroll */}
+              <div 
+                className={`flex-shrink-0 pb-2 transition-all duration-200 ${mobileFilterHidden ? 'max-h-0 opacity-0 overflow-hidden pb-0' : 'max-h-24 opacity-100'}`}
+              >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-sm text-muted-foreground" data-testid="text-mobile-leads-count">
-                      Showing {leads.length.toLocaleString()} of {totalLeads.toLocaleString()} leads
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="text-xs text-muted-foreground font-medium" data-testid="text-mobile-leads-count">
+                      {leads.length}/{totalLeads}
                     </span>
-                    {hasActiveFiltersOrSort && (
-                      <Badge variant="secondary" className="text-xs">
-                        {sortColumn ? 1 : 0} sort, {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
+                    {sortColumn && (
+                      <Badge 
+                        variant="outline" 
+                        className="text-xs flex items-center gap-0.5 h-5 px-1.5"
+                      >
+                        {columns.find(c => c.key === sortColumn)?.label?.slice(0, 8) || sortColumn.slice(0, 8)}
+                        {sortDirection === "asc" ? "↑" : "↓"}
+                        <X 
+                          className="h-3 w-3 ml-0.5 cursor-pointer" 
+                          onClick={() => { setSortColumn(null); setSortDirection("asc"); }}
+                        />
                       </Badge>
+                    )}
+                    {activeFilterCount > 0 && (
+                      <Badge variant="secondary" className="text-xs h-5 px-1.5">
+                        {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
+                      </Badge>
+                    )}
+                    {hasActiveFiltersOrSort && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 px-1.5 text-xs text-muted-foreground"
+                        onClick={() => { setSortColumn(null); setSortDirection("asc"); setColumnFilters({}); }}
+                        data-testid="button-clear-all-mobile"
+                      >
+                        Clear
+                      </Button>
                     )}
                   </div>
                   <Button
                     variant={hasActiveFiltersOrSort ? "default" : "outline"}
                     size="sm"
-                    className="min-h-[44px] gap-2"
+                    className="h-8 gap-1.5 px-2.5"
                     onClick={() => setMobileFilterSheetOpen(true)}
                     data-testid="button-mobile-filter"
                   >
-                    <Filter className="h-4 w-4" />
-                    Sort & Filter
+                    <Filter className="h-3.5 w-3.5" />
+                    <span className="text-xs">Filter</span>
                     {hasActiveFiltersOrSort && (
-                      <Badge variant="secondary" className="ml-1 bg-primary-foreground/20 text-xs">
+                      <Badge variant="secondary" className="ml-0.5 bg-primary-foreground/20 text-xs h-4 px-1">
                         {(sortColumn ? 1 : 0) + activeFilterCount}
                       </Badge>
                     )}
                   </Button>
                 </div>
-
-                {/* Active Filters Display */}
-                {hasActiveFiltersOrSort && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {sortColumn && (
-                      <Badge 
-                        variant="outline" 
-                        className="text-xs flex items-center gap-1 pr-1"
-                      >
-                        <ArrowUpDown className="h-3 w-3" />
-                        {columns.find(c => c.key === sortColumn)?.label || sortColumn}
-                        {sortDirection === "asc" ? " ↑" : " ↓"}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-4 w-4 ml-0.5 hover:bg-transparent"
-                          onClick={() => {
-                            setSortColumn(null);
-                            setSortDirection("asc");
-                          }}
-                          data-testid="button-clear-sort"
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </Badge>
-                    )}
-                    {Object.entries(columnFilters).map(([key, value]) => {
-                      if (!value) return null;
-                      return (
-                        <Badge 
-                          key={key}
-                          variant="outline" 
-                          className="text-xs flex items-center gap-1 pr-1"
-                        >
-                          {getFilterLabel(key, value)}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4 ml-0.5 hover:bg-transparent"
-                            onClick={() => {
-                              setColumnFilters(prev => {
-                                const updated = { ...prev };
-                                delete updated[key];
-                                return updated;
-                              });
-                            }}
-                            data-testid={`button-clear-filter-${key}`}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </Badge>
-                      );
-                    })}
-                    {hasActiveFiltersOrSort && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-xs text-muted-foreground"
-                        onClick={() => {
-                          setSortColumn(null);
-                          setSortDirection("asc");
-                          setColumnFilters({});
-                        }}
-                        data-testid="button-clear-all-mobile"
-                      >
-                        Clear all
-                      </Button>
-                    )}
-                  </div>
-                )}
               </div>
 
               <div className="flex-1 overflow-y-auto" ref={mobileContainerRef}>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {filteredAndSortedLeads.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground">
                       <Filter className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
@@ -3265,7 +3232,7 @@ export function SpreadsheetGrid({
                       <ContextMenu key={lead.id}>
                         <ContextMenuTrigger asChild>
                           <div
-                            className={`border rounded-lg p-4 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
+                            className={`border rounded-lg p-2.5 hover-elevate active-elevate-2 ${getMobileCardClass()}`}
                             style={getMobileCardStyle()}
                             data-testid={`card-lead-${lead.id}`}
                             onClick={() => {
@@ -3279,54 +3246,53 @@ export function SpreadsheetGrid({
                               : undefined
                             }
                           >
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {mobileLeadThought === "sure" && (
-                              <Star className="h-5 w-5 text-emerald-500 fill-emerald-500 flex-shrink-0" />
-                            )}
-                            {mobileLeadThought === "maybe" && (
-                              <HelpCircle className="h-5 w-5 text-amber-500 flex-shrink-0" />
-                            )}
-                            <div className="min-w-0 flex-1">
-                              {titleColumns.map((col) => {
-                                const value = getLeadValue(lead, col.key);
-                                return value ? (
-                                  <p key={col.key} className="text-sm truncate">
-                                    <span className="font-medium">{value}</span>
-                                  </p>
-                                ) : null;
-                              })}
-                            </div>
+                        {/* Title Row - Name & Phone */}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          {mobileLeadThought === "sure" && (
+                            <Star className="h-4 w-4 text-emerald-500 fill-emerald-500 flex-shrink-0" />
+                          )}
+                          {mobileLeadThought === "maybe" && (
+                            <HelpCircle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1 flex items-center gap-2">
+                            {titleColumns.map((col, idx) => {
+                              const value = getLeadValue(lead, col.key);
+                              return value ? (
+                                <span key={col.key} className={`text-sm truncate ${idx === 0 ? 'font-semibold' : 'text-muted-foreground'}`}>
+                                  {value}
+                                </span>
+                              ) : null;
+                            })}
                           </div>
                         </div>
                         
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        {/* Detail Row - Compact inline display */}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground mb-2">
                           {detailColumns.map((col) => {
                             const value = getLeadValue(lead, col.key);
                             const isPastNFDT = leadsWithPastNFDT.get(lead.id)?.includes(col.key);
+                            if (value === null || value === undefined || value === "") return null;
+                            const displayValue = (col.type === "date" || col.type === "datetime") && value 
+                              ? formatInTimezone(value, col.type === "datetime" ? "dd/MM HH:mm" : "dd/MM/yy")
+                              : value;
                             return (
-                              <div 
+                              <span 
                                 key={col.key}
-                                className={isPastNFDT ? "px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30" : ""}
-                                title={isPastNFDT ? "Past follow-up date" : undefined}
+                                className={isPastNFDT ? "px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium" : ""}
+                                title={`${col.label}: ${displayValue}`}
                               >
-                                <span className="text-muted-foreground">{col.label}:</span>
-                                <p className={`truncate ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
-                                  {(col.type === "date" || col.type === "datetime") && value 
-                                    ? formatInTimezone(value, col.type === "datetime" ? "dd/MM/yy HH:mm" : "dd/MM/yy")
-                                    : value || "—"}
-                                </p>
-                              </div>
+                                {displayValue}
+                              </span>
                             );
                           })}
                         </div>
 
-                        <div className="mt-3 pt-3 border-t space-y-2" onClick={(e) => e.stopPropagation()}>
-                          {/* Primary Edit Button */}
+                        {/* Compact Action Row - All icon buttons */}
+                        <div className="flex items-center gap-1.5 pt-1.5 border-t" onClick={(e) => e.stopPropagation()}>
                           <Button
                             variant="default"
                             size="sm"
-                            className="w-full min-h-[44px]"
+                            className="h-8 px-2.5 text-xs"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedLeadForEdit(lead.id);
@@ -3334,107 +3300,94 @@ export function SpreadsheetGrid({
                             }}
                             data-testid={`button-edit-lead-${lead.id}`}
                           >
-                            <Pencil className="h-4 w-4 mr-2" />
-                            Edit Lead
+                            <Pencil className="h-3.5 w-3.5 mr-1" />
+                            Edit
                           </Button>
-                          {/* Secondary Actions Row */}
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1 min-h-[44px]"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // Prevent switching leads while dialog is already open
-                                if (updateDialogOpen) return;
-                                // Clear any existing timeout and set highlight
-                                if (highlightTimeoutRef.current) {
-                                  clearTimeout(highlightTimeoutRef.current);
-                                }
-                                setHighlightedLeadId(lead.id);
-                                setSelectedLeadForUpdate(lead.id);
-                                setUpdateDialogOpen(true);
-                              }}
-                              data-testid={`button-update-lead-${lead.id}`}
-                            >
-                              <Edit2 className="h-4 w-4 mr-2" />
-                              Update
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1 min-h-[44px]"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // Prevent switching leads while dialog is already open
-                                if (updateHistoryDialogOpen) return;
-                                // Clear any existing timeout and set highlight
-                                if (highlightTimeoutRef.current) {
-                                  clearTimeout(highlightTimeoutRef.current);
-                                }
-                                setHighlightedLeadId(lead.id);
-                                setSelectedLeadForUpdate(lead.id);
-                                setUpdateHistoryDialogOpen(true);
-                              }}
-                              data-testid={`button-update-history-${lead.id}`}
-                            >
-                              <History className="h-4 w-4 mr-2" />
-                              History
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="min-h-[44px] min-w-[44px]"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const mobileNo = lead.custom_fields?.mobile_no || lead.custom_fields?.mobile || lead.custom_fields?.phone;
-                                if (mobileNo) {
-                                  window.location.href = `tel:${mobileNo}`;
-                                }
-                              }}
-                              data-testid={`button-call-lead-${lead.id}`}
-                              title="Call"
-                            >
-                              <Phone className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="min-h-[44px] min-w-[44px]"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const whatsappNo = lead.custom_fields?.whatsapp_no || lead.custom_fields?.whatsapp || lead.custom_fields?.mobile_no || lead.custom_fields?.mobile;
-                                if (whatsappNo) {
-                                  const cleanNumber = String(whatsappNo).replace(/[\s-]/g, '');
-                                  const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
-                                  window.open(`https://wa.me/${formattedNumber}`, '_blank');
-                                }
-                              }}
-                              data-testid={`button-whatsapp-lead-${lead.id}`}
-                              title="WhatsApp"
-                            >
-                              <MessageCircle className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant={watchlistSet.has(lead.id) ? "default" : "outline"}
-                              size="icon"
-                              className="min-h-[44px] min-w-[44px]"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const isOnWatchlist = watchlistSet.has(lead.id);
-                                toggleWatchlistMutation.mutate({ leadId: lead.id, isOnWatchlist });
-                              }}
-                              disabled={toggleWatchlistMutation.isPending}
-                              data-testid={`button-watchlist-mobile-${lead.id}`}
-                              title={watchlistSet.has(lead.id) ? "Remove from watchlist" : "Add to watchlist"}
-                            >
-                              {watchlistSet.has(lead.id) ? (
-                                <Eye className="h-4 w-4" />
-                              ) : (
-                                <EyeOff className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </div>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (updateDialogOpen) return;
+                              if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+                              setHighlightedLeadId(lead.id);
+                              setSelectedLeadForUpdate(lead.id);
+                              setUpdateDialogOpen(true);
+                            }}
+                            data-testid={`button-update-lead-${lead.id}`}
+                            title="Quick Update"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (updateHistoryDialogOpen) return;
+                              if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+                              setHighlightedLeadId(lead.id);
+                              setSelectedLeadForUpdate(lead.id);
+                              setUpdateHistoryDialogOpen(true);
+                            }}
+                            data-testid={`button-update-history-${lead.id}`}
+                            title="History"
+                          >
+                            <History className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const mobileNo = lead.custom_fields?.mobile_no || lead.custom_fields?.mobile || lead.custom_fields?.phone;
+                              if (mobileNo) window.location.href = `tel:${mobileNo}`;
+                            }}
+                            data-testid={`button-call-lead-${lead.id}`}
+                            title="Call"
+                          >
+                            <Phone className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const whatsappNo = lead.custom_fields?.whatsapp_no || lead.custom_fields?.whatsapp || lead.custom_fields?.mobile_no || lead.custom_fields?.mobile;
+                              if (whatsappNo) {
+                                const cleanNumber = String(whatsappNo).replace(/[\s-]/g, '');
+                                const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
+                                window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                              }
+                            }}
+                            data-testid={`button-whatsapp-lead-${lead.id}`}
+                            title="WhatsApp"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant={watchlistSet.has(lead.id) ? "default" : "outline"}
+                            size="icon"
+                            className="h-8 w-8 ml-auto"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const isOnWatchlist = watchlistSet.has(lead.id);
+                              toggleWatchlistMutation.mutate({ leadId: lead.id, isOnWatchlist });
+                            }}
+                            disabled={toggleWatchlistMutation.isPending}
+                            data-testid={`button-watchlist-mobile-${lead.id}`}
+                            title={watchlistSet.has(lead.id) ? "Remove from watchlist" : "Add to watchlist"}
+                          >
+                            {watchlistSet.has(lead.id) ? (
+                              <Eye className="h-3.5 w-3.5" />
+                            ) : (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
                         </div>
                       </div>
                         </ContextMenuTrigger>
@@ -3467,11 +3420,11 @@ export function SpreadsheetGrid({
                   
                   {/* Mobile Load More / Status Section */}
                   {leads.length > 0 && (
-                    <div className="flex items-center justify-center py-4 gap-3">
+                    <div className="flex items-center justify-center py-3 gap-2">
                       {isFetchingNextPage && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Loading more...</span>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Loading...</span>
                         </div>
                       )}
                       {hasNextPage && !isFetchingNextPage && (
@@ -3480,14 +3433,14 @@ export function SpreadsheetGrid({
                           size="sm"
                           onClick={() => fetchNextPage()}
                           data-testid="button-mobile-load-more"
-                          className="min-h-[44px]"
+                          className="h-8 text-xs"
                         >
-                          Load more leads
+                          Load more
                         </Button>
                       )}
                       {!hasNextPage && leads.length >= totalLeads && (
-                        <span className="text-sm text-muted-foreground">
-                          All leads loaded
+                        <span className="text-xs text-muted-foreground">
+                          All loaded
                         </span>
                       )}
                     </div>
