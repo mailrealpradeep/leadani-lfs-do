@@ -8260,11 +8260,12 @@ export class PgStorage implements IStorage {
         id,
         user_id: approval.user_id,
         company_id: approval.company_id,
+        rule_id: approval.rule_id,
+        lead_id: approval.lead_id,
         action_type: approval.action_type,
         points: approval.points,
-        reference_id: approval.reference_id,
-        reference_type: approval.reference_type,
         description: approval.description,
+        score_date: approval.score_date,
         status: 'pending',
         created_at: now,
       })
@@ -8274,22 +8275,23 @@ export class PgStorage implements IStorage {
       id: row.id,
       user_id: row.user_id,
       company_id: row.company_id,
+      rule_id: row.rule_id,
+      lead_id: row.lead_id,
       action_type: row.action_type as PowerScoreActionType,
       points: row.points,
-      reference_id: row.reference_id,
-      reference_type: row.reference_type,
       description: row.description,
-      status: 'pending',
-      reviewed_by: null,
-      reviewed_at: null,
-      created_at: row.created_at?.toISOString() || now.toISOString(),
+      score_date: row.score_date,
+      status: row.status as 'pending' | 'approved' | 'rejected',
+      reviewed_by_user_id: row.reviewed_by_user_id,
+      reviewed_at: row.reviewed_at,
+      created_at: row.created_at,
     };
   }
 
   async approvePowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined> {
     const now = new Date();
     const rows = await db.update(dbSchema.powerscore_pending_approvals)
-      .set({ status: 'approved', reviewed_by: reviewedBy, reviewed_at: now })
+      .set({ status: 'approved', reviewed_by_user_id: reviewedBy, reviewed_at: now })
       .where(eq(dbSchema.powerscore_pending_approvals.id, id))
       .returning();
     if (rows.length === 0) return undefined;
@@ -8298,35 +8300,39 @@ export class PgStorage implements IStorage {
     
     // Create the actual transaction now that it's approved
     await this.createPowerScoreTransaction({
-      user_id: row.user_id,
       company_id: row.company_id,
+      user_id: row.user_id,
+      rule_id: row.rule_id,
       action_type: row.action_type as PowerScoreActionType,
       points: row.points,
-      reference_id: row.reference_id,
-      reference_type: row.reference_type,
+      lead_id: row.lead_id,
       description: row.description,
+      score_date: row.score_date,
+      approval_id: row.id,
+      is_approved: true,
     });
     
     return {
       id: row.id,
       user_id: row.user_id,
       company_id: row.company_id,
+      rule_id: row.rule_id,
+      lead_id: row.lead_id,
       action_type: row.action_type as PowerScoreActionType,
       points: row.points,
-      reference_id: row.reference_id,
-      reference_type: row.reference_type,
       description: row.description,
+      score_date: row.score_date,
       status: 'approved',
-      reviewed_by: reviewedBy,
-      reviewed_at: now.toISOString(),
-      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      reviewed_by_user_id: reviewedBy,
+      reviewed_at: now,
+      created_at: row.created_at,
     };
   }
 
   async rejectPowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined> {
     const now = new Date();
     const rows = await db.update(dbSchema.powerscore_pending_approvals)
-      .set({ status: 'rejected', reviewed_by: reviewedBy, reviewed_at: now })
+      .set({ status: 'rejected', reviewed_by_user_id: reviewedBy, reviewed_at: now })
       .where(eq(dbSchema.powerscore_pending_approvals.id, id))
       .returning();
     if (rows.length === 0) return undefined;
@@ -8335,15 +8341,16 @@ export class PgStorage implements IStorage {
       id: row.id,
       user_id: row.user_id,
       company_id: row.company_id,
+      rule_id: row.rule_id,
+      lead_id: row.lead_id,
       action_type: row.action_type as PowerScoreActionType,
       points: row.points,
-      reference_id: row.reference_id,
-      reference_type: row.reference_type,
       description: row.description,
+      score_date: row.score_date,
       status: 'rejected',
-      reviewed_by: reviewedBy,
-      reviewed_at: now.toISOString(),
-      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      reviewed_by_user_id: reviewedBy,
+      reviewed_at: now,
+      created_at: row.created_at,
     };
   }
 
