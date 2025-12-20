@@ -55,6 +55,25 @@ interface SimulationResult {
 
 type Period = "today" | "yesterday" | "this_week" | "this_month" | "last_30_days";
 
+// Format numbers with appropriate decimal precision based on value range
+// - Values < 1: up to 2 decimal places (e.g., 0.04, 0.40)
+// - Values 1-10: 1 decimal place (e.g., 2.4, 5.3)
+// - Values 10-100: 1 decimal place (e.g., 14.4)
+// - Values >= 100: whole numbers (e.g., 1,309)
+function formatRequirement(value: number): string {
+  const absValue = Math.abs(value);
+  if (absValue < 1) {
+    // Show up to 2 decimals for very small values
+    return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  } else if (absValue < 100) {
+    // Show 1 decimal for small to medium values
+    return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+  } else {
+    // Show whole numbers for large values
+    return Math.round(value).toLocaleString();
+  }
+}
+
 export default function PowerFlow() {
   const { isCompanyAdmin, isSuperAdmin } = useAuth();
   const { toast } = useToast();
@@ -142,7 +161,7 @@ export default function PowerFlow() {
       const stage = stages[i];
       required.unshift({
         stage_name: stage.stage_name,
-        required_count: Math.ceil(currentRequired),
+        required_count: currentRequired,
         color: stage.color,
         conversion_rate: stage.conversion_rate,
       });
@@ -668,7 +687,7 @@ export default function PowerFlow() {
                                 className="text-2xl font-bold mt-1"
                                 data-testid={`text-required-${index}`}
                               >
-                                {item.required_count.toLocaleString()}
+                                {formatRequirement(item.required_count)}
                               </p>
                               {index < simulationResult.required_by_stage.length - 1 && (
                                 <p className="text-xs text-muted-foreground mt-1">
@@ -691,7 +710,7 @@ export default function PowerFlow() {
                     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                       {simulationResult.required_by_stage.map((item, index) => {
                         const weeksPerMonth = 25 / 6; // ~4.17 weeks
-                        const weeklyCount = Math.ceil(item.required_count / weeksPerMonth);
+                        const weeklyCount = item.required_count / weeksPerMonth;
                         return (
                           <Card key={`weekly-${item.stage_name}`} className="relative overflow-hidden">
                             <div
@@ -701,7 +720,7 @@ export default function PowerFlow() {
                             <CardContent className="pt-4 pl-5">
                               <p className="text-sm text-muted-foreground">{item.stage_name}</p>
                               <p className="text-xl font-bold mt-1">
-                                {weeklyCount.toLocaleString()}
+                                {formatRequirement(weeklyCount)}
                               </p>
                               <p className="text-xs text-muted-foreground">per week</p>
                             </CardContent>
@@ -719,7 +738,7 @@ export default function PowerFlow() {
                     </h4>
                     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                       {simulationResult.required_by_stage.map((item) => {
-                        const dailyCount = Math.ceil(item.required_count / 25);
+                        const dailyCount = item.required_count / 25;
                         return (
                           <Card key={`daily-${item.stage_name}`} className="relative overflow-hidden">
                             <div
@@ -729,7 +748,7 @@ export default function PowerFlow() {
                             <CardContent className="pt-4 pl-5">
                               <p className="text-sm text-muted-foreground">{item.stage_name}</p>
                               <p className="text-xl font-bold mt-1">
-                                {dailyCount.toLocaleString()}
+                                {formatRequirement(dailyCount)}
                               </p>
                               <p className="text-xs text-muted-foreground">per day</p>
                             </CardContent>
@@ -747,7 +766,7 @@ export default function PowerFlow() {
                           className="px-3 py-2 rounded-lg text-white text-sm font-medium"
                           style={{ backgroundColor: item.color }}
                         >
-                          {item.required_count.toLocaleString()}
+                          {formatRequirement(item.required_count)}
                         </div>
                         {index < simulationResult.required_by_stage.length - 1 && (
                           <ChevronRight className="h-5 w-5 text-muted-foreground" />
