@@ -18999,6 +18999,9 @@ ${questionsList}`;
       );
 
       // Calculate required counts backward from target
+      // The conversion_rate on each stage represents the rate FROM that stage TO the next stage
+      // So when going backward, to find how many we need at stage[i-1] to get requiredCount at stage[i],
+      // we divide by stages[i-1].conversion_rate (the rate from prev to current)
       const stages = [...config.stages].sort((a, b) => a.order - b.order);
       const requiredStages: { stage_name: string; required_count: number; daily_count: number; conversion_rate: number }[] = [];
       
@@ -19018,8 +19021,23 @@ ${questionsList}`;
         });
         
         // Calculate how many we need at the previous stage
-        if (i > 0 && conversionRate > 0) {
-          requiredCount = requiredCount / (conversionRate / 100);
+        // Use the PREVIOUS stage's conversion_rate (rate from stages[i-1] to stages[i])
+        if (i > 0) {
+          const prevStage = stages[i - 1];
+          const prevAnalyticsStage = analytics.stages.find(s => s.stage_id === prevStage.id);
+          const prevConversionRate = prevAnalyticsStage?.conversion_rate || 0;
+          
+          if (prevConversionRate > 0) {
+            requiredCount = requiredCount / (prevConversionRate / 100);
+          } else {
+            // Fallback to historical ratio if no conversion rate
+            const prevCount = prevAnalyticsStage?.count || 0;
+            const currentCount = analyticsStage?.count || 0;
+            if (prevCount > 0 && currentCount > 0) {
+              const ratio = prevCount / currentCount;
+              requiredCount = requiredCount * ratio;
+            }
+          }
         }
       }
 

@@ -96,6 +96,9 @@ export default function PowerFlow() {
     const required: { stage_name: string; required_count: number; color: string }[] = [];
     
     // Start from the last stage and work backward
+    // The conversion_rate on each stage represents the rate FROM that stage TO the next stage
+    // So when going backward, to find how many we need at stage[i-1] to get currentRequired at stage[i],
+    // we divide by stages[i-1].conversion_rate (the rate from prev to current)
     let currentRequired = target;
     for (let i = stages.length - 1; i >= 0; i--) {
       const stage = stages[i];
@@ -105,13 +108,15 @@ export default function PowerFlow() {
         color: stage.color,
       });
       
-      // Calculate required for previous stage based on conversion rate
-      if (i > 0 && stage.conversion_rate > 0) {
-        currentRequired = currentRequired / (stage.conversion_rate / 100);
-      } else if (i > 0) {
-        // If no conversion rate, use historical ratio
+      // Calculate required for previous stage
+      // Use the PREVIOUS stage's conversion_rate (which is the rate from prev to current)
+      if (i > 0) {
         const prevStage = stages[i - 1];
-        if (prevStage.count > 0 && stage.count > 0) {
+        if (prevStage.conversion_rate > 0) {
+          // prevStage.conversion_rate is the rate from stages[i-1] to stages[i]
+          currentRequired = currentRequired / (prevStage.conversion_rate / 100);
+        } else if (prevStage.count > 0 && stage.count > 0) {
+          // Fallback to historical ratio if no conversion rate
           const ratio = prevStage.count / stage.count;
           currentRequired = currentRequired * ratio;
         }
