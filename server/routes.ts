@@ -10,7 +10,7 @@ import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
-import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths } from "date-fns";
+import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths, startOfWeek, endOfWeek, subWeeks } from "date-fns";
 import { getCompanyTimezone, getTodayDateString, getCurrentTimeString } from "./timezone-utils";
 import { seedData } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
@@ -2788,8 +2788,25 @@ ${questionsList}`;
         incomingSettings.timezone = canonicalTimezone;
       }
 
+      // Validate weekly_off_days if present
+      if (incomingSettings.weekly_off_days !== undefined) {
+        if (!Array.isArray(incomingSettings.weekly_off_days)) {
+          return res.status(400).json({ error: "weekly_off_days must be an array" });
+        }
+        // Validate that values are valid day numbers (0-6)
+        const validDays = new Set([0, 1, 2, 3, 4, 5, 6]);
+        const invalidValues = incomingSettings.weekly_off_days.filter((day: any) => 
+          typeof day !== 'number' || !validDays.has(day)
+        );
+        if (invalidValues.length > 0) {
+          return res.status(400).json({ error: "weekly_off_days must contain only numbers 0-6 (Sunday-Saturday)" });
+        }
+        // Remove duplicates and sort
+        incomingSettings.weekly_off_days = [...new Set(incomingSettings.weekly_off_days)].sort((a: number, b: number) => a - b);
+      }
+
       // Merge new settings with existing settings (only allow known fields)
-      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules'];
+      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules', 'weekly_off_days'];
       const sanitizedSettings: Record<string, any> = {};
       for (const field of allowedFields) {
         if (incomingSettings[field] !== undefined) {
@@ -18921,6 +18938,13 @@ ${questionsList}`;
           const zoned7DaysAgo = subDays(zonedNow, 7);
           startDate = zonedToUtc(startOfDay(zoned7DaysAgo));
           endDate = zonedToUtc(endOfDay(zonedNow));
+          break;
+        case 'last_week':
+          // Get start and end of previous calendar week (Sunday to Saturday)
+          const zonedLastWeekStart = startOfWeek(subWeeks(zonedNow, 1), { weekStartsOn: 0 });
+          const zonedLastWeekEnd = endOfWeek(subWeeks(zonedNow, 1), { weekStartsOn: 0 });
+          startDate = zonedToUtc(startOfDay(zonedLastWeekStart));
+          endDate = zonedToUtc(endOfDay(zonedLastWeekEnd));
           break;
         case 'last_30_days':
           const zoned30DaysAgo = subDays(zonedNow, 30);

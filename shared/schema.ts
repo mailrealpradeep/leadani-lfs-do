@@ -92,6 +92,7 @@ export const insertCompanySchema = z.object({
       priority: z.number(),
       enabled: z.boolean(),
     })).optional(),
+    weekly_off_days: z.array(z.number().int().min(0).max(6)).optional(), // 0=Sunday through 6=Saturday
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),
 });
@@ -835,6 +836,7 @@ export const companies = pgTable('companies', {
     timezone?: string;
     date_format?: string;
     custom_branding?: any;
+    weekly_off_days?: number[]; // 0=Sunday, 1=Monday, ..., 6=Saturday
   }>().default({}).notNull(),
   status: varchar('status', { length: 50 }).notNull().default('active'),
   attendance_exit_target_id: varchar('attendance_exit_target_id'), // Links to working_targets for attendance exit condition

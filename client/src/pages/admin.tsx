@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, Database, CheckCircle2, Loader2, MapPin } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, Database, CheckCircle2, Loader2, MapPin, Calendar } from "lucide-react";
 import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -265,12 +266,24 @@ function SuperAdminView() {
   );
 }
 
+// Day name helper for weekly off days
+const DAY_NAMES = [
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+];
+
 // General Company Settings Component
 function GeneralCompanySettings() {
   const { toast } = useToast();
   const [selectedTimezone, setSelectedTimezone] = useState<string>('');
   const [hasError, setHasError] = useState(false);
   const [timezoneOpen, setTimezoneOpen] = useState(false);
+  const [weeklyOffDays, setWeeklyOffDays] = useState<number[]>([]);
 
   // Get all timezones with country names using countries-and-timezones library
   const allTimezones = useMemo(() => {
@@ -306,12 +319,20 @@ function GeneralCompanySettings() {
   }, []);
 
   // Fetch current company settings
-  const { data: settingsData, isLoading } = useQuery<{ settings: { timezone?: string } }>({
+  const { data: settingsData, isLoading } = useQuery<{ settings: { timezone?: string; weekly_off_days?: number[] } }>({
     queryKey: ["/api/admin/company/settings"],
   });
 
   // Get server timezone value (empty string if not configured)
   const serverTimezone = settingsData?.settings?.timezone || '';
+  const serverWeeklyOffDays = settingsData?.settings?.weekly_off_days || [];
+
+  // Sync weekly off days with server data
+  useEffect(() => {
+    if (settingsData !== undefined) {
+      setWeeklyOffDays(settingsData?.settings?.weekly_off_days || []);
+    }
+  }, [settingsData]);
   
   // Sync local state with server data when query refetches
   // This ensures UI always reflects canonical server value, including when backend normalizes input
@@ -359,6 +380,39 @@ function GeneralCompanySettings() {
     setSelectedTimezone(value);
     setHasError(false);
     updateMutation.mutate(value);
+  };
+
+  // Update weekly off days mutation
+  const weeklyOffMutation = useMutation({
+    mutationFn: async (days: number[]) => {
+      return await apiRequest("PATCH", "/api/admin/company/settings", {
+        settings: { weekly_off_days: days }
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/settings"] });
+      toast({
+        title: "Settings updated",
+        description: "Weekly off days have been updated successfully.",
+      });
+    },
+    onError: (error: any) => {
+      // Revert to server value on error
+      setWeeklyOffDays(serverWeeklyOffDays);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update settings.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleWeeklyOffToggle = (day: number, checked: boolean) => {
+    const newDays = checked 
+      ? [...weeklyOffDays, day].sort((a, b) => a - b)
+      : weeklyOffDays.filter(d => d !== day);
+    setWeeklyOffDays(newDays);
+    weeklyOffMutation.mutate(newDays);
   };
 
   if (isLoading) {
@@ -436,6 +490,48 @@ function GeneralCompanySettings() {
             {!updateMutation.isPending && !hasError && serverTimezone && (
               <p className="text-xs text-green-600 dark:text-green-400">
                 Saved: {serverTimezone}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Weekly Off Days */}
+        <div className="flex items-start gap-3">
+          <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
+          <div className="flex-1 space-y-2">
+            <div>
+              <h4 className="font-medium text-sm">Weekly Off Days</h4>
+              <p className="text-xs text-muted-foreground">
+                Select days when your team doesn't work. Used for targets, leaderboard, and performance calculations.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {DAY_NAMES.map((day) => (
+                <label
+                  key={day.value}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer transition-colors",
+                    weeklyOffDays.includes(day.value)
+                      ? "bg-primary/10 border-primary"
+                      : "hover:bg-muted"
+                  )}
+                  data-testid={`checkbox-weekly-off-${day.value}`}
+                >
+                  <Checkbox
+                    checked={weeklyOffDays.includes(day.value)}
+                    onCheckedChange={(checked) => handleWeeklyOffToggle(day.value, checked as boolean)}
+                    disabled={weeklyOffMutation.isPending}
+                  />
+                  <span className="text-sm">{day.label}</span>
+                </label>
+              ))}
+            </div>
+            {weeklyOffMutation.isPending && (
+              <p className="text-xs text-muted-foreground">Saving...</p>
+            )}
+            {serverWeeklyOffDays.length > 0 && !weeklyOffMutation.isPending && (
+              <p className="text-xs text-green-600 dark:text-green-400">
+                Off days: {serverWeeklyOffDays.map(d => DAY_NAMES.find(dn => dn.value === d)?.label).join(', ')}
               </p>
             )}
           </div>

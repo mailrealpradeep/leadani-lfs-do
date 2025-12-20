@@ -53,7 +53,7 @@ interface SimulationResult {
   required_by_stage: { stage_name: string; required_count: number; color: string; conversion_rate: number }[];
 }
 
-type Period = "today" | "yesterday" | "this_week" | "this_month" | "last_30_days";
+type Period = "today" | "yesterday" | "this_week" | "last_week" | "this_month" | "last_30_days";
 
 // Format numbers with appropriate decimal precision based on value range
 // - Values < 1: up to 2 decimal places (e.g., 0.04, 0.40)
@@ -255,6 +255,7 @@ export default function PowerFlow() {
               <SelectItem value="today">Today</SelectItem>
               <SelectItem value="yesterday">Yesterday</SelectItem>
               <SelectItem value="this_week">This Week</SelectItem>
+              <SelectItem value="last_week">Last Week</SelectItem>
               <SelectItem value="this_month">This Month</SelectItem>
               <SelectItem value="last_30_days">Last 30 Days</SelectItem>
             </SelectContent>
