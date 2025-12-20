@@ -2930,12 +2930,24 @@ ${questionsList}`;
         }
       }
 
-      // Enrich leads with sheet name and owner name
-      const enrichedVisits = result.leads.map(lead => ({
-        ...lead,
-        sheet_name: sheetMap[lead.sheet_id] || 'Unknown Sheet',
-        owner_name: lead.owner_user_id ? (userMap[lead.owner_user_id] || 'Unknown') : 'Unassigned',
-      }));
+      // Get last update for each lead
+      const leadIds = result.leads.map(l => l.id);
+      const lastUpdatesMap = await storage.getLastUpdatesForLeads(leadIds);
+
+      // Enrich leads with sheet name, owner name, and last update info
+      const enrichedVisits = result.leads.map(lead => {
+        const lastUpdate = lastUpdatesMap.get(lead.id);
+        return {
+          ...lead,
+          sheet_name: sheetMap[lead.sheet_id] || 'Unknown Sheet',
+          owner_name: lead.owner_user_id ? (userMap[lead.owner_user_id] || 'Unknown') : 'Unassigned',
+          last_update: lastUpdate ? {
+            created_at: lastUpdate.created_at,
+            remark: lastUpdate.remark || null,
+            created_by_name: (lastUpdate as any).created_by_first_name || null,
+          } : null,
+        };
+      });
 
       res.json({ 
         visits: enrichedVisits, 

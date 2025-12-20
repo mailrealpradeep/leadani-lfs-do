@@ -369,6 +369,7 @@ export interface IStorage {
   // Lead Updates
   getLeadUpdates(leadId: string): Promise<LeadUpdate[]>;
   getLeadUpdatesBySheetId(sheetId: string): Promise<LeadUpdate[]>;
+  getLastUpdatesForLeads(leadIds: string[]): Promise<Map<string, LeadUpdate>>;
   createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate>;
   updateLeadUpdate(id: string, updates: Partial<LeadUpdate>): Promise<LeadUpdate | undefined>;
   deleteLeadUpdate(id: string): Promise<boolean>;
@@ -1874,6 +1875,25 @@ export class MemStorage implements IStorage {
     return Array.from(this.leadUpdates.values())
       .filter((update) => leadIds.has(update.lead_id))
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  async getLastUpdatesForLeads(leadIds: string[]): Promise<Map<string, LeadUpdate>> {
+    const result = new Map<string, LeadUpdate>();
+    const leadIdSet = new Set(leadIds);
+    
+    // Get all updates for the requested leads
+    const updates = Array.from(this.leadUpdates.values())
+      .filter((update) => leadIdSet.has(update.lead_id))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    // Keep only the most recent update for each lead
+    for (const update of updates) {
+      if (!result.has(update.lead_id)) {
+        result.set(update.lead_id, update);
+      }
+    }
+    
+    return result;
   }
 
   async createLeadUpdate(insertUpdate: InsertLeadUpdate): Promise<LeadUpdate> {
@@ -4539,6 +4559,38 @@ export class PgStorage implements IStorage {
       ...this.mapLeadUpdate(row.lead_update),
       created_by_first_name: row.user?.name || null,
     })) as any;
+  }
+
+  async getLastUpdatesForLeads(leadIds: string[]): Promise<Map<string, LeadUpdate>> {
+    const result = new Map<string, LeadUpdate>();
+    if (leadIds.length === 0) return result;
+
+    // Use a subquery to get the latest update for each lead efficiently
+    // Using DISTINCT ON for PostgreSQL to get only the latest update per lead
+    const updates = await db
+      .select({
+        lead_update: dbSchema.lead_updates,
+        user: {
+          name: dbSchema.users.name,
+        },
+      })
+      .from(dbSchema.lead_updates)
+      .leftJoin(dbSchema.users, eq(dbSchema.lead_updates.created_by_user_id, dbSchema.users.id))
+      .where(inArray(dbSchema.lead_updates.lead_id, leadIds))
+      .orderBy(desc(dbSchema.lead_updates.created_at));
+
+    // Keep only the most recent update for each lead
+    for (const row of updates) {
+      const leadId = row.lead_update.lead_id;
+      if (!result.has(leadId)) {
+        result.set(leadId, {
+          ...this.mapLeadUpdate(row.lead_update),
+          created_by_first_name: row.user?.name || null,
+        } as any);
+      }
+    }
+
+    return result;
   }
 
   async createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate> {

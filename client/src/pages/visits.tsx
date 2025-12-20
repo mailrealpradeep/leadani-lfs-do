@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO, subDays, startOfDay } from "date-fns";
 import { ChevronLeft, ChevronRight, Calendar, MapPin, User, Clock, Building2, AlertCircle, Settings, Phone, MessageCircle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,11 @@ interface SiteVisitConfig {
 interface EnrichedVisit extends Lead {
   sheet_name: string;
   owner_name: string;
+  last_update?: {
+    created_at: string;
+    remark: string | null;
+    created_by_name: string | null;
+  } | null;
 }
 
 interface VisitsResponse {
@@ -456,6 +461,7 @@ interface VisitsListProps {
   dateColumn: string;
   statusColumn: string;
   setSelectedLeadId: (id: string | null) => void;
+  isMobileView?: boolean;
 }
 
 function VisitsList({
@@ -467,7 +473,7 @@ function VisitsList({
   statusColumn,
   setSelectedLeadId,
   isMobileView = false,
-}: VisitsListProps & { isMobileView?: boolean }) {
+}: VisitsListProps) {
   if (!selectedDate) {
     return (
       <Card className="flex items-center justify-center shadow-sm">
@@ -542,6 +548,30 @@ interface VisitCardProps {
 
 function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, onClick }: VisitCardProps) {
   const displayColumns = cardColumns.length > 0 ? cardColumns : ['full_name', 'mobile_no'];
+  
+  // Get the actual visit date from the lead's date column
+  const visitDate = useMemo(() => {
+    const dateValue = visit.custom_fields?.[dateColumn];
+    if (!dateValue) return null;
+    try {
+      return parseISO(String(dateValue).split('T')[0]);
+    } catch {
+      return null;
+    }
+  }, [visit.custom_fields, dateColumn]);
+  
+  // Determine if last update was NOT done the day before the visit
+  const isFollowUpMissing = useMemo(() => {
+    if (!visit.last_update || !visitDate) return false;
+    
+    const lastUpdateDate = startOfDay(parseISO(visit.last_update.created_at));
+    const dayBeforeVisit = startOfDay(subDays(visitDate, 1));
+    
+    // Highlight if the last update was NOT on the day before the visit
+    // The follow-up should happen exactly on the previous day
+    // Using isSameDay to check if they match
+    return !isSameDay(lastUpdateDate, dayBeforeVisit);
+  }, [visit.last_update, visitDate]);
   
   const formatValue = (key: string, value: any): string => {
     if (value === null || value === undefined || value === '') return '-';
@@ -650,6 +680,39 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, o
             })}
           </div>
         )}
+
+        {/* Last Update Section */}
+        <div className="mt-2 pt-2 border-t border-dashed">
+          {visit.last_update ? (
+            <div className="space-y-0.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Last Update
+                </span>
+                <span className={cn(
+                  "text-xs font-medium",
+                  isFollowUpMissing ? "text-destructive" : "text-muted-foreground"
+                )}>
+                  {format(parseISO(visit.last_update.created_at), 'MMM d, h:mm a')}
+                </span>
+              </div>
+              {visit.last_update.remark && (
+                <p className="text-xs text-muted-foreground line-clamp-2 italic">
+                  "{visit.last_update.remark}"
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Last Update
+              </span>
+              <span className="text-xs text-destructive font-medium">No updates</span>
+            </div>
+          )}
+        </div>
 
         <div className="mt-2 pt-2 border-t flex items-center justify-end">
           <span className="text-xs text-primary font-medium flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
