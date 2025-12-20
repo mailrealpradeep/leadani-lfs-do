@@ -216,6 +216,73 @@ export async function backfillPowerScoreForCompany(companyId: string, forceRerun
     }
   }
 
+  // ==========================================
+  // PHASE 2: Process lead_created activity logs
+  // ==========================================
+  const leadCreatedRules = rules.filter(r => r.action_type === 'lead_created');
+  
+  if (leadCreatedRules.length > 0) {
+    console.log(`\n[PowerScore Backfill] Processing lead_created events...`);
+    
+    // Get lead_created activity logs (only UI source, not webhook/import)
+    const leadCreatedLogs = await db.execute(sql`
+      SELECT 
+        al.id,
+        al.user_id,
+        al.target_id as lead_id,
+        al.details,
+        al.occurred_at,
+        DATE(al.occurred_at) as score_date
+      FROM activity_logs al
+      JOIN users u ON al.user_id = u.id
+      WHERE al.company_id = ${companyId}
+        AND al.action = 'lead_created'
+        AND al.user_id IS NOT NULL
+        AND u.role = 'user'
+        AND (al.details->>'source' = 'ui' OR al.details->>'source' IS NULL)
+      ORDER BY al.occurred_at ASC
+    `);
+
+    console.log(`[PowerScore Backfill] Found ${leadCreatedLogs.rows.length} lead_created logs to process`);
+
+    for (const log of leadCreatedLogs.rows) {
+      const userId = log.user_id as string;
+      const leadId = log.lead_id as string | null;
+      const scoreDateRaw = log.score_date as string | Date;
+      const scoreDate = typeof scoreDateRaw === 'string' ? scoreDateRaw.split('T')[0] : scoreDateRaw.toISOString().split('T')[0];
+      const createdAt = new Date(log.occurred_at as string | Date);
+
+      result.totalLogsProcessed++;
+
+      if (!result.userBreakdown[userId]) {
+        result.userBreakdown[userId] = { points: 0, transactions: 0 };
+      }
+
+      // Process each lead_created rule
+      for (const rule of leadCreatedRules) {
+        const awarded = await tryAwardPoints({
+          companyId,
+          userId,
+          rule,
+          leadId: leadId || '',
+          actionType: 'lead_created',
+          description: `Lead created manually (backfill)`,
+          scoreDate,
+          createdAt,
+          dailyPointsPerRule,
+          result
+        });
+        
+        if (awarded) {
+          result.userBreakdown[userId].points += rule.points;
+          result.userBreakdown[userId].transactions++;
+          result.ruleBreakdown[rule.id].points += rule.points;
+          result.ruleBreakdown[rule.id].transactions++;
+        }
+      }
+    }
+  }
+
   console.log(`\n[PowerScore Backfill] Complete!`);
   console.log(`  Processed ${result.totalLogsProcessed} activity logs`);
   console.log(`  Awarded ${result.totalPointsAwarded} points`);
