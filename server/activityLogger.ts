@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import { getCompanyTimezone, formatDateInTimezone } from "./timezone-utils";
+import { getCompanyTimezone, formatDateInTimezone, formatDateOnlyInTimezone } from "./timezone-utils";
 import type { 
   User, 
   Sheet,
@@ -261,9 +261,18 @@ function formatValue(value: any, column?: CustomColumn, timezone?: string): stri
     return "(empty)";
   }
   
+  const tz = timezone || "Asia/Kolkata";
+  
   if (column?.type === "date" && value) {
     try {
-      const tz = timezone || "Asia/Kolkata";
+      return formatDateOnlyInTimezone(value, tz);
+    } catch {
+      return String(value);
+    }
+  }
+  
+  if (column?.type === "datetime" && value) {
+    try {
       return formatDateInTimezone(value, tz);
     } catch {
       return String(value);
