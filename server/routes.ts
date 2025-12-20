@@ -18923,7 +18923,7 @@ ${questionsList}`;
           endDate = zonedToUtc(endOfDay(zonedNow));
       }
 
-      // Query analytics from activity_logs
+      // Query analytics from activity_logs (aggregated across all sheets)
       const analytics = await storage.getPowerFlowAnalytics(
         req.companyId,
         sheetIds,
@@ -18931,6 +18931,48 @@ ${questionsList}`;
         startDate,
         endDate
       );
+
+      // Get per-sheet breakdown only when:
+      // 1. Viewing "All Sheets" (no specific sheet_id filter)
+      // 2. User has access to multiple sheets
+      const perSheetAnalytics: Array<{
+        sheet_id: string;
+        sheet_name: string;
+        stages: typeof analytics.stages;
+        total_leads: number;
+        overall_conversion_rate: number;
+      }> = [];
+      
+      // Only compute per-sheet when viewing all sheets and user has multiple sheets
+      const isViewingAllSheets = !sheet_id;
+      const allAccessibleSheetIds = accessibleSheets.map(s => s.id);
+      
+      if (isViewingAllSheets && allAccessibleSheetIds.length > 1) {
+        // Get sheet names for display
+        const sheetsMap = new Map<string, string>();
+        for (const sheet of accessibleSheets) {
+          sheetsMap.set(sheet.id, sheet.name);
+        }
+        
+        // Get analytics for each accessible sheet
+        for (const sheetId of allAccessibleSheetIds) {
+          const sheetAnalytics = await storage.getPowerFlowAnalytics(
+            req.companyId,
+            [sheetId],
+            config.stages,
+            startDate,
+            endDate
+          );
+          
+          perSheetAnalytics.push({
+            sheet_id: sheetId,
+            sheet_name: sheetsMap.get(sheetId) || 'Unknown Sheet',
+            stages: sheetAnalytics.stages,
+            total_leads: sheetAnalytics.total_leads,
+            overall_conversion_rate: sheetAnalytics.overall_conversion_rate,
+          });
+        }
+      }
 
       res.json({
         pipeline_name: config.name,
@@ -18942,6 +18984,7 @@ ${questionsList}`;
           start: startDate.toISOString(),
           end: endDate.toISOString(),
         },
+        per_sheet_analytics: perSheetAnalytics,
       });
     } catch (error: any) {
       console.error("Error fetching PowerFlow analytics:", error);
