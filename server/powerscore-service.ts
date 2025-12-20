@@ -250,6 +250,68 @@ export async function awardLoginBonus(
   return awardLoginBonusInternal(userId, companyId, companyTimezone, rules, scoreDate);
 }
 
+export async function awardLeadCreatedPoints(
+  context: ScoringContext
+): Promise<{ awarded: number; pending: number }> {
+  // Admin accounts don't participate in PowerScore
+  const user = await storage.getUser(context.userId);
+  if (!user || user.role === 'super_admin' || user.role === 'company_admin') {
+    return { awarded: 0, pending: 0 };
+  }
+
+  const rules = await storage.getPowerScoreRules(context.companyId);
+  if (rules.length === 0) return { awarded: 0, pending: 0 };
+
+  const today = getScoreDate(context.companyTimezone);
+  let totalAwarded = 0;
+  let totalPending = 0;
+
+  for (const rule of rules) {
+    if (!rule.is_enabled || rule.action_type !== "lead_created") continue;
+
+    const { pointsAwarded, hasPending } = await getDailyPointsAndPending(context.userId, rule.id, today);
+    
+    // Check daily cap - if exceeded, skip this rule
+    if (rule.daily_cap && pointsAwarded + rule.points > rule.daily_cap) {
+      continue;
+    }
+
+    if (rule.requires_approval) {
+      // Skip if already has a pending approval for this rule today
+      if (hasPending) continue;
+      await storage.createPowerScorePendingApproval({
+        company_id: context.companyId,
+        user_id: context.userId,
+        rule_id: rule.id,
+        action_type: rule.action_type,
+        points: rule.points,
+        lead_id: context.leadId || null,
+        description: "Lead created manually",
+        score_date: today,
+      });
+      totalPending += rule.points;
+    } else {
+      // Award points - no deduplication here since each lead creation is a unique action
+      // Daily cap check above handles limiting total points per day
+      await storage.createPowerScoreTransaction({
+        company_id: context.companyId,
+        user_id: context.userId,
+        rule_id: rule.id,
+        action_type: rule.action_type,
+        points: rule.points,
+        lead_id: context.leadId || null,
+        description: "Lead created manually",
+        score_date: today,
+        approval_id: null,
+        is_approved: null,
+      });
+      totalAwarded += rule.points;
+    }
+  }
+
+  return { awarded: totalAwarded, pending: totalPending };
+}
+
 async function getDailyPointsAndPending(userId: string, ruleId: string, scoreDate: string): Promise<{ pointsAwarded: number; hasPending: boolean }> {
   const [transactions, pendingApprovals] = await Promise.all([
     storage.getPowerScoreTransactionsByRuleAndDate(userId, ruleId, scoreDate),

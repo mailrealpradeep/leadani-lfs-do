@@ -3714,6 +3714,7 @@ export const powerScoreActionTypes = [
   "lead_update",      // Points for any lead record update (adds to lead history)
   "login",            // Points for logging in (once per 24 hours)
   "dropdown_change",  // Points when a dropdown field value changes
+  "lead_created",     // Points for adding a new lead manually (excludes webhook/import)
 ] as const;
 
 export type PowerScoreActionType = typeof powerScoreActionTypes[number];

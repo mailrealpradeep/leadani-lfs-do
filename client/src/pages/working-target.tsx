@@ -134,7 +134,7 @@ export default function WorkingTarget() {
   const [periodType, setPeriodType] = useState<PeriodType>('daily');
   const [targetName, setTargetName] = useState('');
   
-  const [fixedMetric, setFixedMetric] = useState<'lead_updates' | 'status_transitions'>('lead_updates');
+  const [fixedMetric, setFixedMetric] = useState<'lead_updates' | 'status_transitions' | 'leads_created'>('lead_updates');
   const [fixedTargetValue, setFixedTargetValue] = useState<number>(10);
   
   const [singleColumnId, setSingleColumnId] = useState('');
@@ -568,7 +568,12 @@ export default function WorkingTarget() {
 
     let description = '';
     if (target.target_type === 'fixed') {
-      description = `${config.metric === 'lead_updates' ? 'Lead Updates' : 'Status Transitions'} >= ${config.target_value}`;
+      const metricLabels: Record<string, string> = {
+        'lead_updates': 'Lead Updates',
+        'status_transitions': 'Status Transitions',
+        'leads_created': 'Leads Added'
+      };
+      description = `${metricLabels[config.metric] || config.metric} >= ${config.target_value}`;
     } else if (target.target_type === 'single_column') {
       description = `${getColumnName(config.column_id)} ${config.operator} ${config.value || ''}`.trim();
     } else {
@@ -993,6 +998,7 @@ export default function WorkingTarget() {
                           <SelectContent>
                             <SelectItem value="lead_updates">Lead Updates Count</SelectItem>
                             <SelectItem value="status_transitions">Status Transitions</SelectItem>
+                            <SelectItem value="leads_created">Leads Added (Manual Only)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1326,6 +1332,7 @@ export default function WorkingTarget() {
                         <SelectContent>
                           <SelectItem value="lead_updates">Lead Updates Count</SelectItem>
                           <SelectItem value="status_transitions">Status Transitions</SelectItem>
+                          <SelectItem value="leads_created">Leads Added (Manual Only)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

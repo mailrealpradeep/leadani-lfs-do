@@ -38,6 +38,12 @@ const ACTION_TYPES = [
     description: "Points when a dropdown field value changes",
     icon: RefreshCw,
   },
+  { 
+    value: "lead_created", 
+    label: "Lead Created",
+    description: "Points for adding a new lead manually (excludes webhook/import)",
+    icon: Plus,
+  },
 ] as const;
 
 interface PendingApprovalWithUser extends PowerScorePendingApproval {
@@ -47,7 +53,7 @@ interface PendingApprovalWithUser extends PowerScorePendingApproval {
 
 interface WizardState {
   step: 1 | 2 | 3;
-  actionType: "lead_update" | "login" | "dropdown_change";
+  actionType: "lead_update" | "login" | "dropdown_change" | "lead_created";
   columnKey: string;
   fromValues: string[];
   toValues: string[];

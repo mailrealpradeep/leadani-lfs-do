@@ -50,7 +50,7 @@ import {
   startBackupScheduler,
 } from "./google-sheets-backup";
 import { extractGoogleSheetId } from "@shared/schema";
-import { awardLeadUpdatePoints, awardLoginBonus } from "./powerscore-service";
+import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints } from "./powerscore-service";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -5907,6 +5907,18 @@ ${questionsList}`;
           sheet as any,
           customColumns as any[]
         ).catch(err => console.error("Activity log error:", err));
+      }
+
+      // Award PowerScore points for manually creating a lead
+      if (company) {
+        const companyTimezone = getCompanyTimezone(company);
+        awardLeadCreatedPoints({
+          userId: req.userId!,
+          companyId: sheet.company_id,
+          companyTimezone,
+          leadId: lead.id,
+          sheetId: sheet.id,
+        }).catch(err => console.error("PowerScore lead created error:", err));
       }
 
       // Realtime update

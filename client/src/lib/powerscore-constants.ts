@@ -2,26 +2,16 @@ import type { PowerScoreActionType } from "@shared/schema";
 
 export const POWERSCORE_ACTION_LABELS: Record<PowerScoreActionType, string> = {
   lead_update: "Lead Update",
-  status_transition: "Status Change",
-  visit_scheduled: "Visit Scheduled",
-  visit_completed: "Visit Completed",
-  lead_converted: "Lead Converted",
+  login: "Login Bonus",
+  dropdown_change: "Dropdown Change",
   lead_created: "Lead Created",
-  milestone_bonus: "Milestone Bonus",
-  login_bonus: "Login Bonus",
-  admin_appreciation: "Admin Appreciation",
 };
 
 export const POWERSCORE_ACTION_ICONS: Record<PowerScoreActionType, string> = {
   lead_update: "pencil",
-  status_transition: "arrow-right-left",
-  visit_scheduled: "calendar",
-  visit_completed: "check-circle",
-  lead_converted: "trophy",
+  login: "clock",
+  dropdown_change: "arrow-right-left",
   lead_created: "plus-circle",
-  milestone_bonus: "target",
-  login_bonus: "clock",
-  admin_appreciation: "heart",
 };
 
 export const POWERSCORE_PERIODS = [

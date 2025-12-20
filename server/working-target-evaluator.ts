@@ -140,6 +140,23 @@ async function evaluateFixedTarget(
     currentValue = transitionCount;
     details.transitionCount = currentValue;
     details.activityLogsChecked = activityLogs.length;
+  } else if (metric === 'leads_created') {
+    // Count leads created manually via Add Lead button (source = 'ui')
+    // Excludes webhook and import created leads
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(dbSchema.activity_logs)
+      .where(
+        and(
+          eq(dbSchema.activity_logs.user_id, userId),
+          eq(dbSchema.activity_logs.action, 'lead_created'),
+          eq(dbSchema.activity_logs.source, 'ui'),
+          inArray(dbSchema.activity_logs.sheet_id, sheetIds),
+          gte(dbSchema.activity_logs.occurred_at, periodStart),
+          lte(dbSchema.activity_logs.occurred_at, periodEnd)
+        )
+      );
+    currentValue = Number(result[0]?.count || 0);
+    details.leadsCreatedCount = currentValue;
   }
   
   const compliancePercentage = targetValue > 0 ? Math.min(100, (currentValue / targetValue) * 100) : 0;
