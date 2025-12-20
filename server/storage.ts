@@ -8948,7 +8948,9 @@ export class PgStorage implements IStorage {
               AND change_elem->>'new_value' IN (${columnValuePlaceholders})
           `);
           
-          count = Number((transitionResult as any)[0]?.count || 0);
+          // Handle both array result and { rows: [] } result structure from db.execute
+          const resultRows = (transitionResult as any).rows ?? transitionResult;
+          count = Number(resultRows[0]?.count || 0);
         }
       }
       
