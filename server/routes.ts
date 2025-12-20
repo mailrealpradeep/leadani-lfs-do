@@ -18934,15 +18934,20 @@ ${questionsList}`;
           endDate = zonedToUtc(endOfDay(zonedYesterday));
           break;
         case 'last_7_days':
-        case 'this_week':
           const zoned7DaysAgo = subDays(zonedNow, 7);
           startDate = zonedToUtc(startOfDay(zoned7DaysAgo));
           endDate = zonedToUtc(endOfDay(zonedNow));
           break;
+        case 'this_week':
+          // Current calendar week (Monday to today) - weekStartsOn: 1 means Monday
+          const zonedThisWeekStart = startOfWeek(zonedNow, { weekStartsOn: 1 });
+          startDate = zonedToUtc(startOfDay(zonedThisWeekStart));
+          endDate = zonedToUtc(endOfDay(zonedNow));
+          break;
         case 'last_week':
-          // Get start and end of previous calendar week (Sunday to Saturday)
-          const zonedLastWeekStart = startOfWeek(subWeeks(zonedNow, 1), { weekStartsOn: 0 });
-          const zonedLastWeekEnd = endOfWeek(subWeeks(zonedNow, 1), { weekStartsOn: 0 });
+          // Previous calendar week (Monday to Sunday) - weekStartsOn: 1 means Monday
+          const zonedLastWeekStart = startOfWeek(subWeeks(zonedNow, 1), { weekStartsOn: 1 });
+          const zonedLastWeekEnd = endOfWeek(subWeeks(zonedNow, 1), { weekStartsOn: 1 });
           startDate = zonedToUtc(startOfDay(zonedLastWeekStart));
           endDate = zonedToUtc(endOfDay(zonedLastWeekEnd));
           break;
