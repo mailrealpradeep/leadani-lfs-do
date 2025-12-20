@@ -18929,8 +18929,7 @@ ${questionsList}`;
         sheetIds,
         config.stages,
         startDate,
-        endDate,
-        companyTimezone
+        endDate
       );
 
       res.json({
@@ -18987,10 +18986,6 @@ ${questionsList}`;
         return res.status(400).json({ error: "Pipeline not configured" });
       }
 
-      // Get company timezone for time window filtering
-      const company = await storage.getCompany(req.companyId);
-      const companyTimezone = getCompanyTimezone(company);
-
       // Get historical conversion rates (last 30 days for stable rates)
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
@@ -19000,8 +18995,7 @@ ${questionsList}`;
         sheetIds,
         config.stages,
         thirtyDaysAgo,
-        now,
-        companyTimezone
+        now
       );
 
       // Calculate required counts backward from target
