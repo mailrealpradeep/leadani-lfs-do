@@ -18826,7 +18826,7 @@ ${questionsList}`;
       const { period = 'this_month', sheet_id } = req.query;
       
       // Get user's accessible sheets
-      const allSheets = await storage.getSheets(req.companyId);
+      const allSheets = await storage.getSheetsByCompanyId(req.companyId);
       let accessibleSheets = allSheets;
       
       // Non-admins can only see sheets they have access to
@@ -18963,7 +18963,7 @@ ${questionsList}`;
       }
 
       // Get user's accessible sheets
-      const allSheets = await storage.getSheets(req.companyId);
+      const allSheets = await storage.getSheetsByCompanyId(req.companyId);
       let accessibleSheets = allSheets;
       
       if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {

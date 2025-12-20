@@ -8925,22 +8925,31 @@ export class PgStorage implements IStorage {
         count = totalLeads;
       } else {
         // For other stages, count transitions TO the stage values
-        const valuesJson = JSON.stringify(stage.column_values);
+        const columnValueStrings: string[] = (stage.column_values || []).map(v => String(v));
         
-        const transitionResult = await db.execute(sql`
-          SELECT COUNT(DISTINCT al.target_id) as count
-          FROM activity_logs al
-          CROSS JOIN LATERAL jsonb_array_elements((al.details::jsonb)->'changes') as change_elem
-          WHERE al.company_id = ${companyId}
-            AND al.sheet_id = ANY(${sheetIds})
-            AND al.action = 'lead_updated'
-            AND al.occurred_at >= ${startDate}
-            AND al.occurred_at <= ${endDate}
-            AND change_elem->>'field_key' = ${stage.column_key}
-            AND change_elem->>'new_value' = ANY(${stage.column_values})
-        `);
-        
-        count = Number((transitionResult as any)[0]?.count || 0);
+        if (columnValueStrings.length === 0 || sheetIds.length === 0) {
+          count = 0;
+        } else {
+          // Use sql.join to create proper IN clauses instead of ANY with arrays
+          // This avoids PostgreSQL array type issues with drizzle's sql template
+          const sheetIdPlaceholders = sql.join(sheetIds.map(id => sql`${id}`), sql`, `);
+          const columnValuePlaceholders = sql.join(columnValueStrings.map(v => sql`${v}`), sql`, `);
+          
+          const transitionResult = await db.execute(sql`
+            SELECT COUNT(DISTINCT al.target_id) as count
+            FROM activity_logs al
+            CROSS JOIN LATERAL jsonb_array_elements((al.details::jsonb)->'changes') as change_elem
+            WHERE al.company_id = ${companyId}
+              AND al.sheet_id IN (${sheetIdPlaceholders})
+              AND al.action = 'lead_updated'
+              AND al.occurred_at >= ${startDate}
+              AND al.occurred_at <= ${endDate}
+              AND change_elem->>'field_key' = ${stage.column_key}
+              AND change_elem->>'new_value' IN (${columnValuePlaceholders})
+          `);
+          
+          count = Number((transitionResult as any)[0]?.count || 0);
+        }
       }
       
       // Calculate conversion rate to next stage
