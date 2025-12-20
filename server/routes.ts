@@ -18824,25 +18824,45 @@ ${questionsList}`;
       }
 
       const { period = 'this_month', sheet_id, use_personal_data } = req.query;
-      const filterByUserId = use_personal_data === 'true' ? req.userId : undefined;
+      const isPersonalData = use_personal_data === 'true';
+      const filterByUserId = isPersonalData ? req.userId : undefined;
       
-      // Get user's accessible sheets
+      // Get all company sheets
       const allSheets = await storage.getSheetsByCompanyId(req.companyId);
-      let accessibleSheets = allSheets;
       
-      // Non-admins can only see sheets they have access to
-      if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
-        accessibleSheets = [];
+      // Build user's accessible sheets list (for non-admins)
+      let userAccessibleSheets = allSheets;
+      const isAdmin = req.userRole === 'super_admin' || req.userRole === 'company_admin';
+      
+      if (!isAdmin) {
+        userAccessibleSheets = [];
         for (const sheet of allSheets) {
           if (await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, sheet.id)) {
-            accessibleSheets.push(sheet);
+            userAccessibleSheets.push(sheet);
           }
         }
       }
       
-      const sheetIds = sheet_id 
-        ? [sheet_id as string].filter(id => accessibleSheets.some(s => s.id === id))
-        : accessibleSheets.map(s => s.id);
+      let sheetIds: string[];
+      
+      if (sheet_id) {
+        // Specific sheet requested - ALWAYS enforce permission check
+        // User must have access to view that specific sheet's analytics
+        const hasAccess = userAccessibleSheets.some(s => s.id === sheet_id);
+        if (!hasAccess) {
+          return res.status(403).json({ error: "No access to this sheet" });
+        }
+        sheetIds = [sheet_id as string];
+      } else {
+        // All sheets aggregation
+        if (isPersonalData) {
+          // "Own Data" mode: only aggregate sheets user has access to
+          sheetIds = userAccessibleSheets.map(s => s.id);
+        } else {
+          // "Company Data" mode: aggregate ALL company sheets (company-wide view)
+          sheetIds = allSheets.map(s => s.id);
+        }
+      }
 
       if (sheetIds.length === 0) {
         return res.json({
