@@ -18775,6 +18775,267 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // POWERFLOW (Pipeline Analytics & Simulation)
+  // ============================================================================
+
+  // Get PowerFlow config for company
+  app.get("/api/powerflow/config", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const config = await storage.getPowerFlowConfig(req.companyId);
+      res.json(config);
+    } catch (error: any) {
+      console.error("Error fetching PowerFlow config:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Save PowerFlow config (Admin only)
+  app.post("/api/powerflow/config", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { name, stages, is_enabled } = req.body;
+      
+      const config = await storage.savePowerFlowConfig(req.companyId, {
+        name: name || 'Default Pipeline',
+        stages: stages || [],
+        is_enabled: is_enabled !== false,
+      });
+
+      res.json(config);
+    } catch (error: any) {
+      console.error("Error saving PowerFlow config:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get PowerFlow analytics
+  app.get("/api/powerflow/analytics", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { period = 'this_month', sheet_id } = req.query;
+      
+      // Get user's accessible sheets
+      const allSheets = await storage.getSheets(req.companyId);
+      let accessibleSheets = allSheets;
+      
+      // Non-admins can only see sheets they have access to
+      if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
+        accessibleSheets = [];
+        for (const sheet of allSheets) {
+          if (await hasSheetAccess(req.userId!, sheet.id)) {
+            accessibleSheets.push(sheet);
+          }
+        }
+      }
+      
+      const sheetIds = sheet_id 
+        ? [sheet_id as string].filter(id => accessibleSheets.some(s => s.id === id))
+        : accessibleSheets.map(s => s.id);
+
+      if (sheetIds.length === 0) {
+        return res.json({
+          pipeline_name: 'No Access',
+          stages: [],
+          total_leads: 0,
+          overall_conversion_rate: 0,
+          period: period as string,
+        });
+      }
+
+      // Get PowerFlow config
+      const config = await storage.getPowerFlowConfig(req.companyId);
+      
+      if (!config || !config.stages || config.stages.length === 0) {
+        return res.json({
+          pipeline_name: 'Not Configured',
+          stages: [],
+          total_leads: 0,
+          overall_conversion_rate: 0,
+          period: period as string,
+          needs_configuration: true,
+        });
+      }
+
+      // Get company timezone for date calculations
+      const company = await storage.getCompany(req.companyId);
+      const companyTimezone = getCompanyTimezone(company);
+      
+      // Calculate date range based on period
+      const now = new Date();
+      let startDate: Date;
+      let endDate: Date = now;
+      
+      switch (period) {
+        case 'today':
+          startDate = new Date(formatInTimeZone(now, companyTimezone, 'yyyy-MM-dd'));
+          break;
+        case 'yesterday':
+          startDate = new Date(formatInTimeZone(new Date(now.getTime() - 86400000), companyTimezone, 'yyyy-MM-dd'));
+          endDate = new Date(formatInTimeZone(now, companyTimezone, 'yyyy-MM-dd'));
+          break;
+        case 'last_7_days':
+          startDate = new Date(now.getTime() - 7 * 86400000);
+          break;
+        case 'this_month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          break;
+        case 'last_month':
+          startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+          break;
+        default:
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      // Query analytics from activity_logs
+      const analytics = await storage.getPowerFlowAnalytics(
+        req.companyId,
+        sheetIds,
+        config.stages,
+        startDate,
+        endDate
+      );
+
+      res.json({
+        pipeline_name: config.name,
+        stages: analytics.stages,
+        total_leads: analytics.total_leads,
+        overall_conversion_rate: analytics.overall_conversion_rate,
+        period: period as string,
+        date_range: {
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching PowerFlow analytics:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get PowerFlow simulation (backward calculation)
+  app.post("/api/powerflow/simulate", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { target_conversions, working_days = 25, sheet_id } = req.body;
+
+      if (!target_conversions || target_conversions <= 0) {
+        return res.status(400).json({ error: "target_conversions must be a positive number" });
+      }
+
+      // Get user's accessible sheets
+      const allSheets = await storage.getSheets(req.companyId);
+      let accessibleSheets = allSheets;
+      
+      if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
+        accessibleSheets = [];
+        for (const sheet of allSheets) {
+          if (await hasSheetAccess(req.userId!, sheet.id)) {
+            accessibleSheets.push(sheet);
+          }
+        }
+      }
+      
+      const sheetIds = sheet_id 
+        ? [sheet_id as string].filter(id => accessibleSheets.some(s => s.id === id))
+        : accessibleSheets.map(s => s.id);
+
+      // Get PowerFlow config
+      const config = await storage.getPowerFlowConfig(req.companyId);
+      
+      if (!config || !config.stages || config.stages.length === 0) {
+        return res.status(400).json({ error: "Pipeline not configured" });
+      }
+
+      // Get historical conversion rates (last 30 days for stable rates)
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+      
+      const analytics = await storage.getPowerFlowAnalytics(
+        req.companyId,
+        sheetIds,
+        config.stages,
+        thirtyDaysAgo,
+        now
+      );
+
+      // Calculate required counts backward from target
+      const stages = [...config.stages].sort((a, b) => a.order - b.order);
+      const requiredStages: { stage_name: string; required_count: number; daily_count: number; conversion_rate: number }[] = [];
+      
+      let requiredCount = target_conversions;
+      
+      // Work backward from last stage to first
+      for (let i = stages.length - 1; i >= 0; i--) {
+        const stage = stages[i];
+        const analyticsStage = analytics.stages.find(s => s.stage_id === stage.id);
+        const conversionRate = analyticsStage?.conversion_rate || 0;
+        
+        requiredStages.unshift({
+          stage_name: stage.name,
+          required_count: Math.ceil(requiredCount),
+          daily_count: Math.ceil(requiredCount / working_days),
+          conversion_rate: conversionRate,
+        });
+        
+        // Calculate how many we need at the previous stage
+        if (i > 0 && conversionRate > 0) {
+          requiredCount = requiredCount / (conversionRate / 100);
+        }
+      }
+
+      res.json({
+        target_conversions,
+        working_days,
+        required_stages: requiredStages,
+        based_on_days: 30,
+      });
+    } catch (error: any) {
+      console.error("Error running PowerFlow simulation:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get accessible sheets for PowerFlow
+  app.get("/api/powerflow/sheets", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const allSheets = await storage.getSheets(req.companyId);
+      let accessibleSheets = allSheets;
+      
+      if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
+        accessibleSheets = [];
+        for (const sheet of allSheets) {
+          if (await hasSheetAccess(req.userId!, sheet.id)) {
+            accessibleSheets.push(sheet);
+          }
+        }
+      }
+
+      res.json(accessibleSheets.map(s => ({ id: s.id, name: s.name })));
+    } catch (error: any) {
+      console.error("Error fetching PowerFlow sheets:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup

@@ -196,6 +196,11 @@ import type {
   PowerScorePersonalStats,
   PowerScoreHistoryEntry,
   PowerScoreActionType,
+  // PowerFlow (Pipeline Analytics)
+  PowerFlowConfig,
+  powerflow_configs,
+  PowerFlowStage,
+  PowerFlowStageMetrics,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -792,6 +797,11 @@ export interface IStorage {
   createLoginBonusClaim(userId: string, bonusId: string, date: Date): Promise<PowerScoreLoginClaim>;
   hasClaimedMilestone(userId: string, milestoneId: string): Promise<boolean>;
   createMilestoneClaim(userId: string, milestoneId: string, score: number): Promise<PowerScoreMilestoneClaim>;
+
+  // PowerFlow (Pipeline Analytics)
+  getPowerFlowConfig(companyId: string): Promise<PowerFlowConfig | null>;
+  savePowerFlowConfig(companyId: string, config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig>;
+  getPowerFlowAnalytics(companyId: string, sheetIds: string[], stages: PowerFlowStage[], startDate: Date, endDate: Date): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }>;
 }
 
 export class MemStorage implements IStorage {
@@ -3054,6 +3064,11 @@ export class MemStorage implements IStorage {
   async createLoginBonusClaim(_userId: string, _bonusId: string, _date: Date): Promise<PowerScoreLoginClaim> { throw new Error("PowerScore not implemented in MemStorage"); }
   async hasClaimedMilestone(_userId: string, _milestoneId: string): Promise<boolean> { return false; }
   async createMilestoneClaim(_userId: string, _milestoneId: string, _score: number): Promise<PowerScoreMilestoneClaim> { throw new Error("PowerScore not implemented in MemStorage"); }
+
+  // PowerFlow (Pipeline Analytics) - stubs
+  async getPowerFlowConfig(_companyId: string): Promise<PowerFlowConfig | null> { return null; }
+  async savePowerFlowConfig(_companyId: string, _config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig> { throw new Error("PowerFlow not implemented in MemStorage"); }
+  async getPowerFlowAnalytics(_companyId: string, _sheetIds: string[], _stages: PowerFlowStage[], _startDate: Date, _endDate: Date): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> { return { stages: [], total_leads: 0, overall_conversion_rate: 0 }; }
 }
 
 // ============================================================================
@@ -8790,6 +8805,180 @@ export class PgStorage implements IStorage {
       milestone_id: row.milestone_id,
       score_at_claim: row.score_at_claim,
       claimed_at: row.claimed_at?.toISOString() || now.toISOString(),
+    };
+  }
+
+  // ============================================================================
+  // POWERFLOW (Pipeline Analytics)
+  // ============================================================================
+
+  async getPowerFlowConfig(companyId: string): Promise<PowerFlowConfig | null> {
+    const result = await db.select()
+      .from(dbSchema.powerflow_configs)
+      .where(eq(dbSchema.powerflow_configs.company_id, companyId))
+      .limit(1);
+    
+    if (result.length === 0) return null;
+    
+    const row = result[0];
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      name: row.name,
+      stages: row.stages as PowerFlowStage[],
+      is_enabled: row.is_enabled,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  async savePowerFlowConfig(companyId: string, config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig> {
+    const existing = await this.getPowerFlowConfig(companyId);
+    const now = new Date();
+    
+    if (existing) {
+      // Update existing config
+      const result = await db.update(dbSchema.powerflow_configs)
+        .set({
+          name: config.name,
+          stages: config.stages,
+          is_enabled: config.is_enabled,
+          updated_at: now,
+        })
+        .where(eq(dbSchema.powerflow_configs.id, existing.id))
+        .returning();
+      
+      const row = result[0];
+      return {
+        id: row.id,
+        company_id: row.company_id,
+        name: row.name,
+        stages: row.stages as PowerFlowStage[],
+        is_enabled: row.is_enabled,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      };
+    } else {
+      // Create new config
+      const id = randomUUID();
+      const result = await db.insert(dbSchema.powerflow_configs)
+        .values({
+          id,
+          company_id: companyId,
+          name: config.name,
+          stages: config.stages,
+          is_enabled: config.is_enabled,
+          created_at: now,
+          updated_at: now,
+        })
+        .returning();
+      
+      const row = result[0];
+      return {
+        id: row.id,
+        company_id: row.company_id,
+        name: row.name,
+        stages: row.stages as PowerFlowStage[],
+        is_enabled: row.is_enabled,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      };
+    }
+  }
+
+  async getPowerFlowAnalytics(
+    companyId: string, 
+    sheetIds: string[], 
+    stages: PowerFlowStage[], 
+    startDate: Date, 
+    endDate: Date
+  ): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> {
+    if (stages.length === 0 || sheetIds.length === 0) {
+      return { stages: [], total_leads: 0, overall_conversion_rate: 0 };
+    }
+
+    // Sort stages by order
+    const sortedStages = [...stages].sort((a, b) => a.order - b.order);
+    
+    // Count total leads created in the period
+    const totalLeadsResult = await db.select({ count: sql<number>`count(*)` })
+      .from(dbSchema.leads)
+      .where(
+        and(
+          inArray(dbSchema.leads.sheet_id, sheetIds),
+          gte(dbSchema.leads.created_at, startDate),
+          lte(dbSchema.leads.created_at, endDate),
+          isNull(dbSchema.leads.deleted_at)
+        )
+      );
+    const totalLeads = Number(totalLeadsResult[0]?.count || 0);
+
+    // For each stage, count transitions TO that stage from activity_logs
+    const stageMetrics: PowerFlowStageMetrics[] = [];
+    
+    for (let i = 0; i < sortedStages.length; i++) {
+      const stage = sortedStages[i];
+      let count = 0;
+      
+      if (i === 0) {
+        // First stage (Leads) - count total leads created
+        count = totalLeads;
+      } else {
+        // For other stages, count transitions TO the stage values
+        const valuesJson = JSON.stringify(stage.column_values);
+        
+        const transitionResult = await db.execute(sql`
+          SELECT COUNT(DISTINCT al.target_id) as count
+          FROM activity_logs al
+          CROSS JOIN LATERAL jsonb_array_elements((al.details::jsonb)->'changes') as change_elem
+          WHERE al.company_id = ${companyId}
+            AND al.sheet_id = ANY(${sheetIds})
+            AND al.action = 'lead_updated'
+            AND al.occurred_at >= ${startDate}
+            AND al.occurred_at <= ${endDate}
+            AND change_elem->>'field_key' = ${stage.column_key}
+            AND change_elem->>'new_value' = ANY(${stage.column_values})
+        `);
+        
+        count = Number((transitionResult as any)[0]?.count || 0);
+      }
+      
+      // Calculate conversion rate to next stage
+      let conversionRate = 0;
+      if (i < sortedStages.length - 1 && count > 0) {
+        // We'll calculate this after we have all counts
+        conversionRate = 0; // Placeholder
+      }
+      
+      stageMetrics.push({
+        stage_id: stage.id,
+        stage_name: stage.name,
+        count,
+        conversion_rate: conversionRate,
+        color: stage.color,
+      });
+    }
+    
+    // Calculate conversion rates (current stage -> next stage)
+    for (let i = 0; i < stageMetrics.length - 1; i++) {
+      const current = stageMetrics[i];
+      const next = stageMetrics[i + 1];
+      if (current.count > 0) {
+        current.conversion_rate = Math.round((next.count / current.count) * 100 * 10) / 10;
+      }
+    }
+    
+    // Overall conversion rate (first stage to last stage)
+    const firstStage = stageMetrics[0];
+    const lastStage = stageMetrics[stageMetrics.length - 1];
+    const overallConversionRate = firstStage?.count > 0 
+      ? Math.round((lastStage.count / firstStage.count) * 100 * 10) / 10 
+      : 0;
+
+    return {
+      stages: stageMetrics,
+      total_leads: totalLeads,
+      overall_conversion_rate: overallConversionRate,
     };
   }
 }

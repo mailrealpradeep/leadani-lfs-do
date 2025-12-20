@@ -3995,3 +3995,65 @@ export interface PowerScoreHistoryEntry {
   created_at: string;
   lead_id: string | null;
 }
+
+// ============================================================================
+// POWERFLOW (Pipeline Analytics & Simulation)
+// ============================================================================
+
+// PowerFlow Config - Company-level pipeline stage configuration
+export const powerflow_configs = pgTable('powerflow_configs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull().default('Default Pipeline'), // Pipeline name
+  stages: json('stages').$type<PowerFlowStage[]>().notNull().default([]),
+  is_enabled: boolean('is_enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export interface PowerFlowStage {
+  id: string; // Unique stage identifier
+  name: string; // Display name (e.g., "Lead", "Scheduled", "Visited", "Converted")
+  column_key: string; // Which column to track (e.g., "visit_status", "lead_status")
+  column_values: string[]; // Values that indicate this stage (e.g., ["Scheduled"])
+  order: number; // Stage order in pipeline
+  color: string; // Stage color for visualization
+}
+
+export type PowerFlowConfig = typeof powerflow_configs.$inferSelect;
+export type InsertPowerFlowConfig = typeof powerflow_configs.$inferInsert;
+
+export const insertPowerFlowConfigSchema = createInsertSchema(powerflow_configs).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertPowerFlowConfigData = z.infer<typeof insertPowerFlowConfigSchema>;
+
+// PowerFlow Analytics API Types
+export interface PowerFlowStageMetrics {
+  stage_id: string;
+  stage_name: string;
+  count: number;
+  conversion_rate: number; // Percentage converted to next stage
+  color: string;
+}
+
+export interface PowerFlowAnalytics {
+  pipeline_name: string;
+  stages: PowerFlowStageMetrics[];
+  total_leads: number;
+  overall_conversion_rate: number; // First stage to last stage
+  period: string; // e.g., "this_month", "last_7_days"
+}
+
+export interface PowerFlowSimulation {
+  target_conversions: number;
+  required_stages: {
+    stage_name: string;
+    required_count: number;
+    daily_count: number;
+  }[];
+  working_days: number;
+}
