@@ -29,9 +29,14 @@ export interface Company {
       status_column?: string; // column_key that indicates visit type (e.g., "lead_status")
       status_value?: string; // LEGACY: single value (kept for backward compatibility)
       status_values?: string[]; // NEW: array of values for multi-select (OR logic) - for SCHEDULED visits
-      visited_status_values?: string[]; // Values indicating COMPLETED visits (for Visited Calendar)
       date_column?: string; // column_key for visit date (e.g., "nfdt")
       card_columns?: string[]; // column keys to display in visit schedule card
+    };
+    site_visited_config?: {
+      status_column?: string; // column_key that indicates visit type
+      status_values?: string[]; // Values indicating COMPLETED visits
+      date_column?: string; // column_key for visit date
+      card_columns?: string[]; // column keys to display in visited calendar card
     };
     add_lead_form_fields?: {
       column_key: string;
@@ -77,7 +82,12 @@ export const insertCompanySchema = z.object({
       status_column: z.string().optional(),
       status_value: z.string().optional(), // LEGACY: kept for backward compatibility
       status_values: z.array(z.string()).optional(), // NEW: multi-select values for scheduled visits
-      visited_status_values: z.array(z.string()).optional(), // Values for completed visits
+      date_column: z.string().optional(),
+      card_columns: z.array(z.string()).optional(),
+    }).optional(),
+    site_visited_config: z.object({
+      status_column: z.string().optional(),
+      status_values: z.array(z.string()).optional(), // Values for completed visits
       date_column: z.string().optional(),
       card_columns: z.array(z.string()).optional(),
     }).optional(),

@@ -16,10 +16,9 @@ import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import type { Lead, CustomColumn } from "@shared/schema";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 
-interface SiteVisitConfig {
+interface SiteVisitedConfig {
   status_column?: string;
   status_values?: string[];
-  visited_status_values?: string[];
   date_column?: string;
   card_columns?: string[];
 }
@@ -38,7 +37,7 @@ interface EnrichedVisited extends Lead {
 
 interface VisitedResponse {
   visited: EnrichedVisited[];
-  config: SiteVisitConfig | null;
+  config: SiteVisitedConfig | null;
   total: number;
   message?: string;
 }

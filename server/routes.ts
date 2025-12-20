@@ -2806,7 +2806,7 @@ ${questionsList}`;
       }
 
       // Merge new settings with existing settings (only allow known fields)
-      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules', 'weekly_off_days'];
+      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'site_visited_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules', 'weekly_off_days'];
       const sanitizedSettings: Record<string, any> = {};
       for (const field of allowedFields) {
         if (incomingSettings[field] !== undefined) {
@@ -2972,14 +2972,14 @@ ${questionsList}`;
         return res.status(404).json({ error: "Company not found" });
       }
 
-      const siteVisitConfig = company.settings?.site_visit_config;
-      const visitedStatusValues = siteVisitConfig?.visited_status_values || [];
+      const siteVisitedConfig = company.settings?.site_visited_config;
+      const visitedStatusValues = siteVisitedConfig?.status_values || [];
       
-      if (!siteVisitConfig?.status_column || visitedStatusValues.length === 0 || !siteVisitConfig?.date_column) {
+      if (!siteVisitedConfig?.status_column || visitedStatusValues.length === 0 || !siteVisitedConfig?.date_column) {
         return res.json({ 
           visited: [], 
           config: null,
-          message: "Visited calendar configuration not set up. Please configure visited status values in Admin Console." 
+          message: "Visited calendar configuration not set up. Please configure in Admin Console > Site Visited Setting." 
         });
       }
 
@@ -2994,20 +2994,20 @@ ${questionsList}`;
       }
 
       if (accessibleSheetIds.length === 0) {
-        return res.json({ visited: [], config: siteVisitConfig });
+        return res.json({ visited: [], config: siteVisitedConfig });
       }
 
       const startDate = req.query.start_date as string | undefined;
       const endDate = req.query.end_date as string | undefined;
 
       const filters: Record<string, any> = {
-        [siteVisitConfig.status_column]: visitedStatusValues.length === 1
+        [siteVisitedConfig.status_column]: visitedStatusValues.length === 1
           ? { value: visitedStatusValues[0], exactMatch: true }
           : { values: visitedStatusValues, operator: 'in' },
       };
 
       if (startDate && endDate) {
-        filters[siteVisitConfig.date_column] = {
+        filters[siteVisitedConfig.date_column] = {
           from: startDate,
           to: endDate,
         };
@@ -3017,7 +3017,7 @@ ${questionsList}`;
         sheetIds: accessibleSheetIds,
         page: 1,
         limit: 1000,
-        sortBy: siteVisitConfig.date_column,
+        sortBy: siteVisitedConfig.date_column,
         sortOrder: 'asc',
         filters,
       });
@@ -3058,7 +3058,7 @@ ${questionsList}`;
 
       res.json({ 
         visited: enrichedVisited, 
-        config: siteVisitConfig,
+        config: siteVisitedConfig,
         total: result.total,
       });
     } catch (error: any) {

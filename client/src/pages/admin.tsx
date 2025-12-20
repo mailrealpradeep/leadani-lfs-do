@@ -30,6 +30,7 @@ import { CompanyColumnManager } from "@/components/company-column-manager";
 import { QuickFilterManager } from "@/components/quick-filter-manager";
 import { MobileCardSettings } from "@/components/mobile-card-settings";
 import { SiteVisitSettings } from "@/components/site-visit-settings";
+import { SiteVisitedSettings } from "@/components/site-visited-settings";
 import { NotificationSettings } from "@/components/notification-settings";
 import { HighlightingRulesManager } from "@/components/highlighting-rules-manager";
 import { KpiManagement } from "@/components/kpi-management";
@@ -917,7 +918,7 @@ function CompanyAdminView() {
                 <div className="text-left">
                   <div className="font-semibold">Site Visit Schedules</div>
                   <div className="text-sm text-muted-foreground font-normal">
-                    Configure how site visits are tracked and displayed
+                    Configure how scheduled site visits are tracked
                   </div>
                 </div>
               </div>
@@ -925,6 +926,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <SiteVisitSettings headless />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="site-visited" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-site-visited">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                <div className="text-left">
+                  <div className="font-semibold">Site Visited Setting</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure how completed visits are displayed
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <SiteVisitedSettings headless />
               </div>
             </AccordionContent>
           </AccordionItem>

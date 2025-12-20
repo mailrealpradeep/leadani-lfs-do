@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { GripVertical, Calendar, MapPin, Save, Info } from "lucide-react";
+import { GripVertical, CheckCircle2, Save, Info } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -28,16 +28,15 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-interface SiteVisitConfig {
+interface SiteVisitedConfig {
   status_column?: string;
-  status_value?: string; // Legacy single value
-  status_values?: string[]; // New multi-select values for scheduled visits
+  status_values?: string[];
   date_column?: string;
   card_columns?: string[];
 }
 
 interface CompanySettings {
-  site_visit_config?: SiteVisitConfig;
+  site_visited_config?: SiteVisitedConfig;
   [key: string]: any;
 }
 
@@ -70,7 +69,7 @@ function SortableColumnItem({
       ref={setNodeRef}
       style={style}
       className={`flex items-center gap-3 p-3 border rounded-md ${
-        isSelected ? "bg-primary/5 border-primary" : "bg-background"
+        isSelected ? "bg-green-500/5 border-green-500" : "bg-background"
       }`}
     >
       <div
@@ -81,13 +80,13 @@ function SortableColumnItem({
         <GripVertical className="h-4 w-4 text-muted-foreground" />
       </div>
       <Checkbox
-        id={`visit-col-${column.column_key}`}
+        id={`visited-col-${column.column_key}`}
         checked={isSelected}
         onCheckedChange={onToggle}
-        data-testid={`checkbox-visit-col-${column.column_key}`}
+        data-testid={`checkbox-visited-col-${column.column_key}`}
       />
       <Label 
-        htmlFor={`visit-col-${column.column_key}`}
+        htmlFor={`visited-col-${column.column_key}`}
         className="flex-1 cursor-pointer"
       >
         {column.name}
@@ -99,14 +98,14 @@ function SortableColumnItem({
   );
 }
 
-interface SiteVisitSettingsProps {
+interface SiteVisitedSettingsProps {
   headless?: boolean;
 }
 
-export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) {
+export function SiteVisitedSettings({ headless = false }: SiteVisitedSettingsProps) {
   const { toast } = useToast();
   const [statusColumn, setStatusColumn] = useState<string>("");
-  const [statusValues, setStatusValues] = useState<Set<string>>(new Set()); // Multi-select values for scheduled visits
+  const [statusValues, setStatusValues] = useState<Set<string>>(new Set());
   const [dateColumn, setDateColumn] = useState<string>("");
   const [selectedColumnKeys, setSelectedColumnKeys] = useState<Set<string>>(new Set());
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -150,7 +149,7 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
     [sortedColumns]
   );
 
-  const serverConfig = settingsData?.settings?.site_visit_config;
+  const serverConfig = settingsData?.settings?.site_visited_config;
   const serverStateKey = JSON.stringify(serverConfig || {});
 
   useEffect(() => {
@@ -163,11 +162,7 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
       
       if (serverConfig) {
         setStatusColumn(serverConfig.status_column || "");
-        // Load status_values (new) or fallback to status_value (legacy)
-        const loadedValues = serverConfig.status_values?.length 
-          ? serverConfig.status_values 
-          : (serverConfig.status_value ? [serverConfig.status_value] : []);
-        setStatusValues(new Set(loadedValues));
+        setStatusValues(new Set(serverConfig.status_values || []));
         setDateColumn(serverConfig.date_column || "");
         
         if (serverConfig.card_columns && serverConfig.card_columns.length > 0) {
@@ -232,12 +227,12 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
   };
 
   const updateMutation = useMutation({
-    mutationFn: async (config: SiteVisitConfig) => {
+    mutationFn: async (config: SiteVisitedConfig) => {
       const currentSettings = settingsData?.settings || {};
       return await apiRequest("PATCH", "/api/admin/company/settings", {
         settings: {
           ...currentSettings,
-          site_visit_config: config,
+          site_visited_config: config,
         },
       });
     },
@@ -245,7 +240,7 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
       queryClient.invalidateQueries({ queryKey: ["/api/admin/company/settings"] });
       toast({
         title: "Settings saved",
-        description: "Site visit configuration updated successfully",
+        description: "Site visited configuration updated successfully",
       });
     },
     onError: (error: any) => {
@@ -286,17 +281,17 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
 
   const content = (
     <div className="space-y-6">
-      <Alert>
-        <Info className="h-4 w-4" />
+      <Alert className="border-green-500/50 bg-green-500/5">
+        <Info className="h-4 w-4 text-green-600" />
         <AlertDescription>
-          Configure which leads appear in the Visit Schedules page. Select a status column and the values that indicate a scheduled visit, plus the date column.
+          Configure which leads appear in the Visited Calendar page. Select a status column and the values that indicate a completed visit, plus the date column.
         </AlertDescription>
       </Alert>
 
       <div className="space-y-2">
         <Label>Status Column</Label>
         <Select value={statusColumn} onValueChange={(val) => { setStatusColumn(val); setStatusValues(new Set()); }}>
-          <SelectTrigger className="max-w-sm" data-testid="select-status-column">
+          <SelectTrigger className="max-w-sm" data-testid="select-visited-status-column">
             <SelectValue placeholder="Select a dropdown column" />
           </SelectTrigger>
           <SelectContent>
@@ -308,12 +303,12 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          Which column indicates the lead type/status
+          Which column indicates if a visit was completed
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label>Visit Values</Label>
+        <Label>Visited Status Values</Label>
         {!statusColumn ? (
           <p className="text-sm text-muted-foreground py-2">Select a status column first</p>
         ) : dropdownOptions.length === 0 ? (
@@ -324,17 +319,17 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
               <div 
                 key={opt} 
                 className={`flex items-center gap-2 p-2 border rounded-md cursor-pointer transition-colors ${
-                  statusValues.has(opt) ? "bg-primary/10 border-primary" : "hover:bg-muted"
+                  statusValues.has(opt) ? "bg-green-500/10 border-green-500" : "hover:bg-muted"
                 }`}
                 onClick={() => toggleStatusValue(opt)}
               >
                 <Checkbox
-                  id={`visit-value-${opt}`}
+                  id={`visited-value-${opt}`}
                   checked={statusValues.has(opt)}
                   onCheckedChange={() => toggleStatusValue(opt)}
-                  data-testid={`checkbox-visit-value-${opt}`}
+                  data-testid={`checkbox-visited-value-${opt}`}
                 />
-                <Label htmlFor={`visit-value-${opt}`} className="cursor-pointer text-sm flex-1">
+                <Label htmlFor={`visited-value-${opt}`} className="cursor-pointer text-sm flex-1">
                   {opt}
                 </Label>
               </div>
@@ -342,14 +337,14 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Select one or more values that indicate a scheduled visit. Leads matching any selected value will appear in Visit Schedules.
+          Select one or more values that indicate a completed visit (e.g., "Visited", "Done"). Leads matching any selected value will appear in Visited Calendar.
         </p>
       </div>
 
       <div className="space-y-2">
         <Label>Visit Date Column</Label>
         <Select value={dateColumn} onValueChange={setDateColumn}>
-          <SelectTrigger className="max-w-sm" data-testid="select-date-column">
+          <SelectTrigger className="max-w-sm" data-testid="select-visited-date-column">
             <SelectValue placeholder="Select a date column" />
           </SelectTrigger>
           <SelectContent>
@@ -361,15 +356,15 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          Which column contains the scheduled visit date
+          Which column contains the visit date for grouping in the calendar
         </p>
       </div>
 
       <div className="space-y-3">
         <div>
-          <Label>Visit Card Display Columns</Label>
+          <Label>Visited Card Display Columns</Label>
           <p className="text-xs text-muted-foreground mt-1">
-            Select and order columns to show on visit schedule cards. Drag to reorder.
+            Select and order columns to show on visited calendar cards. Drag to reorder.
           </p>
         </div>
 
@@ -404,12 +399,12 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
 
       <div className="flex items-center justify-between pt-2 border-t">
         <div className="text-sm text-muted-foreground">
-          {selectedColumnKeys.size} columns selected for visit cards
+          {selectedColumnKeys.size} columns selected for visited cards
         </div>
         <Button 
           onClick={handleSave} 
           disabled={updateMutation.isPending}
-          data-testid="button-save-visit-settings"
+          data-testid="button-save-visited-settings"
         >
           <Save className="h-4 w-4 mr-2" />
           {updateMutation.isPending ? "Saving..." : "Save Settings"}
@@ -419,7 +414,7 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
       {!isConfigured && statusColumn && (
         <Alert variant="destructive">
           <AlertDescription>
-            Please complete all required fields (Status Column, Visit Values, and Visit Date Column) to enable the Visit Schedules feature.
+            Please complete all required fields (Status Column, Visited Status Values, and Visit Date Column) to enable the Visited Calendar feature.
           </AlertDescription>
         </Alert>
       )}
@@ -434,11 +429,11 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <MapPin className="h-5 w-5" />
-          Visit Schedule Settings
+          <CheckCircle2 className="h-5 w-5 text-green-600" />
+          Site Visited Settings
         </CardTitle>
         <CardDescription>
-          Configure how visits are identified and displayed in the Visit Schedules page
+          Configure how completed visits are identified and displayed in the Visited Calendar page
         </CardDescription>
       </CardHeader>
       <CardContent>
