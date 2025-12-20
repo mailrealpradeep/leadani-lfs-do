@@ -18968,12 +18968,12 @@ ${questionsList}`;
       
       // Only compute per-sheet when viewing all sheets and user has multiple sheets
       const isViewingAllSheets = !sheet_id;
-      const allAccessibleSheetIds = accessibleSheets.map(s => s.id);
+      const allAccessibleSheetIds = userAccessibleSheets.map(s => s.id);
       
       if (isViewingAllSheets && allAccessibleSheetIds.length > 1) {
         // Get sheet names for display
         const sheetsMap = new Map<string, string>();
-        for (const sheet of accessibleSheets) {
+        for (const sheet of userAccessibleSheets) {
           sheetsMap.set(sheet.id, sheet.name);
         }
         
