@@ -76,19 +76,19 @@ export default function PowerFlow() {
     queryKey: ["/api/powerflow/config"],
   });
 
-  // Fetch analytics data
+  // Fetch analytics data for Analytics tab - ALWAYS uses user's accessible sheets
   const { 
     data: analytics, 
     isLoading: analyticsLoading,
     isError: analyticsError,
     refetch: refetchAnalytics,
   } = useQuery<PowerFlowAnalyticsResponse>({
-    queryKey: ["/api/powerflow/analytics", period, selectedSheetId, useCompanyData],
+    queryKey: ["/api/powerflow/analytics", period, selectedSheetId, "user"],
     queryFn: async () => {
       const sheetParam = selectedSheetId === "all" ? "" : `&sheet_id=${selectedSheetId}`;
-      const personalDataParam = useCompanyData ? "" : "&use_personal_data=true";
+      // Analytics tab ALWAYS uses user's data (their accessible sheets)
       const token = localStorage.getItem("auth_token");
-      const res = await fetch(`/api/powerflow/analytics?period=${period}${sheetParam}${personalDataParam}`, {
+      const res = await fetch(`/api/powerflow/analytics?period=${period}${sheetParam}&use_personal_data=true`, {
         credentials: "include",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
@@ -100,14 +100,37 @@ export default function PowerFlow() {
     enabled: !!config?.is_enabled,
   });
 
-  // Simulation calculation
+  // Fetch analytics data for Simulator tab - respects Company/Personal toggle
+  const { 
+    data: simulatorAnalytics, 
+    isLoading: simulatorLoading,
+  } = useQuery<PowerFlowAnalyticsResponse>({
+    queryKey: ["/api/powerflow/analytics", period, selectedSheetId, useCompanyData ? "company" : "user"],
+    queryFn: async () => {
+      const sheetParam = selectedSheetId === "all" ? "" : `&sheet_id=${selectedSheetId}`;
+      // Simulator respects toggle: Company Data = no personal filter, Own Data = personal filter
+      const personalDataParam = useCompanyData ? "" : "&use_personal_data=true";
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch(`/api/powerflow/analytics?period=${period}${sheetParam}${personalDataParam}`, {
+        credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+      if (!res.ok) throw new Error("Failed to fetch simulator analytics");
+      return res.json();
+    },
+    enabled: !!config?.is_enabled && activeTab === "simulator",
+  });
+
+  // Simulation calculation - uses simulatorAnalytics which respects Company/Personal toggle
   const simulationResult = useMemo((): SimulationResult | null => {
-    if (!analytics?.stages || analytics.stages.length < 2) return null;
+    if (!simulatorAnalytics?.stages || simulatorAnalytics.stages.length < 2) return null;
     
     const target = targetConversions || 0;
     if (target <= 0) return null;
 
-    const stages = [...analytics.stages];
+    const stages = [...simulatorAnalytics.stages];
     const required: { stage_name: string; required_count: number; color: string; conversion_rate: number }[] = [];
     
     // Start from the last stage and work backward
@@ -143,7 +166,7 @@ export default function PowerFlow() {
       target_conversions: target,
       required_by_stage: required,
     };
-  }, [analytics, targetConversions]);
+  }, [simulatorAnalytics, targetConversions]);
 
   if (configLoading) {
     return (
