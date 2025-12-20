@@ -2960,6 +2960,113 @@ ${questionsList}`;
     }
   });
 
+  // Visited Calendar - Get leads with completed visit statuses
+  app.get("/api/visited", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      const siteVisitConfig = company.settings?.site_visit_config;
+      const visitedStatusValues = siteVisitConfig?.visited_status_values || [];
+      
+      if (!siteVisitConfig?.status_column || visitedStatusValues.length === 0 || !siteVisitConfig?.date_column) {
+        return res.json({ 
+          visited: [], 
+          config: null,
+          message: "Visited calendar configuration not set up. Please configure visited status values in Admin Console." 
+        });
+      }
+
+      let accessibleSheetIds: string[] = [];
+      
+      if (req.userRole === "super_admin" || req.userRole === "company_admin") {
+        const allSheets = await storage.getSheetsByCompanyId(req.companyId);
+        accessibleSheetIds = allSheets.filter(s => !s.deleted_at).map(s => s.id);
+      } else {
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        accessibleSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
+      }
+
+      if (accessibleSheetIds.length === 0) {
+        return res.json({ visited: [], config: siteVisitConfig });
+      }
+
+      const startDate = req.query.start_date as string | undefined;
+      const endDate = req.query.end_date as string | undefined;
+
+      const filters: Record<string, any> = {
+        [siteVisitConfig.status_column]: visitedStatusValues.length === 1
+          ? { value: visitedStatusValues[0], exactMatch: true }
+          : { values: visitedStatusValues, operator: 'in' },
+      };
+
+      if (startDate && endDate) {
+        filters[siteVisitConfig.date_column] = {
+          from: startDate,
+          to: endDate,
+        };
+      }
+
+      const result = await storage.getLeadsBySheetIds({
+        sheetIds: accessibleSheetIds,
+        page: 1,
+        limit: 1000,
+        sortBy: siteVisitConfig.date_column,
+        sortOrder: 'asc',
+        filters,
+      });
+
+      const allSheets = await storage.getSheetsByCompanyId(req.companyId);
+      const sheetMap: Record<string, string> = {};
+      for (const sheet of allSheets) {
+        sheetMap[sheet.id] = sheet.name;
+      }
+
+      const userIds = [...new Set(result.leads.map(l => l.owner_user_id).filter(Boolean))];
+      const users = await Promise.all(userIds.map(id => storage.getUser(id)));
+      const userMap: Record<string, string> = {};
+      for (const user of users) {
+        if (user) {
+          userMap[user.id] = user.name;
+        }
+      }
+
+      const leadIds = result.leads.map(l => l.id);
+      const lastUpdatesMap = await storage.getLastUpdatesForLeads(leadIds);
+
+      const enrichedVisited = result.leads.map(lead => {
+        const lastUpdate = lastUpdatesMap.get(lead.id);
+        return {
+          ...lead,
+          sheet_name: sheetMap[lead.sheet_id] || 'Unknown Sheet',
+          owner_name: lead.owner_user_id ? (userMap[lead.owner_user_id] || 'Unknown') : 'Unassigned',
+          last_update: lastUpdate ? {
+            created_at: lastUpdate.created_at,
+            remark: lastUpdate.remark || null,
+            created_by_name: (lastUpdate as any).created_by_first_name || null,
+          } : null,
+          current_lead_status: lead.status || null,
+          next_followup_date: lead.nfdt || null,
+        };
+      });
+
+      res.json({ 
+        visited: enrichedVisited, 
+        config: siteVisitConfig,
+        total: result.total,
+      });
+    } catch (error: any) {
+      console.error("Get visited error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // USER MANAGEMENT (Company Admin)
   // ============================================================================

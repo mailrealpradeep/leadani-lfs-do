@@ -45,6 +45,7 @@ import Features from "@/pages/features";
 import Help from "@/pages/help";
 import Guide from "@/pages/guide";
 import Visits from "@/pages/visits";
+import Visited from "@/pages/visited";
 import HotLeads from "@/pages/hot-leads";
 import CustomViewPage from "@/pages/custom-view";
 import Plan from "@/pages/plan";
@@ -136,6 +137,9 @@ function Router() {
       </Route>
       <Route path="/visits">
         {() => <ProtectedRoute component={Visits} />}
+      </Route>
+      <Route path="/visited">
+        {() => <ProtectedRoute component={Visited} />}
       </Route>
       <Route path="/hot-leads">
         {() => <ProtectedRoute component={HotLeads} />}

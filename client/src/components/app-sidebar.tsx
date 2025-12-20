@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon, Sparkles, GitBranchPlus } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, CheckCircle2, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon, Sparkles, GitBranchPlus } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -292,6 +292,12 @@ export function AppSidebar() {
       url: "/visits",
       icon: MapPin,
       testId: "link-visits",
+    },
+    {
+      title: "Visited Calendar",
+      url: "/visited",
+      icon: CheckCircle2,
+      testId: "link-visited",
     },
     // HOT LEADS FEATURE HIDDEN - Dec 2025
     // Reason: Functionality is covered by Custom Views feature

@@ -31,7 +31,8 @@ import { CSS } from "@dnd-kit/utilities";
 interface SiteVisitConfig {
   status_column?: string;
   status_value?: string; // Legacy single value
-  status_values?: string[]; // New multi-select values
+  status_values?: string[]; // New multi-select values for scheduled visits
+  visited_status_values?: string[]; // Values for completed visits (Visited Calendar)
   date_column?: string;
   card_columns?: string[];
 }
@@ -106,7 +107,8 @@ interface SiteVisitSettingsProps {
 export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) {
   const { toast } = useToast();
   const [statusColumn, setStatusColumn] = useState<string>("");
-  const [statusValues, setStatusValues] = useState<Set<string>>(new Set()); // Multi-select values
+  const [statusValues, setStatusValues] = useState<Set<string>>(new Set()); // Multi-select values for scheduled visits
+  const [visitedStatusValues, setVisitedStatusValues] = useState<Set<string>>(new Set()); // Values for completed visits
   const [dateColumn, setDateColumn] = useState<string>("");
   const [selectedColumnKeys, setSelectedColumnKeys] = useState<Set<string>>(new Set());
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -168,6 +170,8 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
           ? serverConfig.status_values 
           : (serverConfig.status_value ? [serverConfig.status_value] : []);
         setStatusValues(new Set(loadedValues));
+        // Load visited_status_values
+        setVisitedStatusValues(new Set(serverConfig.visited_status_values || []));
         setDateColumn(serverConfig.date_column || "");
         
         if (serverConfig.card_columns && serverConfig.card_columns.length > 0) {
@@ -269,13 +273,27 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
     });
   };
 
+  const toggleVisitedStatusValue = (value: string) => {
+    setVisitedStatusValues(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) {
+        next.delete(value);
+      } else {
+        next.add(value);
+      }
+      return next;
+    });
+  };
+
   const handleSave = () => {
     const orderedSelectedColumns = columnOrder.filter(key => selectedColumnKeys.has(key));
     const statusValuesArray = Array.from(statusValues);
+    const visitedStatusValuesArray = Array.from(visitedStatusValues);
     
     updateMutation.mutate({
       status_column: statusColumn || undefined,
       status_values: statusValuesArray.length > 0 ? statusValuesArray : undefined,
+      visited_status_values: visitedStatusValuesArray.length > 0 ? visitedStatusValuesArray : undefined,
       date_column: dateColumn || undefined,
       card_columns: orderedSelectedColumns.length > 0 ? orderedSelectedColumns : undefined,
     });
@@ -295,7 +313,7 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
 
       <div className="space-y-2">
         <Label>Status Column</Label>
-        <Select value={statusColumn} onValueChange={(val) => { setStatusColumn(val); setStatusValues(new Set()); }}>
+        <Select value={statusColumn} onValueChange={(val) => { setStatusColumn(val); setStatusValues(new Set()); setVisitedStatusValues(new Set()); }}>
           <SelectTrigger className="max-w-sm" data-testid="select-status-column">
             <SelectValue placeholder="Select a dropdown column" />
           </SelectTrigger>
@@ -342,7 +360,41 @@ export function SiteVisitSettings({ headless = false }: SiteVisitSettingsProps) 
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Select one or more values that indicate a scheduled visit. Leads matching any selected value will appear.
+          Select one or more values that indicate a scheduled visit. Leads matching any selected value will appear in Visit Schedules.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Visited Status Values (for Visited Calendar)</Label>
+        {!statusColumn ? (
+          <p className="text-sm text-muted-foreground py-2">Select a status column first</p>
+        ) : dropdownOptions.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">No options available for this column</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {dropdownOptions.map(opt => (
+              <div 
+                key={`visited-${opt}`} 
+                className={`flex items-center gap-2 p-2 border rounded-md cursor-pointer transition-colors ${
+                  visitedStatusValues.has(opt) ? "bg-green-500/10 border-green-500" : "hover:bg-muted"
+                }`}
+                onClick={() => toggleVisitedStatusValue(opt)}
+              >
+                <Checkbox
+                  id={`visited-value-${opt}`}
+                  checked={visitedStatusValues.has(opt)}
+                  onCheckedChange={() => toggleVisitedStatusValue(opt)}
+                  data-testid={`checkbox-visited-value-${opt}`}
+                />
+                <Label htmlFor={`visited-value-${opt}`} className="cursor-pointer text-sm flex-1">
+                  {opt}
+                </Label>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Select values that indicate a completed visit (e.g., "Visited", "Done"). These will appear in the Visited Calendar.
         </p>
       </div>
 
