@@ -66,6 +66,14 @@ The system features a customizable grid interface with dynamic column management
     - ChampionCard (#1), PodiumCard (#2-3), ContenderGrid (#4+) component hierarchy
     - Personal stats with today vs yesterday and week vs week percentage comparisons
     - Backfill script (`server/powerscore-backfill.ts`) to retroactively award points from historical lead updates. Usage: `npx tsx server/powerscore-backfill.ts <company_id>`. Detects existing backfill data and prevents duplicate runs (use `--force` to override).
+*   **PowerFlow (Pipeline Analytics)**: Visual funnel analytics showing lead progression through configurable pipeline stages. Features include:
+    - Company-configurable pipeline stages stored in `powerflow_configs` table (column_key, column_values, display order, colors)
+    - Automatic stage counting using existing `activity_logs` data (zero new data collection required)
+    - Conversion rate calculations between consecutive stages
+    - Period-based filtering (today, yesterday, this_week, this_month, last_month, last_30_days)
+    - Sheet-level access control respecting user permissions
+    - **Backward Simulation Calculator**: Input target conversions (e.g., "I want 10 conversions") and calculate required leads/visits/schedules based on historical conversion rates
+    - Timezone-aware date boundaries using `toZonedTime`/`fromZonedTime` with date-fns for accurate analytics across all company timezones
 
 ### Security
 
