@@ -3263,7 +3263,7 @@ ${questionsList}`;
         return res.status(404).json({ error: "Assignment not found" });
       }
       
-      await storage.updateSheetUserRole(sheetUser.id, role);
+      await storage.updateSheetUser(sheetUser.id, { role });
       
       // Audit log
       await storage.createAuditLog({
