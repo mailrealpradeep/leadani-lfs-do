@@ -801,7 +801,7 @@ export interface IStorage {
   // PowerFlow (Pipeline Analytics)
   getPowerFlowConfig(companyId: string): Promise<PowerFlowConfig | null>;
   savePowerFlowConfig(companyId: string, config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig>;
-  getPowerFlowAnalytics(companyId: string, sheetIds: string[], stages: PowerFlowStage[], startDate: Date, endDate: Date): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }>;
+  getPowerFlowAnalytics(companyId: string, sheetIds: string[], stages: PowerFlowStage[], startDate: Date, endDate: Date, timezone: string): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }>;
 }
 
 export class MemStorage implements IStorage {
@@ -3068,7 +3068,7 @@ export class MemStorage implements IStorage {
   // PowerFlow (Pipeline Analytics) - stubs
   async getPowerFlowConfig(_companyId: string): Promise<PowerFlowConfig | null> { return null; }
   async savePowerFlowConfig(_companyId: string, _config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig> { throw new Error("PowerFlow not implemented in MemStorage"); }
-  async getPowerFlowAnalytics(_companyId: string, _sheetIds: string[], _stages: PowerFlowStage[], _startDate: Date, _endDate: Date): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> { return { stages: [], total_leads: 0, overall_conversion_rate: 0 }; }
+  async getPowerFlowAnalytics(_companyId: string, _sheetIds: string[], _stages: PowerFlowStage[], _startDate: Date, _endDate: Date, _timezone: string): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> { return { stages: [], total_leads: 0, overall_conversion_rate: 0 }; }
 }
 
 // ============================================================================
@@ -8891,7 +8891,8 @@ export class PgStorage implements IStorage {
     sheetIds: string[], 
     stages: PowerFlowStage[], 
     startDate: Date, 
-    endDate: Date
+    endDate: Date,
+    timezone: string
   ): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> {
     if (stages.length === 0 || sheetIds.length === 0) {
       return { stages: [], total_leads: 0, overall_conversion_rate: 0 };
@@ -8913,6 +8914,20 @@ export class PgStorage implements IStorage {
       );
     const totalLeads = Number(totalLeadsResult[0]?.count || 0);
 
+    // Helper to detect time window filtering based on stage column_values
+    // - "Scheduled" (case-insensitive) → SNAPSHOT: count leads with status at 6am (before work starts)
+    // - "Visited" (case-insensitive) → TRANSITIONS: count transitions between 6am-9pm (working hours)
+    const getTimeWindowFilter = (columnValues: string[]): 'snapshot_at_6am' | 'between_6am_9pm' | 'all' => {
+      const lowerValues = columnValues.map(v => v.toLowerCase());
+      if (lowerValues.some(v => v.includes('scheduled') || v.includes('appointment'))) {
+        return 'snapshot_at_6am';
+      }
+      if (lowerValues.some(v => v.includes('visited') || v.includes('completed'))) {
+        return 'between_6am_9pm';
+      }
+      return 'all';
+    };
+
     // For each stage, count transitions TO that stage from activity_logs
     const stageMetrics: PowerFlowStageMetrics[] = [];
     
@@ -8930,23 +8945,75 @@ export class PgStorage implements IStorage {
         if (columnValueStrings.length === 0 || sheetIds.length === 0) {
           count = 0;
         } else {
+          // Determine time window filter for this stage
+          const timeWindow = getTimeWindowFilter(columnValueStrings);
+          
           // Use sql.join to create proper IN clauses instead of ANY with arrays
-          // This avoids PostgreSQL array type issues with drizzle's sql template
           const sheetIdPlaceholders = sql.join(sheetIds.map(id => sql`${id}`), sql`, `);
           const columnValuePlaceholders = sql.join(columnValueStrings.map(v => sql`${v}`), sql`, `);
           
-          const transitionResult = await db.execute(sql`
-            SELECT COUNT(DISTINCT al.target_id) as count
-            FROM activity_logs al
-            CROSS JOIN LATERAL jsonb_array_elements((al.details::jsonb)->'changes') as change_elem
-            WHERE al.company_id = ${companyId}
-              AND al.sheet_id IN (${sheetIdPlaceholders})
-              AND al.action = 'lead_updated'
-              AND al.occurred_at >= ${startDate}
-              AND al.occurred_at <= ${endDate}
-              AND change_elem->>'field_key' = ${stage.column_key}
-              AND change_elem->>'new_value' IN (${columnValuePlaceholders})
-          `);
+          let transitionResult;
+          
+          if (timeWindow === 'snapshot_at_6am') {
+            // SNAPSHOT LOGIC: Count leads that had status 'Scheduled' at 6am on ANY day in the period
+            // For each day in the period, find leads whose LAST status change before that day's 6am was 'Scheduled'
+            // This correctly represents: "at 6am on day X, how many leads had status = Scheduled"
+            // Using generate_series to create day buckets, then DISTINCT ON for each day's snapshot
+            transitionResult = await db.execute(sql`
+              SELECT COUNT(DISTINCT target_id) as count FROM (
+                SELECT last_status.target_id
+                FROM generate_series(
+                  (${startDate}::timestamp AT TIME ZONE ${timezone})::date,
+                  (${endDate}::timestamp AT TIME ZONE ${timezone})::date,
+                  '1 day'::interval
+                ) as d(day)
+                CROSS JOIN LATERAL (
+                  SELECT DISTINCT ON (al.target_id) 
+                         al.target_id,
+                         change_elem->>'new_value' as status_at_6am
+                  FROM activity_logs al
+                  CROSS JOIN LATERAL jsonb_array_elements((al.details::jsonb)->'changes') as change_elem
+                  WHERE al.company_id = ${companyId}
+                    AND al.sheet_id IN (${sheetIdPlaceholders})
+                    AND al.action = 'lead_updated'
+                    AND change_elem->>'field_key' = ${stage.column_key}
+                    AND al.occurred_at < (d.day + interval '6 hours') AT TIME ZONE ${timezone}
+                  ORDER BY al.target_id, al.occurred_at DESC
+                ) last_status
+                WHERE last_status.status_at_6am IN (${columnValuePlaceholders})
+              ) all_leads
+            `);
+          } else if (timeWindow === 'between_6am_9pm') {
+            // TRANSITION LOGIC: Count transitions during working hours (6am-9pm)
+            transitionResult = await db.execute(sql`
+              SELECT COUNT(DISTINCT al.target_id) as count
+              FROM activity_logs al
+              CROSS JOIN LATERAL jsonb_array_elements((al.details::jsonb)->'changes') as change_elem
+              WHERE al.company_id = ${companyId}
+                AND al.sheet_id IN (${sheetIdPlaceholders})
+                AND al.action = 'lead_updated'
+                AND al.occurred_at >= ${startDate}
+                AND al.occurred_at <= ${endDate}
+                AND change_elem->>'field_key' = ${stage.column_key}
+                AND change_elem->>'new_value' IN (${columnValuePlaceholders})
+                AND EXTRACT(HOUR FROM al.occurred_at AT TIME ZONE ${timezone}) >= 6
+                AND EXTRACT(HOUR FROM al.occurred_at AT TIME ZONE ${timezone}) < 21
+            `);
+          } else {
+            // ALL TRANSITIONS: Count all transitions regardless of time
+            transitionResult = await db.execute(sql`
+              SELECT COUNT(DISTINCT al.target_id) as count
+              FROM activity_logs al
+              CROSS JOIN LATERAL jsonb_array_elements((al.details::jsonb)->'changes') as change_elem
+              WHERE al.company_id = ${companyId}
+                AND al.sheet_id IN (${sheetIdPlaceholders})
+                AND al.action = 'lead_updated'
+                AND al.occurred_at >= ${startDate}
+                AND al.occurred_at <= ${endDate}
+                AND change_elem->>'field_key' = ${stage.column_key}
+                AND change_elem->>'new_value' IN (${columnValuePlaceholders})
+            `);
+          }
           
           // Handle both array result and { rows: [] } result structure from db.execute
           const resultRows = (transitionResult as any).rows ?? transitionResult;
