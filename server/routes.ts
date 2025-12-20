@@ -18833,7 +18833,7 @@ ${questionsList}`;
       if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
         accessibleSheets = [];
         for (const sheet of allSheets) {
-          if (await hasSheetAccess(req.userId!, sheet.id)) {
+          if (await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, sheet.id)) {
             accessibleSheets.push(sheet);
           }
         }
@@ -18969,7 +18969,7 @@ ${questionsList}`;
       if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
         accessibleSheets = [];
         for (const sheet of allSheets) {
-          if (await hasSheetAccess(req.userId!, sheet.id)) {
+          if (await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, sheet.id)) {
             accessibleSheets.push(sheet);
           }
         }
@@ -19066,7 +19066,7 @@ ${questionsList}`;
       if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
         accessibleSheets = [];
         for (const sheet of allSheets) {
-          if (await hasSheetAccess(req.userId!, sheet.id)) {
+          if (await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, sheet.id)) {
             accessibleSheets.push(sheet);
           }
         }
