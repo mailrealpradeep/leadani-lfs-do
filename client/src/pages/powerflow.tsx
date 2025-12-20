@@ -443,78 +443,79 @@ export default function PowerFlow() {
 
               {/* Per-Sheet Analytics Breakdown */}
               {analytics.per_sheet_analytics && analytics.per_sheet_analytics.length > 0 && (
-                <div className="space-y-4 mt-8">
+                <div className="space-y-6 mt-8">
                   <div className="flex items-center gap-2">
                     <BarChart3 className="h-5 w-5 text-muted-foreground" />
                     <h3 className="text-lg font-semibold">Per-Sheet Breakdown</h3>
                     <Badge variant="secondary">{analytics.per_sheet_analytics.length} sheets</Badge>
                   </div>
                   
-                  <div className="space-y-4">
+                  <div className="space-y-8">
                     {analytics.per_sheet_analytics.map((sheetData) => (
                       <motion.div
                         key={sheetData.sheet_id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         data-testid={`sheet-analytics-${sheetData.sheet_id}`}
+                        className="space-y-4"
                       >
-                        <Card>
-                          <CardHeader className="pb-2">
-                            <CardTitle className="text-base flex items-center justify-between gap-2 flex-wrap">
-                              <span className="flex items-center gap-2">
-                                <Users className="h-4 w-4 text-muted-foreground" />
-                                {sheetData.sheet_name}
-                              </span>
-                              <div className="flex items-center gap-4 text-sm">
-                                <span className="text-muted-foreground">
-                                  <span className="font-medium text-foreground">{sheetData.total_leads.toLocaleString()}</span> leads
-                                </span>
-                                <Badge variant="outline">
-                                  {sheetData.overall_conversion_rate}% overall
-                                </Badge>
-                              </div>
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                              {sheetData.stages.slice(0, -1).map((stage, idx) => {
-                                const nextStage = sheetData.stages[idx + 1];
-                                return (
-                                  <div
-                                    key={stage.stage_id}
-                                    className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
-                                  >
-                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {/* Sheet Header */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="flex items-center gap-2 text-base font-semibold">
+                            <Users className="h-4 w-4 text-muted-foreground" />
+                            {sheetData.sheet_name}
+                          </span>
+                          <div className="flex items-center gap-4 text-sm">
+                            <span className="text-muted-foreground">
+                              <span className="font-medium text-foreground">{sheetData.total_leads.toLocaleString()}</span> leads
+                            </span>
+                            <Badge variant="outline">
+                              {sheetData.overall_conversion_rate}% overall
+                            </Badge>
+                          </div>
+                        </div>
+                        
+                        {/* Conversion Cards Grid - matching main card style */}
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                          {sheetData.stages.slice(0, -1).map((stage, idx) => {
+                            const nextStage = sheetData.stages[idx + 1];
+                            return (
+                              <Card key={stage.stage_id}>
+                                <CardContent className="pt-6">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
                                       <div
-                                        className="w-2 h-2 rounded-full flex-shrink-0"
+                                        className="w-3 h-3 rounded-full"
                                         style={{ backgroundColor: stage.color }}
                                       />
-                                      <span className="text-xs truncate">
+                                      <span className="text-sm font-medium truncate max-w-[80px]">
                                         {stage.stage_name}
                                       </span>
-                                      <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                    </div>
+                                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                                    <div className="flex items-center gap-2">
                                       <div
-                                        className="w-2 h-2 rounded-full flex-shrink-0"
+                                        className="w-3 h-3 rounded-full"
                                         style={{ backgroundColor: nextStage.color }}
                                       />
-                                      <span className="text-xs truncate">
+                                      <span className="text-sm font-medium truncate max-w-[80px]">
                                         {nextStage.stage_name}
                                       </span>
                                     </div>
-                                    <div className="flex flex-col items-end ml-2">
-                                      <span className="text-sm font-bold">
-                                        {stage.conversion_rate}%
-                                      </span>
-                                      <span className="text-[10px] text-muted-foreground">
-                                        {stage.count} → {nextStage.count}
-                                      </span>
-                                    </div>
                                   </div>
-                                );
-                              })}
-                            </div>
-                          </CardContent>
-                        </Card>
+                                  <div className="text-center">
+                                    <p className="text-3xl font-bold">
+                                      {stage.conversion_rate}%
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      {stage.count} → {nextStage.count}
+                                    </p>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
+                        </div>
                       </motion.div>
                     ))}
                   </div>
