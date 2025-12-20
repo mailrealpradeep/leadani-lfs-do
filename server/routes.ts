@@ -17675,8 +17675,8 @@ ${questionsList}`;
           return res.status(400).json({ error: "Fixed target requires: metric, target_value" });
         }
         // Validate metric is a valid value
-        if (!['lead_updates', 'status_transitions'].includes(innerConfig.metric)) {
-          return res.status(400).json({ error: "Fixed metric must be: lead_updates or status_transitions" });
+        if (!['lead_updates', 'status_transitions', 'leads_created'].includes(innerConfig.metric)) {
+          return res.status(400).json({ error: "Fixed metric must be: lead_updates, status_transitions, or leads_created" });
         }
         // Validate target_value is a positive finite number
         if (!Number.isFinite(innerConfig.target_value) || innerConfig.target_value < 0) {
