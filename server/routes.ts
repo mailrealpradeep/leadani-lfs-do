@@ -18825,7 +18825,6 @@ ${questionsList}`;
 
       const { period = 'this_month', sheet_id, use_personal_data } = req.query;
       const isPersonalData = use_personal_data === 'true';
-      const filterByUserId = isPersonalData ? req.userId : undefined;
       
       // Get all company sheets
       const allSheets = await storage.getSheetsByCompanyId(req.companyId);
@@ -18945,14 +18944,12 @@ ${questionsList}`;
       }
 
       // Query analytics from activity_logs (aggregated across all sheets)
-      // When use_personal_data is true, filter by user's own lead updates
       const analytics = await storage.getPowerFlowAnalytics(
         req.companyId,
         sheetIds,
         config.stages,
         startDate,
-        endDate,
-        filterByUserId
+        endDate
       );
 
       // Get per-sheet breakdown only when:
@@ -18984,8 +18981,7 @@ ${questionsList}`;
             [sheetId],
             config.stages,
             startDate,
-            endDate,
-            filterByUserId
+            endDate
           );
           
           perSheetAnalytics.push({
