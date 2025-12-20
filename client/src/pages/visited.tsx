@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, parseISO } from "date-fns";
-import { ChevronLeft, ChevronRight, Calendar, CheckCircle2, User, Clock, AlertCircle, Settings, Phone, MessageCircle, ExternalLink, CalendarCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar, CheckCircle2, Clock, AlertCircle, Settings, Phone, MessageCircle, CalendarCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -536,14 +536,26 @@ interface VisitedCardProps {
 }
 
 function VisitedCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, onClick }: VisitedCardProps) {
-  const displayColumns = cardColumns.length > 0 ? cardColumns : ['full_name', 'mobile_no'];
+  const displayColumns = cardColumns.length > 0 ? cardColumns : ['requirement', 'project_location', 'visit_type'];
+  
+  const getFieldValue = (key: string): any => {
+    const enrichedFields: Record<string, any> = {
+      lead_status: visit.current_lead_status,
+      status: visit.current_lead_status,
+      next_followup_date: visit.next_followup_date,
+      nfdt: visit.next_followup_date,
+      sheet_name: visit.sheet_name,
+      owner_name: visit.owner_name,
+    };
+    return enrichedFields[key] ?? visit.custom_fields?.[key];
+  };
   
   const formatValue = (key: string, value: any): string => {
     if (value === null || value === undefined || value === '') return '-';
     const column = columnsMap.get(key);
-    if (column?.type === 'date' && value) {
+    if ((column?.type === 'date' || column?.type === 'datetime') && value) {
       try {
-        return format(parseISO(String(value)), 'MMM d');
+        return format(parseISO(String(value)), 'MMM d, h:mm a');
       } catch {
         return String(value);
       }
@@ -628,12 +640,12 @@ function VisitedCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn,
           )}
         </div>
 
-        {displayColumns.length > 0 && (
-          <div className="space-y-0.5">
-            {displayColumns.slice(0, 2).map(colKey => {
+        {displayColumns.filter(colKey => colKey !== 'full_name' && colKey !== 'mobile_no' && colKey !== dateColumn).length > 0 && (
+          <div className="mt-2 pt-2 border-t border-dashed space-y-0.5">
+            {displayColumns.map(colKey => {
               if (colKey === 'full_name' || colKey === 'mobile_no' || colKey === dateColumn) return null;
               const column = columnsMap.get(colKey);
-              const value = visit.custom_fields?.[colKey];
+              const value = getFieldValue(colKey);
               if (!column || value === undefined || value === null || value === '') return null;
               
               return (
@@ -651,11 +663,16 @@ function VisitedCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn,
             <div className="flex items-center justify-between text-xs gap-2">
               <span className="text-muted-foreground">Next Follow-up</span>
               <span className="font-medium text-primary">
-                {format(parseISO(visit.next_followup_date), 'MMM d, h:mm a')}
+                {(() => {
+                  try {
+                    return format(parseISO(String(visit.next_followup_date)), 'MMM d, h:mm a');
+                  } catch {
+                    return String(visit.next_followup_date);
+                  }
+                })()}
               </span>
             </div>
           )}
-          
           {visit.last_update ? (
             <div className="space-y-0.5">
               <div className="flex items-center justify-between gap-2">
@@ -682,13 +699,6 @@ function VisitedCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn,
               <span className="text-xs text-muted-foreground">-</span>
             </div>
           )}
-        </div>
-
-        <div className="mt-2 pt-2 border-t flex items-center justify-end">
-          <span className="text-xs text-primary font-medium flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
-            Details
-            <ExternalLink className="h-3 w-3" />
-          </span>
         </div>
       </CardContent>
     </Card>

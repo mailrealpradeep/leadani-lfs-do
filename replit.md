@@ -46,7 +46,18 @@ The system features a customizable grid interface with dynamic column management
 *   **Google Sheets Backup System**: Automatic hourly backup of lead data to Google Sheets, with per-sheet configuration and sync logs.
 *   **Point-in-Time Sheet Recovery (Snapshots)**: SuperAdmin-only system with automatic hourly snapshots, smart change detection, compressed JSONB storage, and a recovery UI with restore preview.
 *   **Data Management (Admin Console)**: Company Admin tools for bulk operations like clearing past data and bulk transferring leads with weighted distribution.
-*   **Visit Schedules**: Calendar-based view for tracking site visits, configurable by company to link specific lead statuses and date columns.
+*   **Visit Schedules**: Calendar-based view for tracking scheduled site visits. Features include:
+    - Configurable date column and status column linking (via Site Visit Settings)
+    - Customizable card display columns (card_columns) with drag-drop reordering
+    - Default fallback columns: `['requirement', 'project_location']` when not configured
+    - Always-visible card elements: Lead name/phone, sheet badge, visit type badge, Next Follow-up (if present), Last Update with follow-up miss warning (red highlight if no update day before visit)
+    - getFieldValue helper resolves enriched fields (lead_status, owner_name, sheet_name, next_followup_date) before falling back to custom_fields
+*   **Visited Calendar**: Calendar-based view for tracking completed site visits (separate from Visit Schedules). Features include:
+    - Independent configuration via Site Visited Settings (site_visited_config)
+    - Customizable card display columns with drag-drop reordering
+    - Default fallback columns: `['requirement', 'project_location', 'visit_type']` when not configured
+    - Always-visible card elements: Lead name/phone, sheet badge, status badge, Next Follow-up (if present), Last Update section
+    - Backend enrichment reads lead_status/next_followup_date from custom_fields
 *   **Hot Leads**: Company-wide feature to identify and prioritize high-value leads based on configurable conditions, displayed in a unified view with real-time updates and a sidebar badge.
 *   **Custom Views**: Configurable sidebar menu items that display filtered leads based on group-based conditions. Supports AND logic within condition groups and OR logic between groups (e.g., "(A AND B) OR C OR D"). Features include customizable icons from lucide-react, icon colors, optional badge counts showing matching lead counts, sheet scope selection (All Sheets or Selected Sheets), and a dedicated view page with SpreadsheetGrid integration.
 *   **Validation Rules**: Configurable rules that prompt users to update related fields when specific conditions are met during lead editing. Supports multi-condition logic with AND/OR operators, a beautiful mobile-responsive dialog for field updates, and server-side enforcement for imports/webhooks/API calls.

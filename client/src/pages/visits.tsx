@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO, subDays, startOfDay } from "date-fns";
-import { ChevronLeft, ChevronRight, Calendar, MapPin, User, Clock, Building2, AlertCircle, Settings, Phone, MessageCircle, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar, MapPin, Clock, AlertCircle, Settings, Phone, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -547,7 +547,7 @@ interface VisitCardProps {
 }
 
 function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, onClick }: VisitCardProps) {
-  const displayColumns = cardColumns.length > 0 ? cardColumns : ['full_name', 'mobile_no'];
+  const displayColumns = cardColumns.length > 0 ? cardColumns : ['requirement', 'project_location'];
   
   // Get the actual visit date from the lead's date column
   const visitDate = useMemo(() => {
@@ -573,12 +573,20 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, o
     return !isSameDay(lastUpdateDate, dayBeforeVisit);
   }, [visit.last_update, visitDate]);
   
+  const getFieldValue = (key: string): any => {
+    const enrichedFields: Record<string, any> = {
+      sheet_name: visit.sheet_name,
+      owner_name: visit.owner_name,
+    };
+    return enrichedFields[key] ?? visit.custom_fields?.[key];
+  };
+  
   const formatValue = (key: string, value: any): string => {
     if (value === null || value === undefined || value === '') return '-';
     const column = columnsMap.get(key);
-    if (column?.type === 'date' && value) {
+    if ((column?.type === 'date' || column?.type === 'datetime') && value) {
       try {
-        return format(parseISO(String(value)), 'MMM d');
+        return format(parseISO(String(value)), 'MMM d, h:mm a');
       } catch {
         return String(value);
       }
@@ -663,12 +671,12 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, o
           )}
         </div>
 
-        {displayColumns.length > 0 && (
+        {displayColumns.filter(colKey => colKey !== 'full_name' && colKey !== 'mobile_no' && colKey !== dateColumn).length > 0 && (
           <div className="mt-2 pt-2 border-t border-dashed space-y-0.5">
-            {displayColumns.slice(0, 2).map(colKey => {
+            {displayColumns.map(colKey => {
               if (colKey === 'full_name' || colKey === 'mobile_no' || colKey === dateColumn) return null;
               const column = columnsMap.get(colKey);
-              const value = visit.custom_fields?.[colKey];
+              const value = getFieldValue(colKey);
               if (!column || value === undefined || value === null || value === '') return null;
               
               return (
@@ -681,8 +689,21 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, o
           </div>
         )}
 
-        {/* Last Update Section */}
-        <div className="mt-2 pt-2 border-t border-dashed">
+        <div className="mt-2 pt-2 border-t border-dashed space-y-1">
+          {visit.custom_fields?.next_followup_date && (
+            <div className="flex items-center justify-between text-xs gap-2">
+              <span className="text-muted-foreground">Next Follow-up</span>
+              <span className="font-medium text-primary">
+                {(() => {
+                  try {
+                    return format(parseISO(String(visit.custom_fields.next_followup_date)), 'MMM d, h:mm a');
+                  } catch {
+                    return String(visit.custom_fields.next_followup_date);
+                  }
+                })()}
+              </span>
+            </div>
+          )}
           {visit.last_update ? (
             <div className="space-y-0.5">
               <div className="flex items-center justify-between gap-2">
@@ -712,13 +733,6 @@ function VisitCard({ visit, cardColumns, columnsMap, dateColumn, statusColumn, o
               <span className="text-xs text-destructive font-medium">No updates</span>
             </div>
           )}
-        </div>
-
-        <div className="mt-2 pt-2 border-t flex items-center justify-end">
-          <span className="text-xs text-primary font-medium flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
-            Details
-            <ExternalLink className="h-3 w-3" />
-          </span>
         </div>
       </CardContent>
     </Card>

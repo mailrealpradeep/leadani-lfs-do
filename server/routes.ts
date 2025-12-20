@@ -3051,8 +3051,8 @@ ${questionsList}`;
             remark: lastUpdate.remark || null,
             created_by_name: (lastUpdate as any).created_by_first_name || null,
           } : null,
-          current_lead_status: lead.status || null,
-          next_followup_date: lead.nfdt || null,
+          current_lead_status: lead.custom_fields?.lead_status || lead.custom_fields?.status || null,
+          next_followup_date: lead.custom_fields?.next_followup_date || lead.custom_fields?.nfdt || null,
         };
       });
 
