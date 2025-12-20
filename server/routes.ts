@@ -9,7 +9,8 @@ import { authMiddleware, adminMiddleware, generateToken, type AuthRequest, requi
 import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
-import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
+import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths } from "date-fns";
 import { getCompanyTimezone, getTodayDateString, getCurrentTimeString } from "./timezone-utils";
 import { seedData } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
@@ -18870,31 +18871,56 @@ ${questionsList}`;
       const company = await storage.getCompany(req.companyId);
       const companyTimezone = getCompanyTimezone(company);
       
-      // Calculate date range based on period
+      // Calculate date range based on period using timezone-aware date arithmetic
+      // Strategy: Convert UTC now -> zoned time, do date math in zoned time, convert back to UTC
       const now = new Date();
       let startDate: Date;
-      let endDate: Date = now;
+      let endDate: Date;
+      
+      // Convert current UTC time to company's local time (as a "fake UTC" Date representing local time)
+      const zonedNow = toZonedTime(now, companyTimezone);
+      
+      // Helper to convert a zoned date back to UTC
+      const zonedToUtc = (zonedDate: Date): Date => {
+        // fromZonedTime takes a date that represents local time and converts to UTC
+        return fromZonedTime(zonedDate, companyTimezone);
+      };
       
       switch (period) {
         case 'today':
-          startDate = new Date(formatInTimeZone(now, companyTimezone, 'yyyy-MM-dd'));
+          startDate = zonedToUtc(startOfDay(zonedNow));
+          endDate = zonedToUtc(endOfDay(zonedNow));
           break;
         case 'yesterday':
-          startDate = new Date(formatInTimeZone(new Date(now.getTime() - 86400000), companyTimezone, 'yyyy-MM-dd'));
-          endDate = new Date(formatInTimeZone(now, companyTimezone, 'yyyy-MM-dd'));
+          const zonedYesterday = subDays(zonedNow, 1);
+          startDate = zonedToUtc(startOfDay(zonedYesterday));
+          endDate = zonedToUtc(endOfDay(zonedYesterday));
           break;
         case 'last_7_days':
-          startDate = new Date(now.getTime() - 7 * 86400000);
+        case 'this_week':
+          const zoned7DaysAgo = subDays(zonedNow, 7);
+          startDate = zonedToUtc(startOfDay(zoned7DaysAgo));
+          endDate = zonedToUtc(endOfDay(zonedNow));
+          break;
+        case 'last_30_days':
+          const zoned30DaysAgo = subDays(zonedNow, 30);
+          startDate = zonedToUtc(startOfDay(zoned30DaysAgo));
+          endDate = zonedToUtc(endOfDay(zonedNow));
           break;
         case 'this_month':
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          startDate = zonedToUtc(startOfMonth(zonedNow));
+          endDate = zonedToUtc(endOfDay(zonedNow));
           break;
         case 'last_month':
-          startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-          endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+          const zonedPrevMonth = subMonths(zonedNow, 1);
+          startDate = zonedToUtc(startOfMonth(zonedPrevMonth));
+          endDate = zonedToUtc(endOfMonth(zonedPrevMonth));
           break;
         default:
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          // Default to last 30 days
+          const defaultStart = subDays(zonedNow, 30);
+          startDate = zonedToUtc(startOfDay(defaultStart));
+          endDate = zonedToUtc(endOfDay(zonedNow));
       }
 
       // Query analytics from activity_logs

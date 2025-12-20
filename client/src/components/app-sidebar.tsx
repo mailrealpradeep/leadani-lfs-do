@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon, Sparkles } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon, Sparkles, GitBranchPlus } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -259,6 +259,12 @@ export function AppSidebar() {
       url: "/powerscore",
       icon: Sparkles,
       testId: "link-powerscore",
+    },
+    {
+      title: "PowerFlow",
+      url: "/powerflow",
+      icon: GitBranchPlus,
+      testId: "link-powerflow",
     },
     // OLD TARGET SYSTEM - Not being used. Covered by Working Targets.
     // When cleaning up code, remove this menu item, the my-targets.tsx page, 

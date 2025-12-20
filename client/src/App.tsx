@@ -50,6 +50,7 @@ import CustomViewPage from "@/pages/custom-view";
 import Plan from "@/pages/plan";
 import Watchlist from "@/pages/watchlist";
 import PowerScore from "@/pages/powerscore";
+import PowerFlow from "@/pages/powerflow";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -144,6 +145,9 @@ function Router() {
       </Route>
       <Route path="/powerscore">
         {() => <ProtectedRoute component={PowerScore} />}
+      </Route>
+      <Route path="/powerflow">
+        {() => <ProtectedRoute component={PowerFlow} />}
       </Route>
       <Route path="/custom-view/:viewId">
         {() => <ProtectedRoute component={CustomViewPage} />}
