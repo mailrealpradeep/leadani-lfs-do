@@ -801,7 +801,7 @@ export interface IStorage {
   // PowerFlow (Pipeline Analytics)
   getPowerFlowConfig(companyId: string): Promise<PowerFlowConfig | null>;
   savePowerFlowConfig(companyId: string, config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig>;
-  getPowerFlowAnalytics(companyId: string, sheetIds: string[], stages: PowerFlowStage[], startDate: Date, endDate: Date): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }>;
+  getPowerFlowAnalytics(companyId: string, sheetIds: string[], stages: PowerFlowStage[], startDate: Date, endDate: Date, filterByUserId?: string): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }>;
 }
 
 export class MemStorage implements IStorage {
@@ -3068,7 +3068,7 @@ export class MemStorage implements IStorage {
   // PowerFlow (Pipeline Analytics) - stubs
   async getPowerFlowConfig(_companyId: string): Promise<PowerFlowConfig | null> { return null; }
   async savePowerFlowConfig(_companyId: string, _config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig> { throw new Error("PowerFlow not implemented in MemStorage"); }
-  async getPowerFlowAnalytics(_companyId: string, _sheetIds: string[], _stages: PowerFlowStage[], _startDate: Date, _endDate: Date): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> { return { stages: [], total_leads: 0, overall_conversion_rate: 0 }; }
+  async getPowerFlowAnalytics(_companyId: string, _sheetIds: string[], _stages: PowerFlowStage[], _startDate: Date, _endDate: Date, _filterByUserId?: string): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> { return { stages: [], total_leads: 0, overall_conversion_rate: 0 }; }
 }
 
 // ============================================================================
@@ -8891,7 +8891,8 @@ export class PgStorage implements IStorage {
     sheetIds: string[], 
     stages: PowerFlowStage[], 
     startDate: Date, 
-    endDate: Date
+    endDate: Date,
+    filterByUserId?: string
   ): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> {
     if (stages.length === 0 || sheetIds.length === 0) {
       return { stages: [], total_leads: 0, overall_conversion_rate: 0 };
@@ -8901,16 +8902,32 @@ export class PgStorage implements IStorage {
     const sortedStages = [...stages].sort((a, b) => a.order - b.order);
     
     // Count total leads created in the period
-    const totalLeadsResult = await db.select({ count: sql<number>`count(*)` })
-      .from(dbSchema.leads)
-      .where(
-        and(
-          inArray(dbSchema.leads.sheet_id, sheetIds),
-          gte(dbSchema.leads.created_at, startDate),
-          lte(dbSchema.leads.created_at, endDate),
-          isNull(dbSchema.leads.deleted_at)
-        )
-      );
+    // When filterByUserId is set, only count leads created by that user
+    let totalLeadsResult;
+    if (filterByUserId) {
+      totalLeadsResult = await db.select({ count: sql<number>`count(*)` })
+        .from(dbSchema.leads)
+        .where(
+          and(
+            inArray(dbSchema.leads.sheet_id, sheetIds),
+            gte(dbSchema.leads.created_at, startDate),
+            lte(dbSchema.leads.created_at, endDate),
+            isNull(dbSchema.leads.deleted_at),
+            eq(dbSchema.leads.added_by, filterByUserId)
+          )
+        );
+    } else {
+      totalLeadsResult = await db.select({ count: sql<number>`count(*)` })
+        .from(dbSchema.leads)
+        .where(
+          and(
+            inArray(dbSchema.leads.sheet_id, sheetIds),
+            gte(dbSchema.leads.created_at, startDate),
+            lte(dbSchema.leads.created_at, endDate),
+            isNull(dbSchema.leads.deleted_at)
+          )
+        );
+    }
     const totalLeads = Number(totalLeadsResult[0]?.count || 0);
 
     // For each stage, count transitions TO that stage from activity_logs
@@ -8935,6 +8952,9 @@ export class PgStorage implements IStorage {
           const sheetIdPlaceholders = sql.join(sheetIds.map(id => sql`${id}`), sql`, `);
           const columnValuePlaceholders = sql.join(columnValueStrings.map(v => sql`${v}`), sql`, `);
           
+          // When filterByUserId is set, only count transitions made by that user
+          const userFilter = filterByUserId ? sql` AND al.user_id = ${filterByUserId}` : sql``;
+          
           const transitionResult = await db.execute(sql`
             SELECT COUNT(DISTINCT al.target_id) as count
             FROM activity_logs al
@@ -8946,6 +8966,7 @@ export class PgStorage implements IStorage {
               AND al.occurred_at <= ${endDate}
               AND change_elem->>'field_key' = ${stage.column_key}
               AND change_elem->>'new_value' IN (${columnValuePlaceholders})
+              ${userFilter}
           `);
           
           // Handle both array result and { rows: [] } result structure from db.execute

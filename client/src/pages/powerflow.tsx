@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowRight,
@@ -26,6 +28,8 @@ import {
   Zap,
   Activity,
   AlertCircle,
+  Building2,
+  User,
 } from "lucide-react";
 import type { Sheet, PowerFlowConfig, PowerFlowStageMetrics } from "@shared/schema";
 
@@ -46,7 +50,7 @@ interface PowerFlowAnalyticsResponse {
 
 interface SimulationResult {
   target_conversions: number;
-  required_by_stage: { stage_name: string; required_count: number; color: string }[];
+  required_by_stage: { stage_name: string; required_count: number; color: string; conversion_rate: number }[];
 }
 
 type Period = "today" | "yesterday" | "this_week" | "this_month" | "last_30_days";
@@ -57,7 +61,8 @@ export default function PowerFlow() {
   const [activeTab, setActiveTab] = useState<"analytics" | "simulator" | "config">("analytics");
   const [period, setPeriod] = useState<Period>("last_30_days");
   const [selectedSheetId, setSelectedSheetId] = useState<string>("all");
-  const [targetConversions, setTargetConversions] = useState<string>("100");
+  const [targetConversions, setTargetConversions] = useState<number>(100);
+  const [useCompanyData, setUseCompanyData] = useState<boolean>(true);
 
   const isAdmin = isCompanyAdmin || isSuperAdmin;
 
@@ -78,11 +83,12 @@ export default function PowerFlow() {
     isError: analyticsError,
     refetch: refetchAnalytics,
   } = useQuery<PowerFlowAnalyticsResponse>({
-    queryKey: ["/api/powerflow/analytics", period, selectedSheetId],
+    queryKey: ["/api/powerflow/analytics", period, selectedSheetId, useCompanyData],
     queryFn: async () => {
       const sheetParam = selectedSheetId === "all" ? "" : `&sheet_id=${selectedSheetId}`;
+      const personalDataParam = useCompanyData ? "" : "&use_personal_data=true";
       const token = localStorage.getItem("auth_token");
-      const res = await fetch(`/api/powerflow/analytics?period=${period}${sheetParam}`, {
+      const res = await fetch(`/api/powerflow/analytics?period=${period}${sheetParam}${personalDataParam}`, {
         credentials: "include",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
@@ -98,11 +104,11 @@ export default function PowerFlow() {
   const simulationResult = useMemo((): SimulationResult | null => {
     if (!analytics?.stages || analytics.stages.length < 2) return null;
     
-    const target = parseInt(targetConversions) || 0;
+    const target = targetConversions || 0;
     if (target <= 0) return null;
 
     const stages = [...analytics.stages];
-    const required: { stage_name: string; required_count: number; color: string }[] = [];
+    const required: { stage_name: string; required_count: number; color: string; conversion_rate: number }[] = [];
     
     // Start from the last stage and work backward
     // The conversion_rate on each stage represents the rate FROM that stage TO the next stage
@@ -115,6 +121,7 @@ export default function PowerFlow() {
         stage_name: stage.stage_name,
         required_count: Math.ceil(currentRequired),
         color: stage.color,
+        conversion_rate: stage.conversion_rate,
       });
       
       // Calculate required for previous stage
@@ -548,21 +555,53 @@ export default function PowerFlow() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Target Input */}
-              <div className="max-w-xs">
-                <Label htmlFor="target-conversions">Target Conversions</Label>
-                <Input
-                  id="target-conversions"
-                  type="number"
-                  min="1"
-                  value={targetConversions}
-                  onChange={(e) => setTargetConversions(e.target.value)}
-                  placeholder="Enter target number"
-                  data-testid="input-target-conversions"
-                  className="mt-1"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Based on conversion rates from {period.replace(/_/g, " ")}
+              {/* Target Slider and Data Source Toggle */}
+              <div className="space-y-6">
+                <div className="flex flex-col md:flex-row md:items-start gap-6">
+                  {/* Monthly Conversions Slider */}
+                  <div className="flex-1 max-w-md">
+                    <div className="flex items-center justify-between mb-2">
+                      <Label htmlFor="target-conversions">Monthly Conversions</Label>
+                      <Badge variant="secondary" className="text-lg px-3">
+                        {targetConversions}
+                      </Badge>
+                    </div>
+                    <Slider
+                      id="target-conversions"
+                      value={[targetConversions]}
+                      onValueChange={(value) => setTargetConversions(value[0])}
+                      min={1}
+                      max={101}
+                      step={1}
+                      data-testid="slider-target-conversions"
+                      className="mt-2"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                      <span>1</span>
+                      <span>50</span>
+                      <span>101</span>
+                    </div>
+                  </div>
+
+                  {/* Data Source Toggle */}
+                  <div className="flex items-center gap-3 p-4 rounded-lg border bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">Own Data</span>
+                    </div>
+                    <Switch
+                      checked={useCompanyData}
+                      onCheckedChange={setUseCompanyData}
+                      data-testid="switch-company-data"
+                    />
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">Company Data</span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Based on {useCompanyData ? "company-wide" : "your personal"} conversion rates from {period.replace(/_/g, " ")}
                 </p>
               </div>
 
@@ -571,44 +610,114 @@ export default function PowerFlow() {
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="space-y-4"
+                  className="space-y-6"
                 >
-                  <div className="flex items-center gap-2 mb-4">
+                  {/* Monthly Target Header */}
+                  <div className="flex items-center gap-2">
                     <Target className="h-5 w-5 text-primary" />
                     <span className="font-medium">
-                      To achieve {simulationResult.target_conversions} conversions, you need:
+                      Monthly Target: {simulationResult.target_conversions} conversions
                     </span>
                   </div>
                   
-                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                    {simulationResult.required_by_stage.map((item, index) => (
-                      <motion.div
-                        key={item.stage_name}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: index * 0.1 }}
-                      >
-                        <Card className="relative overflow-hidden">
-                          <div
-                            className="absolute top-0 left-0 w-1 h-full"
-                            style={{ backgroundColor: item.color }}
-                          />
-                          <CardContent className="pt-4 pl-5">
-                            <p className="text-sm text-muted-foreground">{item.stage_name}</p>
-                            <p
-                              className="text-2xl font-bold mt-1"
-                              data-testid={`text-required-${index}`}
-                            >
-                              {item.required_count.toLocaleString()}
-                            </p>
-                          </CardContent>
-                        </Card>
-                      </motion.div>
-                    ))}
+                  {/* Monthly Requirements */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      Monthly Requirements
+                    </h4>
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      {simulationResult.required_by_stage.map((item, index) => (
+                        <motion.div
+                          key={item.stage_name}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: index * 0.1 }}
+                        >
+                          <Card className="relative overflow-hidden">
+                            <div
+                              className="absolute top-0 left-0 w-1 h-full"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <CardContent className="pt-4 pl-5">
+                              <p className="text-sm text-muted-foreground">{item.stage_name}</p>
+                              <p
+                                className="text-2xl font-bold mt-1"
+                                data-testid={`text-required-${index}`}
+                              >
+                                {item.required_count.toLocaleString()}
+                              </p>
+                              {index < simulationResult.required_by_stage.length - 1 && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  @ {item.conversion_rate}% rate
+                                </p>
+                              )}
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Weekly Requirements (25 days / 6 days per week ≈ 4.17 weeks) */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Activity className="h-4 w-4" />
+                      Weekly Requirements <Badge variant="outline" className="text-xs">6 days/week</Badge>
+                    </h4>
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      {simulationResult.required_by_stage.map((item, index) => {
+                        const weeksPerMonth = 25 / 6; // ~4.17 weeks
+                        const weeklyCount = Math.ceil(item.required_count / weeksPerMonth);
+                        return (
+                          <Card key={`weekly-${item.stage_name}`} className="relative overflow-hidden">
+                            <div
+                              className="absolute top-0 left-0 w-1 h-full"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <CardContent className="pt-4 pl-5">
+                              <p className="text-sm text-muted-foreground">{item.stage_name}</p>
+                              <p className="text-xl font-bold mt-1">
+                                {weeklyCount.toLocaleString()}
+                              </p>
+                              <p className="text-xs text-muted-foreground">per week</p>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Daily Requirements (25 working days per month) */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Zap className="h-4 w-4" />
+                      Daily Requirements <Badge variant="outline" className="text-xs">25 days/month</Badge>
+                    </h4>
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      {simulationResult.required_by_stage.map((item) => {
+                        const dailyCount = Math.ceil(item.required_count / 25);
+                        return (
+                          <Card key={`daily-${item.stage_name}`} className="relative overflow-hidden">
+                            <div
+                              className="absolute top-0 left-0 w-1 h-full"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <CardContent className="pt-4 pl-5">
+                              <p className="text-sm text-muted-foreground">{item.stage_name}</p>
+                              <p className="text-xl font-bold mt-1">
+                                {dailyCount.toLocaleString()}
+                              </p>
+                              <p className="text-xs text-muted-foreground">per day</p>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* Visual Flow */}
-                  <div className="flex items-center justify-center gap-2 flex-wrap mt-6 py-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center justify-center gap-2 flex-wrap py-4 bg-muted/50 rounded-lg">
                     {simulationResult.required_by_stage.map((item, index) => (
                       <div key={item.stage_name} className="flex items-center gap-2">
                         <div

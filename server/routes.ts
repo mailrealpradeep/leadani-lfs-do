@@ -18823,7 +18823,8 @@ ${questionsList}`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      const { period = 'this_month', sheet_id } = req.query;
+      const { period = 'this_month', sheet_id, use_personal_data } = req.query;
+      const filterByUserId = use_personal_data === 'true' ? req.userId : undefined;
       
       // Get user's accessible sheets
       const allSheets = await storage.getSheetsByCompanyId(req.companyId);
@@ -18924,12 +18925,14 @@ ${questionsList}`;
       }
 
       // Query analytics from activity_logs (aggregated across all sheets)
+      // When use_personal_data is true, filter by user's own lead updates
       const analytics = await storage.getPowerFlowAnalytics(
         req.companyId,
         sheetIds,
         config.stages,
         startDate,
-        endDate
+        endDate,
+        filterByUserId
       );
 
       // Get per-sheet breakdown only when:
@@ -18961,7 +18964,8 @@ ${questionsList}`;
             [sheetId],
             config.stages,
             startDate,
-            endDate
+            endDate,
+            filterByUserId
           );
           
           perSheetAnalytics.push({
