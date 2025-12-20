@@ -72,8 +72,12 @@ export default function PowerFlow() {
     queryKey: ["/api/powerflow/analytics", period, selectedSheetId],
     queryFn: async () => {
       const sheetParam = selectedSheetId === "all" ? "" : `&sheet_id=${selectedSheetId}`;
+      const token = localStorage.getItem("auth_token");
       const res = await fetch(`/api/powerflow/analytics?period=${period}${sheetParam}`, {
         credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!res.ok) throw new Error("Failed to fetch analytics");
       return res.json();
