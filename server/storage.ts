@@ -233,6 +233,7 @@ export interface LeadsQueryOptions {
   filters?: Record<string, any>;
   quickFilter?: QuickFilterConfig;
   companyTimezone?: string;
+  ownerUserId?: string;
 }
 
 export interface IStorage {
