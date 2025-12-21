@@ -8995,6 +8995,9 @@ export class PgStorage implements IStorage {
       return { stages: [], total_leads: 0, overall_conversion_rate: 0 };
     }
 
+    // Get multi-sheet user IDs to exclude from analytics
+    const multiSheetUserIds = await this.getMultiSheetUserIds(companyId);
+
     // Sort stages by order
     const sortedStages = [...stages].sort((a, b) => a.order - b.order);
     
@@ -9006,7 +9009,9 @@ export class PgStorage implements IStorage {
           inArray(dbSchema.leads.sheet_id, sheetIds),
           gte(dbSchema.leads.created_at, startDate),
           lte(dbSchema.leads.created_at, endDate),
-          isNull(dbSchema.leads.deleted_at)
+          isNull(dbSchema.leads.deleted_at),
+          // Exclude leads created by multi-sheet users
+          ...(multiSheetUserIds.length > 0 ? [notInArray(dbSchema.leads.owner_id, multiSheetUserIds)] : [])
         )
       );
     const totalLeads = Number(totalLeadsResult[0]?.count || 0);
@@ -9033,6 +9038,11 @@ export class PgStorage implements IStorage {
           const sheetIdPlaceholders = sql.join(sheetIds.map(id => sql`${id}`), sql`, `);
           const columnValuePlaceholders = sql.join(columnValueStrings.map(v => sql`${v}`), sql`, `);
           
+          // Build user exclusion clause for multi-sheet users
+          const multiSheetExclusion = multiSheetUserIds.length > 0
+            ? sql` AND al.user_id NOT IN (${sql.join(multiSheetUserIds.map(id => sql`${id}`), sql`, `)})`
+            : sql``;
+          
           const transitionResult = await db.execute(sql`
             SELECT COUNT(DISTINCT al.target_id) as count
             FROM activity_logs al
@@ -9044,6 +9054,7 @@ export class PgStorage implements IStorage {
               AND al.occurred_at <= ${endDate}
               AND change_elem->>'field_key' = ${stage.column_key}
               AND change_elem->>'new_value' IN (${columnValuePlaceholders})
+              ${multiSheetExclusion}
           `);
           
           // Handle both array result and { rows: [] } result structure from db.execute
