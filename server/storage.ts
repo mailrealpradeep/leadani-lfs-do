@@ -753,6 +753,10 @@ export interface IStorage {
   // PowerScore Leaderboard & Stats
   getPowerScoreLeaderboard(companyId: string, startDate: Date, endDate: Date): Promise<PowerScoreLeaderboardEntry[]>;
   getUserPowerScore(userId: string, startDate: Date, endDate: Date): Promise<number>;
+  
+  // Multi-sheet user detection (for excluding from PowerScore/PowerFlow)
+  getMultiSheetUserIds(companyId: string): Promise<string[]>;
+  isMultiSheetUser(userId: string): Promise<boolean>;
   getUserPowerScorePersonalStats(userId: string, companyTimezone: string): Promise<PowerScorePersonalStats>;
   getUserPowerScoreHistory(userId: string, limit?: number): Promise<PowerScoreHistoryEntry[]>;
   getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }[]>;
@@ -3053,6 +3057,8 @@ export class MemStorage implements IStorage {
   async getDailyActionCount(_userId: string, _actionType: PowerScoreActionType, _date: Date): Promise<number> { return 0; }
   async getPowerScoreLeaderboard(_companyId: string, _startDate: Date, _endDate: Date): Promise<PowerScoreLeaderboardEntry[]> { return []; }
   async getUserPowerScore(_userId: string, _startDate: Date, _endDate: Date): Promise<number> { return 0; }
+  async getMultiSheetUserIds(_companyId: string): Promise<string[]> { return []; }
+  async isMultiSheetUser(_userId: string): Promise<boolean> { return false; }
   async getUserPowerScorePersonalStats(_userId: string, _companyTimezone: string): Promise<PowerScorePersonalStats> { return { today: 0, yesterday: 0, this_week: 0, last_week: 0, this_month: 0, last_month: 0, today_vs_yesterday_percent: 0, this_week_vs_last_week_percent: 0 }; }
   async getUserPowerScoreHistory(_userId: string, _limit?: number): Promise<PowerScoreHistoryEntry[]> { return []; }
   async getUserPowerScoreBreakdown(_userId: string, _startDate: Date, _endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }[]> { return []; }
@@ -8106,6 +8112,41 @@ export class PgStorage implements IStorage {
         )
       );
     return Number(result[0]?.total || 0);
+  }
+
+  // Get user IDs that have access to more than 1 company sheet (excludes personal sheets)
+  // These users are excluded from PowerScore, Leaderboard, and PowerFlow analytics
+  async getMultiSheetUserIds(companyId: string): Promise<string[]> {
+    const result = await db.execute(sql`
+      SELECT su.user_id
+      FROM sheet_users su
+      JOIN sheets s ON su.sheet_id = s.id
+      JOIN users u ON su.user_id = u.id
+      WHERE u.company_id = ${companyId}
+        AND u.is_active = true
+        AND s.is_personal = false
+        AND s.deleted_at IS NULL
+      GROUP BY su.user_id
+      HAVING COUNT(DISTINCT su.sheet_id) > 1
+    `);
+    return (result.rows as any[]).map(row => row.user_id);
+  }
+
+  // Check if a specific user has access to more than 1 company sheet
+  async isMultiSheetUser(userId: string): Promise<boolean> {
+    const user = await this.getUser(userId);
+    if (!user || !user.company_id) return false;
+    
+    const result = await db.execute(sql`
+      SELECT COUNT(DISTINCT s.id) as sheet_count
+      FROM sheet_users su
+      JOIN sheets s ON su.sheet_id = s.id
+      WHERE su.user_id = ${userId}
+        AND s.is_personal = false
+        AND s.deleted_at IS NULL
+    `);
+    const count = Number((result.rows as any[])[0]?.sheet_count || 0);
+    return count > 1;
   }
 
   async getUserPowerScorePersonalStats(userId: string, companyTimezone: string): Promise<PowerScorePersonalStats> {
