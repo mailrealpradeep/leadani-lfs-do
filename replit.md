@@ -77,6 +77,7 @@ The system features a customizable grid interface with dynamic column management
     - ChampionCard (#1), PodiumCard (#2-3), ContenderGrid (#4+) component hierarchy
     - Personal stats with today vs yesterday and week vs week percentage comparisons
     - Backfill script (`server/powerscore-backfill.ts`) to retroactively award points from historical lead updates. Usage: `npx tsx server/powerscore-backfill.ts <company_id>`. Detects existing backfill data and prevents duplicate runs (use `--force` to override).
+    - **Multi-Sheet User Exclusion**: Users with access to >1 company sheet (excluding personal sheets) are automatically excluded from earning PowerScore points and appearing in leaderboard rankings. Detection via `getMultiSheetUserIds()` and `isMultiSheetUser()` storage helpers that count distinct non-personal sheets per user.
 *   **PowerFlow (Pipeline Analytics)**: Visual funnel analytics showing lead progression through configurable pipeline stages. Features include:
     - Company-configurable pipeline stages stored in `powerflow_configs` table (column_key, column_values, display order, colors)
     - Automatic stage counting using existing `activity_logs` data (zero new data collection required)
@@ -85,6 +86,7 @@ The system features a customizable grid interface with dynamic column management
     - Sheet-level access control respecting user permissions
     - **Backward Simulation Calculator**: Input target conversions (e.g., "I want 10 conversions") and calculate required leads/visits/schedules based on historical conversion rates
     - Timezone-aware date boundaries using `toZonedTime`/`fromZonedTime` with date-fns for accurate analytics across all company timezones
+    - **Multi-Sheet User Exclusion**: Users with access to >1 company sheet are automatically excluded from stage counts and analytics, ensuring fair representation of single-sheet user performance
 
 ### Security
 
