@@ -52,10 +52,15 @@ export interface Company {
       enabled: boolean; // whether the rule is active
     }[]; // Auto-fill rules for automatically setting field values
     quality_check_settings?: {
-      enabled: boolean; // Whether remark quality check is enabled
+      // Standard check (instant, no API)
+      standard_check_enabled?: boolean; // Whether instant blacklist check is enabled
+      blacklist_words?: string[]; // Words/phrases to reject immediately
+      standard_warning_message?: string; // Warning shown when blacklist match found
+      // AI check (optional enhancement)
+      enabled?: boolean; // Whether AI remark quality check is enabled
       sarvam_api_key?: string; // Company's Sarvam AI API key
-      acceptance_level: 'lenient' | 'moderate' | 'strict'; // How strict the validation is
-      warning_message?: string; // Custom warning message shown when remark is not meaningful
+      acceptance_level?: 'lenient' | 'moderate' | 'strict'; // How strict the AI validation is
+      warning_message?: string; // Custom warning message shown when AI rejects remark
     };
   };
   status: "active" | "suspended" | "trial";
@@ -112,9 +117,14 @@ export const insertCompanySchema = z.object({
     })).optional(),
     weekly_off_days: z.array(z.number().int().min(0).max(6)).optional(), // 0=Sunday through 6=Saturday
     quality_check_settings: z.object({
-      enabled: z.boolean(),
+      // Standard check (instant, no API)
+      standard_check_enabled: z.boolean().optional(),
+      blacklist_words: z.array(z.string()).optional(),
+      standard_warning_message: z.string().optional(),
+      // AI check (optional enhancement)
+      enabled: z.boolean().optional(),
       sarvam_api_key: z.string().optional(), // Stored securely, never exposed to frontend
-      acceptance_level: z.enum(['lenient', 'moderate', 'strict']),
+      acceptance_level: z.enum(['lenient', 'moderate', 'strict']).optional(),
       warning_message: z.string().optional(),
     }).optional(),
   }).default({}),
