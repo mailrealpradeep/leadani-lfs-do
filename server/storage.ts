@@ -3101,7 +3101,7 @@ export class MemStorage implements IStorage {
 // POSTGRESQL STORAGE (Permanent Database)
 // ============================================================================
 import { db } from "./db";
-import { eq, and, or, desc, asc, isNull, isNotNull, inArray, gte, lte, sql, ilike } from "drizzle-orm";
+import { eq, and, or, desc, asc, isNull, isNotNull, inArray, notInArray, gte, lte, sql, ilike } from "drizzle-orm";
 import * as dbSchema from "@shared/schema";
 import jwt from "jsonwebtoken";
 
@@ -8053,6 +8053,9 @@ export class PgStorage implements IStorage {
   }
 
   async getPowerScoreLeaderboard(companyId: string, startDate: Date, endDate: Date): Promise<PowerScoreLeaderboardEntry[]> {
+    // First, get multi-sheet user IDs to exclude from leaderboard
+    const multiSheetUserIds = await this.getMultiSheetUserIds(companyId);
+    
     const result = await db.select({
       user_id: dbSchema.powerscore_transactions.user_id,
       total_points: sql<number>`sum(${dbSchema.powerscore_transactions.points})`,
@@ -8062,7 +8065,9 @@ export class PgStorage implements IStorage {
         and(
           eq(dbSchema.powerscore_transactions.company_id, companyId),
           gte(dbSchema.powerscore_transactions.created_at, startDate),
-          lte(dbSchema.powerscore_transactions.created_at, endDate)
+          lte(dbSchema.powerscore_transactions.created_at, endDate),
+          // Exclude multi-sheet users from leaderboard
+          ...(multiSheetUserIds.length > 0 ? [notInArray(dbSchema.powerscore_transactions.user_id, multiSheetUserIds)] : [])
         )
       )
       .groupBy(dbSchema.powerscore_transactions.user_id)
