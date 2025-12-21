@@ -1248,13 +1248,18 @@ export class MemStorage implements IStorage {
   }
 
   async getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult> {
-    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters = {} } = options;
+    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters = {}, ownerUserId } = options;
     const sheetIdSet = new Set(sheetIds);
     
     // Filter leads by sheet IDs and not deleted
     let filteredLeads = Array.from(this.leads.values()).filter(
       (lead) => sheetIdSet.has(lead.sheet_id) && !lead.deleted_at
     );
+    
+    // Filter by owner user ID if provided
+    if (ownerUserId) {
+      filteredLeads = filteredLeads.filter(lead => lead.owner_user_id === ownerUserId);
+    }
     
     // Apply filters
     if (Object.keys(filters).length > 0) {
@@ -3554,7 +3559,7 @@ export class PgStorage implements IStorage {
   }
 
   async getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult> {
-    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters, quickFilter, companyTimezone } = options;
+    const { sheetIds, page = 1, limit = 50, sortBy, sortOrder = 'desc', filters, quickFilter, companyTimezone, ownerUserId } = options;
     const safeFilters = filters || {};
     const timezone = companyTimezone || 'Asia/Kolkata';
     
@@ -3567,6 +3572,11 @@ export class PgStorage implements IStorage {
       inArray(dbSchema.leads.sheet_id, sheetIds),
       isNull(dbSchema.leads.deleted_at)
     ];
+    
+    // Filter by owner user ID if provided
+    if (ownerUserId) {
+      conditions.push(eq(dbSchema.leads.owner_user_id, ownerUserId));
+    }
     
     // Add filter conditions
     for (const [key, value] of Object.entries(safeFilters)) {
