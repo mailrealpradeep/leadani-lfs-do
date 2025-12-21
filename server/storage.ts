@@ -9013,10 +9013,7 @@ export class PgStorage implements IStorage {
     // Add multi-sheet user exclusion if there are users to exclude
     if (multiSheetUserIds.length > 0) {
       leadConditions.push(
-        or(
-          isNull(dbSchema.leads.owner_id),
-          notInArray(dbSchema.leads.owner_id, multiSheetUserIds)
-        )!
+        notInArray(dbSchema.leads.owner_user_id, multiSheetUserIds)
       );
     }
     
