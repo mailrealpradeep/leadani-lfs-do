@@ -50,9 +50,14 @@ import { format, parseISO, isValid } from "date-fns";
 import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 
 interface QualityCheckSettings {
-  enabled: boolean;
+  // Standard check (instant, no API)
+  standard_check_enabled?: boolean;
+  blacklist_words?: string[];
+  standard_warning_message?: string;
+  // AI check (optional enhancement)
+  enabled?: boolean;
   sarvam_api_key?: string;
-  acceptance_level: 'lenient' | 'moderate' | 'strict';
+  acceptance_level?: 'lenient' | 'moderate' | 'strict';
   warning_message?: string;
 }
 
@@ -98,6 +103,7 @@ export function LeadUpdateDialog({
   const [quickFieldValues, setQuickFieldValues] = useState<Record<string, any>>({});
   const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
   const [showQualityWarning, setShowQualityWarning] = useState(false);
+  const [qualityWarningMessage, setQualityWarningMessage] = useState<string>('');
   const [pendingSubmitData, setPendingSubmitData] = useState<InsertLeadUpdate | null>(null);
   const [isCheckingQuality, setIsCheckingQuality] = useState(false);
   
@@ -335,39 +341,88 @@ export function LeadUpdateDialog({
 
   const qualityCheckSettings = settingsData?.settings?.quality_check_settings;
 
-  const checkRemarkQuality = async (remark: string): Promise<boolean> => {
-    if (!qualityCheckSettings?.enabled) {
-      return true;
+  // Instant blacklist check (no API call, runs synchronously)
+  const checkBlacklist = (remark: string): { passed: boolean; warningMessage?: string } => {
+    if (!qualityCheckSettings?.standard_check_enabled) {
+      return { passed: true };
     }
     
-    if (!remark || remark.trim().length === 0) {
-      return true;
+    const blacklist = qualityCheckSettings.blacklist_words || [];
+    if (blacklist.length === 0) {
+      return { passed: true };
+    }
+    
+    const normalizedRemark = remark.trim().toLowerCase();
+    
+    // Check if remark exactly matches any blacklisted word/phrase
+    for (const word of blacklist) {
+      if (normalizedRemark === word.toLowerCase()) {
+        return { 
+          passed: false, 
+          warningMessage: qualityCheckSettings.standard_warning_message || 
+            "Your remark appears to be too brief. Please provide more details about the conversation."
+        };
+      }
+    }
+    
+    return { passed: true };
+  };
+
+  // AI-based quality check (async, calls Sarvam API)
+  const checkRemarkQualityAI = async (remark: string): Promise<{ passed: boolean; warningMessage?: string }> => {
+    if (!qualityCheckSettings?.enabled) {
+      return { passed: true };
     }
     
     try {
       setIsCheckingQuality(true);
-      const response = await apiRequest<{ meaningful: boolean; reason?: string; skipped?: boolean }>(
+      const response = await apiRequest<{ meaningful: boolean; reason?: string; skipped?: boolean; warning_message?: string }>(
         "POST",
         "/api/sarvam/check-remark",
         { remark }
       );
       if (response.skipped) {
-        return true;
+        return { passed: true };
       }
-      return response.meaningful;
+      if (!response.meaningful) {
+        return { 
+          passed: false, 
+          warningMessage: response.warning_message || qualityCheckSettings.warning_message || 
+            "Please add more details about the conversation or outcome."
+        };
+      }
+      return { passed: true };
     } catch (error) {
       console.error("Remark quality check failed:", error);
-      return true;
+      return { passed: true }; // Fail-open
     } finally {
       setIsCheckingQuality(false);
     }
   };
 
   const onSubmit = async (data: InsertLeadUpdate) => {
-    const isMeaningful = await checkRemarkQuality(data.remark || "");
+    const remark = data.remark || "";
     
-    if (!isMeaningful) {
+    // Skip checks for empty remarks
+    if (!remark.trim()) {
+      createUpdateMutation.mutate(data);
+      return;
+    }
+    
+    // Step 1: Instant blacklist check (synchronous)
+    const blacklistResult = checkBlacklist(remark);
+    if (!blacklistResult.passed) {
       setPendingSubmitData(data);
+      setQualityWarningMessage(blacklistResult.warningMessage || '');
+      setShowQualityWarning(true);
+      return;
+    }
+    
+    // Step 2: AI check (async, only if passed blacklist)
+    const aiResult = await checkRemarkQualityAI(remark);
+    if (!aiResult.passed) {
+      setPendingSubmitData(data);
+      setQualityWarningMessage(aiResult.warningMessage || '');
       setShowQualityWarning(true);
       return;
     }
@@ -720,7 +775,7 @@ export function LeadUpdateDialog({
               Remark Quality Check
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {qualityCheckSettings?.warning_message || 
+              {qualityWarningMessage || 
                 "The remark you entered appears to lack meaningful details. Please consider adding more specific information about the conversation or outcome."}
             </AlertDialogDescription>
           </AlertDialogHeader>
