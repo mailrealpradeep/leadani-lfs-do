@@ -1089,8 +1089,16 @@ export async function generateLeaderboard(
   
   // Get all company users (excluding admins from ranking)
   const companyUsers = await storage.getUsersByCompanyId(companyId);
+  
+  // Get multi-sheet user IDs to exclude from leaderboard
+  // Users with access to >1 company sheet (excluding personal sheets) are excluded
+  const multiSheetUserIds = new Set(await storage.getMultiSheetUserIds(companyId));
+  
   const regularUsers = companyUsers.filter(u => 
-    u.is_active && u.role !== 'company_admin' && u.role !== 'super_admin'
+    u.is_active && 
+    u.role !== 'company_admin' && 
+    u.role !== 'super_admin' &&
+    !multiSheetUserIds.has(u.id) // Exclude multi-sheet users from leaderboard
   );
   
   const userScores: Map<string, {

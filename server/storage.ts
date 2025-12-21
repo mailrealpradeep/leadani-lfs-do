@@ -9002,18 +9002,27 @@ export class PgStorage implements IStorage {
     const sortedStages = [...stages].sort((a, b) => a.order - b.order);
     
     // Count total leads created in the period
+    // Build conditions array, handling multi-sheet user exclusion properly
+    const leadConditions = [
+      inArray(dbSchema.leads.sheet_id, sheetIds),
+      gte(dbSchema.leads.created_at, startDate),
+      lte(dbSchema.leads.created_at, endDate),
+      isNull(dbSchema.leads.deleted_at),
+    ];
+    
+    // Add multi-sheet user exclusion if there are users to exclude
+    if (multiSheetUserIds.length > 0) {
+      leadConditions.push(
+        or(
+          isNull(dbSchema.leads.owner_id),
+          notInArray(dbSchema.leads.owner_id, multiSheetUserIds)
+        )!
+      );
+    }
+    
     const totalLeadsResult = await db.select({ count: sql<number>`count(*)` })
       .from(dbSchema.leads)
-      .where(
-        and(
-          inArray(dbSchema.leads.sheet_id, sheetIds),
-          gte(dbSchema.leads.created_at, startDate),
-          lte(dbSchema.leads.created_at, endDate),
-          isNull(dbSchema.leads.deleted_at),
-          // Exclude leads created by multi-sheet users
-          ...(multiSheetUserIds.length > 0 ? [notInArray(dbSchema.leads.owner_id, multiSheetUserIds)] : [])
-        )
-      );
+      .where(and(...leadConditions));
     const totalLeads = Number(totalLeadsResult[0]?.count || 0);
 
     // For each stage, count transitions TO that stage from activity_logs

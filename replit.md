@@ -41,7 +41,7 @@ The system features a customizable grid interface with dynamic column management
 *   **Webhooks**: Integration for external systems to create leads with configurable field mapping, conditional allocation logic, multi-sheet allocation with weighted round-robin distribution, and update-only flows.
 *   **Self-Service Onboarding**: Multi-step flow for company registration and user invitations.
 *   **Attendance System**: Mobile-first PWA for daily entry/exit tracking with configurable rules.
-*   **Target Management System (TMS)**: Comprehensive performance tracking with multi-goal targets, flexible assignment, leaderboard rankings, and user progress views.
+*   **Target Management System (TMS)**: Comprehensive performance tracking with multi-goal targets, flexible assignment, leaderboard rankings, and user progress views. Multi-sheet users (access to >1 company sheet, excluding personal sheets) are automatically excluded from the Working Targets leaderboard rankings.
 *   **User Row Filters**: Per-user row filtering that persists to the database, allowing creation of named filters with multiple conditions.
 *   **Google Sheets Backup System**: Automatic hourly backup of lead data to Google Sheets, with per-sheet configuration and sync logs.
 *   **Point-in-Time Sheet Recovery (Snapshots)**: SuperAdmin-only system with automatic hourly snapshots, smart change detection, compressed JSONB storage, and a recovery UI with restore preview.
