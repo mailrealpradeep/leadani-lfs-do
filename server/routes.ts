@@ -2839,7 +2839,7 @@ ${questionsList}`;
   });
 
   // ============================================================================
-  // SARVAM AI - Remark Quality Check
+  // REMARK QUALITY CHECK - Standard (Blacklist) + AI (Sarvam)
   // ============================================================================
   app.post("/api/sarvam/check-remark", authMiddleware, async (req: AuthRequest, res) => {
     try {
@@ -2859,10 +2859,26 @@ ${questionsList}`;
       }
 
       const qualitySettings = company.settings?.quality_check_settings;
+      const normalizedRemark = remark.trim().toLowerCase();
       
-      // If not enabled, return meaningful by default
+      // Step 1: Standard blacklist check (instant, no API)
+      if (qualitySettings?.standard_check_enabled) {
+        const blacklist = qualitySettings.blacklist_words || [];
+        for (const word of blacklist) {
+          if (normalizedRemark === word.toLowerCase()) {
+            return res.json({ 
+              meaningful: false,
+              skipped: false,
+              warning_message: qualitySettings.standard_warning_message || 
+                "Your remark appears to be too brief. Please provide more details about the conversation."
+            });
+          }
+        }
+      }
+      
+      // Step 2: AI check (if enabled and has API key)
       if (!qualitySettings?.enabled) {
-        return res.json({ meaningful: true, skipped: true, reason: "Quality check not enabled" });
+        return res.json({ meaningful: true, skipped: true, reason: "AI quality check not enabled" });
       }
 
       // Check if API key is configured
@@ -2897,9 +2913,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       const userPrompt = `Remark: "${remark}"`;
 
-      // Call Sarvam AI API with 500ms timeout
+      // Call Sarvam AI API with 2000ms timeout (increased from 500ms for reliability)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 500);
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
       try {
         const response = await fetch('https://api.sarvam.ai/v1/chat/completions', {
