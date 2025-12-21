@@ -27,6 +27,12 @@ export async function awardLeadUpdatePoints(
     return { awarded: 0, pending: 0 };
   }
 
+  // Multi-sheet users (access to >1 company sheet) don't participate in PowerScore
+  const isMultiSheet = await storage.isMultiSheetUser(context.userId);
+  if (isMultiSheet) {
+    return { awarded: 0, pending: 0 };
+  }
+
   let totalAwarded = 0;
   let totalPending = 0;
 
@@ -244,6 +250,12 @@ export async function awardLoginBonus(
     return { awarded: 0, pending: 0 };
   }
 
+  // Multi-sheet users (access to >1 company sheet) don't participate in PowerScore
+  const isMultiSheet = await storage.isMultiSheetUser(userId);
+  if (isMultiSheet) {
+    return { awarded: 0, pending: 0 };
+  }
+
   const rules = await storage.getPowerScoreRules(companyId);
   const scoreDate = getScoreDate(companyTimezone);
   
@@ -256,6 +268,12 @@ export async function awardLeadCreatedPoints(
   // Admin accounts don't participate in PowerScore
   const user = await storage.getUser(context.userId);
   if (!user || user.role === 'super_admin' || user.role === 'company_admin') {
+    return { awarded: 0, pending: 0 };
+  }
+
+  // Multi-sheet users (access to >1 company sheet) don't participate in PowerScore
+  const isMultiSheet = await storage.isMultiSheetUser(context.userId);
+  if (isMultiSheet) {
     return { awarded: 0, pending: 0 };
   }
 
