@@ -12,16 +12,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Form,
   FormControl,
   FormField,
@@ -42,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar as CalendarIcon, Clock, AlertTriangle } from "lucide-react";
+import { Calendar as CalendarIcon, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery, useQueries } from "@tanstack/react-query";
@@ -102,8 +92,7 @@ export function LeadUpdateDialog({
   const { applyAutoFillRules } = useAutoFillRules();
   const [quickFieldValues, setQuickFieldValues] = useState<Record<string, any>>({});
   const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
-  const [showQualityWarning, setShowQualityWarning] = useState(false);
-  const [qualityWarningMessage, setQualityWarningMessage] = useState<string>('');
+  const [remarkError, setRemarkError] = useState<string>('');
   const [pendingSubmitData, setPendingSubmitData] = useState<InsertLeadUpdate | null>(null);
   const [isCheckingQuality, setIsCheckingQuality] = useState(false);
   
@@ -116,10 +105,19 @@ export function LeadUpdateDialog({
     const isNowOpen = open;
     
     if (!wasOpen && isNowOpen) {
+      // Dialog opening: reset all state
       lockedLeadIdRef.current = leadId;
       lockedSheetIdRef.current = sheetId;
       setQuickFieldValues({});
       setDatePickerOpen(null);
+      setRemarkError('');
+      setPendingSubmitData(null);
+    }
+    
+    if (wasOpen && !isNowOpen) {
+      // Dialog closing: clear error state
+      setRemarkError('');
+      setPendingSubmitData(null);
     }
     
     prevOpenRef.current = open;
@@ -403,6 +401,9 @@ export function LeadUpdateDialog({
   const onSubmit = async (data: InsertLeadUpdate) => {
     const remark = data.remark || "";
     
+    // Clear any previous error when submitting
+    setRemarkError('');
+    
     // Skip checks for empty remarks
     if (!remark.trim()) {
       createUpdateMutation.mutate(data);
@@ -413,8 +414,7 @@ export function LeadUpdateDialog({
     const blacklistResult = checkBlacklist(remark);
     if (!blacklistResult.passed) {
       setPendingSubmitData(data);
-      setQualityWarningMessage(blacklistResult.warningMessage || '');
-      setShowQualityWarning(true);
+      setRemarkError(blacklistResult.warningMessage || 'Please provide more details.');
       return;
     }
     
@@ -422,8 +422,7 @@ export function LeadUpdateDialog({
     const aiResult = await checkRemarkQualityAI(remark);
     if (!aiResult.passed) {
       setPendingSubmitData(data);
-      setQualityWarningMessage(aiResult.warningMessage || '');
-      setShowQualityWarning(true);
+      setRemarkError(aiResult.warningMessage || 'Please provide more details.');
       return;
     }
     
@@ -434,12 +433,12 @@ export function LeadUpdateDialog({
     if (pendingSubmitData) {
       createUpdateMutation.mutate(pendingSubmitData);
     }
-    setShowQualityWarning(false);
+    setRemarkError('');
     setPendingSubmitData(null);
   };
 
-  const handleReviseRemark = () => {
-    setShowQualityWarning(false);
+  const clearRemarkError = () => {
+    setRemarkError('');
     setPendingSubmitData(null);
   };
 
@@ -670,7 +669,6 @@ export function LeadUpdateDialog({
   };
 
   return (
-    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] md:w-full max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -726,9 +724,26 @@ export function LeadUpdateDialog({
                       placeholder="Enter update details..."
                       {...field}
                       data-testid="input-update-remark"
-                      className="min-h-24"
+                      className={`min-h-24 ${remarkError ? 'border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500' : ''}`}
+                      onChange={(e) => {
+                        field.onChange(e);
+                        if (remarkError) clearRemarkError();
+                      }}
                     />
                   </FormControl>
+                  {remarkError && (
+                    <div className="space-y-1.5">
+                      <p className="text-sm text-red-500" data-testid="text-remark-error">{remarkError}</p>
+                      <button 
+                        type="button"
+                        className="text-sm text-muted-foreground underline hover:text-foreground transition-colors"
+                        onClick={handleProceedAnyway}
+                        data-testid="button-proceed-anyway"
+                      >
+                        Proceed Anyway
+                      </button>
+                    </div>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -766,29 +781,5 @@ export function LeadUpdateDialog({
       </DialogContent>
 
     </Dialog>
-
-      <AlertDialog open={showQualityWarning} onOpenChange={setShowQualityWarning}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Remark Quality Check
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {qualityWarningMessage || 
-                "The remark you entered appears to lack meaningful details. Please consider adding more specific information about the conversation or outcome."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleReviseRemark} data-testid="button-revise-remark">
-              Revise Remark
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleProceedAnyway} data-testid="button-proceed-anyway">
-              Proceed Anyway
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
   );
 }
