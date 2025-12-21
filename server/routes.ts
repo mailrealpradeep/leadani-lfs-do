@@ -3033,25 +3033,41 @@ ${questionsList}`;
         sheetMap[sheet.id] = sheet.name;
       }
 
-      // Get all users who have leads in accessible sheets (for user filter dropdown)
-      // Reuse the same filters (including date range) but without the user filter
-      const allLeadsForUsers = filterUserId ? await storage.getLeadsBySheetIds({
-        sheetIds: accessibleSheetIds,
-        page: 1,
-        limit: 1000,
-        sortBy: siteVisitedConfig.date_column,
-        sortOrder: 'asc',
-        filters, // Use the same filters including date range
-      }) : result;
+      // Get available users for the filter dropdown
+      // For admins: show ALL company users (regardless of lead ownership)
+      // For non-admin multi-sheet users: show users who own leads in their accessible sheets
+      const isAdmin = req.userRole === 'super_admin' || req.userRole === 'company_admin';
       
-      const allOwnerIds = [...new Set(allLeadsForUsers.leads.map(l => l.owner_user_id).filter(Boolean))];
-      const allOwnerUsers = await Promise.all(allOwnerIds.map(id => storage.getUser(id)));
-      const availableUsers: Array<{ id: string; name: string }> = [];
+      let availableUsers: Array<{ id: string; name: string }> = [];
       const userMap: Record<string, string> = {};
-      for (const user of allOwnerUsers) {
-        if (user) {
-          userMap[user.id] = user.name;
-          availableUsers.push({ id: user.id, name: user.name });
+      
+      if (isAdmin) {
+        // Admins see all company users
+        const companyUsers = await storage.getUsersByCompanyId(req.companyId);
+        for (const user of companyUsers) {
+          if (user.is_active !== false) {
+            userMap[user.id] = user.name;
+            availableUsers.push({ id: user.id, name: user.name });
+          }
+        }
+      } else {
+        // Non-admins see users who own leads in their accessible sheets (for this month)
+        const allLeadsForUsers = filterUserId ? await storage.getLeadsBySheetIds({
+          sheetIds: accessibleSheetIds,
+          page: 1,
+          limit: 1000,
+          sortBy: siteVisitedConfig.date_column,
+          sortOrder: 'asc',
+          filters, // Use the same filters including date range
+        }) : result;
+        
+        const allOwnerIds = [...new Set(allLeadsForUsers.leads.map(l => l.owner_user_id).filter(Boolean))];
+        const allOwnerUsers = await Promise.all(allOwnerIds.map(id => storage.getUser(id)));
+        for (const user of allOwnerUsers) {
+          if (user) {
+            userMap[user.id] = user.name;
+            availableUsers.push({ id: user.id, name: user.name });
+          }
         }
       }
       availableUsers.sort((a, b) => a.name.localeCompare(b.name));
@@ -3078,7 +3094,6 @@ ${questionsList}`;
       // Determine if current user can filter by user (admin or multi-sheet access)
       // Use nonPersonalSheetCount to match the multi-sheet detection logic used elsewhere
       // (personal sheets don't count toward multi-sheet access)
-      const isAdmin = req.userRole === 'super_admin' || req.userRole === 'company_admin';
       const hasMultipleNonPersonalSheets = nonPersonalSheetCount > 1;
       const canFilterByUser = isAdmin || hasMultipleNonPersonalSheets;
 
