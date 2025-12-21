@@ -87,6 +87,13 @@ The system features a customizable grid interface with dynamic column management
     - **Backward Simulation Calculator**: Input target conversions (e.g., "I want 10 conversions") and calculate required leads/visits/schedules based on historical conversion rates
     - Timezone-aware date boundaries using `toZonedTime`/`fromZonedTime` with date-fns for accurate analytics across all company timezones
     - **Multi-Sheet User Exclusion**: Users with access to >1 company sheet are automatically excluded from stage counts and analytics, ensuring fair representation of single-sheet user performance
+*   **Quality Check Settings**: AI-powered remark validation for lead updates using Sarvam AI. Features include:
+    - Configurable per company via Admin Console (enabled toggle, API key, acceptance level, warning message)
+    - Three acceptance levels: lenient (single words only), moderate (require specific info), strict (detailed summaries)
+    - Multi-language support for 10 Indian languages (English, Hindi, Odia, Telugu, Tamil, Bengali, Kannada, Malayalam, Marathi, Gujarati, Punjabi)
+    - 500ms timeout with fail-open strategy (validation skipped on timeout/error to avoid blocking users)
+    - Warning dialog with "Revise Remark" and "Proceed Anyway" options when remark is not meaningful
+    - Free API usage via Sarvam AI dashboard (dashboard.sarvam.ai)
 
 ### Security
 
