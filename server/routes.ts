@@ -3017,14 +3017,24 @@ ${questionsList}`;
         };
       }
 
+      // When filtering by user, find sheets where that user is assigned and filter leads by those sheets
+      // This is because leads may have owner_user_id set to admin who created them,
+      // but users are assigned to sheets via sheet_users table
+      let sheetIdsToQuery = accessibleSheetIds;
+      if (filterUserId) {
+        const userSheets = await storage.getSheetsByUserId(filterUserId);
+        const userSheetIds = new Set(userSheets.map(s => s.id));
+        // Intersect with accessible sheets to maintain access control
+        sheetIdsToQuery = accessibleSheetIds.filter(id => userSheetIds.has(id));
+      }
+
       const result = await storage.getLeadsBySheetIds({
-        sheetIds: accessibleSheetIds,
+        sheetIds: sheetIdsToQuery,
         page: 1,
         limit: 1000,
         sortBy: siteVisitedConfig.date_column,
         sortOrder: 'asc',
         filters,
-        ownerUserId: filterUserId || undefined,
       });
 
       const allSheets = await storage.getSheetsByCompanyId(req.companyId);
