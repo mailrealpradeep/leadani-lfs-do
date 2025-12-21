@@ -1,13 +1,14 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, parseISO } from "date-fns";
-import { ChevronLeft, ChevronRight, Calendar, CheckCircle2, Clock, AlertCircle, Settings, Phone, MessageCircle, CalendarCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar, CheckCircle2, Clock, AlertCircle, Settings, Phone, MessageCircle, CalendarCheck, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { Link } from "wouter";
@@ -40,6 +41,8 @@ interface VisitedResponse {
   config: SiteVisitedConfig | null;
   total: number;
   message?: string;
+  availableUsers?: Array<{ id: string; name: string }>;
+  canFilterByUser?: boolean;
 }
 
 const sheetColors = [
@@ -70,12 +73,15 @@ export default function Visited() {
   const [currentMonth, setCurrentMonth] = useState(todayInTz);
   const [selectedDate, setSelectedDate] = useState<Date | null>(todayInTz);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string>("all");
 
   const startDate = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
   const endDate = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
 
+  const userFilterParam = selectedUserId !== "all" ? `&user_id=${selectedUserId}` : "";
+  
   const { data, isLoading, error } = useQuery<VisitedResponse>({
-    queryKey: [`/api/visited?start_date=${startDate}&end_date=${endDate}`],
+    queryKey: [`/api/visited?start_date=${startDate}&end_date=${endDate}${userFilterParam}`],
   });
 
   const { data: columnsData } = useQuery<CustomColumn[]>({
@@ -196,16 +202,39 @@ export default function Visited() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="border-b px-4 sm:px-6 py-3 flex items-center justify-between gap-4 bg-background shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <CheckCircle2 className="h-5 w-5 text-green-600" />
           <h1 className="text-lg font-semibold">Visited Calendar</h1>
           {data?.total > 0 && (
             <Badge variant="secondary" className="text-xs">{data.total} this month</Badge>
           )}
         </div>
-        <Button variant="outline" size="sm" onClick={goToToday} data-testid="button-go-to-today">
-          Today
-        </Button>
+        <div className="flex items-center gap-2">
+          {data?.canFilterByUser && data?.availableUsers && data.availableUsers.length > 0 && (
+            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+              <SelectTrigger className="w-[160px] h-8 text-sm" data-testid="select-user-filter">
+                <User className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
+                <SelectValue placeholder="Filter by user" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" data-testid="select-user-all">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-3.5 w-3.5" />
+                    <span>All Users</span>
+                  </div>
+                </SelectItem>
+                {data.availableUsers.map((user) => (
+                  <SelectItem key={user.id} value={user.id} data-testid={`select-user-${user.id}`}>
+                    {user.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button variant="outline" size="sm" onClick={goToToday} data-testid="button-go-to-today">
+            Today
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden">

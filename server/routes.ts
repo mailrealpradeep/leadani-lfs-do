@@ -2984,13 +2984,16 @@ ${questionsList}`;
       }
 
       let accessibleSheetIds: string[] = [];
+      let nonPersonalSheetCount = 0;
       
       if (req.userRole === "super_admin" || req.userRole === "company_admin") {
         const allSheets = await storage.getSheetsByCompanyId(req.companyId);
         accessibleSheetIds = allSheets.filter(s => !s.deleted_at).map(s => s.id);
+        nonPersonalSheetCount = allSheets.filter(s => !s.deleted_at && !s.is_personal).length;
       } else {
         const userSheets = await storage.getSheetsByUserId(req.userId!);
         accessibleSheetIds = userSheets.filter(s => !s.deleted_at).map(s => s.id);
+        nonPersonalSheetCount = userSheets.filter(s => !s.deleted_at && !s.is_personal).length;
       }
 
       if (accessibleSheetIds.length === 0) {
@@ -2999,6 +3002,7 @@ ${questionsList}`;
 
       const startDate = req.query.start_date as string | undefined;
       const endDate = req.query.end_date as string | undefined;
+      const filterUserId = req.query.user_id as string | undefined;
 
       const filters: Record<string, any> = {
         [siteVisitedConfig.status_column]: visitedStatusValues.length === 1
@@ -3020,6 +3024,7 @@ ${questionsList}`;
         sortBy: siteVisitedConfig.date_column,
         sortOrder: 'asc',
         filters,
+        ownerUserId: filterUserId || undefined,
       });
 
       const allSheets = await storage.getSheetsByCompanyId(req.companyId);
@@ -3028,14 +3033,28 @@ ${questionsList}`;
         sheetMap[sheet.id] = sheet.name;
       }
 
-      const userIds = [...new Set(result.leads.map(l => l.owner_user_id).filter(Boolean))];
-      const users = await Promise.all(userIds.map(id => storage.getUser(id)));
+      // Get all users who have leads in accessible sheets (for user filter dropdown)
+      // Reuse the same filters (including date range) but without the user filter
+      const allLeadsForUsers = filterUserId ? await storage.getLeadsBySheetIds({
+        sheetIds: accessibleSheetIds,
+        page: 1,
+        limit: 1000,
+        sortBy: siteVisitedConfig.date_column,
+        sortOrder: 'asc',
+        filters, // Use the same filters including date range
+      }) : result;
+      
+      const allOwnerIds = [...new Set(allLeadsForUsers.leads.map(l => l.owner_user_id).filter(Boolean))];
+      const allOwnerUsers = await Promise.all(allOwnerIds.map(id => storage.getUser(id)));
+      const availableUsers: Array<{ id: string; name: string }> = [];
       const userMap: Record<string, string> = {};
-      for (const user of users) {
+      for (const user of allOwnerUsers) {
         if (user) {
           userMap[user.id] = user.name;
+          availableUsers.push({ id: user.id, name: user.name });
         }
       }
+      availableUsers.sort((a, b) => a.name.localeCompare(b.name));
 
       const leadIds = result.leads.map(l => l.id);
       const lastUpdatesMap = await storage.getLastUpdatesForLeads(leadIds);
@@ -3056,10 +3075,19 @@ ${questionsList}`;
         };
       });
 
+      // Determine if current user can filter by user (admin or multi-sheet access)
+      // Use nonPersonalSheetCount to match the multi-sheet detection logic used elsewhere
+      // (personal sheets don't count toward multi-sheet access)
+      const isAdmin = req.userRole === 'super_admin' || req.userRole === 'company_admin';
+      const hasMultipleNonPersonalSheets = nonPersonalSheetCount > 1;
+      const canFilterByUser = isAdmin || hasMultipleNonPersonalSheets;
+
       res.json({ 
         visited: enrichedVisited, 
         config: siteVisitedConfig,
         total: result.total,
+        availableUsers: canFilterByUser ? availableUsers : [],
+        canFilterByUser,
       });
     } catch (error: any) {
       console.error("Get visited error:", error);
