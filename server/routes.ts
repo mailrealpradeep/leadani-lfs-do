@@ -2806,7 +2806,7 @@ ${questionsList}`;
       }
 
       // Merge new settings with existing settings (only allow known fields)
-      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'site_visited_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules', 'weekly_off_days'];
+      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'site_visited_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules', 'weekly_off_days', 'quality_check_settings'];
       const sanitizedSettings: Record<string, any> = {};
       for (const field of allowedFields) {
         if (incomingSettings[field] !== undefined) {
@@ -2835,6 +2835,119 @@ ${questionsList}`;
     } catch (error: any) {
       console.error("Update company settings error:", error);
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // SARVAM AI - Remark Quality Check
+  // ============================================================================
+  app.post("/api/sarvam/check-remark", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      const { remark } = req.body;
+      if (!remark || typeof remark !== 'string') {
+        return res.status(400).json({ error: "Remark is required" });
+      }
+
+      // Get company settings to check if quality check is enabled
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      const qualitySettings = company.settings?.quality_check_settings;
+      
+      // If not enabled, return meaningful by default
+      if (!qualitySettings?.enabled) {
+        return res.json({ meaningful: true, skipped: true, reason: "Quality check not enabled" });
+      }
+
+      // Check if API key is configured
+      const apiKey = qualitySettings.sarvam_api_key;
+      if (!apiKey) {
+        return res.json({ meaningful: true, skipped: true, reason: "Sarvam API key not configured" });
+      }
+
+      const acceptanceLevel = qualitySettings.acceptance_level || 'moderate';
+      
+      // Build prompt based on acceptance level
+      let levelDescription = '';
+      switch (acceptanceLevel) {
+        case 'lenient':
+          levelDescription = 'Only reject single words like "ok", "done", "called", "yes", "no" or empty-like responses. Allow short but informative remarks.';
+          break;
+        case 'moderate':
+          levelDescription = 'Reject lazy responses like "ok", "done", "called", "will call back", "no response" and require at least some specific information about the conversation outcome or next step.';
+          break;
+        case 'strict':
+          levelDescription = 'Require detailed conversation summaries with specific information about what was discussed, customer response, and clear next steps. Reject anything vague or generic.';
+          break;
+      }
+
+      const systemPrompt = `You are a CRM quality checker for a sales team. Your job is to determine if a lead update remark is meaningful or lazy/empty.
+
+${levelDescription}
+
+The remark may be in English, Hindi, Odia, Telugu, Tamil, Bengali, Kannada, Malayalam, Marathi, Gujarati, Punjabi or a mix. Understand the meaning regardless of language.
+
+Respond with ONLY one word: "meaningful" or "not_meaningful"`;
+
+      const userPrompt = `Remark: "${remark}"`;
+
+      // Call Sarvam AI API with 500ms timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 500);
+
+      try {
+        const response = await fetch('https://api.sarvam.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'sarvam-m',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.1,
+            max_tokens: 10
+          }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          console.error('Sarvam API error:', response.status, await response.text());
+          // On API error, allow the remark (fail-open)
+          return res.json({ meaningful: true, skipped: true, reason: "API error" });
+        }
+
+        const data = await response.json();
+        const answer = data.choices?.[0]?.message?.content?.toLowerCase()?.trim() || '';
+        
+        const isMeaningful = !answer.includes('not_meaningful');
+        
+        res.json({ 
+          meaningful: isMeaningful,
+          skipped: false,
+          warning_message: !isMeaningful ? (qualitySettings.warning_message || "Please add more details about the conversation or outcome.") : undefined
+        });
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        // On timeout or network error, allow the remark (fail-open)
+        console.log('Sarvam API timeout or error:', fetchError.message);
+        return res.json({ meaningful: true, skipped: true, reason: "Timeout or network error" });
+      }
+    } catch (error: any) {
+      console.error("Check remark error:", error);
+      // On any error, allow the remark (fail-open)
+      res.json({ meaningful: true, skipped: true, reason: "Server error" });
     }
   });
 

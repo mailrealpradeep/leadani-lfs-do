@@ -51,6 +51,12 @@ export interface Company {
       priority: number; // order for conflict resolution (lower = higher priority)
       enabled: boolean; // whether the rule is active
     }[]; // Auto-fill rules for automatically setting field values
+    quality_check_settings?: {
+      enabled: boolean; // Whether remark quality check is enabled
+      sarvam_api_key?: string; // Company's Sarvam AI API key
+      acceptance_level: 'lenient' | 'moderate' | 'strict'; // How strict the validation is
+      warning_message?: string; // Custom warning message shown when remark is not meaningful
+    };
   };
   status: "active" | "suspended" | "trial";
   attendance_exit_target_id: string | null; // Links to working_targets for attendance exit condition
@@ -105,6 +111,12 @@ export const insertCompanySchema = z.object({
       enabled: z.boolean(),
     })).optional(),
     weekly_off_days: z.array(z.number().int().min(0).max(6)).optional(), // 0=Sunday through 6=Saturday
+    quality_check_settings: z.object({
+      enabled: z.boolean(),
+      sarvam_api_key: z.string().optional(), // Stored securely, never exposed to frontend
+      acceptance_level: z.enum(['lenient', 'moderate', 'strict']),
+      warning_message: z.string().optional(),
+    }).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),
 });

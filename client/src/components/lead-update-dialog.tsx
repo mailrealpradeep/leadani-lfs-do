@@ -9,7 +9,18 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Form,
   FormControl,
@@ -31,15 +42,23 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar as CalendarIcon, Clock } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery, useQueries } from "@tanstack/react-query";
 import { format, parseISO, isValid } from "date-fns";
 import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 
+interface QualityCheckSettings {
+  enabled: boolean;
+  sarvam_api_key?: string;
+  acceptance_level: 'lenient' | 'moderate' | 'strict';
+  warning_message?: string;
+}
+
 interface CompanySettings {
   quick_update_fields?: string[];
+  quality_check_settings?: QualityCheckSettings;
   [key: string]: any;
 }
 
@@ -78,6 +97,9 @@ export function LeadUpdateDialog({
   const { applyAutoFillRules } = useAutoFillRules();
   const [quickFieldValues, setQuickFieldValues] = useState<Record<string, any>>({});
   const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
+  const [showQualityWarning, setShowQualityWarning] = useState(false);
+  const [pendingSubmitData, setPendingSubmitData] = useState<InsertLeadUpdate | null>(null);
+  const [isCheckingQuality, setIsCheckingQuality] = useState(false);
   
   const lockedLeadIdRef = useRef<string>(leadId);
   const lockedSheetIdRef = useRef<string | undefined>(sheetId);
@@ -311,8 +333,59 @@ export function LeadUpdateDialog({
     },
   });
 
-  const onSubmit = (data: InsertLeadUpdate) => {
+  const qualityCheckSettings = settingsData?.settings?.quality_check_settings;
+
+  const checkRemarkQuality = async (remark: string): Promise<boolean> => {
+    if (!qualityCheckSettings?.enabled) {
+      return true;
+    }
+    
+    if (!remark || remark.trim().length === 0) {
+      return true;
+    }
+    
+    try {
+      setIsCheckingQuality(true);
+      const response = await apiRequest<{ meaningful: boolean; reason?: string; skipped?: boolean }>(
+        "POST",
+        "/api/sarvam/check-remark",
+        { remark }
+      );
+      if (response.skipped) {
+        return true;
+      }
+      return response.meaningful;
+    } catch (error) {
+      console.error("Remark quality check failed:", error);
+      return true;
+    } finally {
+      setIsCheckingQuality(false);
+    }
+  };
+
+  const onSubmit = async (data: InsertLeadUpdate) => {
+    const isMeaningful = await checkRemarkQuality(data.remark || "");
+    
+    if (!isMeaningful) {
+      setPendingSubmitData(data);
+      setShowQualityWarning(true);
+      return;
+    }
+    
     createUpdateMutation.mutate(data);
+  };
+
+  const handleProceedAnyway = () => {
+    if (pendingSubmitData) {
+      createUpdateMutation.mutate(pendingSubmitData);
+    }
+    setShowQualityWarning(false);
+    setPendingSubmitData(null);
+  };
+
+  const handleReviseRemark = () => {
+    setShowQualityWarning(false);
+    setPendingSubmitData(null);
   };
 
   const handleQuickFieldChange = (columnKey: string, value: any) => {
@@ -542,6 +615,7 @@ export function LeadUpdateDialog({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] md:w-full max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -626,15 +700,40 @@ export function LeadUpdateDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={createUpdateMutation.isPending || updateLeadMutation.isPending}
+                disabled={createUpdateMutation.isPending || updateLeadMutation.isPending || isCheckingQuality}
                 data-testid="button-save-update"
               >
-                {createUpdateMutation.isPending || updateLeadMutation.isPending ? "Saving..." : "Save Update"}
+                {isCheckingQuality ? "Checking..." : createUpdateMutation.isPending || updateLeadMutation.isPending ? "Saving..." : "Save Update"}
               </Button>
             </DialogFooter>
           </form>
         </Form>
       </DialogContent>
+
     </Dialog>
+
+      <AlertDialog open={showQualityWarning} onOpenChange={setShowQualityWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Remark Quality Check
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {qualityCheckSettings?.warning_message || 
+                "The remark you entered appears to lack meaningful details. Please consider adding more specific information about the conversation or outcome."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleReviseRemark} data-testid="button-revise-remark">
+              Revise Remark
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleProceedAnyway} data-testid="button-proceed-anyway">
+              Proceed Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

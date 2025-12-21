@@ -46,6 +46,7 @@ import { AutoFillRulesSettings } from "@/components/auto-fill-rules-settings";
 import { Flame, ClipboardCheck, Eye, FormInput, Zap, Sparkles, ThumbsUp, Gift, Trophy, Award, Activity } from "lucide-react";
 import { PowerScoreSettings } from "@/components/powerscore-settings";
 import { PowerFlowSettings } from "@/components/powerflow-settings";
+import { QualityCheckSettings } from "@/components/quality-check-settings";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -804,6 +805,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <GeneralCompanySettings />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="quality-check" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-quality-check">
+              <div className="flex items-center gap-3">
+                <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Quality Check Settings</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Validate lead update remarks using Sarvam AI
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <QualityCheckSettings />
               </div>
             </AccordionContent>
           </AccordionItem>
