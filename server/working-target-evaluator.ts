@@ -1131,10 +1131,15 @@ export async function generateLeaderboard(
   // Evaluate each target for each user
   for (const target of activeTargets) {
     // Get users who have access to this target's sheets
+    // Filter out personal sheets - they should not be included in leaderboard calculations
     let targetUserIds: Set<string> = new Set();
     
     if (target.sheet_ids && target.sheet_ids.length > 0) {
       for (const sheetId of target.sheet_ids) {
+        // Check if sheet is personal - skip personal sheets
+        const sheet = await storage.getSheet(sheetId);
+        if (sheet?.is_personal) continue;
+        
         const sheetUsers = await storage.getSheetUsers(sheetId);
         sheetUsers.forEach(su => targetUserIds.add(su.user_id));
       }

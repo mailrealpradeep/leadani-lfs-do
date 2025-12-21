@@ -18962,8 +18962,9 @@ ${questionsList}`;
       const { period = 'this_month', sheet_id, use_personal_data } = req.query;
       const isPersonalData = use_personal_data === 'true';
       
-      // Get all company sheets
-      const allSheets = await storage.getSheetsByCompanyId(req.companyId);
+      // Get all company sheets, excluding personal/private sheets from analytics
+      const allCompanySheets = await storage.getSheetsByCompanyId(req.companyId);
+      const allSheets = allCompanySheets.filter(s => !s.is_personal);
       
       // Build user's accessible sheets list (for non-admins)
       let userAccessibleSheets = allSheets;
