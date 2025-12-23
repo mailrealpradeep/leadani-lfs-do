@@ -18896,7 +18896,36 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const approvals = await storage.getPowerScorePendingApprovals(req.companyId);
-      res.json({ approvals });
+      
+      // Enrich approvals with user names and lead names
+      const enrichedApprovals = await Promise.all(approvals.map(async (approval) => {
+        let user_name = "Unknown User";
+        let lead_full_name = "";
+        
+        // Get user name
+        if (approval.user_id) {
+          const user = await storage.getUser(approval.user_id);
+          if (user) {
+            user_name = user.name;
+          }
+        }
+        
+        // Get lead name
+        if (approval.lead_id) {
+          const lead = await storage.getLead(approval.lead_id);
+          if (lead) {
+            lead_full_name = lead.full_name || "";
+          }
+        }
+        
+        return {
+          ...approval,
+          user_name,
+          lead_full_name,
+        };
+      }));
+      
+      res.json({ approvals: enrichedApprovals });
     } catch (error: any) {
       console.error("Error fetching pending approvals:", error);
       res.status(500).json({ error: error.message });
