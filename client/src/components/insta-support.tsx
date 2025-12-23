@@ -45,8 +45,7 @@ export function InstaSupport() {
 
   const askMutation = useMutation({
     mutationFn: async (question: string) => {
-      const response = await apiRequest("POST", "/api/insta-support", { question });
-      return response.json() as Promise<InstaSupportResponse>;
+      return await apiRequest<InstaSupportResponse>("POST", "/api/insta-support", { question });
     },
     onSuccess: (data) => {
       const assistantMessage: Message = {
