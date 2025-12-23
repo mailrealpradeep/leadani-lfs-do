@@ -9012,22 +9012,29 @@ export class PgStorage implements IStorage {
     // Sort stages by order
     const sortedStages = [...stages].sort((a, b) => a.order - b.order);
     
-    // Count total leads created in the period
-    // Note: Multi-sheet user exclusion applies only to activity log transitions, NOT to total leads count
-    // All leads are counted regardless of owner - exclusion is for tracking actions/transitions by multi-sheet users
-    const totalLeadsResult = await db.select({ count: sql<number>`count(*)` })
-      .from(dbSchema.leads)
-      .where(
-        and(
-          inArray(dbSchema.leads.sheet_id, sheetIds),
-          gte(dbSchema.leads.created_at, startDate),
-          lte(dbSchema.leads.created_at, endDate),
-          isNull(dbSchema.leads.deleted_at)
-        )
-      );
-    const totalLeads = Number(totalLeadsResult[0]?.count || 0);
+    // Build multi-sheet user exclusion condition
+    // Use COALESCE to handle NULL owner_user_id (unassigned leads should be included)
+    const multiSheetExclusionCondition = multiSheetUserIds.length > 0
+      ? sql` AND (l.owner_user_id IS NULL OR l.owner_user_id NOT IN (${sql.join(multiSheetUserIds.map(id => sql`${id}`), sql`, `)}))`
+      : sql``;
+    
+    // Build sheet IDs condition
+    const sheetIdPlaceholders = sql.join(sheetIds.map(id => sql`${id}`), sql`, `);
+    
+    // Count total leads created in the period (excluding multi-sheet user owned leads)
+    const totalLeadsResult = await db.execute(sql`
+      SELECT COUNT(*) as count
+      FROM leads l
+      WHERE l.sheet_id IN (${sheetIdPlaceholders})
+        AND l.created_at >= ${startDate}
+        AND l.created_at <= ${endDate}
+        AND l.deleted_at IS NULL
+        ${multiSheetExclusionCondition}
+    `);
+    const totalLeadsRows = (totalLeadsResult as any).rows ?? totalLeadsResult;
+    const totalLeads = Number(totalLeadsRows[0]?.count || 0);
 
-    // For each stage, count transitions TO that stage from activity_logs
+    // For each stage, count leads by their CURRENT status (not transitions)
     const stageMetrics: PowerFlowStageMetrics[] = [];
     
     for (let i = 0; i < sortedStages.length; i++) {
@@ -9035,41 +9042,30 @@ export class PgStorage implements IStorage {
       let count = 0;
       
       if (i === 0) {
-        // First stage (Leads) - count total leads created
+        // First stage (Leads) - count total leads created in the period
         count = totalLeads;
       } else {
-        // For other stages, count transitions TO the stage values
+        // For other stages, count leads whose CURRENT custom_fields value matches the stage values
         const columnValueStrings: string[] = (stage.column_values || []).map(v => String(v));
         
-        if (columnValueStrings.length === 0 || sheetIds.length === 0) {
+        if (columnValueStrings.length === 0) {
           count = 0;
         } else {
-          // Use sql.join to create proper IN clauses instead of ANY with arrays
-          // This avoids PostgreSQL array type issues with drizzle's sql template
-          const sheetIdPlaceholders = sql.join(sheetIds.map(id => sql`${id}`), sql`, `);
           const columnValuePlaceholders = sql.join(columnValueStrings.map(v => sql`${v}`), sql`, `);
           
-          // Build user exclusion clause for multi-sheet users
-          const multiSheetExclusion = multiSheetUserIds.length > 0
-            ? sql` AND al.user_id NOT IN (${sql.join(multiSheetUserIds.map(id => sql`${id}`), sql`, `)})`
-            : sql``;
-          
-          const transitionResult = await db.execute(sql`
-            SELECT COUNT(DISTINCT al.target_id) as count
-            FROM activity_logs al
-            CROSS JOIN LATERAL jsonb_array_elements((al.details::jsonb)->'changes') as change_elem
-            WHERE al.company_id = ${companyId}
-              AND al.sheet_id IN (${sheetIdPlaceholders})
-              AND al.action = 'lead_updated'
-              AND al.occurred_at >= ${startDate}
-              AND al.occurred_at <= ${endDate}
-              AND change_elem->>'field_key' = ${stage.column_key}
-              AND change_elem->>'new_value' IN (${columnValuePlaceholders})
-              ${multiSheetExclusion}
+          // Count leads by current status in custom_fields (within the date period)
+          const statusResult = await db.execute(sql`
+            SELECT COUNT(*) as count
+            FROM leads l
+            WHERE l.sheet_id IN (${sheetIdPlaceholders})
+              AND l.created_at >= ${startDate}
+              AND l.created_at <= ${endDate}
+              AND l.deleted_at IS NULL
+              AND l.custom_fields->>${stage.column_key} IN (${columnValuePlaceholders})
+              ${multiSheetExclusionCondition}
           `);
           
-          // Handle both array result and { rows: [] } result structure from db.execute
-          const resultRows = (transitionResult as any).rows ?? transitionResult;
+          const resultRows = (statusResult as any).rows ?? statusResult;
           count = Number(resultRows[0]?.count || 0);
         }
       }
