@@ -94,6 +94,16 @@ The system features a customizable grid interface with dynamic column management
     - 500ms timeout with fail-open strategy (validation skipped on timeout/error to avoid blocking users)
     - Warning dialog with "Revise Remark" and "Proceed Anyway" options when remark is not meaningful
     - Free API usage via Sarvam AI dashboard (dashboard.sarvam.ai)
+*   **Insta Support**: AI-powered support assistant that answers questions about all application features using Sarvam AI. Features include:
+    - 17 feature domains: lead, powerscore, powerflow, targets, filters, highlighting, webhooks, permissions, autofill, validation, attendance, hotleads, customviews, sheets, users, settings, general
+    - Question classifier detecting intent (why/how/what/who/when) and identifying feature domain by keywords
+    - Entity extraction for phone numbers and quoted names to provide contextual answers
+    - Role-based access control: admin-only domains (powerflow, webhooks, autofill, validation, hotleads, customviews, users, settings) return limited documentation for regular users
+    - PII redaction: phone numbers masked to XXXXXX#### format before sending to AI
+    - Context fetchers for lead lookup, highlighting rules, PowerScore rules, webhooks, permissions, filters, company settings
+    - Multi-language support following user's question language
+    - Uses free Sarvam AI sarvam-m model (requires API key in Quality Check Settings)
+    - Accessible via Admin Console sidebar for Company Admins
 
 ### Security
 
