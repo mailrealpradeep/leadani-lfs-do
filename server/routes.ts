@@ -18896,7 +18896,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const approvals = await storage.getPowerScorePendingApprovals(req.companyId);
-      res.json(approvals);
+      res.json({ approvals });
     } catch (error: any) {
       console.error("Error fetching pending approvals:", error);
       res.status(500).json({ error: error.message });
