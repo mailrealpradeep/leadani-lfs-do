@@ -1128,11 +1128,15 @@ export function SpreadsheetGrid({
   });
 
   // Merge global and sheet-specific rules, sheet-specific take precedence (evaluated first)
+  // Disable highlighting rules for Custom Views
   const highlightingRules = useMemo(() => {
+    if (customViewMode) {
+      return []; // No highlighting in Custom Views
+    }
     // Sheet-specific rules are evaluated first (have higher effective priority)
     // Then global rules are evaluated for any rows not matched by sheet-specific rules
     return [...sheetHighlightingRules, ...globalHighlightingRules];
-  }, [sheetHighlightingRules, globalHighlightingRules]);
+  }, [sheetHighlightingRules, globalHighlightingRules, customViewMode]);
 
   // Load company settings (for mobile card columns)
   const { data: companySettingsData } = useQuery<{ settings: { mobile_card_columns?: string[] } }>({
