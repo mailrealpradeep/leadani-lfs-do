@@ -9054,6 +9054,7 @@ export class PgStorage implements IStorage {
           const columnValuePlaceholders = sql.join(columnValueStrings.map(v => sql`${v}`), sql`, `);
           
           // Count leads by current status in custom_fields (within the date period)
+          // Use COALESCE to handle both object-shaped values (dropdown: {"value": "X"}) and plain strings
           const statusResult = await db.execute(sql`
             SELECT COUNT(*) as count
             FROM leads l
@@ -9061,7 +9062,7 @@ export class PgStorage implements IStorage {
               AND l.created_at >= ${startDate}
               AND l.created_at <= ${endDate}
               AND l.deleted_at IS NULL
-              AND l.custom_fields->>${stage.column_key} IN (${columnValuePlaceholders})
+              AND COALESCE(l.custom_fields->${stage.column_key}->>'value', l.custom_fields->>${stage.column_key}) IN (${columnValuePlaceholders})
               ${multiSheetExclusionCondition}
           `);
           
