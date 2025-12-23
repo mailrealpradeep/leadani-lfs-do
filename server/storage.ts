@@ -8312,15 +8312,16 @@ export class PgStorage implements IStorage {
       id: row.id,
       user_id: row.user_id,
       company_id: row.company_id,
+      lead_id: row.lead_id,
+      rule_id: row.rule_id,
       action_type: row.action_type as PowerScoreActionType,
       points: row.points,
-      reference_id: row.reference_id,
-      reference_type: row.reference_type,
       description: row.description,
+      score_date: row.score_date,
       status: row.status as 'pending' | 'approved' | 'rejected',
-      reviewed_by: row.reviewed_by,
-      reviewed_at: row.reviewed_at?.toISOString() || null,
-      created_at: row.created_at?.toISOString() || new Date().toISOString(),
+      reviewed_by_user_id: row.reviewed_by_user_id,
+      reviewed_at: row.reviewed_at,
+      created_at: row.created_at,
     }));
   }
 
