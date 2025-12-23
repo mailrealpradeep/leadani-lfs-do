@@ -9006,22 +9006,16 @@ export class PgStorage implements IStorage {
       return { stages: [], total_leads: 0, overall_conversion_rate: 0 };
     }
 
-    // Get multi-sheet user IDs to exclude from analytics
-    const multiSheetUserIds = await this.getMultiSheetUserIds(companyId);
+    // Note: PowerFlow counts ALL leads regardless of owner (no multi-sheet exclusion)
+    // Multi-sheet exclusion is only applied to PowerScore and Working Targets leaderboards
 
     // Sort stages by order
     const sortedStages = [...stages].sort((a, b) => a.order - b.order);
     
-    // Build multi-sheet user exclusion condition
-    // Use COALESCE to handle NULL owner_user_id (unassigned leads should be included)
-    const multiSheetExclusionCondition = multiSheetUserIds.length > 0
-      ? sql` AND (l.owner_user_id IS NULL OR l.owner_user_id NOT IN (${sql.join(multiSheetUserIds.map(id => sql`${id}`), sql`, `)}))`
-      : sql``;
-    
     // Build sheet IDs condition
     const sheetIdPlaceholders = sql.join(sheetIds.map(id => sql`${id}`), sql`, `);
     
-    // Count total leads created in the period (excluding multi-sheet user owned leads)
+    // Count total leads created in the period
     const totalLeadsResult = await db.execute(sql`
       SELECT COUNT(*) as count
       FROM leads l
@@ -9029,7 +9023,6 @@ export class PgStorage implements IStorage {
         AND l.created_at >= ${startDate}
         AND l.created_at <= ${endDate}
         AND l.deleted_at IS NULL
-        ${multiSheetExclusionCondition}
     `);
     const totalLeadsRows = (totalLeadsResult as any).rows ?? totalLeadsResult;
     const totalLeads = Number(totalLeadsRows[0]?.count || 0);
@@ -9063,7 +9056,6 @@ export class PgStorage implements IStorage {
               AND l.created_at <= ${endDate}
               AND l.deleted_at IS NULL
               AND COALESCE(l.custom_fields->${stage.column_key}->>'value', l.custom_fields->>${stage.column_key}) IN (${columnValuePlaceholders})
-              ${multiSheetExclusionCondition}
           `);
           
           const resultRows = (statusResult as any).rows ?? statusResult;
