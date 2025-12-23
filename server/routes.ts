@@ -2974,6 +2974,41 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // INSTA SUPPORT - AI-powered support assistant
+  // ============================================================================
+  app.post("/api/insta-support", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "No company/user context" });
+      }
+
+      const { question } = req.body;
+      if (!question || typeof question !== 'string' || question.trim().length === 0) {
+        return res.status(400).json({ error: "Question is required" });
+      }
+
+      if (question.length > 500) {
+        return res.status(400).json({ error: "Question too long (max 500 characters)" });
+      }
+
+      // Import and call the Insta Support service
+      const { processInstaSupportQuery } = await import('./insta-support-service');
+      
+      const result = await processInstaSupportQuery(
+        question.trim(),
+        req.companyId,
+        req.userId,
+        req.userRole as 'super_admin' | 'company_admin' | 'user'
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Insta Support error:", error);
+      res.status(500).json({ error: "Failed to process question", details: error.message });
+    }
+  });
+
+  // ============================================================================
   // VISIT SCHEDULES - Fetch leads that are scheduled for site visits
   // ============================================================================
   app.get("/api/visits", authMiddleware, async (req: AuthRequest, res) => {

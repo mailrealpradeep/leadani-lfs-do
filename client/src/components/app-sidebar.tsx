@@ -335,6 +335,12 @@ export function AppSidebar() {
           icon: Send,
           testId: "link-outgoing-webhooks",
         },
+        {
+          title: "Insta Support",
+          url: "/insta-support",
+          icon: Sparkles,
+          testId: "link-insta-support",
+        },
       ]
     : [];
 

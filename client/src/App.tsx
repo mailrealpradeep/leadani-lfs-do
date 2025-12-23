@@ -32,6 +32,7 @@ import TeamPerformance from "@/pages/team-performance";
 import Admin from "@/pages/admin";
 import Webhooks from "@/pages/webhooks";
 import OutgoingWebhooks from "@/pages/outgoing-webhooks";
+import InstaSupportPage from "@/pages/insta-support";
 import AuditLogs from "@/pages/audit";
 import Attendance from "@/pages/attendance";
 import Tasks from "@/pages/tasks";
@@ -161,6 +162,9 @@ function Router() {
       </Route>
       <Route path="/outgoing-webhooks">
         {() => <ProtectedRoute component={OutgoingWebhooks} adminOnly />}
+      </Route>
+      <Route path="/insta-support">
+        {() => <ProtectedRoute component={InstaSupportPage} />}
       </Route>
       <Route path="/attendance">
         {() => <ProtectedRoute component={Attendance} />}
