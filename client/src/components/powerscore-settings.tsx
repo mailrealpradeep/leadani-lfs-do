@@ -175,7 +175,7 @@ export function PowerScoreSettings() {
   const approvalMutation = useMutation({
     mutationFn: async ({ id, action }: { id: string; action: "approve" | "reject" }) => {
       setProcessingApprovalId(id);
-      return await apiRequest("POST", `/api/powerscore/pending-approvals/${id}/${action}`);
+      return await apiRequest("POST", `/api/powerscore/pending-approvals/${id}/review`, { action });
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/powerscore/pending-approvals"] });
