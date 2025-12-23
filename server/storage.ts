@@ -766,9 +766,11 @@ export interface IStorage {
   getPowerScorePendingApprovals(companyId: string): Promise<PowerScorePendingApproval[]>;
   getPowerScorePendingApproval(id: string): Promise<PowerScorePendingApproval | undefined>;
   getPendingApprovalsByRuleAndDate(userId: string, ruleId: string, scoreDate: string): Promise<PowerScorePendingApproval[]>;
+  getPendingApprovalsByLeadId(leadId: string): Promise<PowerScorePendingApproval[]>;
   createPowerScorePendingApproval(approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by_user_id' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval>;
   approvePowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined>;
   rejectPowerScoreApproval(id: string, reviewedBy: string): Promise<PowerScorePendingApproval | undefined>;
+  autoCancelPendingApproval(id: string, reason: string): Promise<PowerScorePendingApproval | undefined>;
 
   // PowerScore Badges
   getPowerScoreBadges(companyId: string): Promise<PowerScoreBadge[]>;
@@ -3071,9 +3073,11 @@ export class MemStorage implements IStorage {
   async getPowerScorePendingApprovals(_companyId: string): Promise<PowerScorePendingApproval[]> { return []; }
   async getPowerScorePendingApproval(_id: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async getPendingApprovalsByRuleAndDate(_userId: string, _ruleId: string, _scoreDate: string): Promise<PowerScorePendingApproval[]> { return []; }
+  async getPendingApprovalsByLeadId(_leadId: string): Promise<PowerScorePendingApproval[]> { return []; }
   async createPowerScorePendingApproval(_approval: Omit<PowerScorePendingApproval, 'id' | 'status' | 'reviewed_by_user_id' | 'reviewed_at' | 'created_at'>): Promise<PowerScorePendingApproval> { throw new Error("PowerScore not implemented in MemStorage"); }
   async approvePowerScoreApproval(_id: string, _reviewedBy: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async rejectPowerScoreApproval(_id: string, _reviewedBy: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
+  async autoCancelPendingApproval(_id: string, _reason: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async getPowerScoreBadges(_companyId: string): Promise<PowerScoreBadge[]> { return []; }
   async createPowerScoreBadge(_badge: Omit<PowerScoreBadge, 'id' | 'created_at' | 'updated_at'>): Promise<PowerScoreBadge> { throw new Error("PowerScore not implemented in MemStorage"); }
   async updatePowerScoreBadge(_id: string, _updates: Partial<PowerScoreBadge>): Promise<PowerScoreBadge | undefined> { return undefined; }
@@ -8474,6 +8478,73 @@ export class PgStorage implements IStorage {
       score_date: row.score_date,
       status: 'rejected',
       reviewed_by_user_id: reviewedBy,
+      reviewed_at: now,
+      created_at: row.created_at,
+    };
+  }
+
+  async getPendingApprovalsByLeadId(leadId: string): Promise<PowerScorePendingApproval[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_pending_approvals)
+      .where(
+        and(
+          eq(dbSchema.powerscore_pending_approvals.lead_id, leadId),
+          eq(dbSchema.powerscore_pending_approvals.status, 'pending')
+        )
+      );
+    return result.map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      rule_id: row.rule_id,
+      lead_id: row.lead_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      description: row.description,
+      score_date: row.score_date,
+      status: row.status as 'pending' | 'approved' | 'rejected',
+      reviewed_by_user_id: row.reviewed_by_user_id,
+      reviewed_at: row.reviewed_at,
+      created_at: row.created_at,
+    }));
+  }
+
+  async autoCancelPendingApproval(id: string, reason: string): Promise<PowerScorePendingApproval | undefined> {
+    const now = new Date();
+    
+    // First get the current description to append to it
+    const current = await db.select({ description: dbSchema.powerscore_pending_approvals.description })
+      .from(dbSchema.powerscore_pending_approvals)
+      .where(eq(dbSchema.powerscore_pending_approvals.id, id))
+      .limit(1);
+    
+    if (current.length === 0) return undefined;
+    
+    const updatedDescription = `${current[0].description || ''} [AUTO-CANCELLED: ${reason}]`;
+    
+    const rows = await db.update(dbSchema.powerscore_pending_approvals)
+      .set({ 
+        status: 'rejected', 
+        reviewed_by_user_id: null, 
+        reviewed_at: now,
+        description: updatedDescription
+      })
+      .where(eq(dbSchema.powerscore_pending_approvals.id, id))
+      .returning();
+    if (rows.length === 0) return undefined;
+    const row = rows[0];
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      rule_id: row.rule_id,
+      lead_id: row.lead_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      description: row.description, // Now contains the updated description
+      score_date: row.score_date,
+      status: 'rejected',
+      reviewed_by_user_id: null,
       reviewed_at: now,
       created_at: row.created_at,
     };

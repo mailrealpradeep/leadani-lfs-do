@@ -51,7 +51,7 @@ import {
   startBackupScheduler,
 } from "./google-sheets-backup";
 import { extractGoogleSheetId } from "@shared/schema";
-import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints } from "./powerscore-service";
+import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals } from "./powerscore-service";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -1328,6 +1328,12 @@ ${questionsList}`;
                   companyTimezone: webhookCompanyTimezone,
                   leadId: existingLead.id,
                 }, dropdownChanges).catch(err => console.error("PowerScore webhook update error:", err));
+                
+                // Reversal protection for webhook updates
+                for (const change of dropdownChanges) {
+                  checkAndCancelReversedApprovals(existingLead.id, change.columnKey, change.newValue)
+                    .catch(err => console.error("PowerScore webhook reversal check error:", err));
+                }
               }
             }
           }
@@ -6687,6 +6693,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           companyTimezone,
           leadId: lead.id,
         }, dropdownChanges).catch(err => console.error("PowerScore lead update error:", err));
+        
+        // Reversal protection: Check if any pending approvals should be auto-cancelled
+        // This happens when a dropdown value is changed away from the bonus-triggering value within 5 minutes
+        // Check all dropdown changes, not just lead_status (rules can be configured for any column)
+        for (const change of dropdownChanges) {
+          checkAndCancelReversedApprovals(lead.id, change.columnKey, change.newValue)
+            .catch(err => console.error("PowerScore reversal check error:", err));
+        }
       }
 
       // Activity log for lead update (capture all field-level changes)

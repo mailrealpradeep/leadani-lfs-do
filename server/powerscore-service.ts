@@ -350,3 +350,65 @@ function getScoreDate(timezone: string): string {
   const zonedNow = toZonedTime(now, timezone);
   return format(zonedNow, "yyyy-MM-dd");
 }
+
+// Reversal Protection: Auto-cancel pending approvals if status changes back within 5 minutes
+const REVERSAL_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+export async function checkAndCancelReversedApprovals(
+  leadId: string,
+  columnKey: string,
+  newValue: string | null
+): Promise<{ cancelledCount: number }> {
+  const pendingApprovals = await storage.getPendingApprovalsByLeadId(leadId);
+  if (pendingApprovals.length === 0) {
+    return { cancelledCount: 0 };
+  }
+
+  const now = new Date();
+  let cancelledCount = 0;
+
+  for (const approval of pendingApprovals) {
+    // Check if within the 5-minute reversal window
+    const createdAt = new Date(approval.created_at);
+    const ageMs = now.getTime() - createdAt.getTime();
+    
+    if (ageMs > REVERSAL_WINDOW_MS) {
+      // Approval is older than 5 minutes, don't auto-cancel
+      continue;
+    }
+
+    // Get the rule to check if the new value still matches the bonus criteria
+    const rule = await storage.getPowerScoreRule(approval.rule_id);
+    if (!rule) continue;
+
+    const config = rule.config as {
+      column_key?: string;
+      to_values?: string[];
+    };
+
+    // Only check dropdown_change rules with to_values that match this column
+    if (rule.action_type !== 'dropdown_change' || !config.to_values || config.column_key !== columnKey) {
+      continue;
+    }
+
+    // Check if the new value is NOT in the rule's to_values (meaning it was reversed)
+    // Normalize the value - handle both plain strings and object { value: "X" } shapes
+    let normalizedNewValue = newValue?.trim() || "";
+    if (typeof newValue === 'object' && newValue !== null && 'value' in (newValue as any)) {
+      normalizedNewValue = ((newValue as any).value || "").trim();
+    }
+    const stillMatches = config.to_values.includes(normalizedNewValue);
+
+    if (!stillMatches) {
+      // Value was reversed away from the bonus-triggering value
+      await storage.autoCancelPendingApproval(
+        approval.id,
+        `${columnKey} changed from "${config.to_values.join('/')}" to "${normalizedNewValue}" within ${Math.round(ageMs / 1000)}s`
+      );
+      cancelledCount++;
+      console.log(`[PowerScore] Auto-cancelled pending approval ${approval.id} for lead ${leadId} - ${columnKey} reversed to "${normalizedNewValue}"`);
+    }
+  }
+
+  return { cancelledCount };
+}
