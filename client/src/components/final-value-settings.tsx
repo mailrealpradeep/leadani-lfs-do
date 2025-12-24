@@ -198,7 +198,7 @@ export function FinalValueSettings({ headless = false }: { headless?: boolean })
   });
 
   const { data: columnsData, isLoading: columnsLoading } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/admin/columns"],
+    queryKey: ["/api/company/columns"],
   });
 
   const { data: dropdownData } = useQuery<{ column_key: string; values: string[] }[]>({
