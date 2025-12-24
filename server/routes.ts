@@ -3174,10 +3174,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const endDate = req.query.end_date as string | undefined;
       const filterUserId = req.query.user_id as string | undefined;
 
+      const statusFilter = visitedStatusValues.length === 1
+        ? { value: visitedStatusValues[0], exactMatch: true }
+        : { values: visitedStatusValues, operator: 'in' };
+
       const filters: Record<string, any> = {
-        [siteVisitedConfig.status_column]: visitedStatusValues.length === 1
-          ? { value: visitedStatusValues[0], exactMatch: true }
-          : { values: visitedStatusValues, operator: 'in' },
+        [siteVisitedConfig.status_column]: statusFilter,
       };
 
       if (startDate && endDate) {
@@ -3198,6 +3200,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         sheetIdsToQuery = accessibleSheetIds.filter(id => userSheetIds.has(id));
       }
 
+      // Query 1: Leads with date in range
       const result = await storage.getLeadsBySheetIds({
         sheetIds: sheetIdsToQuery,
         page: 1,
@@ -3206,6 +3209,32 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         sortOrder: 'asc',
         filters,
       });
+
+      // Query 2: Leads with matching status but NO date set (empty/null)
+      // These should also appear in the visited calendar, shown under "today"
+      const undatedFilters: Record<string, any> = {
+        [siteVisitedConfig.status_column]: statusFilter,
+        [siteVisitedConfig.date_column]: { isEmptyOrNull: true },
+      };
+
+      const undatedResult = await storage.getLeadsBySheetIds({
+        sheetIds: sheetIdsToQuery,
+        page: 1,
+        limit: 1000,
+        sortBy: 'created_at',
+        sortOrder: 'desc',
+        filters: undatedFilters,
+      });
+
+      // Combine results, avoiding duplicates
+      const seenIds = new Set(result.leads.map(l => l.id));
+      const combinedLeads = [...result.leads];
+      for (const lead of undatedResult.leads) {
+        if (!seenIds.has(lead.id)) {
+          combinedLeads.push(lead);
+          seenIds.add(lead.id);
+        }
+      }
 
       const allSheets = await storage.getSheetsByCompanyId(req.companyId);
       const sheetMap: Record<string, string> = {};
