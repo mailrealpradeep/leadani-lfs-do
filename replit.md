@@ -1,8 +1,8 @@
-R# Leadani LFS
+# Leadani LFS
 
 ## Overview
 
-Leadani LFS is a multi-tenant, spreadsheet-like lead management system designed to enhance lead management efficiency and collaboration for businesses. It provides an intuitive Excel-like grid interface, customizable workspaces, dynamic column management, and automated lead creation via webhooks. Key capabilities include comprehensive reporting, chronological lead update tracking, robust three-tier role-based access control, data isolation per company, and audit logging. The system supports self-service company signup, an attendance system, and is fully mobile-responsive, aiming to be a powerful and user-friendly CRM.
+Leadani LFS is a multi-tenant, spreadsheet-like lead management system designed to enhance lead management efficiency and collaboration. It offers an intuitive Excel-like grid interface, customizable workspaces, dynamic column management, and automated lead creation via webhooks. Key capabilities include comprehensive reporting, chronological lead update tracking, robust three-tier role-based access control, data isolation per company, audit logging, and an attendance system. The system supports self-service company signup and is fully mobile-responsive, aiming to be a powerful and user-friendly CRM.
 
 ## User Preferences
 
@@ -12,15 +12,15 @@ Preferred communication style: Simple, everyday language.
 
 ### Application Structure
 
-The project is a monorepo comprising a React/Vite frontend, a Node.js/Express backend, and shared TypeScript types/schemas.
+The project is a monorepo consisting of a React/Vite frontend, a Node.js/Express backend, and shared TypeScript types/schemas.
 
 ### Frontend Architecture
 
-The frontend utilizes React with Vite, Wouter for routing, `@tanstack/react-query` for server state management, and Shadcn UI (Radix UI + Tailwind CSS) for themed, mobile-responsive components. Real-time updates are facilitated by Socket.io.
+The frontend uses React with Vite, Wouter for routing, `@tanstack/react-query` for server state management, and Shadcn UI (Radix UI + Tailwind CSS) for themed, mobile-responsive components. Real-time updates are handled by Socket.io.
 
 ### Backend Architecture
 
-The backend is an Express.js application offering RESTful APIs. It employs JWT for authentication, bcrypt for hashing, and Drizzle ORM with PostgreSQL for data persistence. Socket.io enables real-time bidirectional communication and UI synchronization.
+The backend is an Express.js application providing RESTful APIs. It utilizes JWT for authentication, bcrypt for hashing, and Drizzle ORM with PostgreSQL for data persistence. Socket.io facilitates real-time bidirectional communication and UI synchronization.
 
 ### Data Model
 
@@ -28,92 +28,44 @@ Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSO
 
 ### UI/UX Decisions
 
-The system features a customizable grid interface with dynamic column management, conditional validation, and "Next Follow-up Date Time" (NFDT) highlighting. It includes a robust highlighting rules engine for conditional row highlighting based on multi-condition logic. The design is mobile-first, offering specific layouts, configurable mobile lead cards, and mobile sorting/filtering.
-
-**Editing Row Persistence**: When a user starts editing a row (indicated by blue border highlight), that row remains visible even if the edited values would cause it to be filtered out. For example, if filtering by "Lead Status = Talked" and the user changes a lead's status to "Visit Scheduled", the row stays visible until the user clicks another row or the sheet reloads. This is achieved through a cached lead mechanism that re-injects the editing row into filtered results.
+The system features a customizable grid interface with dynamic column management, conditional validation, and "Next Follow-up Date Time" (NFDT) highlighting. It includes a robust highlighting rules engine for conditional row highlighting based on multi-condition logic. The design is mobile-first, offering specific layouts and configurable mobile lead cards. An "editing row persistence" mechanism ensures rows being edited remain visible even if filtered.
 
 ### Key Features
 
-*   **Lead Management**: Includes chronological lead update tracking, Excel/CSV import/export, bulk lead transfer, soft-delete, and duplicate lead prevention across all entry points (Add Lead, Bulk Import, Webhooks, Push to CRM).
-*   **Real-time Synchronization**: Socket.io ensures real-time data updates across clients.
-*   **Role-Based Access Control**: A three-tier system (Super Admin, Company Admin, User) with sheet-level permissions.
-*   **Company Timezone Configuration**: Each company can configure its timezone for consistent date/time display and processing across the application.
-*   **Webhooks**: Integration for external systems to create leads with configurable field mapping, conditional allocation logic, multi-sheet allocation with weighted round-robin distribution, and update-only flows.
+*   **Lead Management**: Comprehensive lead lifecycle management including import/export, bulk operations, soft-delete, and duplicate prevention.
+*   **Real-time Synchronization**: Achieved via Socket.io for all data updates.
+*   **Role-Based Access Control**: Three-tier system (Super Admin, Company Admin, User) with sheet-level permissions.
+*   **Company Timezone Configuration**: Per-company timezone settings for consistent date/time.
+*   **Webhooks**: Configurable integration for lead creation from external systems with field mapping and allocation logic.
 *   **Self-Service Onboarding**: Multi-step flow for company registration and user invitations.
-*   **Attendance System**: Mobile-first PWA for daily entry/exit tracking with configurable rules.
-*   **Target Management System (TMS)**: Comprehensive performance tracking with multi-goal targets, flexible assignment, leaderboard rankings, and user progress views. Multi-sheet users (access to >1 company sheet, excluding personal sheets) are automatically excluded from the Working Targets leaderboard rankings.
-*   **User Row Filters**: Per-user row filtering that persists to the database, allowing creation of named filters with multiple conditions.
-*   **Google Sheets Backup System**: Automatic hourly backup of lead data to Google Sheets, with per-sheet configuration and sync logs.
-*   **Point-in-Time Sheet Recovery (Snapshots)**: SuperAdmin-only system with automatic hourly snapshots, smart change detection, compressed JSONB storage, and a recovery UI with restore preview.
-*   **Data Management (Admin Console)**: Company Admin tools for bulk operations like clearing past data and bulk transferring leads with weighted distribution.
-*   **Visit Schedules**: Calendar-based view for tracking scheduled site visits. Features include:
-    - Configurable date column and status column linking (via Site Visit Settings)
-    - Customizable card display columns (card_columns) with drag-drop reordering
-    - Default fallback columns: `['requirement', 'project_location']` when not configured
-    - Always-visible card elements: Lead name/phone, sheet badge, visit type badge, Next Follow-up (if present), Last Update with follow-up miss warning (red highlight if no update day before visit)
-    - getFieldValue helper resolves enriched fields (lead_status, owner_name, sheet_name, next_followup_date) before falling back to custom_fields
-*   **Visited Calendar**: Calendar-based view for tracking completed site visits (separate from Visit Schedules). Features include:
-    - Independent configuration via Site Visited Settings (site_visited_config)
-    - Customizable card display columns with drag-drop reordering
-    - Default fallback columns: `['requirement', 'project_location', 'visit_type']` when not configured
-    - Always-visible card elements: Lead name/phone, sheet badge, status badge, Next Follow-up (if present), Last Update section
-    - Backend enrichment reads lead_status/next_followup_date from custom_fields
-*   **Hot Leads**: Company-wide feature to identify and prioritize high-value leads based on configurable conditions, displayed in a unified view with real-time updates and a sidebar badge.
-*   **Custom Views**: Configurable sidebar menu items that display filtered leads based on group-based conditions. Supports AND logic within condition groups and OR logic between groups (e.g., "(A AND B) OR C OR D"). Features include customizable icons from lucide-react, icon colors, optional badge counts showing matching lead counts, sheet scope selection (All Sheets or Selected Sheets), and a dedicated view page with SpreadsheetGrid integration.
-*   **Validation Rules**: Configurable rules that prompt users to update related fields when specific conditions are met during lead editing. Supports multi-condition logic with AND/OR operators, a beautiful mobile-responsive dialog for field updates, and server-side enforcement for imports/webhooks/API calls.
-*   **Add Lead Form Configuration**: Company Admins can configure which fields appear when adding a new lead, mark them as Required or Optional, and reorder them via drag-drop. Full Name and Mobile No are always required and cannot be removed. Falls back to showing all columns if not configured.
-*   **Auto-Fill Rules**: Company Admins can configure rules that automatically populate target fields when trigger conditions are met. For example, when "Lead Status" changes to "Visit Scheduled", automatically set "Visit Status" to "Scheduled". Rules support priority ordering (higher priority rules apply first), enable/disable toggles, and work across all lead editing contexts (Add Lead dialog, Lead Update dialog, and spreadsheet grid inline editing). Uses `useAutoFillRules` hook for consistent client-side rule evaluation.
-*   **Watchlist**: Personal lead watchlist for users to track important leads that need attention. Leads can be added/removed via eye icon toggle. Watchlist page displays all tracked leads sorted by next follow-up date with real-time updates via Socket.io.
-*   **PowerScore**: Gamified leaderboard system with animated score counters, period-based views (Today/Yesterday/This Week/This Month/All Time), and personal stats comparison. Features include:
-    - Config-driven scoring rules (action_type, points, daily_cap, requires_approval) with 3-step wizard UI
-    - Scoring engine (`server/powerscore-service.ts`) that awards points for: login, lead_update, dropdown_change
-    - Daily cap enforcement counting both approved transactions and pending approvals
-    - Idempotency guards preventing duplicate pending approvals per rule per day
-    - Admin approval workflow for high-value actions (Visit/Converted)
-    - Milestone bonuses with badge rewards
-    - Login bonuses with streak tracking (once per day per user)
-    - Admin appreciation system with custom messages
-    - Stock-ticker animated counters using framer-motion
-    - ChampionCard (#1), PodiumCard (#2-3), ContenderGrid (#4+) component hierarchy
-    - Personal stats with today vs yesterday and week vs week percentage comparisons
-    - Backfill script (`server/powerscore-backfill.ts`) to retroactively award points from historical lead updates. Usage: `npx tsx server/powerscore-backfill.ts <company_id>`. Detects existing backfill data and prevents duplicate runs (use `--force` to override).
-    - **Multi-Sheet User Exclusion**: Users with access to >1 company sheet (excluding personal sheets) are automatically excluded from earning PowerScore points and appearing in leaderboard rankings. Detection via `getMultiSheetUserIds()` and `isMultiSheetUser()` storage helpers that count distinct non-personal sheets per user.
-*   **PowerFlow (Pipeline Analytics)**: Visual funnel analytics showing lead progression through configurable pipeline stages. Features include:
-    - Company-configurable pipeline stages stored in `powerflow_configs` table (column_key, column_values, display order, colors)
-    - Automatic stage counting using existing `activity_logs` data (zero new data collection required)
-    - Conversion rate calculations between consecutive stages
-    - Period-based filtering (today, yesterday, this_week, this_month, last_month, last_30_days)
-    - Sheet-level access control respecting user permissions
-    - **Backward Simulation Calculator**: Input target conversions (e.g., "I want 10 conversions") and calculate required leads/visits/schedules based on historical conversion rates
-    - Timezone-aware date boundaries using `toZonedTime`/`fromZonedTime` with date-fns for accurate analytics across all company timezones
-    - **Multi-Sheet User Exclusion**: Users with access to >1 company sheet are automatically excluded from stage counts and analytics, ensuring fair representation of single-sheet user performance
-*   **Quality Check Settings**: AI-powered remark validation for lead updates using Sarvam AI. Features include:
-    - Configurable per company via Admin Console (enabled toggle, API key, acceptance level, warning message)
-    - Three acceptance levels: lenient (single words only), moderate (require specific info), strict (detailed summaries)
-    - Multi-language support for 10 Indian languages (English, Hindi, Odia, Telugu, Tamil, Bengali, Kannada, Malayalam, Marathi, Gujarati, Punjabi)
-    - 500ms timeout with fail-open strategy (validation skipped on timeout/error to avoid blocking users)
-    - Warning dialog with "Revise Remark" and "Proceed Anyway" options when remark is not meaningful
-    - Free API usage via Sarvam AI dashboard (dashboard.sarvam.ai)
-*   **Insta Support**: AI-powered support assistant that answers questions about all application features using Sarvam AI. Features include:
-    - 17 feature domains: lead, powerscore, powerflow, targets, filters, highlighting, webhooks, permissions, autofill, validation, attendance, hotleads, customviews, sheets, users, settings, general
-    - Question classifier detecting intent (why/how/what/who/when) and identifying feature domain by keywords
-    - Entity extraction for phone numbers and quoted names to provide contextual answers
-    - Role-based access control: admin-only domains (powerflow, webhooks, autofill, validation, hotleads, customviews, users, settings) return limited documentation for regular users
-    - PII redaction: phone numbers masked to XXXXXX#### format before sending to AI
-    - Context fetchers for lead lookup, highlighting rules, PowerScore rules, webhooks, permissions, filters, company settings
-    - Multi-language support following user's question language
-    - Uses free Sarvam AI sarvam-m model (requires API key in Quality Check Settings)
-    - Accessible via Admin Console sidebar for Company Admins
+*   **Attendance System**: Mobile-first PWA for daily entry/exit tracking.
+*   **Target Management System (TMS)**: Performance tracking with multi-goal targets, flexible assignment, and leaderboards.
+*   **User Row Filters**: Persistent, user-defined row filtering with multiple conditions.
+*   **Google Sheets Backup System**: Automatic hourly lead data backup to Google Sheets.
+*   **Point-in-Time Sheet Recovery (Snapshots)**: SuperAdmin-only system for automatic hourly snapshots with recovery UI.
+*   **Data Management (Admin Console)**: Company Admin tools for bulk operations like data clearing and lead transfers.
+*   **Visit Schedules & Visited Calendar**: Calendar-based views for tracking scheduled and completed site visits with customizable card displays.
+*   **Hot Leads**: Company-wide feature to identify and prioritize high-value leads based on configurable conditions.
+*   **Custom Views**: Configurable sidebar menu items displaying filtered leads based on group-based conditions, with customizable icons and optional badge counts.
+*   **Validation Rules**: Configurable rules prompting users to update related fields during lead editing, with server-side enforcement.
+*   **Add Lead Form Configuration**: Company Admins can configure, reorder, and mark fields as required/optional for the 'Add Lead' form.
+*   **Auto-Fill Rules**: Company Admins can configure rules to automatically populate target fields when trigger conditions are met, with priority ordering and enable/disable toggles.
+*   **Watchlist**: Personal lead watchlist for users to track important leads, with real-time updates.
+*   **PowerScore**: Gamified leaderboard system with configurable scoring rules, admin approval workflow, milestone bonuses, login streaks, and multi-sheet user exclusion.
+*   **PowerFlow (Pipeline Analytics)**: Visual funnel analytics showing lead progression through configurable pipeline stages, including conversion rate calculations, period-based filtering, sheet-level access control, backward simulation, and multi-sheet user exclusion.
+*   **Quality Check Settings**: AI-powered remark validation for lead updates using Sarvam AI, with configurable acceptance levels, multi-language support, and a fail-open strategy.
+*   **Insta Support**: AI-powered support assistant answering questions about application features using Sarvam AI, featuring a question classifier, entity extraction, role-based access control, PII redaction, and multi-language support.
+*   **Final Value Settings**: Company-wide rules to prevent status reversals of critical values, with backend enforcement, frontend protection, and admin override capabilities.
 
 ### Security
 
-JWT-based authentication with role and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit, password-protected sheet deletion, and comprehensive audit trails, including user deletion with audit preservation.
+JWT-based authentication with role and sheet-level permissions, HMAC signature validation for webhooks, Express Rate Limit, password-protected sheet deletion, and comprehensive audit trails.
 
 ## External Dependencies
 
 ### Required Services
 
-*   **Database**: PostgreSQL (Neon-backed) via Drizzle ORM.
+*   **Database**: PostgreSQL (Neon-backed).
 
 ### Third-Party Libraries
 
@@ -125,3 +77,4 @@ JWT-based authentication with role and sheet-level permissions, HMAC signature v
 *   **Authentication & Onboarding**: Public APIs for signup, invites, and invite acceptance.
 *   **Webhook API**: Public endpoint for external lead creation.
 *   **Data Operations**: Export and Import functionalities for lead data.
+*   **AI Services**: Sarvam AI for Quality Check and Insta Support.
