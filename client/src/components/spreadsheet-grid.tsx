@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { useDashboard } from "./dashboard-context";
+import { useAuth } from "@/lib/auth";
 import {
   DndContext,
   closestCenter,
@@ -49,6 +50,7 @@ import {
   GripVertical,
   Eye,
   EyeOff,
+  Lock,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -97,6 +99,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -358,6 +370,8 @@ export function SpreadsheetGrid({
   // Custom view mode operates similarly to hot leads mode
   const customViewMode = !!customViewId;
   const { toast } = useToast();
+  const { isCompanyAdmin, isSuperAdmin } = useAuth();
+  const isAdminUser = isCompanyAdmin || isSuperAdmin;
   const { applyAutoFillRules } = useAutoFillRules();
   const isMobile = useIsMobile();
   const { theme } = useTheme();
@@ -477,6 +491,16 @@ export function SpreadsheetGrid({
     newValue: any;
     rule: ValidationRule;
     lead: Lead;
+  } | null>(null);
+
+  // Final value confirmation dialog state
+  const [finalValueConfirmOpen, setFinalValueConfirmOpen] = useState(false);
+  const [pendingFinalValue, setPendingFinalValue] = useState<{
+    leadId: string;
+    columnKey: string;
+    columnName: string;
+    newValue: string;
+    customFields: Record<string, any>;
   } | null>(null);
 
   // Column resizing state
@@ -1138,11 +1162,38 @@ export function SpreadsheetGrid({
     return [...sheetHighlightingRules, ...globalHighlightingRules];
   }, [sheetHighlightingRules, globalHighlightingRules, customViewMode]);
 
-  // Load company settings (for mobile card columns)
-  const { data: companySettingsData } = useQuery<{ settings: { mobile_card_columns?: string[] } }>({
+  // Load company settings (for mobile card columns and final value settings)
+  const { data: companySettingsData } = useQuery<{ 
+    settings: { 
+      mobile_card_columns?: string[];
+      final_value_settings?: {
+        id: string;
+        column_key: string;
+        final_values: string[];
+        enabled: boolean;
+      }[];
+    } 
+  }>({
     queryKey: ["/api/company/settings"],
-    enabled: isMobile,
   });
+
+  // Helper to check if a cell value is in a "final" locked state
+  const finalValueMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    const settings = companySettingsData?.settings?.final_value_settings || [];
+    for (const rule of settings) {
+      if (rule.enabled && rule.final_values.length > 0) {
+        map.set(rule.column_key, new Set(rule.final_values));
+      }
+    }
+    return map;
+  }, [companySettingsData?.settings?.final_value_settings]);
+
+  const isFinalValue = useCallback((columnKey: string, value: any): boolean => {
+    if (!value) return false;
+    const finalValues = finalValueMap.get(columnKey);
+    return finalValues ? finalValues.has(String(value)) : false;
+  }, [finalValueMap]);
 
   // Load column width preferences (only in single-sheet mode)
   const { data: columnPreferences = {} } = useQuery<Record<string, number>>({
@@ -1406,7 +1457,7 @@ export function SpreadsheetGrid({
       // Return context with previous values for rollback
       return { previousSingleLeads, previousMultiLeads, previousHotLeads };
     },
-    onError: (err, variables, context) => {
+    onError: (err: any, variables, context) => {
       // Rollback to previous values on error
       if (context?.previousHotLeads) {
         queryClient.setQueryData(["/api/hot-leads"], context.previousHotLeads);
@@ -1425,11 +1476,21 @@ export function SpreadsheetGrid({
           }
         });
       }
-      toast({
-        title: "Error saving",
-        description: "Failed to save changes. Please try again.",
-        variant: "destructive",
-      });
+      
+      // Check if this is a final value protection error
+      if (err?.error === "Final value protection") {
+        toast({
+          title: "Value is Locked",
+          description: err.message || "This value cannot be changed. Only Admins can modify final values.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error saving",
+          description: err?.message || "Failed to save changes. Please try again.",
+          variant: "destructive",
+        });
+      }
     },
     onSettled: () => {
       // Always refetch after error or success to ensure server state is synced
@@ -1739,6 +1800,16 @@ export function SpreadsheetGrid({
   }, [hotLeadsMode]);
 
   const handleCellClick = (lead: Lead, columnKey: string, currentValue: any, columnType?: string) => {
+    // Check if this is a final value that non-admin users cannot edit
+    if (!isAdminUser && isFinalValue(columnKey, currentValue)) {
+      toast({
+        title: "Value is Locked",
+        description: `The value "${currentValue}" is protected. Only Admins can modify final values.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setEditingCell({ leadId: lead.id, field: columnKey, originalValue: currentValue });
     // For percentage fields, show the raw number without % symbol
     setEditValue(currentValue || "");
@@ -3045,6 +3116,70 @@ export function SpreadsheetGrid({
         />
       )}
 
+      {/* Final Value Confirmation Dialog */}
+      <AlertDialog open={finalValueConfirmOpen} onOpenChange={setFinalValueConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-amber-500" />
+              Confirm Final Value
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  You are about to set <strong>{pendingFinalValue?.columnName}</strong> to{" "}
+                  <strong className="text-amber-600 dark:text-amber-400">"{pendingFinalValue?.newValue}"</strong>.
+                </p>
+                <p className="text-amber-600 dark:text-amber-400">
+                  This value is protected and will be locked once set. Regular users will not be able to change it afterwards.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setFinalValueConfirmOpen(false);
+                setPendingFinalValue(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingFinalValue) {
+                  let updatedFields = {
+                    ...pendingFinalValue.customFields,
+                    [pendingFinalValue.columnKey]: pendingFinalValue.newValue,
+                  };
+                  
+                  // Apply auto-fill rules
+                  applyAutoFillRules(
+                    pendingFinalValue.columnKey,
+                    pendingFinalValue.newValue,
+                    updatedFields,
+                    (autoFillUpdates) => {
+                      updatedFields = { ...updatedFields, ...autoFillUpdates };
+                    },
+                    { showToast: true }
+                  );
+                  
+                  updateLeadMutation.mutate({
+                    leadId: pendingFinalValue.leadId,
+                    customFields: updatedFields,
+                  });
+                }
+                setFinalValueConfirmOpen(false);
+                setPendingFinalValue(null);
+              }}
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              Confirm & Lock Value
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Toolbar with actions - only render when selections exist */}
       {selectedRows.size > 0 && (
         <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
@@ -3821,6 +3956,20 @@ export function SpreadsheetGrid({
                                   return;
                                 }
                                 
+                                // Check if this value is a final value - show confirmation
+                                if (isFinalValue(col.key, val)) {
+                                  setPendingFinalValue({
+                                    leadId: lead.id,
+                                    columnKey: col.key,
+                                    columnName: col.label,
+                                    newValue: val,
+                                    customFields: lead.custom_fields || {},
+                                  });
+                                  setFinalValueConfirmOpen(true);
+                                  setEditingCell(null);
+                                  return;
+                                }
+                                
                                 let updatedFields = {
                                   ...lead.custom_fields,
                                   [col.key]: val,
@@ -4093,6 +4242,15 @@ export function SpreadsheetGrid({
                           )
                         ) : (
                           <div className="flex items-center gap-1.5 w-full">
+                            {/* Lock icon for final values (non-admin users) */}
+                            {!isAdminUser && isFinalValue(col.key, value) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Lock className="h-3 w-3 flex-shrink-0 text-amber-500" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top">This value is locked. Only Admins can modify it.</TooltipContent>
+                              </Tooltip>
+                            )}
                             <span className={`text-sm flex items-center gap-1 flex-1 min-w-0 ${col.width === "260px" || col.key === "name" ? "break-words" : ""} ${isPastNFDT ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
                               {isPastNFDT && <Clock className="h-3 w-3 flex-shrink-0" />}
                               {(col.type === "date" || col.type === "datetime") && value

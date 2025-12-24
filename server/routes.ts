@@ -6620,6 +6620,55 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
 
+      // Final Value enforcement: Check if user is trying to change away from a final value
+      const isAdmin = req.userRole === "super_admin" || req.userRole === "company_admin";
+      if (req.body.custom_fields) {
+        const company = await storage.getCompany(sheet.company_id);
+        const finalValueSettings = company?.settings?.final_value_settings || [];
+        const enabledRules = finalValueSettings.filter((r: any) => r.enabled);
+        
+        if (enabledRules.length > 0) {
+          const blockedChanges: { column: string; value: string }[] = [];
+          
+          for (const rule of enabledRules) {
+            const columnKey = rule.column_key;
+            const finalValues = rule.final_values || [];
+            const currentValue = lead.custom_fields?.[columnKey];
+            const newValue = req.body.custom_fields[columnKey];
+            
+            // Only enforce if:
+            // 1. Current value IS a final value
+            // 2. New value is DIFFERENT from current (attempting to change)
+            // 3. User is NOT an admin
+            if (
+              currentValue &&
+              finalValues.includes(currentValue) &&
+              newValue !== undefined &&
+              newValue !== currentValue
+            ) {
+              if (!isAdmin) {
+                const customColumns = await storage.getCustomColumns(lead.sheet_id);
+                const col = customColumns.find(c => c.column_key === columnKey);
+                blockedChanges.push({
+                  column: col?.name || columnKey,
+                  value: currentValue
+                });
+              }
+              // If admin, we allow the change but will handle reversal later
+            }
+          }
+          
+          if (blockedChanges.length > 0) {
+            const details = blockedChanges.map(c => `"${c.column}" is locked at "${c.value}"`).join(", ");
+            return res.status(403).json({
+              error: "Final value protection",
+              message: `Cannot change protected values: ${details}. Only Admins can modify final values.`,
+              blocked_changes: blockedChanges
+            });
+          }
+        }
+      }
+
       // Validate mobile number fields if present in update (10 digits)
       if (req.body.custom_fields) {
         const { validateMobileNumber } = await import("@shared/validator");
