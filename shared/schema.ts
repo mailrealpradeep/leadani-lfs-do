@@ -62,6 +62,12 @@ export interface Company {
       acceptance_level?: 'lenient' | 'moderate' | 'strict'; // How strict the AI validation is
       warning_message?: string; // Custom warning message shown when AI rejects remark
     };
+    final_value_settings?: {
+      id: string; // unique identifier for the rule
+      column_key: string; // which column has final values (e.g., "visit_status", "lead_status")
+      final_values: string[]; // array of values that are considered final (e.g., ["Visited", "Converted"])
+      enabled: boolean; // whether the rule is active
+    }[]; // Final value rules - once a field reaches a final value, only admins can change it
   };
   status: "active" | "suspended" | "trial";
   attendance_exit_target_id: string | null; // Links to working_targets for attendance exit condition
@@ -127,6 +133,12 @@ export const insertCompanySchema = z.object({
       acceptance_level: z.enum(['lenient', 'moderate', 'strict']).optional(),
       warning_message: z.string().optional(),
     }).optional(),
+    final_value_settings: z.array(z.object({
+      id: z.string(),
+      column_key: z.string(),
+      final_values: z.array(z.string()),
+      enabled: z.boolean(),
+    })).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),
 });
