@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Save, Trash2, Lock, GripVertical, Shield } from "lucide-react";
+import { Plus, Save, Trash2, Lock, GripVertical, Shield, Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -50,16 +50,20 @@ function SortableRuleItem({
   rule,
   columns,
   dropdownOptions,
+  loadingColumns,
   onUpdate,
   onRemove,
   onToggleEnabled,
+  onColumnSelect,
 }: {
   rule: FinalValueRule;
   columns: CustomColumn[];
   dropdownOptions: Map<string, string[]>;
+  loadingColumns: Set<string>;
   onUpdate: (updates: Partial<FinalValueRule>) => void;
   onRemove: () => void;
   onToggleEnabled: () => void;
+  onColumnSelect: (columnKey: string) => void;
 }) {
   const {
     attributes,
@@ -77,8 +81,13 @@ function SortableRuleItem({
   };
 
   const dropdownColumns = columns.filter(c => c.type === "dropdown");
-  const selectedColumn = columns.find(c => c.column_key === rule.column_key);
   const availableValues = rule.column_key ? (dropdownOptions.get(rule.column_key) || []) : [];
+  const isLoadingValues = rule.column_key && loadingColumns.has(rule.column_key);
+
+  const handleColumnChange = (value: string) => {
+    onUpdate({ column_key: value, final_values: [] });
+    onColumnSelect(value);
+  };
 
   const handleValueToggle = (value: string, checked: boolean) => {
     const newValues = checked
@@ -107,7 +116,7 @@ function SortableRuleItem({
             <span className="text-sm font-medium text-muted-foreground">Column</span>
             <Select
               value={rule.column_key}
-              onValueChange={(value) => onUpdate({ column_key: value, final_values: [] })}
+              onValueChange={handleColumnChange}
             >
               <SelectTrigger className="w-48" data-testid={`select-column-${rule.id}`}>
                 <SelectValue placeholder="Select column" />
@@ -122,7 +131,14 @@ function SortableRuleItem({
             </Select>
           </div>
           
-          {rule.column_key && availableValues.length > 0 && (
+          {rule.column_key && isLoadingValues && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Loading values...</span>
+            </div>
+          )}
+
+          {rule.column_key && !isLoadingValues && availableValues.length > 0 && (
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground flex items-center gap-2">
                 <Lock className="h-3 w-3" />
@@ -147,6 +163,12 @@ function SortableRuleItem({
                   </label>
                 ))}
               </div>
+            </div>
+          )}
+
+          {rule.column_key && !isLoadingValues && availableValues.length === 0 && (
+            <div className="text-sm text-muted-foreground py-2">
+              No values configured for this column.
             </div>
           )}
 
@@ -185,6 +207,8 @@ export function FinalValueSettings({ headless = false }: { headless?: boolean })
   const { toast } = useToast();
   const [rules, setRules] = useState<FinalValueRule[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
+  const [dropdownOptions, setDropdownOptions] = useState<Map<string, string[]>>(new Map());
+  const [loadingColumns, setLoadingColumns] = useState<Set<string>>(new Set());
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -201,24 +225,55 @@ export function FinalValueSettings({ headless = false }: { headless?: boolean })
     queryKey: ["/api/company/columns"],
   });
 
-  const { data: dropdownData } = useQuery<{ column_key: string; values: string[] }[]>({
-    queryKey: ["/api/admin/dropdown-options"],
-  });
+  // Fetch dropdown options for a specific column
+  const fetchDropdownOptions = useCallback(async (columnKey: string) => {
+    if (dropdownOptions.has(columnKey) || loadingColumns.has(columnKey)) {
+      return; // Already fetched or loading
+    }
 
-  const dropdownOptions = useMemo(() => {
-    const map = new Map<string, string[]>();
-    dropdownData?.forEach(item => {
-      map.set(item.column_key, item.values);
-    });
-    return map;
-  }, [dropdownData]);
+    setLoadingColumns(prev => new Set(prev).add(columnKey));
+    
+    try {
+      // apiRequest already parses and returns the response body
+      const data = await apiRequest<{ value: string }[]>("GET", `/api/company/dropdown-options/${encodeURIComponent(columnKey)}`);
+      const values = data.map((opt) => opt.value);
+      setDropdownOptions(prev => {
+        const newMap = new Map(prev);
+        newMap.set(columnKey, values);
+        return newMap;
+      });
+    } catch (error: any) {
+      console.error(`Failed to fetch dropdown options for ${columnKey}:`, error);
+      toast({
+        title: "Error loading values",
+        description: `Could not load options for the selected column: ${error.message || 'Unknown error'}`,
+        variant: "destructive",
+      });
+      // Don't cache empty on error - allow retry
+    } finally {
+      setLoadingColumns(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(columnKey);
+        return newSet;
+      });
+    }
+  }, [dropdownOptions, loadingColumns, toast]);
 
+  // When rules are loaded from settings, fetch dropdown options for existing columns
   useEffect(() => {
     if (settingsData?.settings?.final_value_settings) {
-      setRules(settingsData.settings.final_value_settings);
+      const savedRules = settingsData.settings.final_value_settings;
+      setRules(savedRules);
       setHasChanges(false);
+      
+      // Fetch dropdown options for all columns in saved rules
+      savedRules.forEach(rule => {
+        if (rule.column_key) {
+          fetchDropdownOptions(rule.column_key);
+        }
+      });
     }
-  }, [settingsData]);
+  }, [settingsData, fetchDropdownOptions]);
 
   const saveMutation = useMutation({
     mutationFn: async (newRules: FinalValueRule[]) => {
@@ -330,9 +385,11 @@ export function FinalValueSettings({ headless = false }: { headless?: boolean })
                     rule={rule}
                     columns={columns}
                     dropdownOptions={dropdownOptions}
+                    loadingColumns={loadingColumns}
                     onUpdate={(updates) => handleUpdateRule(rule.id, updates)}
                     onRemove={() => handleRemoveRule(rule.id)}
                     onToggleEnabled={() => handleToggleEnabled(rule.id)}
+                    onColumnSelect={fetchDropdownOptions}
                   />
                 ))}
               </div>
