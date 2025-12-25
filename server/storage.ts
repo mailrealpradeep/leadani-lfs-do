@@ -247,6 +247,7 @@ export interface IStorage {
 
   // Users
   getUser(id: string): Promise<User | undefined>;
+  getUsersByIds(ids: string[]): Promise<User[]>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
   getUsersByCompanyId(companyId: string): Promise<User[]>;
@@ -748,6 +749,7 @@ export interface IStorage {
   getPowerScoreTransactions(userId: string, limit?: number): Promise<PowerScoreTransaction[]>;
   getPowerScoreTransactionsByCompany(companyId: string, startDate?: Date, endDate?: Date): Promise<PowerScoreTransaction[]>;
   getPowerScoreTransactionsByRuleAndDate(userId: string, ruleId: string, scoreDate: string): Promise<PowerScoreTransaction[]>;
+  getPowerScoreTransactionsByLeadId(leadId: string): Promise<PowerScoreTransaction[]>;
   createPowerScoreTransaction(transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction>;
   getDailyActionCount(userId: string, actionType: PowerScoreActionType, date: Date): Promise<number>;
 
@@ -889,6 +891,11 @@ export class MemStorage implements IStorage {
   // Users
   async getUser(id: string): Promise<User | undefined> {
     return this.users.get(id);
+  }
+
+  async getUsersByIds(ids: string[]): Promise<User[]> {
+    if (ids.length === 0) return [];
+    return ids.map(id => this.users.get(id)).filter((u): u is User => u !== undefined);
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
@@ -3061,6 +3068,7 @@ export class MemStorage implements IStorage {
   async getPowerScoreTransactions(_userId: string, _limit?: number): Promise<PowerScoreTransaction[]> { return []; }
   async getPowerScoreTransactionsByCompany(_companyId: string, _startDate?: Date, _endDate?: Date): Promise<PowerScoreTransaction[]> { return []; }
   async getPowerScoreTransactionsByRuleAndDate(_userId: string, _ruleId: string, _scoreDate: string): Promise<PowerScoreTransaction[]> { return []; }
+  async getPowerScoreTransactionsByLeadId(_leadId: string): Promise<PowerScoreTransaction[]> { return []; }
   async createPowerScoreTransaction(_transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> { throw new Error("PowerScore not implemented in MemStorage"); }
   async getDailyActionCount(_userId: string, _actionType: PowerScoreActionType, _date: Date): Promise<number> { return 0; }
   async getPowerScoreLeaderboard(_companyId: string, _startDate: Date, _endDate: Date): Promise<PowerScoreLeaderboardEntry[]> { return []; }
@@ -3178,6 +3186,12 @@ export class PgStorage implements IStorage {
     const result = await db.select().from(dbSchema.users).where(eq(dbSchema.users.id, id));
     if (result.length === 0) return undefined;
     return this.mapUser(result[0]);
+  }
+
+  async getUsersByIds(ids: string[]): Promise<User[]> {
+    if (ids.length === 0) return [];
+    const result = await db.select().from(dbSchema.users).where(inArray(dbSchema.users.id, ids));
+    return result.map(u => this.mapUser(u));
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
@@ -7996,6 +8010,27 @@ export class PgStorage implements IStorage {
           eq(dbSchema.powerscore_transactions.score_date, scoreDate)
         )
       );
+    return result.map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      rule_id: row.rule_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      lead_id: row.lead_id,
+      description: row.description,
+      score_date: row.score_date,
+      approval_id: row.approval_id,
+      is_approved: row.is_approved,
+      created_at: row.created_at,
+    }));
+  }
+
+  async getPowerScoreTransactionsByLeadId(leadId: string): Promise<PowerScoreTransaction[]> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_transactions)
+      .where(eq(dbSchema.powerscore_transactions.lead_id, leadId))
+      .orderBy(desc(dbSchema.powerscore_transactions.created_at));
     return result.map(row => ({
       id: row.id,
       user_id: row.user_id,

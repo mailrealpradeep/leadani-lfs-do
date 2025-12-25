@@ -412,3 +412,173 @@ export async function checkAndCancelReversedApprovals(
 
   return { cancelledCount };
 }
+
+// Check what points would be reversed if a dropdown value is changed away from bonus-triggering values
+export async function checkPointsToReverse(
+  leadId: string,
+  columnKey: string,
+  oldValue: string | null,
+  newValue: string | null
+): Promise<{
+  pendingApprovals: { id: string; points: number; description: string; user_id: string; userName?: string }[];
+  awardedTransactions: { id: string; points: number; description: string; user_id: string; userName?: string; rule_id: string }[];
+  pendingPointsTotal: number; // Points that would be prevented (not yet awarded)
+  awardedPointsTotal: number; // Points that would be deducted (already awarded)
+}> {
+  const pendingApprovalsRaw: { id: string; points: number; description: string; user_id: string }[] = [];
+  const awardedTransactionsRaw: { id: string; points: number; description: string; user_id: string; rule_id: string }[] = [];
+  
+  // Get all pending approvals for this lead
+  const approvals = await storage.getPendingApprovalsByLeadId(leadId);
+  
+  // Get all transactions for this lead (including already awarded points)
+  const transactions = await storage.getPowerScoreTransactionsByLeadId(leadId);
+  
+  // Get all rules for context
+  const lead = await storage.getLead(leadId);
+  if (!lead) {
+    return { pendingApprovals: [], awardedTransactions: [], pendingPointsTotal: 0, awardedPointsTotal: 0 };
+  }
+  
+  const sheet = await storage.getSheet(lead.sheet_id);
+  if (!sheet) {
+    return { pendingApprovals: [], awardedTransactions: [], pendingPointsTotal: 0, awardedPointsTotal: 0 };
+  }
+  
+  const rules = await storage.getPowerScoreRules(sheet.company_id);
+  
+  // Collect user IDs for batch lookup
+  const userIds = new Set<string>();
+  
+  // Check which pending approvals would be cancelled
+  for (const approval of approvals) {
+    const rule = rules.find(r => r.id === approval.rule_id);
+    if (!rule || rule.action_type !== 'dropdown_change') continue;
+    
+    const config = rule.config as { column_key?: string; to_values?: string[] };
+    if (config.column_key !== columnKey) continue;
+    
+    // If old value was in to_values (bonus-triggering) and new value is not, this would be reversed
+    if (config.to_values?.includes(oldValue || '') && !config.to_values?.includes(newValue || '')) {
+      userIds.add(approval.user_id);
+      pendingApprovalsRaw.push({
+        id: approval.id,
+        points: approval.points,
+        description: approval.description || `${columnKey} bonus`,
+        user_id: approval.user_id
+      });
+    }
+  }
+  
+  // Check which awarded transactions should be reversed
+  // Only reverse positive transactions that were for dropdown_change matching this column and old value
+  for (const tx of transactions) {
+    if (tx.points <= 0) continue; // Skip already negative (reversal) transactions
+    
+    const rule = rules.find(r => r.id === tx.rule_id);
+    if (!rule || rule.action_type !== 'dropdown_change') continue;
+    
+    const config = rule.config as { column_key?: string; to_values?: string[] };
+    if (config.column_key !== columnKey) continue;
+    
+    // Check if old value was in to_values (bonus-triggering) and new value is not
+    if (config.to_values?.includes(oldValue || '') && !config.to_values?.includes(newValue || '')) {
+      userIds.add(tx.user_id);
+      awardedTransactionsRaw.push({
+        id: tx.id,
+        points: tx.points,
+        description: tx.description || `${columnKey} bonus`,
+        user_id: tx.user_id,
+        rule_id: tx.rule_id!
+      });
+    }
+  }
+  
+  // Batch fetch all users at once
+  const userIdsArray = Array.from(userIds);
+  const userMap = new Map<string, string>();
+  if (userIdsArray.length > 0) {
+    const users = await storage.getUsersByIds(userIdsArray);
+    for (const user of users) {
+      userMap.set(user.id, user.name);
+    }
+  }
+  
+  // Add user names to results
+  const pendingApprovals = pendingApprovalsRaw.map(a => ({
+    ...a,
+    userName: userMap.get(a.user_id)
+  }));
+  
+  const awardedTransactions = awardedTransactionsRaw.map(t => ({
+    ...t,
+    userName: userMap.get(t.user_id)
+  }));
+  
+  // Separate totals: pending points (would be prevented) vs awarded points (would be deducted)
+  const pendingPointsTotal = pendingApprovals.reduce((sum, a) => sum + a.points, 0);
+  const awardedPointsTotal = awardedTransactions.reduce((sum, t) => sum + t.points, 0);
+  
+  return { pendingApprovals, awardedTransactions, pendingPointsTotal, awardedPointsTotal };
+}
+
+// Reverse points when a value is changed away from a bonus-triggering value
+export async function reverseLeadUpdatePoints(
+  leadId: string,
+  columnKey: string,
+  oldValue: string | null,
+  newValue: string | null,
+  reversedByUserId: string
+): Promise<{ deductedPoints: number; cancelledApprovals: number; cancelledPoints: number; reversedTransactions: number }> {
+  const { pendingApprovals, awardedTransactions } = await checkPointsToReverse(leadId, columnKey, oldValue, newValue);
+  
+  let cancelledApprovals = 0;
+  let cancelledPoints = 0; // Points that were pending but not yet awarded
+  let reversedTransactions = 0;
+  let deductedPoints = 0; // Points actually deducted from awarded transactions
+  
+  // Cancel pending approvals - these points were never awarded, just cancelled
+  for (const approval of pendingApprovals) {
+    await storage.autoCancelPendingApproval(
+      approval.id,
+      `Admin reversed: ${columnKey} changed from "${oldValue}" to "${newValue}"`
+    );
+    cancelledApprovals++;
+    cancelledPoints += approval.points; // Track separately - these aren't deducted, just prevented
+    console.log(`[PowerScore] Cancelled pending approval ${approval.id} for lead ${leadId}`);
+  }
+  
+  // Create negative transactions to reverse awarded points
+  const lead = await storage.getLead(leadId);
+  if (lead) {
+    const sheet = await storage.getSheet(lead.sheet_id);
+    if (!sheet) return { deductedPoints, cancelledApprovals, cancelledPoints, reversedTransactions };
+    
+    const company = await storage.getCompany(sheet.company_id);
+    const timezone = company?.settings?.timezone || 'Asia/Kolkata';
+    const now = new Date();
+    const zonedNow = toZonedTime(now, timezone);
+    const scoreDate = format(zonedNow, "yyyy-MM-dd");
+    
+    for (const tx of awardedTransactions) {
+      // Create a negative transaction to reverse the points (attributed to original user)
+      await storage.createPowerScoreTransaction({
+        company_id: sheet.company_id,
+        user_id: tx.user_id, // Original user who earned the points
+        rule_id: tx.rule_id,
+        action_type: 'dropdown_change',
+        points: -tx.points, // Negative points to reverse
+        lead_id: leadId,
+        description: `REVERSED: ${tx.description} (${columnKey}: ${oldValue} → ${newValue})`,
+        score_date: scoreDate,
+        approval_id: null,
+        is_approved: null,
+      });
+      reversedTransactions++;
+      deductedPoints += tx.points; // These points are actually being deducted
+      console.log(`[PowerScore] Reversed ${tx.points} points for user ${tx.user_id} on lead ${leadId}`);
+    }
+  }
+  
+  return { deductedPoints, cancelledApprovals, cancelledPoints, reversedTransactions };
+}

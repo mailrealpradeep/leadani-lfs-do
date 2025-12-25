@@ -51,6 +51,7 @@ import {
   Eye,
   EyeOff,
   Lock,
+  AlertTriangle,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -502,6 +503,24 @@ export function SpreadsheetGrid({
     newValue: string;
     customFields: Record<string, any>;
   } | null>(null);
+
+  // Admin override confirmation dialog state (for changing AWAY from final values)
+  const [adminOverrideConfirmOpen, setAdminOverrideConfirmOpen] = useState(false);
+  const [pendingAdminOverride, setPendingAdminOverride] = useState<{
+    leadId: string;
+    columnKey: string;
+    columnName: string;
+    oldValue: string;
+    newValue: string;
+    customFields: Record<string, any>;
+    reversalInfo: {
+      pendingApprovals: { id: string; points: number; description: string; userName?: string }[];
+      awardedTransactions: { id: string; points: number; description: string; userName?: string }[];
+      pendingPointsTotal: number; // Points that will be prevented (not yet awarded)
+      awardedPointsTotal: number; // Points that will be deducted (already awarded)
+    } | null;
+  } | null>(null);
+  const [isCheckingReversal, setIsCheckingReversal] = useState(false);
 
   // Column resizing state
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -1279,7 +1298,7 @@ export function SpreadsheetGrid({
   useEffect(() => {
     if (userSheetView?.column_order && userSheetView.column_order.length > 0) {
       // De-duplicate column order to prevent duplicate columns from corrupted view data
-      const uniqueOrder = [...new Set(userSheetView.column_order)];
+      const uniqueOrder = Array.from(new Set(userSheetView.column_order));
       setCustomColumnOrder(uniqueOrder);
     } else if (userSheetView) {
       // User has view but no custom order - reset to empty
@@ -3180,6 +3199,129 @@ export function SpreadsheetGrid({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Admin Override Confirmation Dialog (for changing AWAY from final values) */}
+      <AlertDialog open={adminOverrideConfirmOpen} onOpenChange={setAdminOverrideConfirmOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              Admin Override - Point Reversal
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  You are changing <strong>{pendingAdminOverride?.columnName}</strong> from{" "}
+                  <strong className="text-amber-600 dark:text-amber-400">"{pendingAdminOverride?.oldValue}"</strong> to{" "}
+                  <strong className="text-muted-foreground">"{pendingAdminOverride?.newValue}"</strong>.
+                </p>
+                
+                {pendingAdminOverride?.reversalInfo && (pendingAdminOverride.reversalInfo.pendingPointsTotal > 0 || pendingAdminOverride.reversalInfo.awardedPointsTotal > 0) ? (
+                  <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-md p-3 space-y-2">
+                    <p className="font-semibold text-red-700 dark:text-red-400 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      PowerScore Points Will Be Affected
+                    </p>
+                    
+                    {pendingAdminOverride.reversalInfo.awardedPointsTotal > 0 && (
+                      <p className="text-sm text-red-600 dark:text-red-400">
+                        <strong>{pendingAdminOverride.reversalInfo.awardedPointsTotal} points</strong> will be <strong>deducted</strong> from users
+                      </p>
+                    )}
+                    
+                    {pendingAdminOverride.reversalInfo.pendingPointsTotal > 0 && (
+                      <p className="text-sm text-amber-600 dark:text-amber-400">
+                        <strong>{pendingAdminOverride.reversalInfo.pendingPointsTotal} pending points</strong> will be <strong>cancelled</strong> (not yet awarded)
+                      </p>
+                    )}
+                    
+                    {pendingAdminOverride.reversalInfo.pendingApprovals.length > 0 && (
+                      <div className="text-sm">
+                        <p className="font-medium text-amber-600 dark:text-amber-400">Pending Approvals to Cancel (not yet awarded):</p>
+                        <ul className="list-disc list-inside text-amber-500 dark:text-amber-400">
+                          {pendingAdminOverride.reversalInfo.pendingApprovals.map((a, i) => (
+                            <li key={i}>{a.userName || 'User'}: {a.points} pts ({a.description})</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {pendingAdminOverride.reversalInfo.awardedTransactions.length > 0 && (
+                      <div className="text-sm">
+                        <p className="font-medium text-red-600 dark:text-red-400">Awarded Points to Deduct:</p>
+                        <ul className="list-disc list-inside text-red-500 dark:text-red-400">
+                          {pendingAdminOverride.reversalInfo.awardedTransactions.map((t, i) => (
+                            <li key={i}>{t.userName || 'User'}: -{t.points} pts ({t.description})</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {pendingAdminOverride.reversalInfo.awardedPointsTotal > 0 && (
+                      <p className="text-xs text-red-500 dark:text-red-400 mt-2">
+                        Deducted points will affect PowerScore Leaderboard rankings.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">
+                    No PowerScore points are associated with this change.
+                  </p>
+                )}
+                
+                <p className="text-amber-600 dark:text-amber-400 font-medium">
+                  This is an admin override of a protected value.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setAdminOverrideConfirmOpen(false);
+                setPendingAdminOverride(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingAdminOverride) {
+                  let updatedFields = {
+                    ...pendingAdminOverride.customFields,
+                    [pendingAdminOverride.columnKey]: pendingAdminOverride.newValue,
+                  };
+                  
+                  applyAutoFillRules(
+                    pendingAdminOverride.columnKey,
+                    pendingAdminOverride.newValue,
+                    updatedFields,
+                    (autoFillUpdates) => {
+                      updatedFields = { ...updatedFields, ...autoFillUpdates };
+                    },
+                    { showToast: true }
+                  );
+                  
+                  updateLeadMutation.mutate({
+                    leadId: pendingAdminOverride.leadId,
+                    customFields: updatedFields,
+                  });
+                }
+                setAdminOverrideConfirmOpen(false);
+                setPendingAdminOverride(null);
+              }}
+              className="bg-red-500 hover:bg-red-600 text-white"
+              data-testid="button-confirm-admin-override"
+            >
+              {pendingAdminOverride?.reversalInfo?.awardedPointsTotal 
+                ? `Confirm & Deduct ${pendingAdminOverride.reversalInfo.awardedPointsTotal} Points`
+                : pendingAdminOverride?.reversalInfo?.pendingPointsTotal
+                  ? `Confirm & Cancel ${pendingAdminOverride.reversalInfo.pendingPointsTotal} Pending Points`
+                  : "Confirm Override"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Toolbar with actions - only render when selections exist */}
       {selectedRows.size > 0 && (
         <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
@@ -3926,7 +4068,7 @@ export function SpreadsheetGrid({
                                   if (rule.conditions && rule.conditions.length > 0) {
                                     const results = rule.conditions.map(condition => {
                                       const leadValue = proposedLead.custom_fields?.[condition.column_key];
-                                      return evaluateCondition(leadValue, condition.operator, condition.value, condition.value2);
+                                      return evaluateCondition(leadValue, condition.operator, condition.value);
                                     });
                                     const logicalOp = rule.logical_operator || "and";
                                     return logicalOp === "or" 
@@ -3952,6 +4094,52 @@ export function SpreadsheetGrid({
                                     lead: lead,
                                   });
                                   setValidationDialogOpen(true);
+                                  setEditingCell(null);
+                                  return;
+                                }
+                                
+                                // Check if admin is changing AWAY from a final value - show reversal confirmation
+                                const currentValue = lead.custom_fields?.[col.key];
+                                if (isAdminUser && isFinalValue(col.key, currentValue) && currentValue !== val) {
+                                  // Admin is changing away from a final value - check for point reversals
+                                  setIsCheckingReversal(true);
+                                  apiRequest<{
+                                    pendingApprovals: { id: string; points: number; description: string; userName?: string }[];
+                                    awardedTransactions: { id: string; points: number; description: string; userName?: string }[];
+                                    pendingPointsTotal: number;
+                                    awardedPointsTotal: number;
+                                  }>("POST", "/api/powerscore/check-reversal", {
+                                    leadId: lead.id,
+                                    columnKey: col.key,
+                                    oldValue: currentValue,
+                                    newValue: val
+                                  }).then((reversalInfo) => {
+                                    setPendingAdminOverride({
+                                      leadId: lead.id,
+                                      columnKey: col.key,
+                                      columnName: col.label,
+                                      oldValue: currentValue,
+                                      newValue: val,
+                                      customFields: lead.custom_fields || {},
+                                      reversalInfo
+                                    });
+                                    setAdminOverrideConfirmOpen(true);
+                                  }).catch((err) => {
+                                    console.error("Failed to check point reversal:", err);
+                                    // Still show dialog but without reversal info
+                                    setPendingAdminOverride({
+                                      leadId: lead.id,
+                                      columnKey: col.key,
+                                      columnName: col.label,
+                                      oldValue: currentValue,
+                                      newValue: val,
+                                      customFields: lead.custom_fields || {},
+                                      reversalInfo: null
+                                    });
+                                    setAdminOverrideConfirmOpen(true);
+                                  }).finally(() => {
+                                    setIsCheckingReversal(false);
+                                  });
                                   setEditingCell(null);
                                   return;
                                 }

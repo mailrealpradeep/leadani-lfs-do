@@ -51,7 +51,7 @@ import {
   startBackupScheduler,
 } from "./google-sheets-backup";
 import { extractGoogleSheetId } from "@shared/schema";
-import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals } from "./powerscore-service";
+import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals, checkPointsToReverse, reverseLeadUpdatePoints } from "./powerscore-service";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -6778,12 +6778,19 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           leadId: lead.id,
         }, dropdownChanges).catch(err => console.error("PowerScore lead update error:", err));
         
-        // Reversal protection: Check if any pending approvals should be auto-cancelled
-        // This happens when a dropdown value is changed away from the bonus-triggering value within 5 minutes
-        // Check all dropdown changes, not just lead_status (rules can be configured for any column)
+        // Reversal protection: Reverse points when values change away from bonus-triggering values
+        // This creates negative transactions to deduct previously awarded points
+        const isAdminUpdating = req.userRole === "super_admin" || req.userRole === "company_admin";
         for (const change of dropdownChanges) {
+          // First, check and cancel any pending approvals (within 5-min window)
           checkAndCancelReversedApprovals(lead.id, change.columnKey, change.newValue)
             .catch(err => console.error("PowerScore reversal check error:", err));
+          
+          // Then, reverse any already-awarded points (admin override)
+          if (isAdminUpdating && change.oldValue && change.newValue !== change.oldValue) {
+            reverseLeadUpdatePoints(lead.id, change.columnKey, change.oldValue, change.newValue, req.userId!)
+              .catch(err => console.error("PowerScore point reversal error:", err));
+          }
         }
       }
 
@@ -18888,6 +18895,23 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       res.json({ breakdown });
     } catch (error: any) {
       console.error("Error fetching PowerScore breakdown:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check what points would be reversed if a value is changed (Admin only)
+  app.post("/api/powerscore/check-reversal", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { leadId, columnKey, oldValue, newValue } = req.body;
+      
+      if (!leadId || !columnKey) {
+        return res.status(400).json({ error: "leadId and columnKey are required" });
+      }
+      
+      const result = await checkPointsToReverse(leadId, columnKey, oldValue || null, newValue || null);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error checking point reversal:", error);
       res.status(500).json({ error: error.message });
     }
   });
