@@ -3671,6 +3671,23 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // GET /api/users/simple - Get simple list of users (id, name) for dropdown filters
+  app.get("/api/users/simple", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+      const users = await storage.getUsersByCompanyId(req.companyId);
+      const simpleUsers = users
+        .filter(u => u.is_active !== false)
+        .map(u => ({ id: u.id, name: u.name || u.email }));
+      res.json(simpleUsers);
+    } catch (error: any) {
+      console.error("Get simple users error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/company/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       const { name, email, password, role } = req.body;

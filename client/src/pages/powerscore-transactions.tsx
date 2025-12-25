@@ -198,6 +198,7 @@ export default function PowerScoreTransactions() {
   }
 
   return (
+    <div className="h-full overflow-auto">
     <div className="container mx-auto py-6 px-4 space-y-6" data-testid="page-powerscore-transactions">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -465,6 +466,7 @@ export default function PowerScoreTransactions() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
     </div>
   );
 }
