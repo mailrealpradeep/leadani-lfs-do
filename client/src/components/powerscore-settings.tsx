@@ -61,7 +61,15 @@ interface WizardState {
   points: number;
   dailyCap: number | null;
   requiresApproval: boolean;
+  showAnimationTo: "user_only" | "all_users" | "admins_only" | "none";
 }
+
+const ANIMATION_VISIBILITY_OPTIONS = [
+  { value: "user_only", label: "User Only", description: "Only the user who earned sees the animation" },
+  { value: "all_users", label: "All Users", description: "Everyone in company sees (with user's name)" },
+  { value: "admins_only", label: "Admins Only", description: "Only company admins see the animation" },
+  { value: "none", label: "No Animation", description: "Points awarded silently" },
+] as const;
 
 const initialWizardState: WizardState = {
   step: 1,
@@ -73,6 +81,7 @@ const initialWizardState: WizardState = {
   points: 10,
   dailyCap: null,
   requiresApproval: false,
+  showAnimationTo: "user_only",
 };
 
 export function PowerScoreSettings() {
@@ -110,6 +119,7 @@ export function PowerScoreSettings() {
       points: number;
       daily_cap: number | null;
       requires_approval: boolean;
+      show_animation_to: string;
     }) => {
       return await apiRequest("POST", "/api/powerscore/rules", data);
     },
@@ -221,6 +231,7 @@ export function PowerScoreSettings() {
       points: rule.points,
       dailyCap: rule.daily_cap,
       requiresApproval: rule.requires_approval,
+      showAnimationTo: (rule.show_animation_to as WizardState["showAnimationTo"]) || "user_only",
     });
     setIsCreateDialogOpen(true);
   };
@@ -263,6 +274,7 @@ export function PowerScoreSettings() {
       points: wizard.points,
       daily_cap: wizard.dailyCap,
       requires_approval: wizard.requiresApproval,
+      show_animation_to: wizard.showAnimationTo,
     };
 
     if (editingRule) {
@@ -733,6 +745,33 @@ export function PowerScoreSettings() {
                     onCheckedChange={(checked) => setWizard(prev => ({ ...prev, requiresApproval: checked }))}
                     data-testid="toggle-requires-approval"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="show-animation-to" className="text-base font-medium flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-yellow-500" />
+                    Point Animation
+                  </Label>
+                  <Select 
+                    value={wizard.showAnimationTo} 
+                    onValueChange={(value: WizardState["showAnimationTo"]) => 
+                      setWizard(prev => ({ ...prev, showAnimationTo: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-full" data-testid="select-show-animation-to">
+                      <SelectValue placeholder="Select who sees the animation" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ANIMATION_VISIBILITY_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          <span className="font-medium">{option.label}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {ANIMATION_VISIBILITY_OPTIONS.find(o => o.value === wizard.showAnimationTo)?.description}
+                  </p>
                 </div>
               </div>
             )}

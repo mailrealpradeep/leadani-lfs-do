@@ -2,6 +2,7 @@ import { storage } from "./storage";
 import type { PowerScoreRule, PowerScoreActionType } from "@shared/schema";
 import { format, startOfDay } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
+import { emitPointsCelebration } from "./socket-manager";
 
 interface ScoringContext {
   userId: string;
@@ -109,6 +110,22 @@ async function processLeadUpdateRule(
     is_approved: null,
   });
 
+  // Emit celebration event
+  const showAnimationTo = (rule as any).show_animation_to || "user_only";
+  if (showAnimationTo !== "none") {
+    const user = await storage.getUser(context.userId);
+    emitPointsCelebration({
+      userId: context.userId,
+      userName: user?.name || "User",
+      points: rule.points,
+      ruleName: rule.name,
+      actionType: rule.action_type,
+      showAnimationTo,
+      companyId: context.companyId,
+      timestamp: Date.now(),
+    });
+  }
+
   return { awarded: rule.points, pending: 0 };
 }
 
@@ -191,6 +208,22 @@ async function processDropdownChangeRule(
     is_approved: null,
   });
 
+  // Emit celebration event for dropdown change
+  const showAnimationTo = (rule as any).show_animation_to || "user_only";
+  if (showAnimationTo !== "none") {
+    const user = await storage.getUser(context.userId);
+    emitPointsCelebration({
+      userId: context.userId,
+      userName: user?.name || "User",
+      points: rule.points,
+      ruleName: rule.name,
+      actionType: rule.action_type,
+      showAnimationTo,
+      companyId: context.companyId,
+      timestamp: Date.now(),
+    });
+  }
+
   return { awarded: rule.points, pending: 0 };
 }
 
@@ -236,6 +269,22 @@ async function awardLoginBonusInternal(
     approval_id: null,
     is_approved: null,
   });
+
+  // Emit celebration event for login bonus
+  const showAnimationTo = (loginRule as any).show_animation_to || "user_only";
+  if (showAnimationTo !== "none") {
+    const user = await storage.getUser(userId);
+    emitPointsCelebration({
+      userId: userId,
+      userName: user?.name || "User",
+      points: loginRule.points,
+      ruleName: loginRule.name,
+      actionType: loginRule.action_type,
+      showAnimationTo,
+      companyId: companyId,
+      timestamp: Date.now(),
+    });
+  }
 
   return { awarded: loginRule.points, pending: 0 };
 }
@@ -324,6 +373,21 @@ export async function awardLeadCreatedPoints(
         is_approved: null,
       });
       totalAwarded += rule.points;
+      
+      // Emit celebration event for lead created
+      const showAnimationTo = (rule as any).show_animation_to || "user_only";
+      if (showAnimationTo !== "none") {
+        emitPointsCelebration({
+          userId: context.userId,
+          userName: user?.name || "User",
+          points: rule.points,
+          ruleName: rule.name,
+          actionType: rule.action_type,
+          showAnimationTo,
+          companyId: context.companyId,
+          timestamp: Date.now(),
+        });
+      }
     }
   }
 

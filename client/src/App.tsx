@@ -4,6 +4,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { PointsCelebrationContainer } from "@/components/points-celebration";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ThemeProvider } from "@/components/theme-provider";
 import { DashboardProvider, useDashboard } from "@/components/dashboard-context";
@@ -374,6 +375,7 @@ export default function App() {
           <TooltipProvider>
             <AppLayout />
             <Toaster />
+            <PointsCelebrationContainer />
           </TooltipProvider>
         </AuthProvider>
       </ThemeProvider>

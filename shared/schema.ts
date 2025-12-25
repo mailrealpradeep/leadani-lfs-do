@@ -3767,6 +3767,16 @@ export const powerScoreActionTypes = [
 
 export type PowerScoreActionType = typeof powerScoreActionTypes[number];
 
+// Animation visibility options for PowerScore rules
+export const powerScoreAnimationVisibility = [
+  "user_only",    // Only the user who earned sees the animation
+  "all_users",    // All users in company see (with earner's name)
+  "admins_only",  // Only company admins see
+  "none",         // No animation (silent points)
+] as const;
+
+export type PowerScoreAnimationVisibility = typeof powerScoreAnimationVisibility[number];
+
 // PowerScore Rules - Company-configurable point values for actions
 export const powerscore_rules = pgTable('powerscore_rules', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -3783,6 +3793,7 @@ export const powerscore_rules = pgTable('powerscore_rules', {
   daily_cap: integer('daily_cap'), // null = no cap
   requires_approval: boolean('requires_approval').notNull().default(false), // For high-value actions
   is_enabled: boolean('is_enabled').notNull().default(true),
+  show_animation_to: varchar('show_animation_to', { length: 20 }).notNull().default('user_only'), // user_only, all_users, admins_only, none
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

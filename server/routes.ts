@@ -52,6 +52,7 @@ import {
 } from "./google-sheets-backup";
 import { extractGoogleSheetId } from "@shared/schema";
 import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals, checkPointsToReverse, reverseLeadUpdatePoints } from "./powerscore-service";
+import { setSocketIO } from "./socket-manager";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -273,6 +274,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   });
 
+  // Set socket io instance for global access (for PowerScore celebrations etc.)
+  setSocketIO(io);
+
   // Bootstrap: Ensure Super Admin account exists on startup
   const SUPER_ADMIN_EMAIL_BOOTSTRAP = "adminleadani@leadani.com";
   const SUPER_ADMIN_PASSWORD = "thleadani";
@@ -313,6 +317,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Socket.io connection handling with company isolation
   io.on("connection", (socket) => {
     console.log("Socket connected:", socket.id);
+
+    // Auto-join user to their personal and company rooms for PowerScore celebrations
+    const token = socket.handshake.auth.token;
+    if (token) {
+      try {
+        const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        const userId = decoded.userId;
+        const userCompanyId = decoded.companyId;
+        const userRole = decoded.role;
+        
+        // Join user-specific room for personal notifications
+        socket.join(`user:${userId}`);
+        
+        // Join company room for company-wide notifications
+        if (userCompanyId) {
+          socket.join(`company:${userCompanyId}`);
+        }
+        
+        // Join admin room if company admin
+        if (userRole === "company_admin" && userCompanyId) {
+          socket.join(`company_admins:${userCompanyId}`);
+        }
+        
+        console.log(`Socket ${socket.id} joined rooms: user:${userId}${userCompanyId ? `, company:${userCompanyId}` : ""}${userRole === "company_admin" ? `, company_admins:${userCompanyId}` : ""}`);
+      } catch (error) {
+        // Invalid token - no rooms joined
+      }
+    }
 
     // Defensive validation: only allow joining sheets user has access to
     socket.on("join_sheet", async (sheetId: string) => {
@@ -19147,6 +19180,25 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       if (action === 'approve') {
         const result = await storage.approvePowerScoreApproval(approvalId, req.userId!);
+        
+        // Emit celebration for approved points
+        const rule = await storage.getPowerScoreRule(approval.rule_id);
+        const showAnimationTo = rule?.show_animation_to || "user_only";
+        if (showAnimationTo !== "none") {
+          const user = await storage.getUser(approval.user_id);
+          const { emitPointsCelebration } = await import("./socket-manager");
+          emitPointsCelebration({
+            userId: approval.user_id,
+            userName: user?.name || "User",
+            points: approval.points,
+            ruleName: rule?.name || "Points",
+            actionType: approval.action_type,
+            showAnimationTo,
+            companyId: approval.company_id,
+            timestamp: Date.now(),
+          });
+        }
+        
         res.json(result);
       } else {
         const result = await storage.rejectPowerScoreApproval(approvalId, req.userId!, rejection_reason);
