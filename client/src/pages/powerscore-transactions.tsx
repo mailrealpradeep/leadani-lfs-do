@@ -87,13 +87,15 @@ export default function PowerScoreTransactions() {
     queryKey: ["/api/users/simple"],
   });
 
+  const transactionsQueryUrl = `/api/powerscore/transactions?page=${page}&limit=25${selectedUserId !== "all" ? `&userId=${selectedUserId}` : ""}`;
+  
   const { 
     data: transactionsData, 
     isLoading, 
     isError,
     refetch 
   } = useQuery<TransactionsResponse>({
-    queryKey: ["/api/powerscore/transactions", { userId: selectedUserId !== "all" ? selectedUserId : undefined, page, limit: 25 }],
+    queryKey: [transactionsQueryUrl],
     enabled: isAdmin,
   });
 
