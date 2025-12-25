@@ -18916,6 +18916,57 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get all PowerScore transactions for company (Admin only) - paginated with filters
+  app.get("/api/powerscore/transactions", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { userId, page, limit } = req.query;
+      const result = await storage.getPowerScoreTransactionsWithDetails(req.companyId, {
+        userId: userId as string | undefined,
+        page: page ? parseInt(page as string) : undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+      });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error fetching PowerScore transactions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Void a PowerScore transaction (Admin only) - creates negative adjustment
+  app.post("/api/powerscore/transactions/:id/void", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+        return res.status(400).json({ error: "Reason is required for voiding a transaction" });
+      }
+
+      // Verify the transaction belongs to the user's company - always enforce company scope
+      const transaction = await storage.getPowerScoreTransaction(id);
+      if (!transaction) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+      if (transaction.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Transaction does not belong to your company" });
+      }
+
+      const result = await storage.voidPowerScoreTransaction(id, req.userId!, reason.trim());
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error voiding PowerScore transaction:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get PowerScore rules (Company Admin or read for users)
   app.get("/api/powerscore/rules", authMiddleware, async (req: AuthRequest, res) => {
     try {

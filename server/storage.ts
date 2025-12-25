@@ -750,8 +750,29 @@ export interface IStorage {
   getPowerScoreTransactionsByCompany(companyId: string, startDate?: Date, endDate?: Date): Promise<PowerScoreTransaction[]>;
   getPowerScoreTransactionsByRuleAndDate(userId: string, ruleId: string, scoreDate: string): Promise<PowerScoreTransaction[]>;
   getPowerScoreTransactionsByLeadId(leadId: string): Promise<PowerScoreTransaction[]>;
+  getPowerScoreTransaction(id: string): Promise<PowerScoreTransaction | undefined>;
   createPowerScoreTransaction(transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction>;
   getDailyActionCount(userId: string, actionType: PowerScoreActionType, date: Date): Promise<number>;
+  
+  // PowerScore Transaction Admin Management
+  getPowerScoreTransactionsWithDetails(
+    companyId: string,
+    options?: {
+      userId?: string;
+      page?: number;
+      limit?: number;
+    }
+  ): Promise<{
+    transactions: (PowerScoreTransaction & { user_name: string; voided_by_name?: string })[];
+    total: number;
+    page: number;
+    totalPages: number;
+  }>;
+  voidPowerScoreTransaction(
+    transactionId: string,
+    voidedByUserId: string,
+    reason: string
+  ): Promise<{ originalTransaction: PowerScoreTransaction; adjustmentTransaction: PowerScoreTransaction }>;
 
   // PowerScore Leaderboard & Stats
   getPowerScoreLeaderboard(companyId: string, startDate: Date, endDate: Date): Promise<PowerScoreLeaderboardEntry[]>;
@@ -3069,8 +3090,11 @@ export class MemStorage implements IStorage {
   async getPowerScoreTransactionsByCompany(_companyId: string, _startDate?: Date, _endDate?: Date): Promise<PowerScoreTransaction[]> { return []; }
   async getPowerScoreTransactionsByRuleAndDate(_userId: string, _ruleId: string, _scoreDate: string): Promise<PowerScoreTransaction[]> { return []; }
   async getPowerScoreTransactionsByLeadId(_leadId: string): Promise<PowerScoreTransaction[]> { return []; }
+  async getPowerScoreTransaction(_id: string): Promise<PowerScoreTransaction | undefined> { return undefined; }
   async createPowerScoreTransaction(_transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> { throw new Error("PowerScore not implemented in MemStorage"); }
   async getDailyActionCount(_userId: string, _actionType: PowerScoreActionType, _date: Date): Promise<number> { return 0; }
+  async getPowerScoreTransactionsWithDetails(_companyId: string, _options?: { userId?: string; page?: number; limit?: number }): Promise<{ transactions: (PowerScoreTransaction & { user_name: string; voided_by_name?: string })[]; total: number; page: number; totalPages: number }> { return { transactions: [], total: 0, page: 1, totalPages: 0 }; }
+  async voidPowerScoreTransaction(_transactionId: string, _voidedByUserId: string, _reason: string): Promise<{ originalTransaction: PowerScoreTransaction; adjustmentTransaction: PowerScoreTransaction }> { throw new Error("PowerScore not implemented in MemStorage"); }
   async getPowerScoreLeaderboard(_companyId: string, _startDate: Date, _endDate: Date): Promise<PowerScoreLeaderboardEntry[]> { return []; }
   async getUserPowerScore(_userId: string, _startDate: Date, _endDate: Date): Promise<number> { return 0; }
   async getMultiSheetUserIds(_companyId: string): Promise<string[]> { return []; }
@@ -8043,8 +8067,205 @@ export class PgStorage implements IStorage {
       score_date: row.score_date,
       approval_id: row.approval_id,
       is_approved: row.is_approved,
+      voided_at: row.voided_at,
+      voided_by_user_id: row.voided_by_user_id,
+      void_reason: row.void_reason,
+      voided_by_transaction_id: row.voided_by_transaction_id,
       created_at: row.created_at,
     }));
+  }
+
+  async getPowerScoreTransaction(id: string): Promise<PowerScoreTransaction | undefined> {
+    const result = await db.select()
+      .from(dbSchema.powerscore_transactions)
+      .where(eq(dbSchema.powerscore_transactions.id, id));
+    if (result.length === 0) return undefined;
+    const row = result[0];
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      rule_id: row.rule_id,
+      action_type: row.action_type as PowerScoreActionType,
+      points: row.points,
+      lead_id: row.lead_id,
+      description: row.description,
+      score_date: row.score_date,
+      approval_id: row.approval_id,
+      is_approved: row.is_approved,
+      voided_at: row.voided_at,
+      voided_by_user_id: row.voided_by_user_id,
+      void_reason: row.void_reason,
+      voided_by_transaction_id: row.voided_by_transaction_id,
+      created_at: row.created_at,
+    };
+  }
+
+  async getPowerScoreTransactionsWithDetails(
+    companyId: string,
+    options?: { userId?: string; page?: number; limit?: number }
+  ): Promise<{
+    transactions: (PowerScoreTransaction & { user_name: string; voided_by_name?: string })[];
+    total: number;
+    page: number;
+    totalPages: number;
+  }> {
+    const page = options?.page || 1;
+    const limit = options?.limit || 50;
+    const offset = (page - 1) * limit;
+
+    // Build conditions
+    const conditions = [eq(dbSchema.powerscore_transactions.company_id, companyId)];
+    if (options?.userId) {
+      conditions.push(eq(dbSchema.powerscore_transactions.user_id, options.userId));
+    }
+
+    // Get total count
+    const countResult = await db.select({ count: sql<number>`count(*)` })
+      .from(dbSchema.powerscore_transactions)
+      .where(and(...conditions));
+    const total = Number(countResult[0]?.count || 0);
+
+    // Get transactions with user and rule joins
+    const result = await db.select({
+      transaction: dbSchema.powerscore_transactions,
+      user_name: dbSchema.users.name,
+      rule_name: dbSchema.powerscore_rules.name,
+    })
+      .from(dbSchema.powerscore_transactions)
+      .leftJoin(dbSchema.users, eq(dbSchema.powerscore_transactions.user_id, dbSchema.users.id))
+      .leftJoin(dbSchema.powerscore_rules, eq(dbSchema.powerscore_transactions.rule_id, dbSchema.powerscore_rules.id))
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.powerscore_transactions.created_at))
+      .limit(limit)
+      .offset(offset);
+
+    // Get voided_by user names
+    const voidedByUserIds = result
+      .filter(r => r.transaction.voided_by_user_id)
+      .map(r => r.transaction.voided_by_user_id!);
+    
+    const voidedByUsers = voidedByUserIds.length > 0
+      ? await db.select({ id: dbSchema.users.id, name: dbSchema.users.name })
+          .from(dbSchema.users)
+          .where(inArray(dbSchema.users.id, voidedByUserIds))
+      : [];
+    const voidedByMap = new Map(voidedByUsers.map(u => [u.id, u.name]));
+
+    const transactions = result.map(row => {
+      const isAdjustment = row.transaction.action_type === 'admin_void' || 
+                           row.transaction.action_type === 'reversal' ||
+                           row.transaction.points < 0;
+      const status = row.transaction.voided_at 
+        ? 'voided' 
+        : (row.transaction.is_approved === false 
+            ? 'pending' 
+            : 'awarded');
+      
+      return {
+        id: row.transaction.id,
+        user_id: row.transaction.user_id,
+        company_id: row.transaction.company_id,
+        rule_id: row.transaction.rule_id,
+        rule_name: row.rule_name || null,
+        action_type: row.transaction.action_type as PowerScoreActionType,
+        points: row.transaction.points,
+        lead_id: row.transaction.lead_id,
+        description: row.transaction.description,
+        score_date: row.transaction.score_date,
+        approval_id: row.transaction.approval_id,
+        is_approved: row.transaction.is_approved,
+        status,
+        is_adjustment: isAdjustment,
+        voided_at: row.transaction.voided_at,
+        voided_by_user_id: row.transaction.voided_by_user_id,
+        void_reason: row.transaction.void_reason,
+        voided_by_transaction_id: row.transaction.voided_by_transaction_id,
+        created_at: row.transaction.created_at,
+        user_name: row.user_name || 'Unknown User',
+        voided_by_user_name: row.transaction.voided_by_user_id ? voidedByMap.get(row.transaction.voided_by_user_id) : undefined,
+      };
+    });
+
+    return {
+      transactions,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async voidPowerScoreTransaction(
+    transactionId: string,
+    voidedByUserId: string,
+    reason: string
+  ): Promise<{ originalTransaction: PowerScoreTransaction; adjustmentTransaction: PowerScoreTransaction }> {
+    const original = await this.getPowerScoreTransaction(transactionId);
+    if (!original) {
+      throw new Error("Transaction not found");
+    }
+    if (original.voided_at) {
+      throw new Error("Transaction already voided");
+    }
+    if (original.points < 0) {
+      throw new Error("Cannot void a reversal/adjustment transaction");
+    }
+
+    const now = new Date();
+    const adjustmentId = randomUUID();
+
+    // Create the negative adjustment transaction
+    const adjustmentRows = await db.insert(dbSchema.powerscore_transactions)
+      .values({
+        id: adjustmentId,
+        user_id: original.user_id,
+        company_id: original.company_id,
+        rule_id: original.rule_id,
+        action_type: 'admin_void' as PowerScoreActionType,
+        points: -original.points,
+        lead_id: original.lead_id,
+        description: `VOIDED: ${original.description || 'Transaction'} - ${reason}`,
+        score_date: original.score_date,
+        approval_id: null,
+        is_approved: null,
+        created_at: now,
+      })
+      .returning();
+
+    // Mark the original as voided
+    await db.update(dbSchema.powerscore_transactions)
+      .set({
+        voided_at: now,
+        voided_by_user_id: voidedByUserId,
+        void_reason: reason,
+        voided_by_transaction_id: adjustmentId,
+      })
+      .where(eq(dbSchema.powerscore_transactions.id, transactionId));
+
+    const updatedOriginal = await this.getPowerScoreTransaction(transactionId);
+    const adjustment = adjustmentRows[0];
+
+    return {
+      originalTransaction: updatedOriginal!,
+      adjustmentTransaction: {
+        id: adjustment.id,
+        user_id: adjustment.user_id,
+        company_id: adjustment.company_id,
+        rule_id: adjustment.rule_id,
+        action_type: adjustment.action_type as PowerScoreActionType,
+        points: adjustment.points,
+        lead_id: adjustment.lead_id,
+        description: adjustment.description,
+        score_date: adjustment.score_date,
+        approval_id: adjustment.approval_id,
+        is_approved: adjustment.is_approved,
+        voided_at: adjustment.voided_at,
+        voided_by_user_id: adjustment.voided_by_user_id,
+        void_reason: adjustment.void_reason,
+        voided_by_transaction_id: adjustment.voided_by_transaction_id,
+        created_at: adjustment.created_at,
+      },
+    };
   }
 
   async createPowerScoreTransaction(transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> {

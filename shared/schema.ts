@@ -3813,6 +3813,11 @@ export const powerscore_transactions = pgTable('powerscore_transactions', {
   // Approval tracking
   approval_id: varchar('approval_id'), // Reference to pending approval if applicable
   is_approved: boolean('is_approved'), // null = no approval needed, true/false = approved/rejected
+  // Void tracking (for admin reversals)
+  voided_at: timestamp('voided_at'), // When the transaction was voided
+  voided_by_user_id: varchar('voided_by_user_id').references(() => users.id, { onDelete: 'set null' }), // Admin who voided
+  void_reason: varchar('void_reason', { length: 500 }), // Required reason for voiding
+  voided_by_transaction_id: varchar('voided_by_transaction_id'), // Links original to the adjustment transaction
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
