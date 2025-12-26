@@ -19138,14 +19138,16 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         if (approval.lead_id) {
           const lead = await storage.getLead(approval.lead_id);
           if (lead) {
+            // Lead data is stored in custom_fields, not as top-level properties
+            const cf = lead.custom_fields || {};
             lead_details = {
               id: lead.id,
-              full_name: lead.full_name || "",
-              mobile: lead.mobile || "",
-              email: lead.email || "",
-              status: lead.status || "",
-              address: lead.address || "",
-              custom_fields: lead.custom_fields || {},
+              full_name: cf.full_name || "",
+              mobile: cf.mobile_no || cf.mobile || "",
+              email: cf.email || "",
+              status: cf.status || cf.lead_status || "",
+              address: cf.address || "",
+              custom_fields: cf,
               created_at: lead.created_at,
               updated_at: lead.updated_at,
             };
