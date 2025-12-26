@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Sparkles, AlertTriangle, CheckCircle2, X, ChevronRight, ChevronLeft, RefreshCw, LogIn, FileEdit } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, AlertTriangle, CheckCircle2, X, ChevronRight, ChevronLeft, RefreshCw, LogIn, FileEdit, Phone, User, Mail, MapPin, Calendar, MessageSquare, Eye, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -46,9 +46,32 @@ const ACTION_TYPES = [
   },
 ] as const;
 
+interface LeadDetails {
+  id: string;
+  full_name: string;
+  mobile: string;
+  email: string;
+  status: string;
+  address: string;
+  custom_fields: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+interface LeadUpdate {
+  id: string;
+  remark: string;
+  nfdt: string | null;
+  created_at: string;
+  created_by_user_id: string;
+}
+
 interface PendingApprovalWithUser extends PowerScorePendingApproval {
   user_name?: string;
   lead_full_name?: string;
+  lead_mobile?: string;
+  lead_details?: LeadDetails | null;
+  lead_updates?: LeadUpdate[];
 }
 
 interface WizardState {
@@ -91,6 +114,7 @@ export function PowerScoreSettings() {
   const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
   const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
   const [wizard, setWizard] = useState<WizardState>(initialWizardState);
+  const [selectedApproval, setSelectedApproval] = useState<PendingApprovalWithUser | null>(null);
 
   const { data: rules = [], isLoading: rulesLoading } = useQuery<PowerScoreRule[]>({
     queryKey: ["/api/powerscore/rules"],
@@ -468,8 +492,14 @@ export function PowerScoreSettings() {
             <div className="space-y-3">
               {pendingApprovals.map((approval) => {
                 const isProcessing = processingApprovalId === approval.id;
+                const hasLeadDetails = !!approval.lead_details;
                 return (
-                  <Card key={approval.id}>
+                  <Card 
+                    key={approval.id} 
+                    className={hasLeadDetails ? "cursor-pointer hover-elevate" : ""}
+                    onClick={hasLeadDetails ? () => setSelectedApproval(approval) : undefined}
+                    data-testid={`approval-card-${approval.id}`}
+                  >
                     <CardContent className="py-4">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
@@ -483,18 +513,38 @@ export function PowerScoreSettings() {
                           </div>
                           <p className="text-sm text-muted-foreground mt-1">
                             {getActionLabel(approval.action_type)}
-                            {approval.lead_full_name && ` - ${approval.lead_full_name}`}
                           </p>
                           {approval.description && (
                             <p className="text-xs text-muted-foreground mt-1">
                               {approval.description}
                             </p>
                           )}
-                          <p className="text-xs text-muted-foreground mt-1">
+                          {/* Lead Info Section */}
+                          {approval.lead_details && (
+                            <div className="mt-2 p-2 bg-muted/50 rounded-md space-y-1">
+                              <div className="flex items-center gap-2 text-sm">
+                                <User className="h-4 w-4 text-muted-foreground" />
+                                <span className="font-medium">{approval.lead_details.full_name || "No Name"}</span>
+                              </div>
+                              {approval.lead_details.mobile && (
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Phone className="h-4 w-4" />
+                                  <span>{approval.lead_details.mobile}</span>
+                                </div>
+                              )}
+                              {hasLeadDetails && (
+                                <div className="flex items-center gap-1 text-xs text-primary mt-1">
+                                  <Eye className="h-3 w-3" />
+                                  <span>Click to view full details</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <p className="text-xs text-muted-foreground mt-2">
                             Date: {approval.score_date}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="outline"
@@ -851,6 +901,169 @@ export function PowerScoreSettings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Lead Details Dialog */}
+      <Dialog open={!!selectedApproval} onOpenChange={(open) => !open && setSelectedApproval(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Lead Details
+            </DialogTitle>
+            <DialogDescription>
+              Review lead information before approving points
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedApproval?.lead_details && (
+            <div className="space-y-4">
+              {/* Approval Info */}
+              <div className="p-3 bg-primary/10 rounded-lg">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline">{getActionLabel(selectedApproval.action_type)}</Badge>
+                  <Badge>+{selectedApproval.points} pts</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    by {selectedApproval.user_name}
+                  </span>
+                </div>
+                {selectedApproval.description && (
+                  <p className="text-sm mt-2">{selectedApproval.description}</p>
+                )}
+              </div>
+
+              {/* Lead Basic Info */}
+              <Card>
+                <CardContent className="pt-4 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Full Name</p>
+                        <p className="font-medium">{selectedApproval.lead_details.full_name || "—"}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Mobile</p>
+                        <p className="font-medium">{selectedApproval.lead_details.mobile || "—"}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Email</p>
+                        <p className="font-medium">{selectedApproval.lead_details.email || "—"}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Address</p>
+                        <p className="font-medium">{selectedApproval.lead_details.address || "—"}</p>
+                      </div>
+                    </div>
+                  </div>
+                  {selectedApproval.lead_details.status && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">{selectedApproval.lead_details.status}</Badge>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Custom Fields */}
+              {selectedApproval.lead_details.custom_fields && 
+               Object.keys(selectedApproval.lead_details.custom_fields).length > 0 && (
+                <Card>
+                  <CardContent className="pt-4">
+                    <h4 className="text-sm font-medium mb-2">Custom Fields</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.entries(selectedApproval.lead_details.custom_fields).map(([key, value]) => (
+                        <div key={key} className="text-sm">
+                          <span className="text-muted-foreground">{key}: </span>
+                          <span className="font-medium">
+                            {Array.isArray(value) ? value.join(", ") : String(value || "—")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Lead Updates History */}
+              {selectedApproval.lead_updates && selectedApproval.lead_updates.length > 0 && (
+                <Card>
+                  <CardContent className="pt-4">
+                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4" />
+                      Recent Updates ({selectedApproval.lead_updates.length})
+                    </h4>
+                    <ScrollArea className="h-[200px]">
+                      <div className="space-y-2">
+                        {selectedApproval.lead_updates.map((update) => (
+                          <div key={update.id} className="p-2 bg-muted/50 rounded text-sm">
+                            <p>{update.remark || "No remark"}</p>
+                            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                              <Clock className="h-3 w-3" />
+                              <span>{new Date(update.created_at).toLocaleString()}</span>
+                              {update.nfdt && (
+                                <>
+                                  <Calendar className="h-3 w-3 ml-2" />
+                                  <span>NFDT: {new Date(update.nfdt).toLocaleString()}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setSelectedApproval(null)}
+              data-testid="button-close-lead-details"
+            >
+              Close
+            </Button>
+            <Button
+              variant="outline"
+              className="text-red-600 border-red-600"
+              onClick={() => {
+                if (selectedApproval) {
+                  approvalMutation.mutate({ id: selectedApproval.id, action: "reject" });
+                  setSelectedApproval(null);
+                }
+              }}
+              disabled={approvalMutation.isPending}
+              data-testid="button-reject-from-dialog"
+            >
+              <X className="h-4 w-4 mr-1" />
+              Reject
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedApproval) {
+                  approvalMutation.mutate({ id: selectedApproval.id, action: "approve" });
+                  setSelectedApproval(null);
+                }
+              }}
+              disabled={approvalMutation.isPending}
+              data-testid="button-approve-from-dialog"
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+              Approve
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Tabs>
   );
 }

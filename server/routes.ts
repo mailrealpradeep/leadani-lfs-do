@@ -19120,10 +19120,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       const approvals = await storage.getPowerScorePendingApprovals(req.companyId);
       
-      // Enrich approvals with user names and lead names
+      // Enrich approvals with user names, lead details, and updates
       const enrichedApprovals = await Promise.all(approvals.map(async (approval) => {
         let user_name = "Unknown User";
-        let lead_full_name = "";
+        let lead_details: any = null;
+        let lead_updates: any[] = [];
         
         // Get user name
         if (approval.user_id) {
@@ -19133,18 +19134,41 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           }
         }
         
-        // Get lead name
+        // Get full lead details and updates
         if (approval.lead_id) {
           const lead = await storage.getLead(approval.lead_id);
           if (lead) {
-            lead_full_name = lead.full_name || "";
+            lead_details = {
+              id: lead.id,
+              full_name: lead.full_name || "",
+              mobile: lead.mobile || "",
+              email: lead.email || "",
+              status: lead.status || "",
+              address: lead.address || "",
+              custom_fields: lead.custom_fields || {},
+              created_at: lead.created_at,
+              updated_at: lead.updated_at,
+            };
+            
+            // Get recent lead updates (last 10)
+            const updates = await storage.getLeadUpdates(approval.lead_id);
+            lead_updates = updates.slice(0, 10).map((update: any) => ({
+              id: update.id,
+              remark: update.remark,
+              nfdt: update.nfdt,
+              created_at: update.created_at,
+              created_by_user_id: update.created_by_user_id,
+            }));
           }
         }
         
         return {
           ...approval,
           user_name,
-          lead_full_name,
+          lead_full_name: lead_details?.full_name || "",
+          lead_mobile: lead_details?.mobile || "",
+          lead_details,
+          lead_updates,
         };
       }));
       
