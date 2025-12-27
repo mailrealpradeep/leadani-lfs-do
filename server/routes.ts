@@ -11321,7 +11321,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // POST /api/custom-views - Create new custom view (Admin only)
   app.post("/api/custom-views", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      const { name, icon, icon_color, show_badge, conditions, is_enabled } = req.body;
+      const { name, icon, icon_color, show_badge, conditions, is_enabled, section, sheet_ids } = req.body;
       
       if (!name || !conditions || conditions.length === 0) {
         return res.status(400).json({ error: "Name and at least one condition are required" });
@@ -11340,6 +11340,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         is_enabled: is_enabled ?? true,
         order_index: existingViews.length,
         created_by_user_id: req.userId!,
+        section: section || "custom_views",
+        sheet_ids: sheet_ids ?? null,
       });
 
       res.status(201).json(view);
@@ -11360,7 +11362,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const { name, icon, icon_color, show_badge, conditions, is_enabled } = req.body;
+      const { name, icon, icon_color, show_badge, conditions, is_enabled, section, sheet_ids } = req.body;
       
       const updated = await storage.updateCustomView(req.params.id, {
         ...(name && { name }),
@@ -11369,6 +11371,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         ...(show_badge !== undefined && { show_badge }),
         ...(conditions && { conditions }),
         ...(is_enabled !== undefined && { is_enabled }),
+        ...(section && { section }),
+        ...(sheet_ids !== undefined && { sheet_ids }),
       });
 
       res.json(updated);
