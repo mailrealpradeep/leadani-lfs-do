@@ -99,6 +99,7 @@ interface CustomView {
   show_badge: boolean;
   conditions: CustomViewCondition[]; // Flat list of conditions with per-condition AND/OR operators
   sheet_ids: string[] | null; // null = all sheets, array = selected sheets
+  section: 'custom_views' | 'data_mismatch'; // Which sidebar section to display in
   is_enabled: boolean;
   order_index: number;
   created_at: string;
@@ -324,6 +325,7 @@ export function CustomViewsManager() {
   ]);
   const [sheetMode, setSheetMode] = useState<"all" | "selected">("all");
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
+  const [section, setSection] = useState<"custom_views" | "data_mismatch">("custom_views");
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -450,6 +452,7 @@ export function CustomViewsManager() {
     setConditions([{ column_key: "", operator: "equals", value: "", next_operator: "and" }]);
     setSheetMode("all");
     setSelectedSheetIds([]);
+    setSection("custom_views");
     setEditingView(null);
   };
 
@@ -460,6 +463,7 @@ export function CustomViewsManager() {
     setIconColor(view.icon_color);
     setShowBadge(view.show_badge);
     setIsEnabled(view.is_enabled);
+    setSection(view.section || "custom_views");
     // Load conditions, ensuring each condition has a next_operator (default to "and")
     setConditions(view.conditions.length > 0 
       ? view.conditions.map((c, idx, arr) => ({
@@ -505,6 +509,7 @@ export function CustomViewsManager() {
       is_enabled: isEnabled,
       conditions: validConditions,
       sheet_ids: sheetMode === "selected" ? selectedSheetIds : null,
+      section,
     };
 
     if (editingView) {
@@ -822,6 +827,26 @@ export function CustomViewsManager() {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Display In Section */}
+            <div className="space-y-3">
+              <Label className="text-base font-medium">Display In</Label>
+              <Select
+                value={section}
+                onValueChange={(value: "custom_views" | "data_mismatch") => setSection(value)}
+              >
+                <SelectTrigger className="w-64" data-testid="select-section">
+                  <SelectValue placeholder="Select section" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="custom_views">Custom Views</SelectItem>
+                  <SelectItem value="data_mismatch">Data Mismatch</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Choose which sidebar section this view will appear in
+              </p>
             </div>
 
             <div className="space-y-4">

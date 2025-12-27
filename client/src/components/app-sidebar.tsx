@@ -105,6 +105,7 @@ export function AppSidebar() {
     icon: string;
     icon_color: string;
     show_badge: boolean;
+    section: 'custom_views' | 'data_mismatch';
     is_enabled: boolean;
   }
 
@@ -114,6 +115,10 @@ export function AppSidebar() {
   });
 
   const enabledViews = customViews.filter(v => v.is_enabled);
+  
+  // Separate views by section
+  const customViewsSection = enabledViews.filter(v => !v.section || v.section === 'custom_views');
+  const dataMismatchSection = enabledViews.filter(v => v.section === 'data_mismatch');
 
   // Fetch custom views counts for badges
   const { data: customViewsCounts } = useQuery<{ counts: Record<string, number> }>({
@@ -400,12 +405,12 @@ export function AppSidebar() {
           </SidebarGroup>
 
           {/* Custom Views Section */}
-          {!isSuperAdminAccount && enabledViews.length > 0 && (
+          {!isSuperAdminAccount && customViewsSection.length > 0 && (
             <SidebarGroup>
               <SidebarGroupLabel className="px-4">Custom Views</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {enabledViews.map((view) => {
+                  {customViewsSection.map((view) => {
                     const IconComponent = ICON_MAP[view.icon] || Star;
                     const colorClass = COLOR_MAP[view.icon_color] || "text-blue-500";
                     const count = customViewsCounts?.counts?.[view.id] || 0;
@@ -417,6 +422,43 @@ export function AppSidebar() {
                           asChild
                           isActive={location === viewUrl}
                           data-testid={`link-custom-view-${view.id}`}
+                        >
+                          <Link href={viewUrl} onClick={handleNavClick}>
+                            <IconComponent className={`h-4 w-4 ${colorClass}`} />
+                            <span className="flex-1">{view.name}</span>
+                            {view.show_badge && count > 0 && (
+                              <span className={`ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full ${getBadgeColor(view.icon_color)} px-1.5 text-xs font-medium text-white`}>
+                                {count}
+                              </span>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+
+          {/* Data Mismatch Section */}
+          {!isSuperAdminAccount && dataMismatchSection.length > 0 && (
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-4">Data Mismatch</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {dataMismatchSection.map((view) => {
+                    const IconComponent = ICON_MAP[view.icon] || AlertTriangle;
+                    const colorClass = COLOR_MAP[view.icon_color] || "text-red-500";
+                    const count = customViewsCounts?.counts?.[view.id] || 0;
+                    const viewUrl = `/custom-view/${view.id}`;
+                    
+                    return (
+                      <SidebarMenuItem key={view.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={location === viewUrl}
+                          data-testid={`link-data-mismatch-${view.id}`}
                         >
                           <Link href={viewUrl} onClick={handleNavClick}>
                             <IconComponent className={`h-4 w-4 ${colorClass}`} />
