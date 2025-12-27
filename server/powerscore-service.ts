@@ -536,8 +536,10 @@ export async function checkPointsToReverse(
   
   // Check which awarded transactions should be reversed
   // Only reverse positive transactions that were for dropdown_change matching this column and old value
+  // IMPORTANT: Skip transactions that have already been reversed (voided_by_transaction_id is set)
   for (const tx of transactions) {
     if (tx.points <= 0) continue; // Skip already negative (reversal) transactions
+    if (tx.voided_by_transaction_id) continue; // Skip already reversed transactions
     
     const rule = rules.find(r => r.id === tx.rule_id);
     if (!rule || rule.action_type !== 'dropdown_change') continue;
@@ -626,7 +628,7 @@ export async function reverseLeadUpdatePoints(
     
     for (const tx of awardedTransactions) {
       // Create a negative transaction to reverse the points (attributed to original user)
-      await storage.createPowerScoreTransaction({
+      const reversalTx = await storage.createPowerScoreTransaction({
         company_id: sheet.company_id,
         user_id: tx.user_id, // Original user who earned the points
         rule_id: tx.rule_id,
@@ -638,6 +640,10 @@ export async function reverseLeadUpdatePoints(
         approval_id: null,
         is_approved: null,
       });
+      
+      // Mark the original transaction as reversed to prevent duplicate reversals
+      await storage.markTransactionAsReversed(tx.id, reversalTx.id);
+      
       reversedTransactions++;
       deductedPoints += tx.points; // These points are actually being deducted
       console.log(`[PowerScore] Reversed ${tx.points} points for user ${tx.user_id} on lead ${leadId}`);

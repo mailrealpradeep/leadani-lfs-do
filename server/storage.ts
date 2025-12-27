@@ -8304,6 +8304,14 @@ export class PgStorage implements IStorage {
     };
   }
 
+  async markTransactionAsReversed(transactionId: string, reversalTransactionId: string): Promise<void> {
+    await db.update(dbSchema.powerscore_transactions)
+      .set({
+        voided_by_transaction_id: reversalTransactionId,
+      })
+      .where(eq(dbSchema.powerscore_transactions.id, transactionId));
+  }
+
   async getDailyActionCount(userId: string, actionType: PowerScoreActionType, date: Date): Promise<number> {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
