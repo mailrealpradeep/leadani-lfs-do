@@ -46,7 +46,7 @@ The system features a customizable grid interface with dynamic column management
 *   **Data Management (Admin Console)**: Company Admin tools for bulk operations like data clearing and lead transfers.
 *   **Visit Schedules & Visited Calendar**: Calendar-based views for tracking scheduled and completed site visits with customizable card displays.
 *   **Hot Leads**: Company-wide feature to identify and prioritize high-value leads based on configurable conditions.
-*   **Custom Views**: Configurable sidebar menu items displaying filtered leads based on group-based conditions, with customizable icons and optional badge counts.
+*   **Custom Views**: Configurable sidebar menu items displaying filtered leads based on group-based conditions, with customizable icons, optional badge counts, and section assignment (can display in "Custom Views" or "Data Mismatch" sidebar sections).
 *   **Validation Rules**: Configurable rules prompting users to update related fields during lead editing, with server-side enforcement.
 *   **Add Lead Form Configuration**: Company Admins can configure, reorder, and mark fields as required/optional for the 'Add Lead' form.
 *   **Auto-Fill Rules**: Company Admins can configure rules to automatically populate target fields when trigger conditions are met, with priority ordering and enable/disable toggles.
