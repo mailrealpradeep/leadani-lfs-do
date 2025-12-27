@@ -3674,6 +3674,9 @@ export const customViewIcons = [
 
 export type CustomViewIconId = typeof customViewIcons[number];
 
+// Custom View section types
+export type CustomViewSection = 'custom_views' | 'data_mismatch';
+
 // Custom View interface
 export interface CustomView {
   id: string;
@@ -3684,6 +3687,7 @@ export interface CustomView {
   show_badge: boolean; // Show count badge in sidebar
   conditions: CustomViewCondition[]; // Flat list of conditions with per-condition AND/OR operators
   sheet_ids: string[] | null; // null = all sheets, array = selected sheets only
+  section: CustomViewSection; // Which sidebar section to display in
   is_enabled: boolean;
   order_index: number;
   created_by_user_id: string | null;
@@ -3701,6 +3705,7 @@ export const custom_views = pgTable('custom_views', {
   show_badge: boolean('show_badge').notNull().default(true),
   conditions: json('conditions').$type<CustomViewCondition[]>().notNull().default([]),
   sheet_ids: json('sheet_ids').$type<string[] | null>().default(null), // null = all sheets, array = selected sheets
+  section: varchar('section', { length: 50 }).notNull().default('custom_views'), // 'custom_views' or 'data_mismatch'
   is_enabled: boolean('is_enabled').notNull().default(true),
   order_index: integer('order_index').notNull().default(0),
   created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
@@ -3727,6 +3732,7 @@ export const customViewFormSchema = z.object({
   show_badge: z.boolean().default(true),
   conditions: z.array(customViewConditionSchema).min(1, "At least one condition is required"),
   sheet_ids: z.array(z.string()).nullable().default(null), // null = all sheets, array = selected sheets
+  section: z.enum(['custom_views', 'data_mismatch']).default('custom_views'),
   is_enabled: z.boolean().default(true),
   order_index: z.number().int().default(0),
 });
