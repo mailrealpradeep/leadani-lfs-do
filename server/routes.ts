@@ -19894,6 +19894,85 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     };
   };
 
+  // Helper: Calculate effort metrics from activity_logs for a user within date range
+  const calculateEffortMetrics = async (
+    userId: string, 
+    companyId: string, 
+    startDate: Date, 
+    endDate: Date
+  ): Promise<{
+    yearly: { sales: number; visits: number; leads_attended: number; followups: number };
+    monthly: { sales: number; visits: number; leads_attended: number; followups: number };
+    weekly: { sales: number; visits: number; leads_attended: number; followups: number };
+    daily: { sales: number; visits: number; leads_attended: number; followups: number };
+  }> => {
+    const now = new Date();
+    
+    // Define period boundaries
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
+    weekStart.setHours(0, 0, 0, 0);
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+    
+    // Query activity logs
+    const logs = await db.select()
+      .from(activity_logs)
+      .where(and(
+        eq(activity_logs.user_id, userId),
+        eq(activity_logs.company_id, companyId),
+        gte(activity_logs.occurred_at, yearStart)
+      ));
+    
+    const countMetrics = (logsSubset: typeof logs) => {
+      let sales = 0;
+      let visits = 0;
+      let leads_attended = 0;
+      let followups = 0;
+      
+      for (const log of logsSubset) {
+        // Sales: lead_updated with lead_status changed to "Converted"
+        if (log.action === 'lead_updated' && log.details?.changes) {
+          const statusChange = (log.details.changes as Array<{field: string; to: string}>)
+            .find(c => c.field === 'lead_status' && c.to === 'Converted');
+          if (statusChange) sales++;
+          
+          // Visits: visit_status changed to "Visited"
+          const visitChange = (log.details.changes as Array<{field: string; to: string}>)
+            .find(c => c.field === 'visit_status' && c.to === 'Visited');
+          if (visitChange) visits++;
+        }
+        
+        // New Leads: lead_created action
+        if (log.action === 'lead_created') {
+          leads_attended++;
+        }
+        
+        // Follow-ups: lead_update_added action (remarks/follow-up dialog)
+        if (log.action === 'lead_update_added') {
+          followups++;
+        }
+      }
+      
+      return { sales, visits, leads_attended, followups };
+    };
+    
+    // Filter logs by period
+    const yearlyLogs = logs.filter(l => l.occurred_at >= yearStart);
+    const monthlyLogs = logs.filter(l => l.occurred_at >= monthStart);
+    const weeklyLogs = logs.filter(l => l.occurred_at >= weekStart);
+    const dailyLogs = logs.filter(l => l.occurred_at >= dayStart);
+    
+    return {
+      yearly: countMetrics(yearlyLogs),
+      monthly: countMetrics(monthlyLogs),
+      weekly: countMetrics(weeklyLogs),
+      daily: countMetrics(dailyLogs),
+    };
+  };
+
   // Get current user's vision board (or team aggregates for admins/multi-sheet users)
   app.get("/api/vision-board", authMiddleware, async (req: AuthRequest, res) => {
     try {
@@ -20223,6 +20302,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         },
       };
 
+      // Calculate effort achievements from activity_logs with date filtering
+      const effortAchieved = await calculateEffortMetrics(
+        req.userId!, 
+        req.companyId!, 
+        startDate, 
+        targetDate
+      );
+
       res.json({
         board,
         earnings: {
@@ -20238,6 +20325,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           time_progress_percent: totalDays > 0 ? Math.min(100, (daysElapsed / totalDays) * 100) : 0,
         },
         effort_targets: periodBreakdowns,
+        effort_achieved: effortAchieved,
       });
     } catch (error: any) {
       console.error("Error calculating progress:", error);
