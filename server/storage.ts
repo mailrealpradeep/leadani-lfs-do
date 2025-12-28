@@ -201,6 +201,16 @@ import type {
   powerflow_configs,
   PowerFlowStage,
   PowerFlowStageMetrics,
+  // Vision Board (Personal Goal Tracking)
+  VisionBoard,
+  InsertVisionBoard,
+  vision_boards,
+  VisionBoardEarning,
+  InsertVisionBoardEarning,
+  vision_board_earnings,
+  VisionBoardImage,
+  VisionBoardEffortTargets,
+  VisionBoardEffortOverrides,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -833,6 +843,20 @@ export interface IStorage {
   getPowerFlowConfig(companyId: string): Promise<PowerFlowConfig | null>;
   savePowerFlowConfig(companyId: string, config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig>;
   getPowerFlowAnalytics(companyId: string, sheetIds: string[], stages: PowerFlowStage[], startDate: Date, endDate: Date): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }>;
+
+  // Vision Board (Personal Goal Tracking)
+  getVisionBoard(userId: string): Promise<VisionBoard | null>;
+  getVisionBoardsByCompany(companyId: string): Promise<VisionBoard[]>;
+  createVisionBoard(board: InsertVisionBoard): Promise<VisionBoard>;
+  updateVisionBoard(id: string, updates: Partial<VisionBoard>): Promise<VisionBoard | undefined>;
+  deleteVisionBoard(id: string): Promise<boolean>;
+
+  // Vision Board Earnings
+  getVisionBoardEarnings(visionBoardId: string): Promise<VisionBoardEarning[]>;
+  getVisionBoardEarningsByDateRange(visionBoardId: string, startDate: Date, endDate: Date): Promise<VisionBoardEarning[]>;
+  createVisionBoardEarning(earning: InsertVisionBoardEarning): Promise<VisionBoardEarning>;
+  updateVisionBoardEarning(id: string, updates: Partial<VisionBoardEarning>): Promise<VisionBoardEarning | undefined>;
+  deleteVisionBoardEarning(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -3138,6 +3162,21 @@ export class MemStorage implements IStorage {
   async getPowerFlowConfig(_companyId: string): Promise<PowerFlowConfig | null> { return null; }
   async savePowerFlowConfig(_companyId: string, _config: { name: string; stages: PowerFlowStage[]; is_enabled: boolean }): Promise<PowerFlowConfig> { throw new Error("PowerFlow not implemented in MemStorage"); }
   async getPowerFlowAnalytics(_companyId: string, _sheetIds: string[], _stages: PowerFlowStage[], _startDate: Date, _endDate: Date): Promise<{ stages: PowerFlowStageMetrics[]; total_leads: number; overall_conversion_rate: number }> { return { stages: [], total_leads: 0, overall_conversion_rate: 0 }; }
+
+  // Vision Board (Personal Goal Tracking) - stubs
+  private visionBoards = new Map<string, VisionBoard>();
+  private visionBoardEarnings = new Map<string, VisionBoardEarning>();
+
+  async getVisionBoard(_userId: string): Promise<VisionBoard | null> { return null; }
+  async getVisionBoardsByCompany(_companyId: string): Promise<VisionBoard[]> { return []; }
+  async createVisionBoard(_board: InsertVisionBoard): Promise<VisionBoard> { throw new Error("Vision Board not implemented in MemStorage"); }
+  async updateVisionBoard(_id: string, _updates: Partial<VisionBoard>): Promise<VisionBoard | undefined> { return undefined; }
+  async deleteVisionBoard(_id: string): Promise<boolean> { return false; }
+  async getVisionBoardEarnings(_visionBoardId: string): Promise<VisionBoardEarning[]> { return []; }
+  async getVisionBoardEarningsByDateRange(_visionBoardId: string, _startDate: Date, _endDate: Date): Promise<VisionBoardEarning[]> { return []; }
+  async createVisionBoardEarning(_earning: InsertVisionBoardEarning): Promise<VisionBoardEarning> { throw new Error("Vision Board not implemented in MemStorage"); }
+  async updateVisionBoardEarning(_id: string, _updates: Partial<VisionBoardEarning>): Promise<VisionBoardEarning | undefined> { return undefined; }
+  async deleteVisionBoardEarning(_id: string): Promise<boolean> { return false; }
 }
 
 // ============================================================================
@@ -9439,6 +9478,174 @@ export class PgStorage implements IStorage {
       total_leads: totalLeads,
       overall_conversion_rate: overallConversionRate,
     };
+  }
+
+  // ============================================================================
+  // VISION BOARD (Personal Goal Tracking)
+  // ============================================================================
+
+  private mapVisionBoard(record: any): VisionBoard {
+    return {
+      id: record.id,
+      user_id: record.user_id,
+      company_id: record.company_id,
+      goal_amount: Number(record.goal_amount),
+      currency: record.currency,
+      goal_description: record.goal_description,
+      target_date: record.target_date instanceof Date ? record.target_date : new Date(record.target_date),
+      images: (record.images as VisionBoardImage[]) || [],
+      effort_targets: (record.effort_targets as VisionBoardEffortTargets) || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      effort_overrides: record.effort_overrides as VisionBoardEffortOverrides | null,
+      sheet_id: record.sheet_id,
+      is_active: record.is_active,
+      created_at: record.created_at instanceof Date ? record.created_at : new Date(record.created_at),
+      updated_at: record.updated_at instanceof Date ? record.updated_at : new Date(record.updated_at),
+    };
+  }
+
+  private mapVisionBoardEarning(record: any): VisionBoardEarning {
+    return {
+      id: record.id,
+      vision_board_id: record.vision_board_id,
+      user_id: record.user_id,
+      amount: Number(record.amount),
+      source_type: record.source_type,
+      source_lead_id: record.source_lead_id,
+      description: record.description,
+      earned_at: record.earned_at instanceof Date ? record.earned_at : new Date(record.earned_at),
+      created_at: record.created_at instanceof Date ? record.created_at : new Date(record.created_at),
+      updated_at: record.updated_at instanceof Date ? record.updated_at : new Date(record.updated_at),
+    };
+  }
+
+  async getVisionBoard(userId: string): Promise<VisionBoard | null> {
+    const result = await db.select()
+      .from(dbSchema.vision_boards)
+      .where(and(
+        eq(dbSchema.vision_boards.user_id, userId),
+        eq(dbSchema.vision_boards.is_active, true)
+      ))
+      .limit(1);
+    if (result.length === 0) return null;
+    return this.mapVisionBoard(result[0]);
+  }
+
+  async getVisionBoardsByCompany(companyId: string): Promise<VisionBoard[]> {
+    const result = await db.select()
+      .from(dbSchema.vision_boards)
+      .where(and(
+        eq(dbSchema.vision_boards.company_id, companyId),
+        eq(dbSchema.vision_boards.is_active, true)
+      ));
+    return result.map(r => this.mapVisionBoard(r));
+  }
+
+  async createVisionBoard(board: InsertVisionBoard): Promise<VisionBoard> {
+    const id = randomUUID();
+    const now = new Date();
+    const newBoard = {
+      id,
+      user_id: board.user_id,
+      company_id: board.company_id,
+      goal_amount: board.goal_amount,
+      currency: board.currency || 'INR',
+      goal_description: board.goal_description,
+      target_date: board.target_date instanceof Date ? board.target_date : new Date(board.target_date),
+      images: board.images || [],
+      effort_targets: board.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      effort_overrides: board.effort_overrides || null,
+      sheet_id: board.sheet_id || null,
+      is_active: board.is_active ?? true,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.vision_boards).values(newBoard);
+    return this.mapVisionBoard(newBoard);
+  }
+
+  async updateVisionBoard(id: string, updates: Partial<VisionBoard>): Promise<VisionBoard | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    if (updates.target_date && typeof updates.target_date === 'string') {
+      convertedUpdates.target_date = new Date(updates.target_date);
+    }
+    await db.update(dbSchema.vision_boards)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.vision_boards.id, id));
+    const result = await db.select()
+      .from(dbSchema.vision_boards)
+      .where(eq(dbSchema.vision_boards.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapVisionBoard(result[0]);
+  }
+
+  async deleteVisionBoard(id: string): Promise<boolean> {
+    await db.delete(dbSchema.vision_boards).where(eq(dbSchema.vision_boards.id, id));
+    return true;
+  }
+
+  async getVisionBoardEarnings(visionBoardId: string): Promise<VisionBoardEarning[]> {
+    const result = await db.select()
+      .from(dbSchema.vision_board_earnings)
+      .where(eq(dbSchema.vision_board_earnings.vision_board_id, visionBoardId))
+      .orderBy(desc(dbSchema.vision_board_earnings.earned_at));
+    return result.map(r => this.mapVisionBoardEarning(r));
+  }
+
+  async getVisionBoardEarningsByDateRange(visionBoardId: string, startDate: Date, endDate: Date): Promise<VisionBoardEarning[]> {
+    const result = await db.select()
+      .from(dbSchema.vision_board_earnings)
+      .where(and(
+        eq(dbSchema.vision_board_earnings.vision_board_id, visionBoardId),
+        gte(dbSchema.vision_board_earnings.earned_at, startDate),
+        lte(dbSchema.vision_board_earnings.earned_at, endDate)
+      ))
+      .orderBy(desc(dbSchema.vision_board_earnings.earned_at));
+    return result.map(r => this.mapVisionBoardEarning(r));
+  }
+
+  async createVisionBoardEarning(earning: InsertVisionBoardEarning): Promise<VisionBoardEarning> {
+    const id = randomUUID();
+    const now = new Date();
+    const newEarning = {
+      id,
+      vision_board_id: earning.vision_board_id,
+      user_id: earning.user_id,
+      amount: earning.amount,
+      source_type: earning.source_type,
+      source_lead_id: earning.source_lead_id || null,
+      description: earning.description || null,
+      earned_at: earning.earned_at instanceof Date ? earning.earned_at : new Date(earning.earned_at),
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.vision_board_earnings).values(newEarning);
+    return this.mapVisionBoardEarning(newEarning);
+  }
+
+  async updateVisionBoardEarning(id: string, updates: Partial<VisionBoardEarning>): Promise<VisionBoardEarning | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    if (updates.earned_at && typeof updates.earned_at === 'string') {
+      convertedUpdates.earned_at = new Date(updates.earned_at);
+    }
+    await db.update(dbSchema.vision_board_earnings)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.vision_board_earnings.id, id));
+    const result = await db.select()
+      .from(dbSchema.vision_board_earnings)
+      .where(eq(dbSchema.vision_board_earnings.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapVisionBoardEarning(result[0]);
+  }
+
+  async deleteVisionBoardEarning(id: string): Promise<boolean> {
+    await db.delete(dbSchema.vision_board_earnings).where(eq(dbSchema.vision_board_earnings.id, id));
+    return true;
   }
 }
 

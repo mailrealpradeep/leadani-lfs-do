@@ -4127,3 +4127,144 @@ export interface PowerFlowSimulation {
   }[];
   working_days: number;
 }
+
+// ============================================================================
+// VISION BOARD (Personal Goal Tracking & Motivation)
+// ============================================================================
+
+// Vision Board - User's personal goal with dream images and targets
+export const vision_boards = pgTable('vision_boards', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  goal_amount: doublePrecision('goal_amount').notNull(), // Target money goal
+  currency: varchar('currency', { length: 10 }).notNull().default('INR'), // Currency code (INR, USD, etc.)
+  goal_description: text('goal_description').notNull(), // What they'll do with the money
+  target_date: timestamp('target_date').notNull(), // Goal end date
+  images: json('images').$type<VisionBoardImage[]>().notNull().default([]), // Dream images gallery
+  effort_targets: json('effort_targets').$type<VisionBoardEffortTargets>().notNull().default({
+    sales: 0,
+    visits: 0,
+    leads_attended: 0,
+    followups: 0,
+  }), // Yearly effort targets set by user
+  effort_overrides: json('effort_overrides').$type<VisionBoardEffortOverrides | null>(), // User overrides for period breakdowns
+  sheet_id: varchar('sheet_id').references(() => sheets.id, { onDelete: 'set null' }), // User's primary sheet for tracking
+  is_active: boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Vision Board Images Structure
+export interface VisionBoardImage {
+  id: string;
+  url: string; // Image URL or base64
+  caption?: string; // Optional caption
+  order: number; // Display order
+}
+
+// Vision Board Effort Targets (Yearly totals)
+export interface VisionBoardEffortTargets {
+  sales: number; // Target converted leads
+  visits: number; // Target visit done
+  leads_attended: number; // Target new leads
+  followups: number; // Target remarks/followups
+}
+
+// Vision Board Effort Overrides (User can override auto-calculated breakdowns)
+export interface VisionBoardEffortOverrides {
+  monthly?: Partial<VisionBoardEffortTargets>;
+  half_monthly?: Partial<VisionBoardEffortTargets>;
+  weekly?: Partial<VisionBoardEffortTargets>;
+  daily?: Partial<VisionBoardEffortTargets>;
+}
+
+export type VisionBoard = typeof vision_boards.$inferSelect;
+export type InsertVisionBoard = typeof vision_boards.$inferInsert;
+
+export const insertVisionBoardSchema = createInsertSchema(vision_boards).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertVisionBoardData = z.infer<typeof insertVisionBoardSchema>;
+
+// Vision Board Earnings - Track each earning entry
+export const vision_board_earnings = pgTable('vision_board_earnings', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  vision_board_id: varchar('vision_board_id').notNull().references(() => vision_boards.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  amount: doublePrecision('amount').notNull(), // Earning amount
+  source_type: varchar('source_type', { length: 50 }).notNull(), // 'closing' | 'incentive' | 'bonus' | 'other'
+  source_lead_id: varchar('source_lead_id').references(() => leads.id, { onDelete: 'set null' }), // Optional link to lead
+  description: text('description'), // Description of earning
+  earned_at: timestamp('earned_at').notNull(), // When the earning was made
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type VisionBoardEarning = typeof vision_board_earnings.$inferSelect;
+export type InsertVisionBoardEarning = typeof vision_board_earnings.$inferInsert;
+
+export const insertVisionBoardEarningSchema = createInsertSchema(vision_board_earnings).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertVisionBoardEarningData = z.infer<typeof insertVisionBoardEarningSchema>;
+
+// Vision Board Progress API Types
+export interface VisionBoardProgress {
+  earnings: {
+    total: number;
+    target: number;
+    percentage: number;
+    breakdown: {
+      yearly: { earned: number; target: number };
+      monthly: { earned: number; target: number };
+      half_monthly: { earned: number; target: number };
+      weekly: { earned: number; target: number };
+      daily: { earned: number; target: number };
+    };
+  };
+  efforts: {
+    sales: VisionBoardMetricProgress;
+    visits: VisionBoardMetricProgress;
+    leads_attended: VisionBoardMetricProgress;
+    followups: VisionBoardMetricProgress;
+  };
+  days_remaining: number;
+  days_elapsed: number;
+  total_days: number;
+  on_track: boolean; // Whether user is on track to meet goal
+  motivational_message: string;
+}
+
+export interface VisionBoardMetricProgress {
+  yearly: { current: number; target: number; percentage: number };
+  monthly: { current: number; target: number; percentage: number };
+  half_monthly: { current: number; target: number; percentage: number };
+  weekly: { current: number; target: number; percentage: number };
+  daily: { current: number; target: number; percentage: number };
+}
+
+// Admin Vision Dashboard Types
+export interface VisionBoardAdminOverview {
+  total_goal: number;
+  total_earned: number;
+  overall_percentage: number;
+  active_boards: number;
+  total_users: number;
+  currency: string;
+}
+
+export interface VisionBoardContribution {
+  user_id: string;
+  user_name: string;
+  goal_amount: number;
+  earned_amount: number;
+  percentage: number;
+  contribution_to_company: number; // Percentage of company total
+}
