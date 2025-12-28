@@ -19778,25 +19778,159 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // VISION BOARD (Personal Goal Tracking)
   // ============================================================================
 
-  // Get current user's vision board
+  // Helper: Check if user should see team vision board (admin or multi-sheet access)
+  const shouldSeeTeamVisionBoard = async (userId: string, userRole: string | undefined, companyId: string | null): Promise<boolean> => {
+    // Admins always see team view
+    if (userRole === 'super_admin' || userRole === 'company_admin') {
+      return true;
+    }
+    
+    // Check if user has access to multiple sheets
+    if (companyId) {
+      const sheets = await storage.getSheetsByUserId(userId);
+      // Filter to only company sheets (not personal)
+      const companySheets = sheets.filter(s => s.company_id === companyId && !s.is_personal);
+      return companySheets.length > 1;
+    }
+    
+    return false;
+  };
+
+  // Helper: Calculate aggregated team vision board metrics
+  const getTeamVisionBoardAggregates = async (companyId: string) => {
+    const allBoards = await storage.getVisionBoardsByCompany(companyId);
+    
+    if (allBoards.length === 0) {
+      return null;
+    }
+
+    // Get earnings for all boards and calculate totals
+    let totalEarnings = 0;
+    let totalGoal = 0;
+    let boardCount = allBoards.length;
+    
+    const effortTotals = { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+    const allImages: string[] = [];
+    
+    for (const board of allBoards) {
+      totalGoal += board.goal_amount;
+      
+      // Get earnings for this board
+      const earnings = await storage.getVisionBoardEarnings(board.id);
+      const boardEarnings = earnings.reduce((sum, e) => sum + e.amount, 0);
+      totalEarnings += boardEarnings;
+      
+      // Sum effort targets
+      if (board.effort_targets) {
+        effortTotals.sales += board.effort_targets.sales || 0;
+        effortTotals.visits += board.effort_targets.visits || 0;
+        effortTotals.leads_attended += board.effort_targets.leads_attended || 0;
+        effortTotals.followups += board.effort_targets.followups || 0;
+      }
+      
+      // Collect images (limit to a few for carousel)
+      if (board.images && Array.isArray(board.images)) {
+        allImages.push(...board.images.slice(0, 2));
+      }
+    }
+
+    // Calculate averages
+    const avgGoal = Math.round(totalGoal / boardCount);
+    const avgEarnings = Math.round(totalEarnings / boardCount);
+    const avgProgress = totalGoal > 0 ? Math.round((totalEarnings / totalGoal) * 100) : 0;
+    
+    const avgEffortTargets = {
+      sales: Math.round(effortTotals.sales / boardCount),
+      visits: Math.round(effortTotals.visits / boardCount),
+      leads_attended: Math.round(effortTotals.leads_attended / boardCount),
+      followups: Math.round(effortTotals.followups / boardCount),
+    };
+
+    // Find most common currency
+    const currencyCount: Record<string, number> = {};
+    allBoards.forEach(b => {
+      const curr = b.currency || 'INR';
+      currencyCount[curr] = (currencyCount[curr] || 0) + 1;
+    });
+    const dominantCurrency = Object.entries(currencyCount)
+      .sort((a, b) => b[1] - a[1])[0]?.[0] || 'INR';
+
+    // Find date range
+    const targetDates = allBoards.map(b => new Date(b.target_date)).sort((a, b) => a.getTime() - b.getTime());
+    const earliestStart = allBoards.map(b => b.start_date ? new Date(b.start_date) : new Date(b.created_at!))
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    const latestTarget = targetDates[targetDates.length - 1];
+
+    return {
+      mode: 'team' as const,
+      board_count: boardCount,
+      aggregate: {
+        id: 'team-aggregate',
+        company_id: companyId,
+        goal_amount: avgGoal,
+        total_goal: totalGoal,
+        total_earnings: totalEarnings,
+        currency: dominantCurrency,
+        goal_description: `Team Average (${boardCount} members)`,
+        target_date: latestTarget,
+        start_date: earliestStart,
+        images: allImages.slice(0, 5),
+        effort_targets: avgEffortTargets,
+        is_active: true,
+      },
+      progress: {
+        earnings: {
+          total: avgEarnings,
+          progress_percent: avgProgress,
+          goal: avgGoal,
+          remaining: Math.max(0, avgGoal - avgEarnings),
+        },
+        team_totals: {
+          total_earnings: totalEarnings,
+          total_goal: totalGoal,
+          overall_progress_percent: totalGoal > 0 ? Math.round((totalEarnings / totalGoal) * 100) : 0,
+        },
+      },
+    };
+  };
+
+  // Get current user's vision board (or team aggregates for admins/multi-sheet users)
   app.get("/api/vision-board", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      const isTeamView = await shouldSeeTeamVisionBoard(req.userId!, req.userRole, req.companyId || null);
+      
+      if (isTeamView && req.companyId) {
+        // Return team aggregates for admins/multi-sheet users
+        const teamData = await getTeamVisionBoardAggregates(req.companyId);
+        if (!teamData) {
+          return res.json({ mode: 'team', board_count: 0, aggregate: null });
+        }
+        return res.json(teamData);
+      }
+      
+      // Personal view for single-sheet users
       const board = await storage.getVisionBoard(req.userId!);
       if (!board) {
-        return res.json(null);
+        return res.json({ mode: 'personal', board: null });
       }
-      res.json(board);
+      res.json({ mode: 'personal', board });
     } catch (error: any) {
       console.error("Error fetching vision board:", error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Create/update vision board
+  // Create/update vision board (blocked for admins/multi-sheet users)
   app.post("/api/vision-board", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId) {
         return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      // Block creation for team-view users
+      const isTeamView = await shouldSeeTeamVisionBoard(req.userId!, req.userRole, req.companyId || null);
+      if (isTeamView) {
+        return res.status(403).json({ error: "Admins and multi-sheet users cannot create personal vision boards. You can view team averages instead." });
       }
 
       const existingBoard = await storage.getVisionBoard(req.userId!);
@@ -19835,9 +19969,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
-  // Update vision board (PATCH)
+  // Update vision board (PATCH) - blocked for admins/multi-sheet users
   app.patch("/api/vision-board/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      // Block updates for team-view users
+      const isTeamView = await shouldSeeTeamVisionBoard(req.userId!, req.userRole, req.companyId || null);
+      if (isTeamView) {
+        return res.status(403).json({ error: "Admins and multi-sheet users cannot edit vision boards." });
+      }
+
       const { id } = req.params;
       const board = await storage.getVisionBoard(req.userId!);
       if (!board || board.id !== id) {
@@ -19851,9 +19991,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
-  // Update vision board (PUT - alias for PATCH)
+  // Update vision board (PUT - alias for PATCH) - blocked for admins/multi-sheet users
   app.put("/api/vision-board/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      // Block updates for team-view users
+      const isTeamView = await shouldSeeTeamVisionBoard(req.userId!, req.userRole, req.companyId || null);
+      if (isTeamView) {
+        return res.status(403).json({ error: "Admins and multi-sheet users cannot edit vision boards." });
+      }
+
       const { id } = req.params;
       const board = await storage.getVisionBoard(req.userId!);
       if (!board || board.id !== id) {
@@ -19867,9 +20013,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
-  // Delete vision board
+  // Delete vision board - blocked for admins/multi-sheet users
   app.delete("/api/vision-board/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      // Block deletion for team-view users
+      const isTeamView = await shouldSeeTeamVisionBoard(req.userId!, req.userRole, req.companyId || null);
+      if (isTeamView) {
+        return res.status(403).json({ error: "Admins and multi-sheet users cannot delete vision boards." });
+      }
+
       const { id } = req.params;
       const board = await storage.getVisionBoard(req.userId!);
       if (!board || board.id !== id) {

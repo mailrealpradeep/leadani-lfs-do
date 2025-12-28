@@ -61,6 +61,40 @@ interface VisionBoardProgress {
   };
 }
 
+// New API response format for vision board
+interface VisionBoardApiResponse {
+  mode: 'personal' | 'team';
+  board?: VisionBoard | null;
+  board_count?: number;
+  aggregate?: {
+    id: string;
+    company_id: string;
+    goal_amount: number;
+    total_goal: number;
+    total_earnings: number;
+    currency: string;
+    goal_description: string;
+    target_date: string;
+    start_date: string;
+    images: string[];
+    effort_targets: { sales: number; visits: number; leads_attended: number; followups: number };
+    is_active: boolean;
+  };
+  progress?: {
+    earnings: {
+      total: number;
+      progress_percent: number;
+      goal: number;
+      remaining: number;
+    };
+    team_totals?: {
+      total_earnings: number;
+      total_goal: number;
+      overall_progress_percent: number;
+    };
+  };
+}
+
 const currencySymbols: Record<string, string> = {
   'INR': '₹',
   'USD': '$',
@@ -1497,18 +1531,25 @@ export default function VisionBoardPage() {
     );
   }
   
-  const { data: visionBoard, isLoading: boardLoading } = useQuery<VisionBoard | null>({
+  const { data: apiResponse, isLoading: boardLoading } = useQuery<VisionBoardApiResponse>({
     queryKey: ["/api/vision-board"],
   });
 
+  // Determine if this is team view or personal view
+  const isTeamView = apiResponse?.mode === 'team';
+  const visionBoard = isTeamView ? null : apiResponse?.board;
+  const teamAggregate = isTeamView ? apiResponse?.aggregate : null;
+  const teamProgress = isTeamView ? apiResponse?.progress : null;
+  const boardCount = apiResponse?.board_count || 0;
+
   const { data: progress, isLoading: progressLoading, refetch: refetchProgress } = useQuery<VisionBoardProgress>({
     queryKey: ["/api/vision-board", visionBoard?.id, "progress"],
-    enabled: !!visionBoard?.id,
+    enabled: !!visionBoard?.id && !isTeamView,
   });
 
   const { data: earnings } = useQuery<VisionBoardEarning[]>({
     queryKey: ["/api/vision-board", visionBoard?.id, "earnings"],
-    enabled: !!visionBoard?.id,
+    enabled: !!visionBoard?.id && !isTeamView,
   });
 
   if (boardLoading) {
@@ -1523,6 +1564,201 @@ export default function VisionBoardPage() {
     );
   }
 
+  // Team view for admins and multi-sheet users
+  if (isTeamView) {
+    if (!teamAggregate || boardCount === 0) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center p-4">
+          <Card className="w-full max-w-lg mx-auto">
+            <CardHeader className="text-center space-y-4">
+              <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
+                <Users className="w-10 h-10 text-white" />
+              </div>
+              <CardTitle className="text-2xl">Team Vision Board</CardTitle>
+              <CardDescription className="text-base">
+                No team members have created vision boards yet.
+                As an admin or multi-sheet user, you can view team averages once team members set up their vision boards.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center text-sm text-muted-foreground">
+              <p>Team members can access Vision Board to set their personal goals and track progress.</p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    const currency = teamAggregate.currency || "INR";
+    // Convert string URLs to the format expected by ImageCarousel
+    const images = (teamAggregate.images || []).map(url => ({ url, caption: "" }));
+    const teamTotal = teamProgress?.team_totals;
+
+    return (
+      <div className="h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950">
+        {images.length > 0 ? (
+          <div className="relative h-[40vh] min-h-[300px]">
+            <ImageCarousel images={images} />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.3 }}
+                className="text-center text-white"
+              >
+                <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full mb-4">
+                  <Users className="w-4 h-4" />
+                  <span className="text-sm font-medium">Team Average ({boardCount} members)</span>
+                </div>
+                <h1 className="text-4xl md:text-5xl font-bold mb-2">
+                  {formatCurrency(teamAggregate.goal_amount, currency)}
+                </h1>
+                <p className="text-lg opacity-90">Average Goal per Team Member</p>
+              </motion.div>
+            </div>
+          </div>
+        ) : (
+          <div className="relative h-[30vh] min-h-[200px] bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-500 flex items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.3 }}
+              className="text-center text-white"
+            >
+              <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full mb-4">
+                <Users className="w-4 h-4" />
+                <span className="text-sm font-medium">Team Average ({boardCount} members)</span>
+              </div>
+              <h1 className="text-4xl md:text-5xl font-bold mb-2">
+                {formatCurrency(teamAggregate.goal_amount, currency)}
+              </h1>
+              <p className="text-lg opacity-90">Average Goal per Team Member</p>
+            </motion.div>
+          </div>
+        )}
+
+        <div className="max-w-6xl mx-auto px-4 -mt-20 relative z-10 pb-12">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="lg:col-span-1"
+            >
+              <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl overflow-hidden">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-sm font-medium text-muted-foreground">Team Average Progress</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <CircularProgress 
+                      progress={teamProgress?.earnings.progress_percent || 0}
+                      size={180}
+                      strokeWidth={14}
+                    >
+                      <div className="text-center">
+                        <motion.p
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.8 }}
+                          className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent"
+                        >
+                          {Math.round(teamProgress?.earnings.progress_percent || 0)}%
+                        </motion.p>
+                        <p className="text-xs text-muted-foreground mt-1">Avg Progress</p>
+                      </div>
+                    </CircularProgress>
+                    
+                    <div className="mt-6 text-center space-y-2">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Avg Earned</p>
+                        <p className="text-2xl font-bold text-green-600">
+                          {formatCurrency(teamProgress?.earnings.total || 0, currency)}
+                        </p>
+                      </div>
+                      <div className="border-t pt-2">
+                        <p className="text-sm text-muted-foreground">Avg Remaining</p>
+                        <p className="text-xl font-semibold">
+                          {formatCurrency(teamProgress?.earnings.remaining || 0, currency)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="lg:col-span-2"
+            >
+              <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl h-full">
+                <CardContent className="p-6">
+                  <h3 className="text-lg font-semibold mb-6">Team Totals</h3>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="text-center p-4 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl">
+                      <DollarSign className="w-8 h-8 mx-auto text-green-600 mb-2" />
+                      <p className="text-sm text-muted-foreground">Total Team Goal</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {formatCurrency(teamTotal?.total_goal || 0, currency)}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl">
+                      <TrendingUp className="w-8 h-8 mx-auto text-blue-600 mb-2" />
+                      <p className="text-sm text-muted-foreground">Total Earned</p>
+                      <p className="text-2xl font-bold text-blue-600">
+                        {formatCurrency(teamTotal?.total_earnings || 0, currency)}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl">
+                      <Users className="w-8 h-8 mx-auto text-purple-600 mb-2" />
+                      <p className="text-sm text-muted-foreground">Team Members</p>
+                      <p className="text-2xl font-bold text-purple-600">{boardCount}</p>
+                    </div>
+                    <div className="text-center p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-xl">
+                      <Target className="w-8 h-8 mx-auto text-amber-600 mb-2" />
+                      <p className="text-sm text-muted-foreground">Overall Progress</p>
+                      <p className="text-2xl font-bold text-amber-600">
+                        {teamTotal?.overall_progress_percent || 0}%
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+                    <h4 className="font-medium mb-3 flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-blue-600" />
+                      Average Effort Targets
+                    </h4>
+                    <div className="grid grid-cols-4 gap-3 text-center">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Sales</p>
+                        <p className="text-lg font-bold">{teamAggregate.effort_targets?.sales || 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Visits</p>
+                        <p className="text-lg font-bold">{teamAggregate.effort_targets?.visits || 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">New Leads</p>
+                        <p className="text-lg font-bold">{teamAggregate.effort_targets?.leads_attended || 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Follow-ups</p>
+                        <p className="text-lg font-bold">{teamAggregate.effort_targets?.followups || 0}</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Personal view - show setup wizard if no board
   if (!visionBoard) {
     return <SetupWizard onComplete={() => queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] })} />;
   }
