@@ -827,6 +827,30 @@ export default function VisionBoardPage() {
   const { user } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("daily");
   
+  // Super admin check - they don't have a company
+  if (user && !user.company_id) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center p-4">
+        <Card className="w-full max-w-lg mx-auto">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
+              <Star className="w-10 h-10 text-white" />
+            </div>
+            <CardTitle className="text-2xl">Vision Board</CardTitle>
+            <CardDescription className="text-base">
+              Vision Board is a personal goal tracking feature for company team members. 
+              As a Super Admin, you can view company-wide vision boards through the admin panel 
+              once you select a company to manage.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center text-sm text-muted-foreground">
+            <p>To access Vision Board features, please log in as a company admin or user account.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+  
   const { data: visionBoard, isLoading: boardLoading } = useQuery<VisionBoard | null>({
     queryKey: ["/api/vision-board"],
   });
