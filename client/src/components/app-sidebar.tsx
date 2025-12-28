@@ -271,6 +271,12 @@ export function AppSidebar() {
       icon: GitBranchPlus,
       testId: "link-powerflow",
     },
+    {
+      title: "Vision Board",
+      url: "/vision-board",
+      icon: Star,
+      testId: "link-vision-board",
+    },
     // OLD TARGET SYSTEM - Not being used. Covered by Working Targets.
     // When cleaning up code, remove this menu item, the my-targets.tsx page, 
     // user-target-progress.tsx component, and related /api/targets backend routes.

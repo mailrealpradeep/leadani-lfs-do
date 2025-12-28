@@ -55,6 +55,7 @@ import Watchlist from "@/pages/watchlist";
 import PowerScore from "@/pages/powerscore";
 import PowerScoreTransactions from "@/pages/powerscore-transactions";
 import PowerFlow from "@/pages/powerflow";
+import VisionBoard from "@/pages/vision-board";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -158,6 +159,9 @@ function Router() {
       </Route>
       <Route path="/powerflow">
         {() => <ProtectedRoute component={PowerFlow} />}
+      </Route>
+      <Route path="/vision-board">
+        {() => <ProtectedRoute component={VisionBoard} />}
       </Route>
       <Route path="/custom-view/:viewId">
         {() => <ProtectedRoute component={CustomViewPage} />}
