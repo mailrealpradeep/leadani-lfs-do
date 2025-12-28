@@ -19775,6 +19775,300 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // VISION BOARD (Personal Goal Tracking)
+  // ============================================================================
+
+  // Get current user's vision board
+  app.get("/api/vision-board", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const board = await storage.getVisionBoard(req.userId!);
+      if (!board) {
+        return res.json(null);
+      }
+      res.json(board);
+    } catch (error: any) {
+      console.error("Error fetching vision board:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create/update vision board
+  app.post("/api/vision-board", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const existingBoard = await storage.getVisionBoard(req.userId!);
+      
+      if (existingBoard) {
+        const updatedBoard = await storage.updateVisionBoard(existingBoard.id, {
+          goal_amount: req.body.goal_amount,
+          currency: req.body.currency || 'INR',
+          goal_description: req.body.goal_description,
+          target_date: new Date(req.body.target_date),
+          images: req.body.images || [],
+          effort_targets: req.body.effort_targets,
+          effort_overrides: req.body.effort_overrides,
+          sheet_id: req.body.sheet_id,
+        });
+        res.json(updatedBoard);
+      } else {
+        const newBoard = await storage.createVisionBoard({
+          user_id: req.userId!,
+          company_id: req.companyId,
+          goal_amount: req.body.goal_amount,
+          currency: req.body.currency || 'INR',
+          goal_description: req.body.goal_description,
+          target_date: new Date(req.body.target_date),
+          images: req.body.images || [],
+          effort_targets: req.body.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+          effort_overrides: req.body.effort_overrides,
+          sheet_id: req.body.sheet_id,
+          is_active: true,
+        });
+        res.json(newBoard);
+      }
+    } catch (error: any) {
+      console.error("Error saving vision board:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update vision board
+  app.patch("/api/vision-board/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const board = await storage.getVisionBoard(req.userId!);
+      if (!board || board.id !== id) {
+        return res.status(404).json({ error: "Vision board not found" });
+      }
+      const updatedBoard = await storage.updateVisionBoard(id, req.body);
+      res.json(updatedBoard);
+    } catch (error: any) {
+      console.error("Error updating vision board:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete vision board
+  app.delete("/api/vision-board/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const board = await storage.getVisionBoard(req.userId!);
+      if (!board || board.id !== id) {
+        return res.status(404).json({ error: "Vision board not found" });
+      }
+      await storage.deleteVisionBoard(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting vision board:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get vision board earnings
+  app.get("/api/vision-board/:visionBoardId/earnings", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { visionBoardId } = req.params;
+      const board = await storage.getVisionBoard(req.userId!);
+      if (!board || board.id !== visionBoardId) {
+        return res.status(404).json({ error: "Vision board not found" });
+      }
+      const earnings = await storage.getVisionBoardEarnings(visionBoardId);
+      res.json(earnings);
+    } catch (error: any) {
+      console.error("Error fetching earnings:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Add earning to vision board
+  app.post("/api/vision-board/:visionBoardId/earnings", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { visionBoardId } = req.params;
+      const board = await storage.getVisionBoard(req.userId!);
+      if (!board || board.id !== visionBoardId) {
+        return res.status(404).json({ error: "Vision board not found" });
+      }
+      const earning = await storage.createVisionBoardEarning({
+        vision_board_id: visionBoardId,
+        user_id: req.userId!,
+        amount: req.body.amount,
+        source_type: req.body.source_type,
+        source_lead_id: req.body.source_lead_id,
+        description: req.body.description,
+        earned_at: req.body.earned_at ? new Date(req.body.earned_at) : new Date(),
+      });
+      res.json(earning);
+    } catch (error: any) {
+      console.error("Error adding earning:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update earning
+  app.patch("/api/vision-board/earnings/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updatedEarning = await storage.updateVisionBoardEarning(id, req.body);
+      if (!updatedEarning) {
+        return res.status(404).json({ error: "Earning not found" });
+      }
+      res.json(updatedEarning);
+    } catch (error: any) {
+      console.error("Error updating earning:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete earning
+  app.delete("/api/vision-board/earnings/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteVisionBoardEarning(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting earning:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get vision board progress with auto-calculated effort metrics
+  app.get("/api/vision-board/:visionBoardId/progress", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { visionBoardId } = req.params;
+      const board = await storage.getVisionBoard(req.userId!);
+      if (!board || board.id !== visionBoardId) {
+        return res.status(404).json({ error: "Vision board not found" });
+      }
+
+      const earnings = await storage.getVisionBoardEarnings(visionBoardId);
+      const totalEarned = earnings.reduce((sum, e) => sum + e.amount, 0);
+      const progressPercent = board.goal_amount > 0 ? (totalEarned / board.goal_amount) * 100 : 0;
+
+      const now = new Date();
+      const targetDate = new Date(board.target_date);
+      const createdAt = new Date(board.created_at);
+      const totalDays = Math.ceil((targetDate.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const daysElapsed = Math.ceil((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      const daysRemaining = Math.max(0, Math.ceil((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+
+      // Calculate period breakdowns for efforts (auto-calculated from yearly targets)
+      const yearlyTargets = board.effort_targets;
+      const overrides = board.effort_overrides || {};
+      
+      const calculatePeriodTargets = (yearly: number, period: 'monthly' | 'weekly' | 'daily') => {
+        const override = overrides[period];
+        if (override) return override;
+        
+        if (period === 'monthly') return Math.ceil(yearly / 12);
+        if (period === 'weekly') return Math.ceil(yearly / 52);
+        if (period === 'daily') return Math.ceil(yearly / 365);
+        return yearly;
+      };
+
+      const periodBreakdowns = {
+        yearly: yearlyTargets,
+        monthly: {
+          sales: calculatePeriodTargets(yearlyTargets.sales, 'monthly'),
+          visits: calculatePeriodTargets(yearlyTargets.visits, 'monthly'),
+          leads_attended: calculatePeriodTargets(yearlyTargets.leads_attended, 'monthly'),
+          followups: calculatePeriodTargets(yearlyTargets.followups, 'monthly'),
+        },
+        weekly: {
+          sales: calculatePeriodTargets(yearlyTargets.sales, 'weekly'),
+          visits: calculatePeriodTargets(yearlyTargets.visits, 'weekly'),
+          leads_attended: calculatePeriodTargets(yearlyTargets.leads_attended, 'weekly'),
+          followups: calculatePeriodTargets(yearlyTargets.followups, 'weekly'),
+        },
+        daily: {
+          sales: calculatePeriodTargets(yearlyTargets.sales, 'daily'),
+          visits: calculatePeriodTargets(yearlyTargets.visits, 'daily'),
+          leads_attended: calculatePeriodTargets(yearlyTargets.leads_attended, 'daily'),
+          followups: calculatePeriodTargets(yearlyTargets.followups, 'daily'),
+        },
+      };
+
+      res.json({
+        board,
+        earnings: {
+          total: totalEarned,
+          progress_percent: Math.min(100, progressPercent),
+          goal: board.goal_amount,
+          remaining: Math.max(0, board.goal_amount - totalEarned),
+        },
+        timeline: {
+          total_days: totalDays,
+          days_elapsed: daysElapsed,
+          days_remaining: daysRemaining,
+          time_progress_percent: totalDays > 0 ? Math.min(100, (daysElapsed / totalDays) * 100) : 0,
+        },
+        effort_targets: periodBreakdowns,
+      });
+    } catch (error: any) {
+      console.error("Error calculating progress:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Admin: Get company-wide vision board stats
+  app.get("/api/vision-board/admin/company-stats", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const boards = await storage.getVisionBoardsByCompany(req.companyId);
+      const users = await storage.getUsersByCompanyId(req.companyId);
+      
+      let totalGoal = 0;
+      let totalEarned = 0;
+      const executiveStats: Array<{
+        user_id: string;
+        user_name: string;
+        goal_amount: number;
+        earned_amount: number;
+        progress_percent: number;
+      }> = [];
+
+      for (const board of boards) {
+        const earnings = await storage.getVisionBoardEarnings(board.id);
+        const userEarned = earnings.reduce((sum, e) => sum + e.amount, 0);
+        const user = users.find(u => u.id === board.user_id);
+        
+        totalGoal += board.goal_amount;
+        totalEarned += userEarned;
+
+        executiveStats.push({
+          user_id: board.user_id,
+          user_name: user?.name || 'Unknown User',
+          goal_amount: board.goal_amount,
+          earned_amount: userEarned,
+          progress_percent: board.goal_amount > 0 ? (userEarned / board.goal_amount) * 100 : 0,
+        });
+      }
+
+      executiveStats.sort((a, b) => b.progress_percent - a.progress_percent);
+
+      res.json({
+        company_total: {
+          total_goal: totalGoal,
+          total_earned: totalEarned,
+          progress_percent: totalGoal > 0 ? (totalEarned / totalGoal) * 100 : 0,
+          active_boards: boards.length,
+          total_users: users.filter(u => u.role === 'user').length,
+        },
+        executive_contributions: executiveStats,
+        leaderboard: executiveStats.slice(0, 10),
+      });
+    } catch (error: any) {
+      console.error("Error fetching company stats:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup
