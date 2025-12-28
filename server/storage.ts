@@ -9492,6 +9492,7 @@ export class PgStorage implements IStorage {
       goal_amount: Number(record.goal_amount),
       currency: record.currency,
       goal_description: record.goal_description,
+      start_date: record.start_date ? (record.start_date instanceof Date ? record.start_date : new Date(record.start_date)) : null,
       target_date: record.target_date instanceof Date ? record.target_date : new Date(record.target_date),
       images: (record.images as VisionBoardImage[]) || [],
       effort_targets: (record.effort_targets as VisionBoardEffortTargets) || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
@@ -9550,6 +9551,7 @@ export class PgStorage implements IStorage {
       goal_amount: board.goal_amount,
       currency: board.currency || 'INR',
       goal_description: board.goal_description,
+      start_date: board.start_date ? (board.start_date instanceof Date ? board.start_date : new Date(board.start_date)) : now,
       target_date: board.target_date instanceof Date ? board.target_date : new Date(board.target_date),
       images: board.images || [],
       effort_targets: board.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
@@ -9567,6 +9569,9 @@ export class PgStorage implements IStorage {
     const convertedUpdates: any = { ...updates, updated_at: new Date() };
     delete convertedUpdates.id;
     delete convertedUpdates.created_at;
+    if (updates.start_date && typeof updates.start_date === 'string') {
+      convertedUpdates.start_date = new Date(updates.start_date);
+    }
     if (updates.target_date && typeof updates.target_date === 'string') {
       convertedUpdates.target_date = new Date(updates.target_date);
     }

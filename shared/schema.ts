@@ -4140,6 +4140,7 @@ export const vision_boards = pgTable('vision_boards', {
   goal_amount: doublePrecision('goal_amount').notNull(), // Target money goal
   currency: varchar('currency', { length: 10 }).notNull().default('INR'), // Currency code (INR, USD, etc.)
   goal_description: text('goal_description').notNull(), // What they'll do with the money
+  start_date: timestamp('start_date'), // Goal start date (optional, defaults to created_at)
   target_date: timestamp('target_date').notNull(), // Goal end date
   images: json('images').$type<VisionBoardImage[]>().notNull().default([]), // Dream images gallery
   effort_targets: json('effort_targets').$type<VisionBoardEffortTargets>().notNull().default({
