@@ -56,6 +56,7 @@ The system features a customizable grid interface with dynamic column management
 *   **Quality Check Settings**: AI-powered remark validation for lead updates using Sarvam AI, with configurable acceptance levels, multi-language support, and a fail-open strategy.
 *   **Insta Support**: AI-powered support assistant answering questions about application features using Sarvam AI, featuring a question classifier, entity extraction, role-based access control, PII redaction, and multi-language support.
 *   **Final Value Settings**: Company-wide rules to prevent status reversals of critical values, with backend enforcement, frontend protection, and admin override capabilities.
+*   **Vision Board**: Personal goal tracking system for executives with money-based goals, dream images carousel, animated circular progress ring, earnings tracking (closings + incentives), and effort metrics breakdown (Sales, Visits, New Leads, Follow-ups) auto-calculated across yearly/monthly/weekly/daily periods. Supports multiple currencies (INR, USD, EUR, GBP, AED) and includes a 4-step setup wizard with Apple-level stunning UI featuring glass-morphism cards and motivational messages.
 
 ### Security
 
