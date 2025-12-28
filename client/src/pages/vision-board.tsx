@@ -20,6 +20,9 @@ import {
   MessageSquare,
   MapPin,
   RefreshCw,
+  X,
+  Image as ImageIcon,
+  Phone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -1012,7 +1015,7 @@ function UpdateIncentivesDialog({
   );
 }
 
-function EditGoalDialog({ 
+function EditVisionWizard({ 
   visionBoard, 
   onSuccess 
 }: { 
@@ -1021,27 +1024,35 @@ function EditGoalDialog({
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [goalAmount, setGoalAmount] = useState(visionBoard.goal_amount.toString());
-  const [currency, setCurrency] = useState(visionBoard.currency || "INR");
-  const [goalDescription, setGoalDescription] = useState(visionBoard.goal_description || "");
-  const [startDate, setStartDate] = useState(
-    visionBoard.start_date 
+  const [step, setStep] = useState(1);
+  const [formData, setFormData] = useState({
+    goal_amount: visionBoard.goal_amount.toString(),
+    currency: visionBoard.currency || "INR",
+    goal_description: visionBoard.goal_description || "",
+    start_date: visionBoard.start_date 
       ? format(new Date(visionBoard.start_date), "yyyy-MM-dd") 
-      : format(new Date(visionBoard.created_at), "yyyy-MM-dd")
-  );
-  const [targetDate, setTargetDate] = useState(format(new Date(visionBoard.target_date), "yyyy-MM-dd"));
+      : format(new Date(visionBoard.created_at), "yyyy-MM-dd"),
+    target_date: format(new Date(visionBoard.target_date), "yyyy-MM-dd"),
+    images: (visionBoard.images || []) as { url: string; caption?: string }[],
+    effort_targets: visionBoard.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+  });
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageCaption, setImageCaption] = useState("");
 
   useEffect(() => {
     if (open) {
-      setGoalAmount(visionBoard.goal_amount.toString());
-      setCurrency(visionBoard.currency || "INR");
-      setGoalDescription(visionBoard.goal_description || "");
-      setStartDate(
-        visionBoard.start_date 
+      setStep(1);
+      setFormData({
+        goal_amount: visionBoard.goal_amount.toString(),
+        currency: visionBoard.currency || "INR",
+        goal_description: visionBoard.goal_description || "",
+        start_date: visionBoard.start_date 
           ? format(new Date(visionBoard.start_date), "yyyy-MM-dd") 
-          : format(new Date(visionBoard.created_at), "yyyy-MM-dd")
-      );
-      setTargetDate(format(new Date(visionBoard.target_date), "yyyy-MM-dd"));
+          : format(new Date(visionBoard.created_at), "yyyy-MM-dd"),
+        target_date: format(new Date(visionBoard.target_date), "yyyy-MM-dd"),
+        images: (visionBoard.images || []) as { url: string; caption?: string }[],
+        effort_targets: visionBoard.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      });
     }
   }, [open, visionBoard]);
 
@@ -1053,7 +1064,7 @@ function EditGoalDialog({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] });
       queryClient.invalidateQueries({ queryKey: ["/api/vision-board", visionBoard.id, "progress"] });
-      toast({ title: "Goal Updated!", description: "Your vision board has been updated." });
+      toast({ title: "Vision Board Updated!", description: "Your changes have been saved." });
       setOpen(false);
       onSuccess();
     },
@@ -1062,28 +1073,55 @@ function EditGoalDialog({
     },
   });
 
-  const handleSave = () => {
-    if (!goalAmount || Number(goalAmount) <= 0) {
+  const addImage = () => {
+    if (imageUrl.trim()) {
+      setFormData(prev => ({
+        ...prev,
+        images: [...prev.images, { url: imageUrl.trim(), caption: imageCaption.trim() || undefined }],
+      }));
+      setImageUrl("");
+      setImageCaption("");
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleSubmit = () => {
+    if (!formData.goal_amount || Number(formData.goal_amount) <= 0) {
       toast({ title: "Error", description: "Please enter a valid goal amount", variant: "destructive" });
       return;
     }
-    if (!startDate || !targetDate) {
+    if (!formData.start_date || !formData.target_date) {
       toast({ title: "Error", description: "Please select start and end dates", variant: "destructive" });
       return;
     }
-    if (new Date(startDate) >= new Date(targetDate)) {
+    if (new Date(formData.start_date) >= new Date(formData.target_date)) {
       toast({ title: "Error", description: "End date must be after start date", variant: "destructive" });
       return;
     }
     
     updateMutation.mutate({
-      goal_amount: Number(goalAmount),
-      currency,
-      goal_description: goalDescription,
-      start_date: new Date(startDate).toISOString(),
-      target_date: new Date(targetDate).toISOString(),
+      goal_amount: Number(formData.goal_amount),
+      currency: formData.currency,
+      goal_description: formData.goal_description,
+      start_date: new Date(formData.start_date).toISOString(),
+      target_date: new Date(formData.target_date).toISOString(),
+      images: formData.images,
+      effort_targets: formData.effort_targets,
     });
   };
+
+  const yearlyToMonthly = (yearly: number) => Math.ceil(yearly / 12);
+  const yearlyToWeekly = (yearly: number) => Math.ceil(yearly / 52);
+  const yearlyToDaily = (yearly: number) => Math.ceil(yearly / 365);
+
+  const isStep1Valid = formData.goal_amount && formData.start_date && formData.target_date && 
+    new Date(formData.start_date) < new Date(formData.target_date);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -1092,95 +1130,339 @@ function EditGoalDialog({
           variant="ghost"
           size="icon"
           className="text-muted-foreground hover:text-foreground"
-          data-testid="button-edit-goal"
+          data-testid="button-edit-vision"
         >
           <Edit2 className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit Goal</DialogTitle>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="text-center pb-2">
+          <div className="mx-auto mb-2 p-3 rounded-full bg-gradient-to-br from-purple-500 to-pink-500">
+            <Edit2 className="h-6 w-6 text-white" />
+          </div>
+          <DialogTitle className="text-xl">Edit Vision Board</DialogTitle>
           <DialogDescription>
-            Update your goal amount, timeline, and description
+            Step {step} of 4 - {step === 1 ? "Goal Settings" : step === 2 ? "Dream Images" : step === 3 ? "Effort Targets" : "Review & Save"}
           </DialogDescription>
         </DialogHeader>
         
-        <div className="space-y-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit_goal_amount">Goal Amount</Label>
-              <Input
-                id="edit_goal_amount"
-                type="number"
-                value={goalAmount}
-                onChange={e => setGoalAmount(e.target.value)}
-                placeholder="Enter amount..."
-                data-testid="input-edit-goal-amount"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Currency</Label>
-              <Select value={currency} onValueChange={setCurrency}>
-                <SelectTrigger data-testid="select-edit-currency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="INR">₹ INR</SelectItem>
-                  <SelectItem value="USD">$ USD</SelectItem>
-                  <SelectItem value="EUR">€ EUR</SelectItem>
-                  <SelectItem value="GBP">£ GBP</SelectItem>
-                  <SelectItem value="AED">د.إ AED</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit_start_date">Start Date</Label>
-              <Input
-                id="edit_start_date"
-                type="date"
-                value={startDate}
-                onChange={e => setStartDate(e.target.value)}
-                data-testid="input-edit-start-date"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit_end_date">End Date</Label>
-              <Input
-                id="edit_end_date"
-                type="date"
-                value={targetDate}
-                onChange={e => setTargetDate(e.target.value)}
-                data-testid="input-edit-end-date"
-              />
-            </div>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="edit_goal_description">Goal Description</Label>
-            <Textarea
-              id="edit_goal_description"
-              value={goalDescription}
-              onChange={e => setGoalDescription(e.target.value)}
-              placeholder="What will you do with this money?"
-              rows={3}
-              data-testid="input-edit-goal-description"
-            />
-          </div>
+        <div className="py-4">
+          <AnimatePresence mode="wait">
+            {step === 1 && (
+              <motion.div
+                key="edit-step1"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-4"
+              >
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-2 space-y-2">
+                    <Label htmlFor="edit_goal_amount">Goal Amount</Label>
+                    <Input
+                      id="edit_goal_amount"
+                      type="number"
+                      placeholder="e.g., 1000000"
+                      value={formData.goal_amount}
+                      onChange={e => setFormData(prev => ({ ...prev, goal_amount: e.target.value }))}
+                      data-testid="input-edit-goal-amount"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Currency</Label>
+                    <Select
+                      value={formData.currency}
+                      onValueChange={value => setFormData(prev => ({ ...prev, currency: value }))}
+                    >
+                      <SelectTrigger data-testid="select-edit-currency">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="INR">₹ INR</SelectItem>
+                        <SelectItem value="USD">$ USD</SelectItem>
+                        <SelectItem value="EUR">€ EUR</SelectItem>
+                        <SelectItem value="GBP">£ GBP</SelectItem>
+                        <SelectItem value="AED">د.إ AED</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_start_date">Start Date</Label>
+                    <Input
+                      id="edit_start_date"
+                      type="date"
+                      value={formData.start_date}
+                      onChange={e => setFormData(prev => ({ ...prev, start_date: e.target.value }))}
+                      data-testid="input-edit-start-date"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_target_date">End Date</Label>
+                    <Input
+                      id="edit_target_date"
+                      type="date"
+                      value={formData.target_date}
+                      onChange={e => setFormData(prev => ({ ...prev, target_date: e.target.value }))}
+                      data-testid="input-edit-target-date"
+                    />
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="edit_goal_description">Goal Description</Label>
+                  <Textarea
+                    id="edit_goal_description"
+                    placeholder="Describe your dream - buying a house, car, vacation, etc."
+                    value={formData.goal_description}
+                    onChange={e => setFormData(prev => ({ ...prev, goal_description: e.target.value }))}
+                    rows={3}
+                    data-testid="input-edit-goal-description"
+                  />
+                </div>
+              </motion.div>
+            )}
+
+            {step === 2 && (
+              <motion.div
+                key="edit-step2"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-4"
+              >
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit_image_url">Image URL</Label>
+                      <Input
+                        id="edit_image_url"
+                        type="url"
+                        placeholder="https://example.com/dream-image.jpg"
+                        value={imageUrl}
+                        onChange={e => setImageUrl(e.target.value)}
+                        data-testid="input-edit-image-url"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit_image_caption">Caption (optional)</Label>
+                      <Input
+                        id="edit_image_caption"
+                        placeholder="My dream home..."
+                        value={imageCaption}
+                        onChange={e => setImageCaption(e.target.value)}
+                        data-testid="input-edit-image-caption"
+                      />
+                    </div>
+                    <Button onClick={addImage} disabled={!imageUrl.trim()} variant="outline" data-testid="button-edit-add-image">
+                      <Plus className="h-4 w-4 mr-2" /> Add Image
+                    </Button>
+                  </div>
+                  
+                  {formData.images.length > 0 && (
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                      {formData.images.map((img, idx) => (
+                        <div key={idx} className="relative group rounded-lg overflow-hidden border">
+                          <img src={img.url} alt={img.caption || "Dream"} className="w-full h-24 object-cover" />
+                          <Button
+                            size="icon"
+                            variant="destructive"
+                            className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeImage(idx)}
+                            data-testid={`button-edit-remove-image-${idx}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                          {img.caption && (
+                            <p className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 truncate">
+                              {img.caption}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {formData.images.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
+                      <ImageIcon className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                      <p>Add images of your dreams to stay motivated</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {step === 3 && (
+              <motion.div
+                key="edit-step3"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-4"
+              >
+                <p className="text-sm text-muted-foreground text-center mb-4">
+                  Set your yearly effort targets. These will be auto-calculated for daily, weekly, and monthly views.
+                </p>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_effort_sales" className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-green-500" /> Sales (Yearly)
+                    </Label>
+                    <Input
+                      id="edit_effort_sales"
+                      type="number"
+                      min="0"
+                      value={formData.effort_targets.sales}
+                      onChange={e => setFormData(prev => ({
+                        ...prev,
+                        effort_targets: { ...prev.effort_targets, sales: Number(e.target.value) || 0 }
+                      }))}
+                      data-testid="input-edit-effort-sales"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      = {yearlyToMonthly(formData.effort_targets.sales)}/mo, {yearlyToWeekly(formData.effort_targets.sales)}/wk, {yearlyToDaily(formData.effort_targets.sales)}/day
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_effort_visits" className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-blue-500" /> Visits (Yearly)
+                    </Label>
+                    <Input
+                      id="edit_effort_visits"
+                      type="number"
+                      min="0"
+                      value={formData.effort_targets.visits}
+                      onChange={e => setFormData(prev => ({
+                        ...prev,
+                        effort_targets: { ...prev.effort_targets, visits: Number(e.target.value) || 0 }
+                      }))}
+                      data-testid="input-edit-effort-visits"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      = {yearlyToMonthly(formData.effort_targets.visits)}/mo, {yearlyToWeekly(formData.effort_targets.visits)}/wk, {yearlyToDaily(formData.effort_targets.visits)}/day
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_effort_leads" className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-purple-500" /> New Leads (Yearly)
+                    </Label>
+                    <Input
+                      id="edit_effort_leads"
+                      type="number"
+                      min="0"
+                      value={formData.effort_targets.leads_attended}
+                      onChange={e => setFormData(prev => ({
+                        ...prev,
+                        effort_targets: { ...prev.effort_targets, leads_attended: Number(e.target.value) || 0 }
+                      }))}
+                      data-testid="input-edit-effort-leads"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      = {yearlyToMonthly(formData.effort_targets.leads_attended)}/mo, {yearlyToWeekly(formData.effort_targets.leads_attended)}/wk, {yearlyToDaily(formData.effort_targets.leads_attended)}/day
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_effort_followups" className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-orange-500" /> Follow-ups (Yearly)
+                    </Label>
+                    <Input
+                      id="edit_effort_followups"
+                      type="number"
+                      min="0"
+                      value={formData.effort_targets.followups}
+                      onChange={e => setFormData(prev => ({
+                        ...prev,
+                        effort_targets: { ...prev.effort_targets, followups: Number(e.target.value) || 0 }
+                      }))}
+                      data-testid="input-edit-effort-followups"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      = {yearlyToMonthly(formData.effort_targets.followups)}/mo, {yearlyToWeekly(formData.effort_targets.followups)}/wk, {yearlyToDaily(formData.effort_targets.followups)}/day
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {step === 4 && (
+              <motion.div
+                key="edit-step4"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-4"
+              >
+                <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Goal Amount</span>
+                    <span className="font-bold text-lg">
+                      {currencySymbols[formData.currency] || formData.currency}{Number(formData.goal_amount).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Timeline</span>
+                    <span className="text-sm">
+                      {format(new Date(formData.start_date), "MMM d, yyyy")} - {format(new Date(formData.target_date), "MMM d, yyyy")}
+                    </span>
+                  </div>
+                  {formData.goal_description && (
+                    <div className="pt-2 border-t">
+                      <span className="text-sm text-muted-foreground">Description</span>
+                      <p className="mt-1">{formData.goal_description}</p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="bg-muted/50 rounded-lg p-3">
+                    <p className="text-muted-foreground mb-1">Dream Images</p>
+                    <p className="font-medium">{formData.images.length} image(s)</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-3">
+                    <p className="text-muted-foreground mb-1">Yearly Targets</p>
+                    <p className="font-medium text-xs">
+                      {formData.effort_targets.sales} sales, {formData.effort_targets.visits} visits
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+        <DialogFooter className="flex justify-between gap-2">
           <Button
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-            className="bg-gradient-to-r from-purple-600 to-pink-600"
-            data-testid="button-save-goal"
+            variant="outline"
+            onClick={() => step === 1 ? setOpen(false) : setStep(prev => prev - 1)}
+            data-testid="button-edit-wizard-back"
           >
-            {updateMutation.isPending ? "Saving..." : "Save Changes"}
+            {step === 1 ? "Cancel" : "Back"}
           </Button>
+          {step < 4 ? (
+            <Button
+              onClick={() => setStep(prev => prev + 1)}
+              disabled={step === 1 && !isStep1Valid}
+              data-testid="button-edit-wizard-next"
+            >
+              Next
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSubmit}
+              disabled={updateMutation.isPending}
+              className="bg-gradient-to-r from-purple-600 to-pink-600"
+              data-testid="button-edit-wizard-save"
+            >
+              {updateMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1303,7 +1585,7 @@ export default function VisionBoardPage() {
               <CardContent className="p-6">
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-sm font-medium text-muted-foreground">Goal Progress</span>
-                  <EditGoalDialog 
+                  <EditVisionWizard 
                     visionBoard={visionBoard} 
                     onSuccess={() => {
                       queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] });

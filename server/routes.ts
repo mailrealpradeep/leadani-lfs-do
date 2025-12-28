@@ -19835,8 +19835,24 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
-  // Update vision board
+  // Update vision board (PATCH)
   app.patch("/api/vision-board/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const board = await storage.getVisionBoard(req.userId!);
+      if (!board || board.id !== id) {
+        return res.status(404).json({ error: "Vision board not found" });
+      }
+      const updatedBoard = await storage.updateVisionBoard(id, req.body);
+      res.json(updatedBoard);
+    } catch (error: any) {
+      console.error("Error updating vision board:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update vision board (PUT - alias for PATCH)
+  app.put("/api/vision-board/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const board = await storage.getVisionBoard(req.userId!);
