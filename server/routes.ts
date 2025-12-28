@@ -19934,6 +19934,68 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get user's closed sales (converted leads) for incentive tracking
+  app.get("/api/vision-board/closed-sales", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const companyId = getAuthCompanyId(req);
+      if (!companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const user = await storage.getUser(req.userId!);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Get user's sheet access
+      const sheetUsers = await storage.getUserSheetAccess(req.userId!);
+      const accessibleSheetIds = sheetUsers.map(su => su.sheet_id);
+      
+      if (accessibleSheetIds.length === 0) {
+        return res.json([]);
+      }
+      
+      // Fetch leads owned by user with "Converted" status
+      const allLeads: any[] = [];
+      for (const sheetId of accessibleSheetIds) {
+        const leads = await storage.getLeadsBySheetId(sheetId);
+        // Filter for user's leads with converted status
+        const userConvertedLeads = leads.filter((lead: any) => {
+          const isOwner = lead.owner_user_id === req.userId;
+          const status = lead.custom_fields?.lead_status || '';
+          const isConverted = status.toLowerCase() === 'converted' || 
+                             status.toLowerCase() === 'closed' ||
+                             status.toLowerCase() === 'won';
+          return isOwner && isConverted;
+        });
+        allLeads.push(...userConvertedLeads);
+      }
+      
+      // Get vision board to check which leads already have earnings recorded
+      const board = await storage.getVisionBoard(req.userId!);
+      let existingLeadEarnings: Set<string> = new Set();
+      if (board) {
+        const earnings = await storage.getVisionBoardEarnings(board.id);
+        existingLeadEarnings = new Set(earnings.filter(e => e.source_lead_id).map(e => e.source_lead_id!));
+      }
+      
+      // Return leads with their earning status
+      const closedSales = allLeads.map(lead => ({
+        id: lead.id,
+        name: lead.custom_fields?.name || lead.custom_fields?.client_name || lead.custom_fields?.lead_name || 'Unknown',
+        mobile_no: lead.custom_fields?.mobile_no || '',
+        status: lead.custom_fields?.lead_status || '',
+        converted_at: lead.updated_at,
+        has_earning: existingLeadEarnings.has(lead.id),
+      }));
+      
+      res.json(closedSales);
+    } catch (error: any) {
+      console.error("Error fetching closed sales:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get vision board progress with auto-calculated effort metrics
   app.get("/api/vision-board/:visionBoardId/progress", authMiddleware, async (req: AuthRequest, res) => {
     try {

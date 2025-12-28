@@ -715,7 +715,16 @@ function SetupWizard({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-function AddEarningDialog({ 
+interface ClosedSale {
+  id: string;
+  name: string;
+  mobile_no: string;
+  status: string;
+  converted_at: string;
+  has_earning: boolean;
+}
+
+function UpdateIncentivesDialog({ 
   visionBoardId, 
   onSuccess 
 }: { 
@@ -724,9 +733,15 @@ function AddEarningDialog({
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"sales" | "additional">("sales");
+  const [selectedLead, setSelectedLead] = useState<ClosedSale | null>(null);
   const [amount, setAmount] = useState("");
-  const [sourceType, setSourceType] = useState<"closing" | "incentive">("closing");
   const [description, setDescription] = useState("");
+
+  const { data: closedSales, isLoading: loadingSales, refetch: refetchSales } = useQuery<ClosedSale[]>({
+    queryKey: ["/api/vision-board/closed-sales"],
+    enabled: open,
+  });
 
   const addMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -736,10 +751,12 @@ function AddEarningDialog({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vision-board", visionBoardId, "progress"] });
       queryClient.invalidateQueries({ queryKey: ["/api/vision-board", visionBoardId, "earnings"] });
-      toast({ title: "Earning Added!", description: "Your progress has been updated!" });
-      setOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/vision-board/closed-sales"] });
+      toast({ title: "Incentive Added!", description: "Your earnings have been updated!" });
       setAmount("");
       setDescription("");
+      setSelectedLead(null);
+      refetchSales();
       onSuccess();
     },
     onError: (error: any) => {
@@ -747,77 +764,216 @@ function AddEarningDialog({
     },
   });
 
+  const handleAddSaleValue = (lead: ClosedSale) => {
+    if (!amount) {
+      toast({ title: "Error", description: "Please enter an amount", variant: "destructive" });
+      return;
+    }
+    addMutation.mutate({
+      amount: Number(amount),
+      source_type: "closing",
+      source_lead_id: lead.id,
+      description: description || `Sale: ${lead.name}`,
+    });
+  };
+
+  const handleAddIncentive = () => {
+    if (!amount) {
+      toast({ title: "Error", description: "Please enter an amount", variant: "destructive" });
+      return;
+    }
+    addMutation.mutate({
+      amount: Number(amount),
+      source_type: "incentive",
+      description: description || "Additional Incentive",
+    });
+    setAmount("");
+    setDescription("");
+  };
+
+  const salesWithoutEarnings = closedSales?.filter(s => !s.has_earning) || [];
+  const salesWithEarnings = closedSales?.filter(s => s.has_earning) || [];
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
-          className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
-          data-testid="button-add-earning"
+          className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+          data-testid="button-update-incentives"
         >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Earning
+          <TrendingUp className="h-4 w-4 mr-2" />
+          Update Incentives
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>Add New Earning</DialogTitle>
+          <DialogTitle>Update Incentives</DialogTitle>
           <DialogDescription>
-            Record a closing or incentive to track your progress
+            Add values to your closed sales or record additional incentives
           </DialogDescription>
         </DialogHeader>
         
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label>Type</Label>
-            <Select value={sourceType} onValueChange={(v: "closing" | "incentive") => setSourceType(v)}>
-              <SelectTrigger data-testid="select-earning-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="closing">Closing (Sale)</SelectItem>
-                <SelectItem value="incentive">Incentive / Bonus</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="earning_amount">Amount</Label>
-            <Input
-              id="earning_amount"
-              type="number"
-              placeholder="Enter amount..."
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              data-testid="input-earning-amount"
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="earning_description">Description (optional)</Label>
-            <Input
-              id="earning_description"
-              placeholder="e.g., Deal with Mr. Sharma"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              data-testid="input-earning-description"
-            />
-          </div>
+        <div className="flex gap-2 border-b pb-2">
+          <button
+            onClick={() => setActiveTab("sales")}
+            className={cn(
+              "px-4 py-2 text-sm rounded-lg transition-all",
+              activeTab === "sales" 
+                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium" 
+                : "text-muted-foreground hover:bg-muted"
+            )}
+            data-testid="tab-closed-sales"
+          >
+            Closed Sales ({salesWithoutEarnings.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("additional")}
+            className={cn(
+              "px-4 py-2 text-sm rounded-lg transition-all",
+              activeTab === "additional" 
+                ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 font-medium" 
+                : "text-muted-foreground hover:bg-muted"
+            )}
+            data-testid="tab-additional-incentive"
+          >
+            Additional Incentive
+          </button>
         </div>
         
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button
-            onClick={() => addMutation.mutate({
-              amount: Number(amount),
-              source_type: sourceType,
-              description: description || undefined,
-            })}
-            disabled={!amount || addMutation.isPending}
-            data-testid="button-submit-earning"
-          >
-            {addMutation.isPending ? "Adding..." : "Add Earning"}
-          </Button>
-        </DialogFooter>
+        <div className="flex-1 overflow-y-auto py-4">
+          {activeTab === "sales" ? (
+            <div className="space-y-3">
+              {loadingSales ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : salesWithoutEarnings.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500" />
+                  <p className="font-medium">All caught up!</p>
+                  <p className="text-sm">No pending sales to add values to.</p>
+                  {salesWithEarnings.length > 0 && (
+                    <p className="text-xs mt-2 text-green-600">{salesWithEarnings.length} sale(s) already recorded</p>
+                  )}
+                </div>
+              ) : (
+                salesWithoutEarnings.map((sale) => (
+                  <motion.div
+                    key={sale.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-4 rounded-lg border bg-card"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="font-medium">{sale.name}</p>
+                        <p className="text-xs text-muted-foreground">{sale.mobile_no}</p>
+                      </div>
+                      <span className="text-xs px-2 py-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                        {sale.status}
+                      </span>
+                    </div>
+                    
+                    {selectedLead?.id === sale.id ? (
+                      <div className="space-y-3">
+                        <div className="flex gap-2">
+                          <Input
+                            type="number"
+                            placeholder="Enter amount..."
+                            value={amount}
+                            onChange={e => setAmount(e.target.value)}
+                            className="flex-1"
+                            data-testid={`input-sale-amount-${sale.id}`}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={() => handleAddSaleValue(sale)}
+                            disabled={!amount || addMutation.isPending}
+                            data-testid={`button-save-sale-${sale.id}`}
+                          >
+                            {addMutation.isPending ? "..." : "Save"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setSelectedLead(null);
+                              setAmount("");
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        <Input
+                          placeholder="Note (optional)"
+                          value={description}
+                          onChange={e => setDescription(e.target.value)}
+                          data-testid={`input-sale-note-${sale.id}`}
+                        />
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          setSelectedLead(sale);
+                          setAmount("");
+                          setDescription("");
+                        }}
+                        data-testid={`button-add-value-${sale.id}`}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Value
+                      </Button>
+                    )}
+                  </motion.div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Record bonuses, performance incentives, or any additional earnings not tied to a specific sale.
+              </p>
+              
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="incentive_amount">Amount</Label>
+                  <Input
+                    id="incentive_amount"
+                    type="number"
+                    placeholder="Enter amount..."
+                    value={amount}
+                    onChange={e => setAmount(e.target.value)}
+                    data-testid="input-incentive-amount"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="incentive_description">Description</Label>
+                  <Input
+                    id="incentive_description"
+                    placeholder="e.g., Performance bonus, Referral reward"
+                    value={description}
+                    onChange={e => setDescription(e.target.value)}
+                    data-testid="input-incentive-description"
+                  />
+                </div>
+                
+                <Button
+                  onClick={handleAddIncentive}
+                  disabled={!amount || addMutation.isPending}
+                  className="w-full"
+                  data-testid="button-add-incentive"
+                >
+                  {addMutation.isPending ? "Adding..." : "Add Incentive"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -887,7 +1043,7 @@ export default function VisionBoardPage() {
   const currentTargets = progress?.effort_targets?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950">
+    <div className="h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950">
       {images.length > 0 ? (
         <div className="relative h-[40vh] min-h-[300px]">
           <ImageCarousel images={images} />
@@ -971,8 +1127,8 @@ export default function VisionBoardPage() {
                     </div>
                   </div>
                   
-                  <div className="w-full mt-6 flex gap-2">
-                    <AddEarningDialog 
+                  <div className="w-full mt-6">
+                    <UpdateIncentivesDialog 
                       visionBoardId={visionBoard.id} 
                       onSuccess={() => refetchProgress()} 
                     />
@@ -1001,16 +1157,21 @@ export default function VisionBoardPage() {
               transition={{ delay: 0.6 }}
               className="mt-4"
             >
-              <Card className="border-0 shadow-lg">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      <span>Days Remaining</span>
-                    </div>
-                    <span className="font-bold text-lg">{progress?.timeline.days_remaining || 0}</span>
+              <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30">
+                <CardContent className="p-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-blue-500" />
+                    <span className="font-semibold">Goal Timeline</span>
                   </div>
-                  <div className="mt-3 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                  
+                  <div className="text-center py-3">
+                    <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                      {progress?.timeline.days_remaining || 0}
+                    </p>
+                    <p className="text-sm text-muted-foreground">days remaining</p>
+                  </div>
+                  
+                  <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{ width: `${progress?.timeline.time_progress_percent || 0}%` }}
@@ -1018,7 +1179,29 @@ export default function VisionBoardPage() {
                       className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2 text-center">
+                  
+                  <div className="grid grid-cols-3 gap-2 text-center pt-2">
+                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                      <p className="text-lg font-bold">
+                        {Math.ceil((progress?.timeline.days_remaining || 0) / 7)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">weeks</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                      <p className="text-lg font-bold">
+                        {Math.ceil((progress?.timeline.days_remaining || 0) / 30)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">months</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                      <p className="text-lg font-bold">
+                        {Math.round(progress?.timeline.time_progress_percent || 0)}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">elapsed</p>
+                    </div>
+                  </div>
+                  
+                  <p className="text-xs text-center text-muted-foreground border-t pt-3">
                     Target: {format(new Date(visionBoard.target_date), "MMMM d, yyyy")}
                   </p>
                 </CardContent>
