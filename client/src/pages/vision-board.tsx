@@ -740,6 +740,11 @@ function UpdateIncentivesDialog({
 
   const { data: closedSales, isLoading: loadingSales, refetch: refetchSales } = useQuery<ClosedSale[]>({
     queryKey: ["/api/vision-board/closed-sales"],
+    queryFn: async () => {
+      const response = await fetch("/api/vision-board/closed-sales", { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch closed sales");
+      return response.json();
+    },
     enabled: open,
   });
 

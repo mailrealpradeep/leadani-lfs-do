@@ -19962,10 +19962,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         // Filter for user's leads with converted status
         const userConvertedLeads = leads.filter((lead: any) => {
           const isOwner = lead.owner_user_id === req.userId;
-          const status = lead.custom_fields?.lead_status || '';
-          const isConverted = status.toLowerCase() === 'converted' || 
-                             status.toLowerCase() === 'closed' ||
-                             status.toLowerCase() === 'won';
+          // Check both canonical status field AND custom_fields.lead_status
+          const canonicalStatus = (lead.status || '').toLowerCase();
+          const customStatus = (lead.custom_fields?.lead_status || '').toLowerCase();
+          const convertedStatuses = ['converted', 'closed', 'won', 'booked', 'sold'];
+          const isConverted = convertedStatuses.includes(canonicalStatus) || 
+                             convertedStatuses.includes(customStatus);
           return isOwner && isConverted;
         });
         allLeads.push(...userConvertedLeads);
