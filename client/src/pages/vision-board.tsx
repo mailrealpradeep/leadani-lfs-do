@@ -1603,6 +1603,7 @@ export default function VisionBoardPage() {
     earned: teamTotals?.total_earnings || 0,
     remaining: Math.max(0, (teamTotals?.total_goal || 0) - (teamTotals?.total_earnings || 0)),
     effortTargets: teamAggregate.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    effortAchieved: teamProgress?.team_effort_achieved?.yearly || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(teamAggregate.target_date),
     startDate: new Date(teamAggregate.start_date),
   } : visionBoard ? {
@@ -1614,6 +1615,7 @@ export default function VisionBoardPage() {
     earned: progress?.earnings.total || 0,
     remaining: progress?.earnings.remaining || 0,
     effortTargets: progress?.effort_targets?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    effortAchieved: progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(visionBoard.target_date),
     startDate: visionBoard.start_date ? new Date(visionBoard.start_date) : new Date(visionBoard.created_at!),
   } : null;
@@ -1624,6 +1626,7 @@ export default function VisionBoardPage() {
   const currencySymbol = currencySymbols[currency] || currency;
   const images = displayData.images;
   const currentTargets = displayData.effortTargets;
+  const currentAchieved = displayData.effortAchieved;
   
   // Labels for team vs personal view
   const labels = isTeamView ? {
@@ -1883,7 +1886,7 @@ export default function VisionBoardPage() {
                     icon={CheckCircle2}
                     label="Sales"
                     target={currentTargets.sales}
-                    achieved={0}
+                    achieved={currentAchieved.sales}
                     gradient="from-green-400 to-emerald-500"
                     delay={0.1}
                   />
@@ -1891,7 +1894,7 @@ export default function VisionBoardPage() {
                     icon={MapPin}
                     label="Visits"
                     target={currentTargets.visits}
-                    achieved={0}
+                    achieved={currentAchieved.visits}
                     gradient="from-blue-400 to-cyan-500"
                     delay={0.2}
                   />
@@ -1899,7 +1902,7 @@ export default function VisionBoardPage() {
                     icon={Users}
                     label="New Leads"
                     target={currentTargets.leads_attended}
-                    achieved={0}
+                    achieved={currentAchieved.leads_attended}
                     gradient="from-purple-400 to-pink-500"
                     delay={0.3}
                   />
@@ -1907,7 +1910,7 @@ export default function VisionBoardPage() {
                     icon={MessageSquare}
                     label="Follow-ups"
                     target={currentTargets.followups}
-                    achieved={0}
+                    achieved={currentAchieved.followups}
                     gradient="from-orange-400 to-red-500"
                     delay={0.4}
                   />
