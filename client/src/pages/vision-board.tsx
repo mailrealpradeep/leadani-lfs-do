@@ -352,10 +352,23 @@ function SetupWizard({ onComplete }: { onComplete: () => void }) {
   };
 
   const handleSubmit = () => {
+    if (!formData.goal_amount || Number(formData.goal_amount) <= 0) {
+      toast({ title: "Error", description: "Please enter a valid goal amount", variant: "destructive" });
+      return;
+    }
+    if (!formData.start_date || !formData.target_date) {
+      toast({ title: "Error", description: "Please select start and end dates", variant: "destructive" });
+      return;
+    }
+    if (new Date(formData.start_date) >= new Date(formData.target_date)) {
+      toast({ title: "Error", description: "End date must be after start date", variant: "destructive" });
+      return;
+    }
+    
     createMutation.mutate({
       ...formData,
       goal_amount: Number(formData.goal_amount),
-      start_date: formData.start_date ? new Date(formData.start_date).toISOString() : new Date().toISOString(),
+      start_date: new Date(formData.start_date).toISOString(),
       target_date: new Date(formData.target_date).toISOString(),
     });
   };
@@ -697,7 +710,7 @@ function SetupWizard({ onComplete }: { onComplete: () => void }) {
               {step < 4 ? (
                 <Button
                   onClick={() => setStep(prev => prev + 1)}
-                  disabled={step === 1 && (!formData.goal_amount || !formData.target_date)}
+                  disabled={step === 1 && (!formData.goal_amount || !formData.target_date || !formData.start_date || new Date(formData.start_date) >= new Date(formData.target_date))}
                   data-testid="button-wizard-next"
                 >
                   Next
