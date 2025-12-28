@@ -19911,10 +19911,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     };
     
     const teamEffortAchieved = {
-      yearly: countTeamMetrics(teamLogs.filter(l => l.occurred_at >= yearStart)),
-      monthly: countTeamMetrics(teamLogs.filter(l => l.occurred_at >= monthStart)),
-      weekly: countTeamMetrics(teamLogs.filter(l => l.occurred_at >= weekStart)),
-      daily: countTeamMetrics(teamLogs.filter(l => l.occurred_at >= dayStart)),
+      yearly: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime())),
+      monthly: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime())),
+      weekly: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime())),
+      daily: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime())),
     };
 
     return {
@@ -20016,11 +20016,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       return { sales, visits, leads_attended, followups };
     };
     
-    // Filter logs by period
-    const yearlyLogs = logs.filter(l => l.occurred_at >= yearStart);
-    const monthlyLogs = logs.filter(l => l.occurred_at >= monthStart);
-    const weeklyLogs = logs.filter(l => l.occurred_at >= weekStart);
-    const dailyLogs = logs.filter(l => l.occurred_at >= dayStart);
+    // Filter logs by period (ensure Date comparisons work correctly)
+    const yearlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
+    const monthlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
+    const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
+    const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
     
     return {
       yearly: countMetrics(yearlyLogs),
