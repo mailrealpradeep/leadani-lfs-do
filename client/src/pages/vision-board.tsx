@@ -1603,7 +1603,7 @@ export default function VisionBoardPage() {
     earned: teamTotals?.total_earnings || 0,
     remaining: Math.max(0, (teamTotals?.total_goal || 0) - (teamTotals?.total_earnings || 0)),
     effortTargets: teamAggregate.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
-    effortAchieved: teamProgress?.team_effort_achieved?.yearly || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    effortAchieved: teamProgress?.team_effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(teamAggregate.target_date),
     startDate: new Date(teamAggregate.start_date),
   } : visionBoard ? {

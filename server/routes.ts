@@ -53,6 +53,9 @@ import {
 import { extractGoogleSheetId } from "@shared/schema";
 import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals, checkPointsToReverse, reverseLeadUpdatePoints } from "./powerscore-service";
 import { setSocketIO } from "./socket-manager";
+import { db } from "./db";
+import { activity_logs } from "@shared/schema";
+import { eq, and, gte, inArray } from "drizzle-orm";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -19861,6 +19864,59 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       .sort((a, b) => a.getTime() - b.getTime())[0];
     const latestTarget = targetDates[targetDates.length - 1];
 
+    // Calculate team effort achieved by summing all team members' activity logs
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+    
+    // Get all user IDs who have vision boards
+    const teamUserIds = allBoards.map(b => b.user_id);
+    
+    // Query activity logs for all team members
+    const teamLogs = await db.select()
+      .from(activity_logs)
+      .where(and(
+        eq(activity_logs.company_id, companyId),
+        inArray(activity_logs.user_id, teamUserIds),
+        gte(activity_logs.occurred_at, yearStart)
+      ));
+    
+    const countTeamMetrics = (logsSubset: typeof teamLogs) => {
+      let sales = 0;
+      let visits = 0;
+      let leads_attended = 0;
+      let followups = 0;
+      
+      for (const log of logsSubset) {
+        if (log.action === 'lead_updated' && log.details?.changes) {
+          const statusChange = (log.details.changes as Array<{field: string; to: string}>)
+            .find(c => c.field === 'lead_status' && c.to === 'Converted');
+          if (statusChange) sales++;
+          
+          const visitChange = (log.details.changes as Array<{field: string; to: string}>)
+            .find(c => c.field === 'visit_status' && c.to === 'Visited');
+          if (visitChange) visits++;
+        }
+        
+        if (log.action === 'lead_created') leads_attended++;
+        if (log.action === 'lead_update_added') followups++;
+      }
+      
+      return { sales, visits, leads_attended, followups };
+    };
+    
+    const teamEffortAchieved = {
+      yearly: countTeamMetrics(teamLogs.filter(l => l.occurred_at >= yearStart)),
+      monthly: countTeamMetrics(teamLogs.filter(l => l.occurred_at >= monthStart)),
+      weekly: countTeamMetrics(teamLogs.filter(l => l.occurred_at >= weekStart)),
+      daily: countTeamMetrics(teamLogs.filter(l => l.occurred_at >= dayStart)),
+    };
+
     return {
       mode: 'team' as const,
       board_count: boardCount,
@@ -19890,6 +19946,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           total_goal: totalGoal,
           overall_progress_percent: totalGoal > 0 ? Math.round((totalEarnings / totalGoal) * 100) : 0,
         },
+        team_effort_achieved: teamEffortAchieved,
       },
     };
   };
