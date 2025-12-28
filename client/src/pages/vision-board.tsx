@@ -305,6 +305,7 @@ function SetupWizard({ onComplete }: { onComplete: () => void }) {
     goal_amount: "",
     currency: "INR",
     goal_description: "",
+    start_date: format(new Date(), "yyyy-MM-dd"),
     target_date: "",
     images: [] as { url: string; caption?: string }[],
     effort_targets: {
@@ -354,6 +355,8 @@ function SetupWizard({ onComplete }: { onComplete: () => void }) {
     createMutation.mutate({
       ...formData,
       goal_amount: Number(formData.goal_amount),
+      start_date: formData.start_date ? new Date(formData.start_date).toISOString() : new Date().toISOString(),
+      target_date: new Date(formData.target_date).toISOString(),
     });
   };
 
@@ -420,15 +423,27 @@ function SetupWizard({ onComplete }: { onComplete: () => void }) {
                     </div>
                   </div>
                   
-                  <div className="space-y-2">
-                    <Label htmlFor="target_date">Target Date</Label>
-                    <Input
-                      id="target_date"
-                      type="date"
-                      value={formData.target_date}
-                      onChange={e => setFormData(prev => ({ ...prev, target_date: e.target.value }))}
-                      data-testid="input-target-date"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="start_date">Start Date</Label>
+                      <Input
+                        id="start_date"
+                        type="date"
+                        value={formData.start_date}
+                        onChange={e => setFormData(prev => ({ ...prev, start_date: e.target.value }))}
+                        data-testid="input-start-date"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="target_date">End Date</Label>
+                      <Input
+                        id="target_date"
+                        type="date"
+                        value={formData.target_date}
+                        onChange={e => setFormData(prev => ({ ...prev, target_date: e.target.value }))}
+                        data-testid="input-target-date"
+                      />
+                    </div>
                   </div>
                   
                   <div className="space-y-2">
@@ -984,6 +999,181 @@ function UpdateIncentivesDialog({
   );
 }
 
+function EditGoalDialog({ 
+  visionBoard, 
+  onSuccess 
+}: { 
+  visionBoard: VisionBoard; 
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [goalAmount, setGoalAmount] = useState(visionBoard.goal_amount.toString());
+  const [currency, setCurrency] = useState(visionBoard.currency || "INR");
+  const [goalDescription, setGoalDescription] = useState(visionBoard.goal_description || "");
+  const [startDate, setStartDate] = useState(
+    visionBoard.start_date 
+      ? format(new Date(visionBoard.start_date), "yyyy-MM-dd") 
+      : format(new Date(visionBoard.created_at), "yyyy-MM-dd")
+  );
+  const [targetDate, setTargetDate] = useState(format(new Date(visionBoard.target_date), "yyyy-MM-dd"));
+
+  useEffect(() => {
+    if (open) {
+      setGoalAmount(visionBoard.goal_amount.toString());
+      setCurrency(visionBoard.currency || "INR");
+      setGoalDescription(visionBoard.goal_description || "");
+      setStartDate(
+        visionBoard.start_date 
+          ? format(new Date(visionBoard.start_date), "yyyy-MM-dd") 
+          : format(new Date(visionBoard.created_at), "yyyy-MM-dd")
+      );
+      setTargetDate(format(new Date(visionBoard.target_date), "yyyy-MM-dd"));
+    }
+  }, [open, visionBoard]);
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("PUT", `/api/vision-board/${visionBoard.id}`, data);
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/vision-board", visionBoard.id, "progress"] });
+      toast({ title: "Goal Updated!", description: "Your vision board has been updated." });
+      setOpen(false);
+      onSuccess();
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleSave = () => {
+    if (!goalAmount || Number(goalAmount) <= 0) {
+      toast({ title: "Error", description: "Please enter a valid goal amount", variant: "destructive" });
+      return;
+    }
+    if (!startDate || !targetDate) {
+      toast({ title: "Error", description: "Please select start and end dates", variant: "destructive" });
+      return;
+    }
+    if (new Date(startDate) >= new Date(targetDate)) {
+      toast({ title: "Error", description: "End date must be after start date", variant: "destructive" });
+      return;
+    }
+    
+    updateMutation.mutate({
+      goal_amount: Number(goalAmount),
+      currency,
+      goal_description: goalDescription,
+      start_date: new Date(startDate).toISOString(),
+      target_date: new Date(targetDate).toISOString(),
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground"
+          data-testid="button-edit-goal"
+        >
+          <Edit2 className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Goal</DialogTitle>
+          <DialogDescription>
+            Update your goal amount, timeline, and description
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_goal_amount">Goal Amount</Label>
+              <Input
+                id="edit_goal_amount"
+                type="number"
+                value={goalAmount}
+                onChange={e => setGoalAmount(e.target.value)}
+                placeholder="Enter amount..."
+                data-testid="input-edit-goal-amount"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Currency</Label>
+              <Select value={currency} onValueChange={setCurrency}>
+                <SelectTrigger data-testid="select-edit-currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INR">₹ INR</SelectItem>
+                  <SelectItem value="USD">$ USD</SelectItem>
+                  <SelectItem value="EUR">€ EUR</SelectItem>
+                  <SelectItem value="GBP">£ GBP</SelectItem>
+                  <SelectItem value="AED">د.إ AED</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_start_date">Start Date</Label>
+              <Input
+                id="edit_start_date"
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                data-testid="input-edit-start-date"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_end_date">End Date</Label>
+              <Input
+                id="edit_end_date"
+                type="date"
+                value={targetDate}
+                onChange={e => setTargetDate(e.target.value)}
+                data-testid="input-edit-end-date"
+              />
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="edit_goal_description">Goal Description</Label>
+            <Textarea
+              id="edit_goal_description"
+              value={goalDescription}
+              onChange={e => setGoalDescription(e.target.value)}
+              placeholder="What will you do with this money?"
+              rows={3}
+              data-testid="input-edit-goal-description"
+            />
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleSave}
+            disabled={updateMutation.isPending}
+            className="bg-gradient-to-r from-purple-600 to-pink-600"
+            data-testid="button-save-goal"
+          >
+            {updateMutation.isPending ? "Saving..." : "Save Changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function VisionBoardPage() {
   const { user } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("daily");
@@ -1098,6 +1288,16 @@ export default function VisionBoardPage() {
           >
             <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl overflow-hidden">
               <CardContent className="p-6">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-sm font-medium text-muted-foreground">Goal Progress</span>
+                  <EditGoalDialog 
+                    visionBoard={visionBoard} 
+                    onSuccess={() => {
+                      queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] });
+                      refetchProgress();
+                    }} 
+                  />
+                </div>
                 <div className="flex flex-col items-center">
                   <CircularProgress 
                     progress={progress?.earnings.progress_percent || 0}

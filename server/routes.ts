@@ -20013,9 +20013,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       const now = new Date();
       const targetDate = new Date(board.target_date);
-      const createdAt = new Date(board.created_at);
-      const totalDays = Math.ceil((targetDate.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
-      const daysElapsed = Math.ceil((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+      // Use start_date if set, otherwise fall back to created_at
+      const startDate = board.start_date ? new Date(board.start_date) : new Date(board.created_at);
+      const totalDays = Math.ceil((targetDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      const daysElapsed = Math.ceil((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
       const daysRemaining = Math.max(0, Math.ceil((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 
       // Calculate period breakdowns for efforts (auto-calculated from yearly targets)
