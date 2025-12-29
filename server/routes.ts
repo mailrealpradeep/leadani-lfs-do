@@ -8254,6 +8254,39 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get all dropdown options for the company (used by Conversion Settings)
+  app.get("/api/dropdown-options", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId && req.userRole !== "super_admin") {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const companyId = req.userRole === "super_admin" && req.query.company_id 
+        ? req.query.company_id as string
+        : req.companyId!;
+
+      // Get dropdown options for lead_status and visit_status
+      const leadStatusOptions = await storage.getDropdownOptionsByColumn(companyId, 'lead_status');
+      const visitStatusOptions = await storage.getDropdownOptionsByColumn(companyId, 'visit_status');
+
+      // Combine and return all options
+      const allOptions = [...leadStatusOptions, ...visitStatusOptions];
+      
+      // Sort by column_key then order_index
+      allOptions.sort((a, b) => {
+        if (a.column_key !== b.column_key) {
+          return a.column_key.localeCompare(b.column_key);
+        }
+        return a.order_index - b.order_index;
+      });
+      
+      res.json(allOptions);
+    } catch (error: any) {
+      console.error("Get all dropdown options error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get dropdown options for a specific column key at company level
   app.get("/api/company/dropdown-options/:columnKey", authMiddleware, async (req: AuthRequest, res) => {
     try {
