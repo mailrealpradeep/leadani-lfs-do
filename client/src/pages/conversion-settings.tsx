@@ -735,18 +735,27 @@ export default function ConversionSettings() {
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {stage.trigger_values.length > 0 
-                              ? stage.trigger_values.join(', ')
-                              : 'No trigger values set'}
+                            {stage.trigger_type === 'all_leads' 
+                              ? 'Counts all leads created'
+                              : stage.trigger_values.length > 0 
+                                ? stage.trigger_values.join(', ')
+                                : 'No trigger values set'}
                           </p>
                         </div>
 
                         <div className="text-right">
                           <div className="flex items-center gap-4">
-                            <div>
-                              <p className="text-sm text-muted-foreground">Expected</p>
-                              <p className="font-medium">{stage.expected_conversion_percent || 0}%</p>
-                            </div>
+                            {stage.stage_number === 1 ? (
+                              <div>
+                                <p className="text-sm text-muted-foreground">Baseline</p>
+                                <p className="font-medium text-primary">100%</p>
+                              </div>
+                            ) : (
+                              <div>
+                                <p className="text-sm text-muted-foreground">Expected</p>
+                                <p className="font-medium">{stage.expected_conversion_percent || 0}%</p>
+                              </div>
+                            )}
                             {stageAnalytics && (
                               <div>
                                 <p className="text-sm text-muted-foreground">Actual</p>
@@ -757,26 +766,33 @@ export default function ConversionSettings() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setEditingStage(stage)}
-                            data-testid={`button-edit-stage-${stage.id}`}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              if (confirm('Are you sure you want to delete this stage?')) {
-                                deleteStageMutation.mutate(stage.id);
-                              }
-                            }}
-                            data-testid={`button-delete-stage-${stage.id}`}
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
+                          {stage.stage_number !== 1 && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setEditingStage(stage)}
+                                data-testid={`button-edit-stage-${stage.id}`}
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  if (confirm('Are you sure you want to delete this stage?')) {
+                                    deleteStageMutation.mutate(stage.id);
+                                  }
+                                }}
+                                data-testid={`button-delete-stage-${stage.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              </Button>
+                            </>
+                          )}
+                          {stage.stage_number === 1 && (
+                            <Badge variant="secondary" className="text-xs">Fixed</Badge>
+                          )}
                         </div>
                       </motion.div>
                     );
@@ -870,7 +886,7 @@ export default function ConversionSettings() {
                     </div>
                   </div>
                   <div>
-                    <Label htmlFor="expected-percent">Expected %</Label>
+                    <Label htmlFor="expected-percent">Expected % from Previous</Label>
                     <Input
                       id="expected-percent"
                       type="number"
@@ -927,7 +943,7 @@ export default function ConversionSettings() {
                   </div>
 
                   <div>
-                    <Label>Expected Conversion %</Label>
+                    <Label>Expected Conversion % from Previous Stage</Label>
                     <Input
                       type="number"
                       min="0"

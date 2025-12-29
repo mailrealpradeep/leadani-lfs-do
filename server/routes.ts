@@ -20516,6 +20516,19 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           is_active: is_active ?? true,
           version: 1,
         });
+        
+        // Auto-create fixed Stage 1 "New Lead" - the pipeline entry point
+        await storage.createConversionStage({
+          config_id: created.id,
+          stage_number: 1,
+          stage_name: 'New Lead',
+          trigger_type: 'all_leads',
+          trigger_values: [],
+          color: '#3B82F6',
+          expected_conversion_percent: null, // No conversion % for Stage 1 - it's the baseline
+          sort_order: 0,
+        });
+        
         res.json(created);
       }
     } catch (error: any) {

@@ -4305,7 +4305,7 @@ export const conversion_stages = pgTable('conversion_stages', {
   trigger_type: varchar('trigger_type', { length: 50 }).notNull().default('lead_status'), // 'all_leads' | 'lead_status' | 'visit_status' | 'combined'
   trigger_values: json('trigger_values').$type<string[]>().notNull().default([]), // Dropdown values that activate this stage
   color: varchar('color', { length: 20 }).notNull().default('#3B82F6'), // Stage color for visualization
-  expected_conversion_percent: doublePrecision('expected_conversion_percent').notNull().default(0), // Expected % to next stage
+  expected_conversion_percent: doublePrecision('expected_conversion_percent'), // Expected % from previous stage (null for Stage 1)
   sort_order: integer('sort_order').notNull().default(0),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
