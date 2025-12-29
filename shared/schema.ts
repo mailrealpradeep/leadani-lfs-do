@@ -4269,3 +4269,235 @@ export interface VisionBoardContribution {
   percentage: number;
   contribution_to_company: number; // Percentage of company total
 }
+
+// ============================================================================
+// CONVERSION SETTINGS (Pipeline Stage Management)
+// ============================================================================
+
+// Conversion Config - Company-level configuration for pipeline stages
+export const conversion_configs = pgTable('conversion_configs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull().default('Default Pipeline'),
+  is_active: boolean('is_active').notNull().default(true),
+  version: integer('version').notNull().default(1), // For tracking config changes
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type ConversionConfig = typeof conversion_configs.$inferSelect;
+export type InsertConversionConfig = typeof conversion_configs.$inferInsert;
+
+export const insertConversionConfigSchema = createInsertSchema(conversion_configs).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertConversionConfigData = z.infer<typeof insertConversionConfigSchema>;
+
+// Conversion Stages - Individual pipeline stages
+export const conversion_stages = pgTable('conversion_stages', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  config_id: varchar('config_id').notNull().references(() => conversion_configs.id, { onDelete: 'cascade' }),
+  stage_number: integer('stage_number').notNull(), // 1, 2, 3, 4...
+  stage_name: varchar('stage_name', { length: 100 }).notNull(), // e.g., "New Lead", "Visited"
+  trigger_type: varchar('trigger_type', { length: 50 }).notNull().default('lead_status'), // 'lead_status' | 'visit_status' | 'combined'
+  trigger_values: json('trigger_values').$type<string[]>().notNull().default([]), // Dropdown values that activate this stage
+  color: varchar('color', { length: 20 }).notNull().default('#3B82F6'), // Stage color for visualization
+  expected_conversion_percent: doublePrecision('expected_conversion_percent').notNull().default(0), // Expected % to next stage
+  sort_order: integer('sort_order').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type ConversionStage = typeof conversion_stages.$inferSelect;
+export type InsertConversionStage = typeof conversion_stages.$inferInsert;
+
+export const insertConversionStageSchema = createInsertSchema(conversion_stages).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertConversionStageData = z.infer<typeof insertConversionStageSchema>;
+
+// Conversion Values - How conversion value is determined
+export const conversion_values = pgTable('conversion_values', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  config_id: varchar('config_id').notNull().references(() => conversion_configs.id, { onDelete: 'cascade' }),
+  value_type: varchar('value_type', { length: 50 }).notNull().default('fixed'), // 'fixed' | 'from_field' | 'manual'
+  fixed_amount: doublePrecision('fixed_amount').default(0), // Used when value_type is 'fixed'
+  source_column_key: varchar('source_column_key', { length: 100 }), // Column key when value_type is 'from_field'
+  default_amount: doublePrecision('default_amount').default(0), // Default if field is empty
+  currency: varchar('currency', { length: 10 }).notNull().default('INR'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type ConversionValue = typeof conversion_values.$inferSelect;
+export type InsertConversionValue = typeof conversion_values.$inferInsert;
+
+export const insertConversionValueSchema = createInsertSchema(conversion_values).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertConversionValueData = z.infer<typeof insertConversionValueSchema>;
+
+// Conversion Incentives - How incentives are calculated
+export const conversion_incentives = pgTable('conversion_incentives', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  config_id: varchar('config_id').notNull().references(() => conversion_configs.id, { onDelete: 'cascade' }),
+  incentive_type: varchar('incentive_type', { length: 50 }).notNull().default('fixed'), // 'percentage' | 'fixed' | 'manual' | 'tiered'
+  percentage_value: doublePrecision('percentage_value').default(0), // Used when incentive_type is 'percentage'
+  fixed_amount: doublePrecision('fixed_amount').default(0), // Used when incentive_type is 'fixed'
+  tier_rules: json('tier_rules').$type<ConversionIncentiveTier[]>().default([]), // Used when incentive_type is 'tiered'
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Incentive tier structure for tiered incentives
+export interface ConversionIncentiveTier {
+  min_conversions: number;
+  max_conversions: number | null; // null for unlimited
+  amount: number; // Amount per conversion in this tier
+}
+
+export type ConversionIncentive = typeof conversion_incentives.$inferSelect;
+export type InsertConversionIncentive = typeof conversion_incentives.$inferInsert;
+
+export const insertConversionIncentiveSchema = createInsertSchema(conversion_incentives).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertConversionIncentiveData = z.infer<typeof insertConversionIncentiveSchema>;
+
+// Conversion Approvals - Optional approval workflow settings
+export const conversion_approvals = pgTable('conversion_approvals', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  config_id: varchar('config_id').notNull().references(() => conversion_configs.id, { onDelete: 'cascade' }),
+  is_enabled: boolean('is_enabled').notNull().default(false),
+  transitions_requiring_approval: json('transitions_requiring_approval').$type<ConversionTransitionApproval[]>().default([]),
+  auto_approve_hours: integer('auto_approve_hours'), // null means never auto-approve
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Transition approval structure
+export interface ConversionTransitionApproval {
+  from_stage_number: number;
+  to_stage_number: number;
+  requires_approval: boolean;
+}
+
+export type ConversionApproval = typeof conversion_approvals.$inferSelect;
+export type InsertConversionApproval = typeof conversion_approvals.$inferInsert;
+
+export const insertConversionApprovalSchema = createInsertSchema(conversion_approvals).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertConversionApprovalData = z.infer<typeof insertConversionApprovalSchema>;
+
+// Pending Approvals - Queue of stage transitions awaiting approval
+export const conversion_pending_approvals = pgTable('conversion_pending_approvals', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  config_id: varchar('config_id').notNull().references(() => conversion_configs.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  from_stage_number: integer('from_stage_number').notNull(),
+  to_stage_number: integer('to_stage_number').notNull(),
+  requested_by: varchar('requested_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
+  approved_by: varchar('approved_by').references(() => users.id, { onDelete: 'set null' }),
+  approved_at: timestamp('approved_at'),
+  rejection_reason: text('rejection_reason'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type ConversionPendingApproval = typeof conversion_pending_approvals.$inferSelect;
+export type InsertConversionPendingApproval = typeof conversion_pending_approvals.$inferInsert;
+
+export const insertConversionPendingApprovalSchema = createInsertSchema(conversion_pending_approvals).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertConversionPendingApprovalData = z.infer<typeof insertConversionPendingApprovalSchema>;
+
+// Conversion History - Audit log of stage transitions
+export const conversion_history = pgTable('conversion_history', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  config_id: varchar('config_id').notNull().references(() => conversion_configs.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  from_stage_number: integer('from_stage_number'),
+  to_stage_number: integer('to_stage_number').notNull(),
+  conversion_value: doublePrecision('conversion_value'), // Value at time of conversion (only for final stage)
+  incentive_amount: doublePrecision('incentive_amount'), // Incentive at time of conversion
+  triggered_by: varchar('triggered_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  occurred_at: timestamp('occurred_at').defaultNow().notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type ConversionHistory = typeof conversion_history.$inferSelect;
+export type InsertConversionHistory = typeof conversion_history.$inferInsert;
+
+export const insertConversionHistorySchema = createInsertSchema(conversion_history).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertConversionHistoryData = z.infer<typeof insertConversionHistorySchema>;
+
+// ============================================================================
+// CONVERSION SETTINGS API TYPES
+// ============================================================================
+
+// Full conversion settings for a company (for API response)
+export interface ConversionSettingsComplete {
+  config: ConversionConfig;
+  stages: ConversionStage[];
+  value: ConversionValue | null;
+  incentive: ConversionIncentive | null;
+  approval: ConversionApproval | null;
+}
+
+// Pipeline stage metrics for display
+export interface ConversionStageMetrics {
+  stage_number: number;
+  stage_name: string;
+  color: string;
+  lead_count: number;
+  expected_percent: number;
+  actual_percent: number;
+  diff_percent: number; // actual - expected (positive = above target)
+}
+
+// Pipeline overview for date range
+export interface ConversionPipelineOverview {
+  stages: ConversionStageMetrics[];
+  total_leads: number;
+  total_conversions: number;
+  total_value: number;
+  total_incentives: number;
+  period_comparison: {
+    conversions_change_percent: number;
+    value_change_percent: number;
+  };
+}
+
+// Summary stats for conversion settings page
+export interface ConversionSummaryStats {
+  total_conversions: number;
+  total_value: number;
+  total_incentives: number;
+  average_value: number;
+  working_days: number;
+}
