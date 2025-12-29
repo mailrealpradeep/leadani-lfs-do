@@ -176,8 +176,7 @@ export default function ConversionSettings() {
   // Create/Update config mutation
   const configMutation = useMutation({
     mutationFn: async (data: { name?: string; is_active?: boolean }) => {
-      const response = await apiRequest("POST", "/api/conversion-settings/config", data);
-      return response.json();
+      return await apiRequest("POST", "/api/conversion-settings/config", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
@@ -191,8 +190,7 @@ export default function ConversionSettings() {
   // Create stage mutation
   const createStageMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/conversion-settings/stages", data);
-      return response.json();
+      return await apiRequest("POST", "/api/conversion-settings/stages", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
@@ -210,8 +208,7 @@ export default function ConversionSettings() {
   // Update stage mutation
   const updateStageMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
-      const response = await apiRequest("PUT", `/api/conversion-settings/stages/${id}`, updates);
-      return response.json();
+      return await apiRequest("PUT", `/api/conversion-settings/stages/${id}`, updates);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
@@ -226,8 +223,7 @@ export default function ConversionSettings() {
   // Delete stage mutation
   const deleteStageMutation = useMutation({
     mutationFn: async (id: string) => {
-      const response = await apiRequest("DELETE", `/api/conversion-settings/stages/${id}`);
-      return response.json();
+      return await apiRequest("DELETE", `/api/conversion-settings/stages/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
@@ -241,8 +237,7 @@ export default function ConversionSettings() {
   // Save value settings mutation
   const valueMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/conversion-settings/value", data);
-      return response.json();
+      return await apiRequest("POST", "/api/conversion-settings/value", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
@@ -256,8 +251,7 @@ export default function ConversionSettings() {
   // Save incentive settings mutation
   const incentiveMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/conversion-settings/incentive", data);
-      return response.json();
+      return await apiRequest("POST", "/api/conversion-settings/incentive", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
@@ -271,8 +265,7 @@ export default function ConversionSettings() {
   // Save approval settings mutation
   const approvalMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/conversion-settings/approval", data);
-      return response.json();
+      return await apiRequest("POST", "/api/conversion-settings/approval", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
@@ -322,7 +315,7 @@ export default function ConversionSettings() {
 
   if (settingsLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="h-full overflow-y-auto p-6 space-y-6">
         <Skeleton className="h-10 w-64" />
         <div className="grid gap-6 md:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
@@ -337,7 +330,7 @@ export default function ConversionSettings() {
   // Show initialization screen if no config exists
   if (!settings?.config) {
     return (
-      <div className="p-6">
+      <div className="h-full overflow-y-auto p-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -400,7 +393,7 @@ export default function ConversionSettings() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="h-full overflow-y-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-3">
