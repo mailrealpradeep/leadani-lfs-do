@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { parseISO } from "date-fns";
+import { parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek, addDays, isWithinInterval } from "date-fns";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Plus,
@@ -23,6 +23,10 @@ import {
   X,
   MessageSquare,
   Repeat,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  CalendarRange,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -130,9 +134,9 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  low: "bg-gray-500/10 text-gray-600 dark:text-gray-400",
-  medium: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-  high: "bg-red-500/10 text-red-600 dark:text-red-400",
+  low: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30",
+  medium: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30",
+  high: "bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30",
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
@@ -182,6 +186,19 @@ export default function Tasks() {
   
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [assignedFilter, setAssignedFilter] = useState<string>("all");
+  
+  // Sorting state
+  type SortField = "priority" | "start_date" | "due_date" | "recurrence_type" | "assigned_to_name" | null;
+  const [sortField, setSortField] = useState<SortField>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  
+  // Date filter state
+  type DateFilterOption = "all" | "overdue" | "today" | "tomorrow" | "this_week" | "custom";
+  const [startDateFilter, setStartDateFilter] = useState<DateFilterOption>("all");
+  const [dueDateFilter, setDueDateFilter] = useState<DateFilterOption>("all");
+  const [customStartDateRange, setCustomStartDateRange] = useState<{ from: string; to: string }>({ from: "", to: "" });
+  const [customDueDateRange, setCustomDueDateRange] = useState<{ from: string; to: string }>({ from: "", to: "" });
+  
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -253,8 +270,84 @@ export default function Tasks() {
     enabled: !!selectedTask && isViewDialogOpen,
   });
 
+  // Helper to check if a date matches a filter
+  const matchesDateFilter = (dateStr: string | null, filter: DateFilterOption, customRange: { from: string; to: string }) => {
+    if (filter === "all") return true;
+    if (!dateStr) return false; // If no date and filter is not "all", exclude it
+    
+    const date = parseISO(dateStr);
+    const today = getCurrentDate();
+    const todayStart = startOfDay(today);
+    const todayEnd = endOfDay(today);
+    
+    switch (filter) {
+      case "overdue":
+        return isBeforeToday(date);
+      case "today":
+        return isWithinInterval(date, { start: todayStart, end: todayEnd });
+      case "tomorrow":
+        const tomorrowStart = startOfDay(addDays(today, 1));
+        const tomorrowEnd = endOfDay(addDays(today, 1));
+        return isWithinInterval(date, { start: tomorrowStart, end: tomorrowEnd });
+      case "this_week":
+        const weekStart = startOfWeek(today, { weekStartsOn: 1 }); // Monday
+        const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+        return isWithinInterval(date, { start: weekStart, end: weekEnd });
+      case "custom":
+        if (!customRange.from || !customRange.to) return true;
+        const rangeStart = startOfDay(parseISO(customRange.from));
+        const rangeEnd = endOfDay(parseISO(customRange.to));
+        return isWithinInterval(date, { start: rangeStart, end: rangeEnd });
+      default:
+        return true;
+    }
+  };
+
   const sortedTasks = useMemo(() => {
-    return [...tasks].sort((a, b) => {
+    // First, filter by date filters
+    let filtered = [...tasks].filter(task => {
+      const matchesStartDate = matchesDateFilter(task.start_date, startDateFilter, customStartDateRange);
+      const matchesDueDate = matchesDateFilter(task.due_date, dueDateFilter, customDueDateRange);
+      return matchesStartDate && matchesDueDate;
+    });
+    
+    // Then sort
+    return filtered.sort((a, b) => {
+      // If a sort field is specified, use it
+      if (sortField) {
+        const priorityOrder = { high: 0, medium: 1, low: 2 };
+        const recurrenceOrder = { daily: 0, weekly: 1, monthly: 2, none: 3 };
+        
+        let comparison = 0;
+        
+        switch (sortField) {
+          case "priority":
+            comparison = priorityOrder[a.priority as keyof typeof priorityOrder] - priorityOrder[b.priority as keyof typeof priorityOrder];
+            break;
+          case "start_date":
+            if (!a.start_date && !b.start_date) comparison = 0;
+            else if (!a.start_date) comparison = 1;
+            else if (!b.start_date) comparison = -1;
+            else comparison = new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
+            break;
+          case "due_date":
+            if (!a.due_date && !b.due_date) comparison = 0;
+            else if (!a.due_date) comparison = 1;
+            else if (!b.due_date) comparison = -1;
+            else comparison = new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+            break;
+          case "recurrence_type":
+            comparison = recurrenceOrder[a.recurrence_type as keyof typeof recurrenceOrder] - recurrenceOrder[b.recurrence_type as keyof typeof recurrenceOrder];
+            break;
+          case "assigned_to_name":
+            comparison = (a.assigned_to_name || "").localeCompare(b.assigned_to_name || "");
+            break;
+        }
+        
+        return sortDirection === "asc" ? comparison : -comparison;
+      }
+      
+      // Default sort by due date
       if (a.due_date && b.due_date) {
         return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
       }
@@ -262,7 +355,22 @@ export default function Tasks() {
       if (b.due_date) return 1;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
-  }, [tasks]);
+  }, [tasks, sortField, sortDirection, startDateFilter, dueDateFilter, customStartDateRange, customDueDateRange]);
+  
+  // Handle sorting
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortDirection === "asc") {
+        setSortDirection("desc");
+      } else {
+        setSortField(null);
+        setSortDirection("asc");
+      }
+    } else {
+      setSortField(field);
+      setSortDirection("asc");
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -516,7 +624,92 @@ export default function Tasks() {
                 </SelectContent>
               </Select>
             )}
+
+            <Select value={startDateFilter} onValueChange={(v: DateFilterOption) => setStartDateFilter(v)}>
+              <SelectTrigger 
+                className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[160px]'}`} 
+                data-testid="select-start-date-filter"
+              >
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-primary" />
+                  <SelectValue placeholder="Start Date" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Start Dates</SelectItem>
+                <SelectItem value="overdue">Overdue</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="tomorrow">Tomorrow</SelectItem>
+                <SelectItem value="this_week">This Week</SelectItem>
+                <SelectItem value="custom">Custom Range</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={dueDateFilter} onValueChange={(v: DateFilterOption) => setDueDateFilter(v)}>
+              <SelectTrigger 
+                className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[160px]'}`} 
+                data-testid="select-due-date-filter"
+              >
+                <div className="flex items-center gap-2">
+                  <CalendarRange className="h-4 w-4 text-primary" />
+                  <SelectValue placeholder="Due Date" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Due Dates</SelectItem>
+                <SelectItem value="overdue">Overdue</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="tomorrow">Tomorrow</SelectItem>
+                <SelectItem value="this_week">This Week</SelectItem>
+                <SelectItem value="custom">Custom Range</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+
+          {(startDateFilter === "custom" || dueDateFilter === "custom") && (
+            <div className={`flex ${isMobile ? 'flex-col gap-2 mt-2' : 'flex-wrap items-center gap-3 mt-3'}`}>
+              {startDateFilter === "custom" && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">Start:</span>
+                  <Input
+                    type="date"
+                    value={customStartDateRange.from}
+                    onChange={(e) => setCustomStartDateRange(prev => ({ ...prev, from: e.target.value }))}
+                    className="w-[140px] h-8"
+                    data-testid="input-start-date-from"
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <Input
+                    type="date"
+                    value={customStartDateRange.to}
+                    onChange={(e) => setCustomStartDateRange(prev => ({ ...prev, to: e.target.value }))}
+                    className="w-[140px] h-8"
+                    data-testid="input-start-date-to"
+                  />
+                </div>
+              )}
+              {dueDateFilter === "custom" && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">Due:</span>
+                  <Input
+                    type="date"
+                    value={customDueDateRange.from}
+                    onChange={(e) => setCustomDueDateRange(prev => ({ ...prev, from: e.target.value }))}
+                    className="w-[140px] h-8"
+                    data-testid="input-due-date-from"
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <Input
+                    type="date"
+                    value={customDueDateRange.to}
+                    onChange={(e) => setCustomDueDateRange(prev => ({ ...prev, to: e.target.value }))}
+                    className="w-[140px] h-8"
+                    data-testid="input-due-date-to"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {sortedTasks.length === 0 ? (
@@ -576,6 +769,9 @@ export default function Tasks() {
               canDeleteTask={canDeleteTask}
               formatTaskDate={formatTaskDate}
               getDueDateClass={getDueDateClass}
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
             />
           </div>
         )}
@@ -1139,6 +1335,54 @@ function TaskCard({
   );
 }
 
+const RECURRENCE_LABELS: Record<string, string> = {
+  none: "One-time",
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
+};
+
+type SortField = "priority" | "start_date" | "due_date" | "recurrence_type" | "assigned_to_name" | null;
+
+function SortableHeader({ 
+  label, 
+  field, 
+  sortField, 
+  sortDirection, 
+  onSort,
+  className = ""
+}: { 
+  label: string; 
+  field: SortField; 
+  sortField: SortField; 
+  sortDirection: "asc" | "desc"; 
+  onSort: (field: SortField) => void;
+  className?: string;
+}) {
+  const isActive = sortField === field;
+  
+  return (
+    <th 
+      className={`text-left p-3 font-medium text-sm cursor-pointer hover:bg-muted/80 transition-colors select-none ${className}`}
+      onClick={() => onSort(field)}
+      data-testid={`header-sort-${field}`}
+    >
+      <div className="flex items-center gap-1">
+        <span>{label}</span>
+        {isActive ? (
+          sortDirection === "asc" ? (
+            <ArrowUp className="h-3 w-3 text-primary" />
+          ) : (
+            <ArrowDown className="h-3 w-3 text-primary" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 text-muted-foreground opacity-50" />
+        )}
+      </div>
+    </th>
+  );
+}
+
 function TasksGrid({ 
   tasks, 
   isAdmin, 
@@ -1150,6 +1394,9 @@ function TasksGrid({
   canDeleteTask,
   formatTaskDate,
   getDueDateClass,
+  sortField,
+  sortDirection,
+  onSort,
 }: { 
   tasks: Task[]; 
   isAdmin: boolean;
@@ -1161,6 +1408,9 @@ function TasksGrid({
   canDeleteTask: (task: Task) => boolean;
   formatTaskDate: (date: string | null, pattern?: string) => string;
   getDueDateClass: (dueDate: string | null, status: string) => string;
+  sortField: SortField;
+  sortDirection: "asc" | "desc";
+  onSort: (field: SortField) => void;
 }) {
   return (
     <div className="h-full overflow-auto">
@@ -1168,12 +1418,14 @@ function TasksGrid({
         <thead className="bg-muted/50 sticky top-0 z-10">
           <tr className="border-b">
             <th className="text-left p-3 font-medium text-sm">Title</th>
-            <th className="text-left p-3 font-medium text-sm w-[100px]">Priority</th>
+            <SortableHeader label="Priority" field="priority" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[100px]" />
             <th className="text-left p-3 font-medium text-sm w-[120px]">Status</th>
-            <th className="text-left p-3 font-medium text-sm w-[150px]">Assigned To</th>
-            <th className="text-left p-3 font-medium text-sm w-[120px]">Due Date</th>
-            <th className="text-center p-3 font-medium text-sm w-[100px]">Updates</th>
-            <th className="text-center p-3 font-medium text-sm w-[80px]">Actions</th>
+            <SortableHeader label="Assigned To" field="assigned_to_name" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[140px]" />
+            <SortableHeader label="Start Date" field="start_date" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[110px]" />
+            <SortableHeader label="Due Date" field="due_date" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[110px]" />
+            <SortableHeader label="Recurrence" field="recurrence_type" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[110px]" />
+            <th className="text-center p-3 font-medium text-sm w-[80px]">Updates</th>
+            <th className="text-center p-3 font-medium text-sm w-[70px]">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -1225,6 +1477,13 @@ function TasksGrid({
               <td className="p-3 text-sm">
                 {task.assigned_to_name}
               </td>
+              <td className="p-3 text-sm">
+                {task.start_date ? (
+                  <span>{formatTaskDate(task.start_date)}</span>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                )}
+              </td>
               <td className="p-3">
                 {task.due_date ? (
                   <span className={getDueDateClass(task.due_date, task.status)}>
@@ -1233,6 +1492,11 @@ function TasksGrid({
                 ) : (
                   <span className="text-muted-foreground">-</span>
                 )}
+              </td>
+              <td className="p-3 text-sm">
+                <Badge variant="outline" className="text-xs">
+                  {RECURRENCE_LABELS[task.recurrence_type] || "One-time"}
+                </Badge>
               </td>
               <td className="p-3 text-center">
                 <Button 
