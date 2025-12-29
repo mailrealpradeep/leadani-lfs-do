@@ -211,6 +211,34 @@ import type {
   VisionBoardImage,
   VisionBoardEffortTargets,
   VisionBoardEffortOverrides,
+  // Conversion Settings (Pipeline Stage Management)
+  ConversionConfig,
+  InsertConversionConfig,
+  conversion_configs,
+  ConversionStage,
+  InsertConversionStage,
+  conversion_stages,
+  ConversionValue,
+  InsertConversionValue,
+  conversion_values,
+  ConversionIncentive,
+  InsertConversionIncentive,
+  conversion_incentives,
+  ConversionApproval,
+  InsertConversionApproval,
+  conversion_approvals,
+  ConversionPendingApproval,
+  InsertConversionPendingApproval,
+  conversion_pending_approvals,
+  ConversionHistory,
+  InsertConversionHistory,
+  conversion_history,
+  ConversionSettingsComplete,
+  ConversionStageMetrics,
+  ConversionPipelineOverview,
+  ConversionSummaryStats,
+  ConversionIncentiveTier,
+  ConversionTransitionApproval,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -857,6 +885,43 @@ export interface IStorage {
   createVisionBoardEarning(earning: InsertVisionBoardEarning): Promise<VisionBoardEarning>;
   updateVisionBoardEarning(id: string, updates: Partial<VisionBoardEarning>): Promise<VisionBoardEarning | undefined>;
   deleteVisionBoardEarning(id: string): Promise<boolean>;
+
+  // Conversion Settings (Pipeline Stage Management)
+  getConversionConfig(companyId: string): Promise<ConversionConfig | null>;
+  createConversionConfig(config: Omit<InsertConversionConfig, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionConfig>;
+  updateConversionConfig(id: string, updates: Partial<ConversionConfig>): Promise<ConversionConfig | undefined>;
+  deleteConversionConfig(id: string): Promise<boolean>;
+  
+  // Conversion Stages
+  getConversionStages(configId: string): Promise<ConversionStage[]>;
+  createConversionStage(stage: Omit<InsertConversionStage, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionStage>;
+  updateConversionStage(id: string, updates: Partial<ConversionStage>): Promise<ConversionStage | undefined>;
+  deleteConversionStage(id: string): Promise<boolean>;
+  reorderConversionStages(configId: string, stageIds: string[]): Promise<boolean>;
+  
+  // Conversion Values
+  getConversionValue(configId: string): Promise<ConversionValue | null>;
+  saveConversionValue(configId: string, value: Omit<InsertConversionValue, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionValue>;
+  
+  // Conversion Incentives
+  getConversionIncentive(configId: string): Promise<ConversionIncentive | null>;
+  saveConversionIncentive(configId: string, incentive: Omit<InsertConversionIncentive, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionIncentive>;
+  
+  // Conversion Approvals
+  getConversionApproval(configId: string): Promise<ConversionApproval | null>;
+  saveConversionApproval(configId: string, approval: Omit<InsertConversionApproval, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionApproval>;
+  
+  // Conversion Pending Approvals
+  getConversionPendingApprovals(configId: string): Promise<ConversionPendingApproval[]>;
+  createConversionPendingApproval(approval: Omit<InsertConversionPendingApproval, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionPendingApproval>;
+  updateConversionPendingApproval(id: string, updates: Partial<ConversionPendingApproval>): Promise<ConversionPendingApproval | undefined>;
+  
+  // Conversion History
+  getConversionHistory(configId: string, startDate?: Date, endDate?: Date): Promise<ConversionHistory[]>;
+  createConversionHistory(history: Omit<InsertConversionHistory, 'id' | 'created_at'>): Promise<ConversionHistory>;
+  
+  // Conversion Settings Complete (aggregate fetch)
+  getConversionSettingsComplete(companyId: string): Promise<ConversionSettingsComplete | null>;
 }
 
 export class MemStorage implements IStorage {
@@ -3177,6 +3242,29 @@ export class MemStorage implements IStorage {
   async createVisionBoardEarning(_earning: InsertVisionBoardEarning): Promise<VisionBoardEarning> { throw new Error("Vision Board not implemented in MemStorage"); }
   async updateVisionBoardEarning(_id: string, _updates: Partial<VisionBoardEarning>): Promise<VisionBoardEarning | undefined> { return undefined; }
   async deleteVisionBoardEarning(_id: string): Promise<boolean> { return false; }
+
+  // Conversion Settings (Pipeline Stage Management) - stubs
+  async getConversionConfig(_companyId: string): Promise<ConversionConfig | null> { return null; }
+  async createConversionConfig(_config: Omit<InsertConversionConfig, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionConfig> { throw new Error("Conversion Settings not implemented in MemStorage"); }
+  async updateConversionConfig(_id: string, _updates: Partial<ConversionConfig>): Promise<ConversionConfig | undefined> { return undefined; }
+  async deleteConversionConfig(_id: string): Promise<boolean> { return false; }
+  async getConversionStages(_configId: string): Promise<ConversionStage[]> { return []; }
+  async createConversionStage(_stage: Omit<InsertConversionStage, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionStage> { throw new Error("Conversion Settings not implemented in MemStorage"); }
+  async updateConversionStage(_id: string, _updates: Partial<ConversionStage>): Promise<ConversionStage | undefined> { return undefined; }
+  async deleteConversionStage(_id: string): Promise<boolean> { return false; }
+  async reorderConversionStages(_configId: string, _stageIds: string[]): Promise<boolean> { return false; }
+  async getConversionValue(_configId: string): Promise<ConversionValue | null> { return null; }
+  async saveConversionValue(_configId: string, _value: Omit<InsertConversionValue, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionValue> { throw new Error("Conversion Settings not implemented in MemStorage"); }
+  async getConversionIncentive(_configId: string): Promise<ConversionIncentive | null> { return null; }
+  async saveConversionIncentive(_configId: string, _incentive: Omit<InsertConversionIncentive, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionIncentive> { throw new Error("Conversion Settings not implemented in MemStorage"); }
+  async getConversionApproval(_configId: string): Promise<ConversionApproval | null> { return null; }
+  async saveConversionApproval(_configId: string, _approval: Omit<InsertConversionApproval, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionApproval> { throw new Error("Conversion Settings not implemented in MemStorage"); }
+  async getConversionPendingApprovals(_configId: string): Promise<ConversionPendingApproval[]> { return []; }
+  async createConversionPendingApproval(_approval: Omit<InsertConversionPendingApproval, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionPendingApproval> { throw new Error("Conversion Settings not implemented in MemStorage"); }
+  async updateConversionPendingApproval(_id: string, _updates: Partial<ConversionPendingApproval>): Promise<ConversionPendingApproval | undefined> { return undefined; }
+  async getConversionHistory(_configId: string, _startDate?: Date, _endDate?: Date): Promise<ConversionHistory[]> { return []; }
+  async createConversionHistory(_history: Omit<InsertConversionHistory, 'id' | 'created_at'>): Promise<ConversionHistory> { throw new Error("Conversion Settings not implemented in MemStorage"); }
+  async getConversionSettingsComplete(_companyId: string): Promise<ConversionSettingsComplete | null> { return null; }
 }
 
 // ============================================================================
@@ -9651,6 +9739,404 @@ export class PgStorage implements IStorage {
   async deleteVisionBoardEarning(id: string): Promise<boolean> {
     await db.delete(dbSchema.vision_board_earnings).where(eq(dbSchema.vision_board_earnings.id, id));
     return true;
+  }
+
+  // ============================================================================
+  // CONVERSION SETTINGS (Pipeline Stage Management)
+  // ============================================================================
+
+  private mapConversionConfig(row: any): ConversionConfig {
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      name: row.name,
+      is_active: row.is_active,
+      version: row.version,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapConversionStage(row: any): ConversionStage {
+    return {
+      id: row.id,
+      config_id: row.config_id,
+      stage_number: row.stage_number,
+      stage_name: row.stage_name,
+      trigger_type: row.trigger_type,
+      trigger_values: row.trigger_values || [],
+      color: row.color,
+      expected_conversion_percent: row.expected_conversion_percent,
+      sort_order: row.sort_order,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapConversionValue(row: any): ConversionValue {
+    return {
+      id: row.id,
+      config_id: row.config_id,
+      value_type: row.value_type,
+      fixed_amount: row.fixed_amount,
+      source_column_key: row.source_column_key,
+      default_amount: row.default_amount,
+      currency: row.currency,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapConversionIncentive(row: any): ConversionIncentive {
+    return {
+      id: row.id,
+      config_id: row.config_id,
+      incentive_type: row.incentive_type,
+      percentage_value: row.percentage_value,
+      fixed_amount: row.fixed_amount,
+      tier_rules: row.tier_rules || [],
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapConversionApproval(row: any): ConversionApproval {
+    return {
+      id: row.id,
+      config_id: row.config_id,
+      is_enabled: row.is_enabled,
+      transitions_requiring_approval: row.transitions_requiring_approval || [],
+      auto_approve_hours: row.auto_approve_hours,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapConversionPendingApproval(row: any): ConversionPendingApproval {
+    return {
+      id: row.id,
+      config_id: row.config_id,
+      lead_id: row.lead_id,
+      from_stage_number: row.from_stage_number,
+      to_stage_number: row.to_stage_number,
+      requested_by: row.requested_by,
+      status: row.status,
+      approved_by: row.approved_by,
+      approved_at: row.approved_at ? (row.approved_at instanceof Date ? row.approved_at : new Date(row.approved_at)) : null,
+      rejection_reason: row.rejection_reason,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapConversionHistory(row: any): ConversionHistory {
+    return {
+      id: row.id,
+      config_id: row.config_id,
+      lead_id: row.lead_id,
+      from_stage_number: row.from_stage_number,
+      to_stage_number: row.to_stage_number,
+      conversion_value: row.conversion_value,
+      incentive_amount: row.incentive_amount,
+      triggered_by: row.triggered_by,
+      occurred_at: row.occurred_at instanceof Date ? row.occurred_at : new Date(row.occurred_at),
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+    };
+  }
+
+  async getConversionConfig(companyId: string): Promise<ConversionConfig | null> {
+    const result = await db.select()
+      .from(dbSchema.conversion_configs)
+      .where(eq(dbSchema.conversion_configs.company_id, companyId))
+      .limit(1);
+    if (result.length === 0) return null;
+    return this.mapConversionConfig(result[0]);
+  }
+
+  async createConversionConfig(config: Omit<InsertConversionConfig, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionConfig> {
+    const id = randomUUID();
+    const now = new Date();
+    const newConfig = {
+      id,
+      ...config,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.conversion_configs).values(newConfig);
+    return this.mapConversionConfig(newConfig);
+  }
+
+  async updateConversionConfig(id: string, updates: Partial<ConversionConfig>): Promise<ConversionConfig | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    await db.update(dbSchema.conversion_configs)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.conversion_configs.id, id));
+    const result = await db.select()
+      .from(dbSchema.conversion_configs)
+      .where(eq(dbSchema.conversion_configs.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapConversionConfig(result[0]);
+  }
+
+  async deleteConversionConfig(id: string): Promise<boolean> {
+    await db.delete(dbSchema.conversion_configs).where(eq(dbSchema.conversion_configs.id, id));
+    return true;
+  }
+
+  async getConversionStages(configId: string): Promise<ConversionStage[]> {
+    const result = await db.select()
+      .from(dbSchema.conversion_stages)
+      .where(eq(dbSchema.conversion_stages.config_id, configId))
+      .orderBy(asc(dbSchema.conversion_stages.sort_order));
+    return result.map(row => this.mapConversionStage(row));
+  }
+
+  async createConversionStage(stage: Omit<InsertConversionStage, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionStage> {
+    const id = randomUUID();
+    const now = new Date();
+    const newStage = {
+      id,
+      ...stage,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.conversion_stages).values(newStage);
+    return this.mapConversionStage(newStage);
+  }
+
+  async updateConversionStage(id: string, updates: Partial<ConversionStage>): Promise<ConversionStage | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    await db.update(dbSchema.conversion_stages)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.conversion_stages.id, id));
+    const result = await db.select()
+      .from(dbSchema.conversion_stages)
+      .where(eq(dbSchema.conversion_stages.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapConversionStage(result[0]);
+  }
+
+  async deleteConversionStage(id: string): Promise<boolean> {
+    await db.delete(dbSchema.conversion_stages).where(eq(dbSchema.conversion_stages.id, id));
+    return true;
+  }
+
+  async reorderConversionStages(configId: string, stageIds: string[]): Promise<boolean> {
+    for (let i = 0; i < stageIds.length; i++) {
+      await db.update(dbSchema.conversion_stages)
+        .set({ sort_order: i, updated_at: new Date() })
+        .where(and(
+          eq(dbSchema.conversion_stages.id, stageIds[i]),
+          eq(dbSchema.conversion_stages.config_id, configId)
+        ));
+    }
+    return true;
+  }
+
+  async getConversionValue(configId: string): Promise<ConversionValue | null> {
+    const result = await db.select()
+      .from(dbSchema.conversion_values)
+      .where(eq(dbSchema.conversion_values.config_id, configId))
+      .limit(1);
+    if (result.length === 0) return null;
+    return this.mapConversionValue(result[0]);
+  }
+
+  async saveConversionValue(configId: string, value: Omit<InsertConversionValue, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionValue> {
+    const existing = await this.getConversionValue(configId);
+    const now = new Date();
+    
+    if (existing) {
+      await db.update(dbSchema.conversion_values)
+        .set({ ...value, updated_at: now })
+        .where(eq(dbSchema.conversion_values.config_id, configId));
+      const result = await db.select()
+        .from(dbSchema.conversion_values)
+        .where(eq(dbSchema.conversion_values.config_id, configId))
+        .limit(1);
+      return this.mapConversionValue(result[0]);
+    } else {
+      const id = randomUUID();
+      const newValue = {
+        id,
+        config_id: configId,
+        ...value,
+        created_at: now,
+        updated_at: now,
+      };
+      await db.insert(dbSchema.conversion_values).values(newValue);
+      return this.mapConversionValue(newValue);
+    }
+  }
+
+  async getConversionIncentive(configId: string): Promise<ConversionIncentive | null> {
+    const result = await db.select()
+      .from(dbSchema.conversion_incentives)
+      .where(eq(dbSchema.conversion_incentives.config_id, configId))
+      .limit(1);
+    if (result.length === 0) return null;
+    return this.mapConversionIncentive(result[0]);
+  }
+
+  async saveConversionIncentive(configId: string, incentive: Omit<InsertConversionIncentive, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionIncentive> {
+    const existing = await this.getConversionIncentive(configId);
+    const now = new Date();
+    
+    if (existing) {
+      await db.update(dbSchema.conversion_incentives)
+        .set({ ...incentive, updated_at: now })
+        .where(eq(dbSchema.conversion_incentives.config_id, configId));
+      const result = await db.select()
+        .from(dbSchema.conversion_incentives)
+        .where(eq(dbSchema.conversion_incentives.config_id, configId))
+        .limit(1);
+      return this.mapConversionIncentive(result[0]);
+    } else {
+      const id = randomUUID();
+      const newIncentive = {
+        id,
+        config_id: configId,
+        ...incentive,
+        created_at: now,
+        updated_at: now,
+      };
+      await db.insert(dbSchema.conversion_incentives).values(newIncentive);
+      return this.mapConversionIncentive(newIncentive);
+    }
+  }
+
+  async getConversionApproval(configId: string): Promise<ConversionApproval | null> {
+    const result = await db.select()
+      .from(dbSchema.conversion_approvals)
+      .where(eq(dbSchema.conversion_approvals.config_id, configId))
+      .limit(1);
+    if (result.length === 0) return null;
+    return this.mapConversionApproval(result[0]);
+  }
+
+  async saveConversionApproval(configId: string, approval: Omit<InsertConversionApproval, 'id' | 'config_id' | 'created_at' | 'updated_at'>): Promise<ConversionApproval> {
+    const existing = await this.getConversionApproval(configId);
+    const now = new Date();
+    
+    if (existing) {
+      await db.update(dbSchema.conversion_approvals)
+        .set({ ...approval, updated_at: now })
+        .where(eq(dbSchema.conversion_approvals.config_id, configId));
+      const result = await db.select()
+        .from(dbSchema.conversion_approvals)
+        .where(eq(dbSchema.conversion_approvals.config_id, configId))
+        .limit(1);
+      return this.mapConversionApproval(result[0]);
+    } else {
+      const id = randomUUID();
+      const newApproval = {
+        id,
+        config_id: configId,
+        ...approval,
+        created_at: now,
+        updated_at: now,
+      };
+      await db.insert(dbSchema.conversion_approvals).values(newApproval);
+      return this.mapConversionApproval(newApproval);
+    }
+  }
+
+  async getConversionPendingApprovals(configId: string): Promise<ConversionPendingApproval[]> {
+    const result = await db.select()
+      .from(dbSchema.conversion_pending_approvals)
+      .where(and(
+        eq(dbSchema.conversion_pending_approvals.config_id, configId),
+        eq(dbSchema.conversion_pending_approvals.status, 'pending')
+      ))
+      .orderBy(desc(dbSchema.conversion_pending_approvals.created_at));
+    return result.map(row => this.mapConversionPendingApproval(row));
+  }
+
+  async createConversionPendingApproval(approval: Omit<InsertConversionPendingApproval, 'id' | 'created_at' | 'updated_at'>): Promise<ConversionPendingApproval> {
+    const id = randomUUID();
+    const now = new Date();
+    const newApproval = {
+      id,
+      ...approval,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.conversion_pending_approvals).values(newApproval);
+    return this.mapConversionPendingApproval(newApproval);
+  }
+
+  async updateConversionPendingApproval(id: string, updates: Partial<ConversionPendingApproval>): Promise<ConversionPendingApproval | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    if (updates.approved_at && typeof updates.approved_at === 'string') {
+      convertedUpdates.approved_at = new Date(updates.approved_at);
+    }
+    await db.update(dbSchema.conversion_pending_approvals)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.conversion_pending_approvals.id, id));
+    const result = await db.select()
+      .from(dbSchema.conversion_pending_approvals)
+      .where(eq(dbSchema.conversion_pending_approvals.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapConversionPendingApproval(result[0]);
+  }
+
+  async getConversionHistory(configId: string, startDate?: Date, endDate?: Date): Promise<ConversionHistory[]> {
+    let query = db.select()
+      .from(dbSchema.conversion_history)
+      .where(eq(dbSchema.conversion_history.config_id, configId));
+    
+    if (startDate && endDate) {
+      query = db.select()
+        .from(dbSchema.conversion_history)
+        .where(and(
+          eq(dbSchema.conversion_history.config_id, configId),
+          gte(dbSchema.conversion_history.occurred_at, startDate),
+          lte(dbSchema.conversion_history.occurred_at, endDate)
+        ));
+    }
+    
+    const result = await query.orderBy(desc(dbSchema.conversion_history.occurred_at));
+    return result.map(row => this.mapConversionHistory(row));
+  }
+
+  async createConversionHistory(history: Omit<InsertConversionHistory, 'id' | 'created_at'>): Promise<ConversionHistory> {
+    const id = randomUUID();
+    const now = new Date();
+    const newHistory = {
+      id,
+      ...history,
+      occurred_at: history.occurred_at instanceof Date ? history.occurred_at : new Date(history.occurred_at as any),
+      created_at: now,
+    };
+    await db.insert(dbSchema.conversion_history).values(newHistory);
+    return this.mapConversionHistory(newHistory);
+  }
+
+  async getConversionSettingsComplete(companyId: string): Promise<ConversionSettingsComplete | null> {
+    const config = await this.getConversionConfig(companyId);
+    if (!config) return null;
+    
+    const stages = await this.getConversionStages(config.id);
+    const value = await this.getConversionValue(config.id);
+    const incentive = await this.getConversionIncentive(config.id);
+    const approval = await this.getConversionApproval(config.id);
+    
+    return {
+      config,
+      stages,
+      value,
+      incentive,
+      approval,
+    };
   }
 }
 
