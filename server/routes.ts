@@ -20773,7 +20773,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const stageMetrics = settings.stages.map(stage => {
         let stageCount = 0;
         
-        if (stage.trigger_type === 'lead_status') {
+        if (stage.trigger_type === 'all_leads') {
+          // Count all leads created in the period
+          stageCount = leads.length;
+        } else if (stage.trigger_type === 'lead_status') {
           stageCount = leads.filter(lead => 
             stage.trigger_values.includes(lead.lead_status)
           ).length;

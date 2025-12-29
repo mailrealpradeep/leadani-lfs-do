@@ -4302,7 +4302,7 @@ export const conversion_stages = pgTable('conversion_stages', {
   config_id: varchar('config_id').notNull().references(() => conversion_configs.id, { onDelete: 'cascade' }),
   stage_number: integer('stage_number').notNull(), // 1, 2, 3, 4...
   stage_name: varchar('stage_name', { length: 100 }).notNull(), // e.g., "New Lead", "Visited"
-  trigger_type: varchar('trigger_type', { length: 50 }).notNull().default('lead_status'), // 'lead_status' | 'visit_status' | 'combined'
+  trigger_type: varchar('trigger_type', { length: 50 }).notNull().default('lead_status'), // 'all_leads' | 'lead_status' | 'visit_status' | 'combined'
   trigger_values: json('trigger_values').$type<string[]>().notNull().default([]), // Dropdown values that activate this stage
   color: varchar('color', { length: 20 }).notNull().default('#3B82F6'), // Stage color for visualization
   expected_conversion_percent: doublePrecision('expected_conversion_percent').notNull().default(0), // Expected % to next stage

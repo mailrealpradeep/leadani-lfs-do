@@ -91,7 +91,7 @@ export default function ConversionSettings() {
   const [editingStage, setEditingStage] = useState<Partial<ConversionStage> | null>(null);
   const [isAddingStage, setIsAddingStage] = useState(false);
   const [newStageName, setNewStageName] = useState("");
-  const [newStageTriggerType, setNewStageTriggerType] = useState<"lead_status" | "visit_status" | "combined">("lead_status");
+  const [newStageTriggerType, setNewStageTriggerType] = useState<"all_leads" | "lead_status" | "visit_status" | "combined">("lead_status");
   const [newStageTriggerValues, setNewStageTriggerValues] = useState<string[]>([]);
   const [newStageColor, setNewStageColor] = useState(DEFAULT_STAGE_COLORS[0]);
   const [newStageExpectedPercent, setNewStageExpectedPercent] = useState<string>("");
@@ -815,38 +815,44 @@ export default function ConversionSettings() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="all_leads">All Leads Created</SelectItem>
                       <SelectItem value="lead_status">Lead Status</SelectItem>
                       <SelectItem value="visit_status">Visit Status</SelectItem>
                       <SelectItem value="combined">Combined</SelectItem>
                     </SelectContent>
                   </Select>
+                  {newStageTriggerType === 'all_leads' && (
+                    <p className="text-xs text-muted-foreground mt-1">Counts all leads created in the selected period</p>
+                  )}
                 </div>
 
-                <div>
-                  <Label>Trigger Values</Label>
-                  <div className="grid grid-cols-2 gap-2 mt-2 max-h-40 overflow-y-auto">
-                    {(newStageTriggerType === 'lead_status' ? leadStatusOptions :
-                      newStageTriggerType === 'visit_status' ? visitStatusOptions :
-                      [...leadStatusOptions, ...visitStatusOptions]
-                    ).map((opt) => (
-                      <label key={opt.id} className="flex items-center gap-2 p-2 rounded border cursor-pointer hover:bg-muted/50">
-                        <input
-                          type="checkbox"
-                          checked={newStageTriggerValues.includes(opt.value)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewStageTriggerValues([...newStageTriggerValues, opt.value]);
-                            } else {
-                              setNewStageTriggerValues(newStageTriggerValues.filter(v => v !== opt.value));
-                            }
-                          }}
-                          className="rounded"
-                        />
-                        <span className="text-sm truncate">{opt.value}</span>
-                      </label>
-                    ))}
+                {newStageTriggerType !== 'all_leads' && (
+                  <div>
+                    <Label>Trigger Values</Label>
+                    <div className="grid grid-cols-2 gap-2 mt-2 max-h-40 overflow-y-auto">
+                      {(newStageTriggerType === 'lead_status' ? leadStatusOptions :
+                        newStageTriggerType === 'visit_status' ? visitStatusOptions :
+                        [...leadStatusOptions, ...visitStatusOptions]
+                      ).map((opt) => (
+                        <label key={opt.id} className="flex items-center gap-2 p-2 rounded border cursor-pointer hover:bg-muted/50">
+                          <input
+                            type="checkbox"
+                            checked={newStageTriggerValues.includes(opt.value)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setNewStageTriggerValues([...newStageTriggerValues, opt.value]);
+                              } else {
+                                setNewStageTriggerValues(newStageTriggerValues.filter(v => v !== opt.value));
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm truncate">{opt.value}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
