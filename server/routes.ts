@@ -20447,6 +20447,344 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // CONVERSION SETTINGS (Pipeline Stage Management) - Admin Only
+  // ============================================================================
+
+  // Get conversion settings complete configuration
+  app.get("/api/conversion-settings", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const settings = await storage.getConversionSettingsComplete(req.companyId);
+      res.json(settings || { config: null, stages: [], value: null, incentive: null, approval: null });
+    } catch (error: any) {
+      console.error("Error fetching conversion settings:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create or update conversion config
+  app.post("/api/conversion-settings/config", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const { name, is_active } = req.body;
+      const existing = await storage.getConversionConfig(req.companyId);
+      
+      if (existing) {
+        const updated = await storage.updateConversionConfig(existing.id, { name, is_active });
+        res.json(updated);
+      } else {
+        const created = await storage.createConversionConfig({
+          company_id: req.companyId,
+          name: name || 'Default Pipeline',
+          is_active: is_active ?? true,
+          version: 1,
+        });
+        res.json(created);
+      }
+    } catch (error: any) {
+      console.error("Error saving conversion config:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update conversion config
+  app.put("/api/conversion-settings/config/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      const updated = await storage.updateConversionConfig(id, updates);
+      if (!updated) {
+        return res.status(404).json({ error: "Config not found" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating conversion config:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete conversion config
+  app.delete("/api/conversion-settings/config/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteConversionConfig(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting conversion config:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all stages for a config
+  app.get("/api/conversion-settings/stages/:configId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { configId } = req.params;
+      const stages = await storage.getConversionStages(configId);
+      res.json(stages);
+    } catch (error: any) {
+      console.error("Error fetching conversion stages:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new stage
+  app.post("/api/conversion-settings/stages", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { config_id, stage_number, stage_name, trigger_type, trigger_values, color, expected_conversion_percent, sort_order } = req.body;
+      const stage = await storage.createConversionStage({
+        config_id,
+        stage_number,
+        stage_name,
+        trigger_type: trigger_type || 'lead_status',
+        trigger_values: trigger_values || [],
+        color: color || '#3B82F6',
+        expected_conversion_percent: expected_conversion_percent || null,
+        sort_order: sort_order ?? 0,
+      });
+      res.json(stage);
+    } catch (error: any) {
+      console.error("Error creating conversion stage:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a stage
+  app.put("/api/conversion-settings/stages/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      const updated = await storage.updateConversionStage(id, updates);
+      if (!updated) {
+        return res.status(404).json({ error: "Stage not found" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating conversion stage:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a stage
+  app.delete("/api/conversion-settings/stages/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteConversionStage(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting conversion stage:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Reorder stages
+  app.post("/api/conversion-settings/stages/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { config_id, stage_ids } = req.body;
+      await storage.reorderConversionStages(config_id, stage_ids);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error reordering conversion stages:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Save conversion value settings
+  app.post("/api/conversion-settings/value", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { config_id, value_type, fixed_amount, source_column_key, default_amount, currency } = req.body;
+      const value = await storage.saveConversionValue(config_id, {
+        value_type,
+        fixed_amount: fixed_amount || null,
+        source_column_key: source_column_key || null,
+        default_amount: default_amount || null,
+        currency: currency || 'INR',
+      });
+      res.json(value);
+    } catch (error: any) {
+      console.error("Error saving conversion value:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Save conversion incentive settings
+  app.post("/api/conversion-settings/incentive", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { config_id, incentive_type, percentage_value, fixed_amount, tier_rules } = req.body;
+      const incentive = await storage.saveConversionIncentive(config_id, {
+        incentive_type,
+        percentage_value: percentage_value || null,
+        fixed_amount: fixed_amount || null,
+        tier_rules: tier_rules || [],
+      });
+      res.json(incentive);
+    } catch (error: any) {
+      console.error("Error saving conversion incentive:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Save conversion approval settings
+  app.post("/api/conversion-settings/approval", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { config_id, is_enabled, transitions_requiring_approval, auto_approve_hours } = req.body;
+      const approval = await storage.saveConversionApproval(config_id, {
+        is_enabled: is_enabled ?? false,
+        transitions_requiring_approval: transitions_requiring_approval || [],
+        auto_approve_hours: auto_approve_hours || null,
+      });
+      res.json(approval);
+    } catch (error: any) {
+      console.error("Error saving conversion approval:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get pending approvals
+  app.get("/api/conversion-settings/pending-approvals/:configId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { configId } = req.params;
+      const approvals = await storage.getConversionPendingApprovals(configId);
+      res.json(approvals);
+    } catch (error: any) {
+      console.error("Error fetching pending approvals:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Approve or reject a pending approval
+  app.put("/api/conversion-settings/pending-approvals/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { status, rejection_reason } = req.body;
+      const updated = await storage.updateConversionPendingApproval(id, {
+        status,
+        approved_by: req.userId,
+        approved_at: new Date(),
+        rejection_reason: rejection_reason || null,
+      });
+      if (!updated) {
+        return res.status(404).json({ error: "Pending approval not found" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating pending approval:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get conversion history
+  app.get("/api/conversion-settings/history/:configId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { configId } = req.params;
+      const { startDate, endDate } = req.query;
+      const history = await storage.getConversionHistory(
+        configId,
+        startDate ? new Date(startDate as string) : undefined,
+        endDate ? new Date(endDate as string) : undefined
+      );
+      res.json(history);
+    } catch (error: any) {
+      console.error("Error fetching conversion history:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get pipeline analytics (stage counts based on sheet data)
+  app.get("/api/conversion-settings/analytics", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { startDate, endDate, sheetIds } = req.query;
+      const settings = await storage.getConversionSettingsComplete(req.companyId);
+      
+      if (!settings || !settings.config) {
+        return res.json({ stages: [], total_leads: 0, period_start: null, period_end: null });
+      }
+
+      // Get sheets to analyze
+      let sheets = await storage.getSheetsByCompanyId(req.companyId);
+      if (sheetIds) {
+        const selectedIds = (sheetIds as string).split(',');
+        sheets = sheets.filter(s => selectedIds.includes(s.id));
+      }
+      const sheetIdList = sheets.map(s => s.id);
+
+      // Get all leads from these sheets
+      let leads: any[] = [];
+      for (const sheetId of sheetIdList) {
+        const sheetLeads = await storage.getLeadsBySheetId(sheetId);
+        leads = leads.concat(sheetLeads.filter(l => !l.deleted_at));
+      }
+
+      // Filter by date if provided
+      if (startDate && endDate) {
+        const start = new Date(startDate as string);
+        const end = new Date(endDate as string);
+        leads = leads.filter(lead => {
+          const createdAt = new Date(lead.created_at);
+          return createdAt >= start && createdAt <= end;
+        });
+      }
+
+      // Get dropdown options for Lead Status and Visit Status
+      const leadStatusOptions = await storage.getDropdownOptionsByCompanyAndColumn(req.companyId, 'lead_status');
+      const visitStatusOptions = await storage.getDropdownOptionsByCompanyAndColumn(req.companyId, 'visit_status');
+
+      // Calculate stage metrics
+      const stageMetrics = settings.stages.map(stage => {
+        let stageCount = 0;
+        
+        if (stage.trigger_type === 'lead_status') {
+          stageCount = leads.filter(lead => 
+            stage.trigger_values.includes(lead.lead_status)
+          ).length;
+        } else if (stage.trigger_type === 'visit_status') {
+          stageCount = leads.filter(lead => 
+            stage.trigger_values.includes(lead.visit_status)
+          ).length;
+        } else if (stage.trigger_type === 'combined') {
+          stageCount = leads.filter(lead => 
+            stage.trigger_values.includes(lead.lead_status) || 
+            stage.trigger_values.includes(lead.visit_status)
+          ).length;
+        }
+
+        const actualPercent = leads.length > 0 ? (stageCount / leads.length) * 100 : 0;
+
+        return {
+          stage_id: stage.id,
+          stage_number: stage.stage_number,
+          stage_name: stage.stage_name,
+          color: stage.color,
+          expected_percent: stage.expected_conversion_percent || 0,
+          actual_percent: Math.round(actualPercent * 10) / 10,
+          count: stageCount,
+          variance: stage.expected_conversion_percent 
+            ? Math.round((actualPercent - stage.expected_conversion_percent) * 10) / 10 
+            : 0,
+        };
+      });
+
+      res.json({
+        stages: stageMetrics,
+        total_leads: leads.length,
+        period_start: startDate || null,
+        period_end: endDate || null,
+        sheets_analyzed: sheets.length,
+      });
+    } catch (error: any) {
+      console.error("Error fetching pipeline analytics:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup

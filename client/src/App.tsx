@@ -56,6 +56,7 @@ import PowerScore from "@/pages/powerscore";
 import PowerScoreTransactions from "@/pages/powerscore-transactions";
 import PowerFlow from "@/pages/powerflow";
 import VisionBoard from "@/pages/vision-board";
+import ConversionSettings from "@/pages/conversion-settings";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -162,6 +163,9 @@ function Router() {
       </Route>
       <Route path="/vision-board">
         {() => <ProtectedRoute component={VisionBoard} />}
+      </Route>
+      <Route path="/conversion-settings">
+        {() => <ProtectedRoute component={ConversionSettings} adminOnly />}
       </Route>
       <Route path="/custom-view/:viewId">
         {() => <ProtectedRoute component={CustomViewPage} />}
