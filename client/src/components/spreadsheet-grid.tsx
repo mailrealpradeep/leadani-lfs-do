@@ -3062,6 +3062,7 @@ export function SpreadsheetGrid({
           queryKeysToInvalidate={[
             ["/api/sheets", activeSheetId, "leads-infinite"],
             ["/api/leads/query-infinite"],
+            ...(customViewId ? [["/api/custom-views", customViewId, "leads"]] : []),
           ]}
           onComplete={() => {
             setPendingTransition(null);
