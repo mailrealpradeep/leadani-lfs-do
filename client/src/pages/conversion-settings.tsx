@@ -59,12 +59,18 @@ interface StageMetrics {
   expected_percent: number;
   actual_percent: number;
   count: number;
+  value: number;
+  incentives: number;
   variance: number;
 }
 
 interface AnalyticsResponse {
   stages: StageMetrics[];
   total_leads: number;
+  total_conversions: number;
+  total_value: number;
+  total_incentives: number;
+  currency: string;
   period_start: string | null;
   period_end: string | null;
   sheets_analyzed: number;
@@ -443,17 +449,17 @@ export default function ConversionSettings() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
+          className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
         >
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Total Leads</p>
-                  <p className="text-3xl font-bold" data-testid="text-total-leads">{analytics.total_leads.toLocaleString()}</p>
+                  <p className="text-2xl font-bold" data-testid="text-total-leads">{analytics.total_leads.toLocaleString()}</p>
                 </div>
                 <div className="p-3 rounded-full bg-primary/10">
-                  <BarChart3 className="w-6 h-6 text-primary" />
+                  <BarChart3 className="w-5 h-5 text-primary" />
                 </div>
               </div>
             </CardContent>
@@ -463,25 +469,57 @@ export default function ConversionSettings() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Active Stages</p>
-                  <p className="text-3xl font-bold" data-testid="text-stage-count">{settings.stages.length}</p>
-                </div>
-                <div className="p-3 rounded-full bg-blue-500/10">
-                  <Layers className="w-6 h-6 text-blue-500" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Sheets Analyzed</p>
-                  <p className="text-3xl font-bold" data-testid="text-sheets-count">{analytics.sheets_analyzed}</p>
+                  <p className="text-sm text-muted-foreground">Conversions</p>
+                  <p className="text-2xl font-bold text-green-600" data-testid="text-conversions">{analytics.total_conversions.toLocaleString()}</p>
                 </div>
                 <div className="p-3 rounded-full bg-green-500/10">
-                  <Target className="w-6 h-6 text-green-500" />
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Pipeline Value</p>
+                  <p className="text-2xl font-bold text-emerald-600" data-testid="text-total-value">
+                    {analytics.currency} {analytics.total_value.toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-3 rounded-full bg-emerald-500/10">
+                  <DollarSign className="w-5 h-5 text-emerald-500" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Incentives</p>
+                  <p className="text-2xl font-bold text-amber-600" data-testid="text-total-incentives">
+                    {analytics.currency} {analytics.total_incentives.toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-3 rounded-full bg-amber-500/10">
+                  <Award className="w-5 h-5 text-amber-500" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Sheets</p>
+                  <p className="text-2xl font-bold" data-testid="text-sheets-count">{analytics.sheets_analyzed}</p>
+                </div>
+                <div className="p-3 rounded-full bg-blue-500/10">
+                  <Layers className="w-5 h-5 text-blue-500" />
                 </div>
               </div>
             </CardContent>
@@ -494,8 +532,8 @@ export default function ConversionSettings() {
                   <p className="text-sm text-muted-foreground">Period</p>
                   <p className="text-lg font-semibold capitalize" data-testid="text-period">{dateFilter.replace(/_/g, ' ')}</p>
                 </div>
-                <div className="p-3 rounded-full bg-amber-500/10">
-                  <Clock className="w-6 h-6 text-amber-500" />
+                <div className="p-3 rounded-full bg-purple-500/10">
+                  <Clock className="w-5 h-5 text-purple-500" />
                 </div>
               </div>
             </CardContent>
@@ -517,65 +555,94 @@ export default function ConversionSettings() {
           </CardHeader>
           <CardContent>
             <div className="flex items-stretch gap-2 overflow-x-auto pb-4">
-              {analytics.stages.map((stage, index) => (
-                <motion.div
-                  key={stage.stage_id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="flex-1 min-w-[180px]"
-                >
-                  <div 
-                    className="relative p-4 rounded-lg border-2 h-full"
-                    style={{ borderColor: stage.color, backgroundColor: `${stage.color}10` }}
+              {analytics.stages.map((stage, index) => {
+                const isFinalStage = index === analytics.stages.length - 1;
+                return (
+                  <motion.div
+                    key={stage.stage_id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="flex-1 min-w-[200px]"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <Badge 
-                        variant="outline" 
-                        style={{ borderColor: stage.color, color: stage.color }}
-                      >
-                        Stage {stage.stage_number}
-                      </Badge>
-                      {stage.variance !== 0 && (
-                        <div className={`flex items-center gap-1 text-xs ${stage.variance > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {stage.variance > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                          {Math.abs(stage.variance)}%
+                    <div 
+                      className="relative p-4 rounded-lg border-2 h-full"
+                      style={{ borderColor: stage.color, backgroundColor: `${stage.color}10` }}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <Badge 
+                          variant="outline" 
+                          style={{ borderColor: stage.color, color: stage.color }}
+                        >
+                          Stage {stage.stage_number}
+                        </Badge>
+                        {stage.variance !== 0 && (
+                          <div className={`flex items-center gap-1 text-xs ${stage.variance > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {stage.variance > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                            {Math.abs(stage.variance)}%
+                          </div>
+                        )}
+                      </div>
+                      
+                      <h3 className="font-semibold mb-2 truncate" title={stage.stage_name}>
+                        {stage.stage_name}
+                      </h3>
+                      
+                      <div className="space-y-3">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-2xl font-bold" style={{ color: stage.color }}>
+                            {stage.count.toLocaleString()}
+                          </span>
+                          <span className="text-sm text-muted-foreground">leads</span>
+                        </div>
+
+                        {/* Value for this stage */}
+                        {stage.value > 0 && (
+                          <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
+                            <span className="text-muted-foreground flex items-center gap-1">
+                              <DollarSign className="w-3 h-3" />
+                              Value
+                            </span>
+                            <span className="font-semibold text-emerald-600">
+                              {analytics.currency} {stage.value.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Incentives (only for final stage) */}
+                        {isFinalStage && stage.incentives > 0 && (
+                          <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
+                            <span className="text-muted-foreground flex items-center gap-1">
+                              <Award className="w-3 h-3" />
+                              Incentives
+                            </span>
+                            <span className="font-semibold text-amber-600">
+                              {analytics.currency} {stage.incentives.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                        
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <p className="text-muted-foreground">Expected</p>
+                            <p className="font-medium">{stage.expected_percent}%</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Actual</p>
+                            <p className="font-medium">{stage.actual_percent}%</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {index < analytics.stages.length - 1 && (
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-10">
+                          <ArrowRight className="w-4 h-4 text-muted-foreground" />
                         </div>
                       )}
                     </div>
-                    
-                    <h3 className="font-semibold mb-2 truncate" title={stage.stage_name}>
-                      {stage.stage_name}
-                    </h3>
-                    
-                    <div className="space-y-2">
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-2xl font-bold" style={{ color: stage.color }}>
-                          {stage.count.toLocaleString()}
-                        </span>
-                        <span className="text-sm text-muted-foreground">leads</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <p className="text-muted-foreground">Expected</p>
-                          <p className="font-medium">{stage.expected_percent}%</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Actual</p>
-                          <p className="font-medium">{stage.actual_percent}%</p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {index < analytics.stages.length - 1 && (
-                      <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-10">
-                        <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
