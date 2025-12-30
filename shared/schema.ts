@@ -776,7 +776,7 @@ export interface GlobalReportSummary {
 // UTILITY: Default Columns for New Companies
 // ============================================================================
 // System column keys that cannot be deleted - these are always present for all companies
-export const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at", "attended_at"] as const;
+export const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at", "attended_at", "closing_value"] as const;
 
 export function getDefaultColumnsForCompany(companyId: string): InsertCustomColumn[] {
   return [
@@ -819,11 +819,20 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
     {
       company_id: companyId,
       sheet_id: null,
+      name: "Closing Value",
+      column_key: "closing_value",
+      type: "number" as const,
+      config: { is_system_column: true, default_value: 0 },
+      order_index: 4,
+    },
+    {
+      company_id: companyId,
+      sheet_id: null,
       name: "Phone",
       column_key: "phone",
       type: "text" as const,
       config: {},
-      order_index: 4,
+      order_index: 5,
     },
     {
       company_id: companyId,
@@ -832,7 +841,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "email",
       type: "text" as const,
       config: {},
-      order_index: 5,
+      order_index: 6,
     },
     {
       company_id: companyId,
@@ -843,7 +852,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       config: {
         dropdown_options: ["New", "Contacted", "Qualified", "Closed", "Lost"],
       },
-      order_index: 6,
+      order_index: 7,
     },
     {
       company_id: companyId,
@@ -854,7 +863,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       config: {
         dropdown_options: ["High", "Medium", "Low"],
       },
-      order_index: 7,
+      order_index: 8,
     },
     {
       company_id: companyId,
@@ -863,7 +872,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
       column_key: "notes",
       type: "text" as const,
       config: {},
-      order_index: 8,
+      order_index: 9,
     },
   ];
 }

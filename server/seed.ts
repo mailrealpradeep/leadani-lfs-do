@@ -302,3 +302,41 @@ export async function seedData() {
   console.log("  User 1 (Acme): alice@acme.com / password123");
   console.log("  User 2 (Acme): bob@acme.com / password123");
 }
+
+// Function to add closing_value system column to all existing companies
+export async function seedClosingValueColumn() {
+  console.log("[Seed] Adding closing_value system column to existing companies...");
+  
+  // Get all companies
+  const companies = await storage.getAllCompanies();
+  let created = 0;
+  let skipped = 0;
+  
+  for (const company of companies) {
+    // Check if closing_value column already exists for this company
+    const existingColumns = await storage.getCustomColumnsByCompany(company.id);
+    const hasClosingValue = existingColumns.some(col => col.column_key === 'closing_value');
+    
+    if (hasClosingValue) {
+      skipped++;
+      continue;
+    }
+    
+    // Find the highest order_index to append the new column
+    const maxOrderIndex = existingColumns.reduce((max, col) => Math.max(max, col.order_index || 0), 0);
+    
+    // Create the closing_value column for this company
+    await storage.createCustomColumn({
+      company_id: company.id,
+      sheet_id: null, // company-wide
+      name: "Closing Value",
+      column_key: "closing_value",
+      type: "number" as const,
+      config: { is_system_column: true, default_value: 0 },
+      order_index: maxOrderIndex + 1,
+    });
+    created++;
+  }
+  
+  console.log(`[Seed] Closing Value column: Created for ${created} companies, Skipped ${skipped} (already exists)`);
+}

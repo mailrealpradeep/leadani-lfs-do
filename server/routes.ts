@@ -12,7 +12,7 @@ import crypto from "crypto";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths, startOfWeek, endOfWeek, subWeeks } from "date-fns";
 import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartOfDayInTimezone, getEndOfDayInTimezone, getYesterdayRangeInTimezone, getMonthRangeInTimezone } from "./timezone-utils";
-import { seedData } from "./seed";
+import { seedData, seedClosingValueColumn } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition } from "@shared/schema";
@@ -315,6 +315,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await seedSystemValueDefinitions();
   } catch (error) {
     console.error("Failed to seed system value definitions:", error);
+  }
+
+  // Add closing_value system column to existing companies
+  try {
+    await seedClosingValueColumn();
+  } catch (error) {
+    console.error("Failed to seed closing_value column:", error);
   }
 
   // Socket.io connection handling with company isolation
@@ -20809,18 +20816,31 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Helper function to calculate lead value
       const getLeadValue = (lead: any): number => {
-        if (!valueConfig) return 0;
+        // First, check the closing_value system column (custom_fields is where dynamic values are stored)
+        const closingValue = lead.custom_fields?.closing_value;
         
-        if (valueConfig.value_type === 'fixed') {
-          return valueConfig.fixed_amount || 0;
-        } else if (valueConfig.value_type === 'from_field' && valueConfig.source_column_key) {
-          // Get value from lead's custom_fields or direct field
-          const fieldValue = lead.custom_fields?.[valueConfig.source_column_key] 
-            || lead[valueConfig.source_column_key];
-          const parsed = parseFloat(fieldValue);
-          return isNaN(parsed) ? (valueConfig.default_amount || 0) : parsed;
+        // If closing_value has a valid value, use it
+        if (closingValue !== null && closingValue !== undefined && closingValue !== '') {
+          // Remove currency symbols, commas, and other non-numeric characters (except decimal point and minus)
+          const cleanValue = String(closingValue).replace(/[^\d.-]/g, '');
+          const parsed = parseFloat(cleanValue);
+          // Allow any valid number including 0
+          if (!isNaN(parsed)) {
+            return parsed;
+          }
         }
-        return valueConfig.default_amount || 0;
+        
+        // Fall back to valueConfig settings if closing_value is not set
+        if (valueConfig) {
+          // If fixed value type, use the fixed amount
+          if (valueConfig.value_type === 'fixed' && valueConfig.fixed_amount) {
+            return valueConfig.fixed_amount;
+          }
+          // Use default_amount as final fallback
+          return valueConfig.default_amount || 0;
+        }
+        
+        return 0;
       };
 
       // Helper function to calculate incentive for a value
