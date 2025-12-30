@@ -480,6 +480,24 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 }}
                 initialFocus
               />
+              <div className="p-3 border-t flex items-center justify-between gap-2">
+                {dateValue && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      handleFieldChange(column.column_key, "");
+                      setEditingField(null);
+                    }}
+                    data-testid={`button-clear-date-${column.column_key}`}
+                  >
+                    Clear
+                  </Button>
+                )}
+                <div className="flex-1" />
+                <Button size="sm" onClick={() => setEditingField(null)}>Done</Button>
+              </div>
             </PopoverContent>
           </Popover>
         );
@@ -512,6 +530,21 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 initialFocus
               />
               <div className="p-3 border-t flex items-center gap-2">
+                {datetimeValue && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      handleFieldChange(column.column_key, "");
+                      setEditingField(null);
+                    }}
+                    data-testid={`button-clear-datetime-${column.column_key}`}
+                  >
+                    Clear
+                  </Button>
+                )}
+                <div className="flex-1" />
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <Input
                   type="time"
