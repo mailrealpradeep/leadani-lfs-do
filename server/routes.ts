@@ -20853,8 +20853,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         ? settings.stages.reduce((max, s) => s.stage_number > max.stage_number ? s : max, settings.stages[0])
         : null;
 
-      // Calculate stage metrics with values
-      const stageMetrics = settings.stages.map(stage => {
+      // Sort stages by stage_number to calculate sequential conversion rates
+      const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+      
+      // First pass: calculate counts and values for all stages
+      const stageData = sortedStages.map(stage => {
         let stageLeads: any[] = [];
         
         if (stage.trigger_type === 'all_leads') {
@@ -20879,28 +20882,44 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
 
         const stageCount = stageLeads.length;
-        const actualPercent = leads.length > 0 ? (stageCount / leads.length) * 100 : 0;
-
-        // Calculate value for leads in this stage
         const stageValue = stageLeads.reduce((sum, lead) => sum + getLeadValue(lead), 0);
-        
-        // Calculate incentives only for final stage
         const stageIncentives = (finalStage && stage.stage_number === finalStage.stage_number)
           ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
           : 0;
 
         return {
-          stage_id: stage.id,
-          stage_number: stage.stage_number,
-          stage_name: stage.stage_name,
-          color: stage.color,
-          expected_percent: stage.expected_conversion_percent || 0,
-          actual_percent: Math.round(actualPercent * 10) / 10,
+          stage,
           count: stageCount,
-          value: Math.round(stageValue * 100) / 100,
-          incentives: Math.round(stageIncentives * 100) / 100,
-          variance: stage.expected_conversion_percent 
-            ? Math.round((actualPercent - stage.expected_conversion_percent) * 10) / 10 
+          value: stageValue,
+          incentives: stageIncentives,
+        };
+      });
+
+      // Second pass: calculate actual_percent from PREVIOUS stage (not from Stage 1)
+      const stageMetrics = stageData.map((data, index) => {
+        let actualPercent: number;
+        
+        if (index === 0) {
+          // First stage (New Lead): always 100%
+          actualPercent = 100;
+        } else {
+          // Subsequent stages: calculate from previous stage's count
+          const prevStageCount = stageData[index - 1].count;
+          actualPercent = prevStageCount > 0 ? (data.count / prevStageCount) * 100 : 0;
+        }
+
+        return {
+          stage_id: data.stage.id,
+          stage_number: data.stage.stage_number,
+          stage_name: data.stage.stage_name,
+          color: data.stage.color,
+          expected_percent: data.stage.expected_conversion_percent || 0,
+          actual_percent: Math.round(actualPercent * 10) / 10,
+          count: data.count,
+          value: Math.round(data.value * 100) / 100,
+          incentives: Math.round(data.incentives * 100) / 100,
+          variance: data.stage.expected_conversion_percent 
+            ? Math.round((actualPercent - data.stage.expected_conversion_percent) * 10) / 10 
             : 0,
         };
       });
