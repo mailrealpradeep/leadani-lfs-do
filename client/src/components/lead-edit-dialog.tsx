@@ -480,23 +480,28 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 }}
                 initialFocus
               />
-              <div className="p-3 border-t flex items-center justify-between gap-2">
-                {dateValue && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => {
-                      handleFieldChange(column.column_key, "");
-                      setEditingField(null);
-                    }}
-                    data-testid={`button-clear-date-${column.column_key}`}
-                  >
-                    Clear
-                  </Button>
-                )}
-                <div className="flex-1" />
-                <Button size="sm" onClick={() => setEditingField(null)}>Done</Button>
+              <div className="px-3 pb-3 flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-muted-foreground"
+                  onClick={() => {
+                    handleFieldChange(column.column_key, "");
+                    setEditingField(null);
+                  }}
+                  data-testid={`button-clear-date-${column.column_key}`}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setEditingField(null)}
+                  data-testid={`button-done-date-${column.column_key}`}
+                >
+                  Done
+                </Button>
               </div>
             </PopoverContent>
           </Popover>
@@ -530,25 +535,11 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                 initialFocus
               />
               <div className="p-3 border-t flex items-center gap-2">
-                {datetimeValue && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => {
-                      handleFieldChange(column.column_key, "");
-                      setEditingField(null);
-                    }}
-                    data-testid={`button-clear-datetime-${column.column_key}`}
-                  >
-                    Clear
-                  </Button>
-                )}
-                <div className="flex-1" />
-                <Clock className="h-4 w-4 text-muted-foreground" />
+                <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">Time:</span>
                 <Input
                   type="time"
-                  className="h-8 w-24"
+                  className="h-9 w-28 cursor-pointer"
                   defaultValue={currentTime}
                   onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                   onChange={(e) => {
@@ -561,7 +552,29 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
                     }
                   }}
                 />
-                <Button size="sm" onClick={() => setEditingField(null)}>Done</Button>
+              </div>
+              <div className="px-3 pb-3 flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-muted-foreground"
+                  onClick={() => {
+                    handleFieldChange(column.column_key, "");
+                    setEditingField(null);
+                  }}
+                  data-testid={`button-clear-datetime-${column.column_key}`}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setEditingField(null)}
+                  data-testid={`button-done-datetime-${column.column_key}`}
+                >
+                  Done
+                </Button>
               </div>
             </PopoverContent>
           </Popover>

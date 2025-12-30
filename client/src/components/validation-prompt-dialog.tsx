@@ -234,10 +234,32 @@ export function ValidationPromptDialog({
                   if (date) {
                     handleFieldChange(columnKey, format(date, "yyyy-MM-dd"));
                   }
-                  setDatePickerOpen(null);
                 }}
                 initialFocus
               />
+              <div className="px-3 pb-3 flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-muted-foreground"
+                  onClick={() => {
+                    handleFieldChange(columnKey, null);
+                    setDatePickerOpen(null);
+                  }}
+                  data-testid={`button-clear-date-validation-${columnKey}`}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setDatePickerOpen(null)}
+                  data-testid={`button-done-date-validation-${columnKey}`}
+                >
+                  Done
+                </Button>
+              </div>
             </PopoverContent>
           </Popover>
         );
