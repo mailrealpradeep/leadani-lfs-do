@@ -11,7 +11,7 @@ import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths, startOfWeek, endOfWeek, subWeeks } from "date-fns";
-import { getCompanyTimezone, getTodayDateString, getCurrentTimeString } from "./timezone-utils";
+import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartOfDayInTimezone, getEndOfDayInTimezone, getYesterdayRangeInTimezone, getMonthRangeInTimezone } from "./timezone-utils";
 import { seedData } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { validateLeadAgainstRules } from "@shared/validator";
@@ -18841,47 +18841,58 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const period = (req.query.period as string) || 'today';
+      
+      // Get company timezone for accurate date calculations
+      const company = await storage.getCompany(req.companyId);
+      const timezone = company?.settings?.timezone || 'Asia/Kolkata';
+      
+      // Use date-fns-tz for timezone-aware date calculations (EXACT same logic as breakdown endpoint)
       const now = new Date();
+      const todayStr = formatInTimeZone(now, timezone, 'yyyy-MM-dd');
+      
+      const startOfTodayUtc = fromZonedTime(`${todayStr}T00:00:00`, timezone);
+      
+      const yesterdayDate = new Date(startOfTodayUtc);
+      yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+      const yesterdayStr = formatInTimeZone(yesterdayDate, timezone, 'yyyy-MM-dd');
+      const startOfYesterdayUtc = fromZonedTime(`${yesterdayStr}T00:00:00`, timezone);
+      
+      // Use toZonedTime for accurate day-of-week detection in company timezone
+      const zonedNow = toZonedTime(now, timezone);
+      const dayOfWeek = zonedNow.getDay();
+      const daysToMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
+      const mondayDate = new Date(startOfTodayUtc);
+      mondayDate.setDate(mondayDate.getDate() - daysToMonday);
+      const mondayStr = formatInTimeZone(mondayDate, timezone, 'yyyy-MM-dd');
+      const startOfThisWeekUtc = fromZonedTime(`${mondayStr}T00:00:00`, timezone);
+      
+      const firstOfMonth = `${todayStr.substring(0, 7)}-01`;
+      const startOfThisMonthUtc = fromZonedTime(`${firstOfMonth}T00:00:00`, timezone);
+      
       let startDate: Date;
-      let endDate: Date;
+      let endDate = new Date();
 
       switch (period) {
         case 'yesterday': {
-          startDate = new Date(now);
-          startDate.setDate(startDate.getDate() - 1);
-          startDate.setHours(0, 0, 0, 0);
-          endDate = new Date(now);
-          endDate.setDate(endDate.getDate() - 1);
-          endDate.setHours(23, 59, 59, 999);
+          startDate = startOfYesterdayUtc;
+          endDate = startOfTodayUtc;
           break;
         }
         case 'this_week': {
-          startDate = new Date(now);
-          startDate.setDate(startDate.getDate() - startDate.getDay());
-          startDate.setHours(0, 0, 0, 0);
-          endDate = new Date(now);
-          endDate.setHours(23, 59, 59, 999);
+          startDate = startOfThisWeekUtc;
           break;
         }
         case 'this_month': {
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-          startDate.setHours(0, 0, 0, 0);
-          endDate = new Date(now);
-          endDate.setHours(23, 59, 59, 999);
+          startDate = startOfThisMonthUtc;
           break;
         }
         case 'all_time': {
           startDate = new Date(0);
-          endDate = new Date(now);
-          endDate.setHours(23, 59, 59, 999);
           break;
         }
         case 'today':
         default: {
-          startDate = new Date(now);
-          startDate.setHours(0, 0, 0, 0);
-          endDate = new Date(now);
-          endDate.setHours(23, 59, 59, 999);
+          startDate = startOfTodayUtc;
           break;
         }
       }
