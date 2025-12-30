@@ -20860,18 +20860,22 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         if (stage.trigger_type === 'all_leads') {
           stageLeads = leads;
         } else if (stage.trigger_type === 'lead_status') {
-          stageLeads = leads.filter(lead => 
-            stage.trigger_values.includes(lead.lead_status)
-          );
+          stageLeads = leads.filter(lead => {
+            const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+            return stage.trigger_values.includes(leadStatus);
+          });
         } else if (stage.trigger_type === 'visit_status') {
-          stageLeads = leads.filter(lead => 
-            stage.trigger_values.includes(lead.visit_status)
-          );
+          stageLeads = leads.filter(lead => {
+            const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+            return stage.trigger_values.includes(visitStatus);
+          });
         } else if (stage.trigger_type === 'combined') {
-          stageLeads = leads.filter(lead => 
-            stage.trigger_values.includes(lead.lead_status) || 
-            stage.trigger_values.includes(lead.visit_status)
-          );
+          stageLeads = leads.filter(lead => {
+            const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+            const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+            return stage.trigger_values.includes(leadStatus) || 
+                   stage.trigger_values.includes(visitStatus);
+          });
         }
 
         const stageCount = stageLeads.length;
