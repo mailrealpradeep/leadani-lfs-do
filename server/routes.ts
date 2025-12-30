@@ -20855,9 +20855,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Sort stages by stage_number to calculate sequential conversion rates
       const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+      const totalStages = sortedStages.length;
       
-      // First pass: calculate counts and values for all stages
-      const stageData = sortedStages.map(stage => {
+      // First pass: calculate counts, values, and potential incentives for all stages
+      const stageData = sortedStages.map((stage, index) => {
         let stageLeads: any[] = [];
         
         if (stage.trigger_type === 'all_leads') {
@@ -20883,16 +20884,48 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
         const stageCount = stageLeads.length;
         const stageValue = stageLeads.reduce((sum, lead) => sum + getLeadValue(lead), 0);
-        const stageIncentives = (finalStage && stage.stage_number === finalStage.stage_number)
+        
+        // Calculate actual incentives only for final stage
+        const isFinalStage = index === totalStages - 1;
+        const actualIncentives = isFinalStage
           ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
           : 0;
+        
+        // Calculate potential incentive for ALL leads in this stage (as if they all converted)
+        // This is used for projections on non-final stages
+        const potentialIncentive = stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
 
         return {
           stage,
+          stageLeads,
           count: stageCount,
           value: stageValue,
-          incentives: stageIncentives,
+          actualIncentives,
+          potentialValue: stageValue,
+          potentialIncentive,
         };
+      });
+
+      // Calculate cascading projection multipliers for each stage
+      // Multiplier = product of expected_percent from NEXT stage to final stage
+      const projectionMultipliers = stageData.map((_, index) => {
+        if (index === totalStages - 1) {
+          // Final stage: no projection needed, use actual values
+          return 1;
+        }
+        
+        // Calculate product of expected percentages from next stage to final stage
+        let multiplier = 1;
+        for (let i = index + 1; i < totalStages; i++) {
+          const expectedPercent = stageData[i].stage.expected_conversion_percent;
+          // If expected percent is not set (0 or null), treat as 100% pass-through
+          // This prevents the multiplier from collapsing to 0
+          if (expectedPercent && expectedPercent > 0) {
+            multiplier *= (expectedPercent / 100);
+          }
+          // If expectedPercent is 0 or undefined, don't multiply (treat as 100% or skip)
+        }
+        return multiplier;
       });
 
       // Second pass: calculate actual_percent from PREVIOUS stage (not from Stage 1)
@@ -20908,6 +20941,13 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           actualPercent = prevStageCount > 0 ? (data.count / prevStageCount) * 100 : 0;
         }
 
+        const isFinalStage = index === totalStages - 1;
+        const projectionMultiplier = projectionMultipliers[index];
+        
+        // Projected values: potential × multiplier (for non-final stages)
+        const projectedValue = isFinalStage ? 0 : data.potentialValue * projectionMultiplier;
+        const projectedIncentive = isFinalStage ? 0 : data.potentialIncentive * projectionMultiplier;
+
         return {
           stage_id: data.stage.id,
           stage_number: data.stage.stage_number,
@@ -20917,7 +20957,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           actual_percent: Math.round(actualPercent * 10) / 10,
           count: data.count,
           value: Math.round(data.value * 100) / 100,
-          incentives: Math.round(data.incentives * 100) / 100,
+          incentives: Math.round(data.actualIncentives * 100) / 100,
+          projected_value: Math.round(projectedValue * 100) / 100,
+          projected_incentive: Math.round(projectedIncentive * 100) / 100,
+          is_final_stage: isFinalStage,
           variance: data.stage.expected_conversion_percent 
             ? Math.round((actualPercent - data.stage.expected_conversion_percent) * 10) / 10 
             : 0,

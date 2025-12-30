@@ -61,6 +61,9 @@ interface StageMetrics {
   count: number;
   value: number;
   incentives: number;
+  projected_value: number;
+  projected_incentive: number;
+  is_final_stage: boolean;
   variance: number;
 }
 
@@ -596,30 +599,60 @@ export default function ConversionSettings() {
                           <span className="text-sm text-muted-foreground">leads</span>
                         </div>
 
-                        {/* Value for this stage */}
-                        {stage.value > 0 && (
-                          <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
-                            <span className="text-muted-foreground flex items-center gap-1">
-                              <DollarSign className="w-3 h-3" />
-                              Value
-                            </span>
-                            <span className="font-semibold text-emerald-600">
-                              {analytics.currency} {stage.value.toLocaleString()}
-                            </span>
-                          </div>
+                        {/* Final Stage: Show actual Revenue & Incentive */}
+                        {isFinalStage && (
+                          <>
+                            {stage.value > 0 && (
+                              <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                  <DollarSign className="w-3 h-3" />
+                                  Revenue
+                                </span>
+                                <span className="font-semibold text-emerald-600">
+                                  {analytics.currency} {stage.value.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                            {stage.incentives > 0 && (
+                              <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                  <Award className="w-3 h-3" />
+                                  Incentives
+                                </span>
+                                <span className="font-semibold text-amber-600">
+                                  {analytics.currency} {stage.incentives.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                          </>
                         )}
 
-                        {/* Incentives (only for final stage) */}
-                        {isFinalStage && stage.incentives > 0 && (
-                          <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
-                            <span className="text-muted-foreground flex items-center gap-1">
-                              <Award className="w-3 h-3" />
-                              Incentives
-                            </span>
-                            <span className="font-semibold text-amber-600">
-                              {analytics.currency} {stage.incentives.toLocaleString()}
-                            </span>
-                          </div>
+                        {/* Non-final stages: Show projected Revenue & Incentive */}
+                        {!isFinalStage && (
+                          <>
+                            {stage.projected_value > 0 && (
+                              <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                  <TrendingUp className="w-3 h-3" />
+                                  Proj. Revenue
+                                </span>
+                                <span className="font-semibold text-blue-600">
+                                  {analytics.currency} {stage.projected_value.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                            {stage.projected_incentive > 0 && (
+                              <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                  <Zap className="w-3 h-3" />
+                                  Proj. Incentive
+                                </span>
+                                <span className="font-semibold text-purple-600">
+                                  {analytics.currency} {stage.projected_incentive.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                          </>
                         )}
                         
                         <div className="grid grid-cols-2 gap-2 text-xs">
