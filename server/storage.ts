@@ -9930,7 +9930,11 @@ export class PgStorage implements IStorage {
   async reorderConversionStages(configId: string, stageIds: string[]): Promise<boolean> {
     for (let i = 0; i < stageIds.length; i++) {
       await db.update(dbSchema.conversion_stages)
-        .set({ sort_order: i, updated_at: new Date() })
+        .set({ 
+          sort_order: i, 
+          stage_number: i + 1, // Update stage_number to match display order (1-based)
+          updated_at: new Date() 
+        })
         .where(and(
           eq(dbSchema.conversion_stages.id, stageIds[i]),
           eq(dbSchema.conversion_stages.config_id, configId)

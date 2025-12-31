@@ -359,17 +359,52 @@ export default function ConversionSettings() {
     },
   });
 
-  // Reorder stages mutation
+  // Reorder stages mutation with optimistic update
   const reorderStagesMutation = useMutation({
     mutationFn: async ({ config_id, stage_ids }: { config_id: string; stage_ids: string[] }) => {
       return await apiRequest("POST", "/api/conversion-settings/stages/reorder", { config_id, stage_ids });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
-      toast({ title: "Stages reordered" });
+    onMutate: async ({ stage_ids }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["/api/conversion-settings"] });
+      
+      // Snapshot the previous value
+      const previousSettings = queryClient.getQueryData<ConversionSettingsComplete>(["/api/conversion-settings"]);
+      
+      // Optimistically update to the new order
+      if (previousSettings?.stages) {
+        const stageMap = new Map(previousSettings.stages.map(s => [s.id, s]));
+        const reorderedStages = stage_ids
+          .map((id, index) => {
+            const stage = stageMap.get(id);
+            if (stage) {
+              return { ...stage, stage_number: index + 1, sort_order: index };
+            }
+            return null;
+          })
+          .filter((s): s is ConversionStage => s !== null);
+        
+        queryClient.setQueryData<ConversionSettingsComplete>(["/api/conversion-settings"], {
+          ...previousSettings,
+          stages: reorderedStages,
+        });
+      }
+      
+      return { previousSettings };
     },
-    onError: (error: any) => {
+    onError: (error: any, _variables, context) => {
+      // Roll back to the previous value on error
+      if (context?.previousSettings) {
+        queryClient.setQueryData(["/api/conversion-settings"], context.previousSettings);
+      }
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+    onSettled: () => {
+      // Always refetch after error or success
+      queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
+    },
+    onSuccess: () => {
+      toast({ title: "Stages reordered" });
     },
   });
 
