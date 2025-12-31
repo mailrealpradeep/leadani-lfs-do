@@ -25,13 +25,14 @@ import { LoginBonusCelebration } from "@/components/powerscore/login-bonus-celeb
 import { cn } from "@/lib/utils";
 import type { PowerScoreLeaderboardEntry, PowerScorePersonalStats } from "@shared/schema";
 
-type Period = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'all_time';
+type Period = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'all_time';
 
 const periodLabels: Record<Period, string> = {
   today: 'Today',
   yesterday: 'Yesterday',
   this_week: 'This Week',
   this_month: 'This Month',
+  last_month: 'Last Month',
   all_time: 'All Time',
 };
 
@@ -275,7 +276,7 @@ export default function PowerScore() {
         transition={{ delay: 0.1 }}
       >
         <Tabs value={period} onValueChange={(v) => setPeriod(v as Period)}>
-          <TabsList className="grid w-full grid-cols-5 max-w-md bg-white dark:bg-slate-800 shadow-sm">
+          <TabsList className="grid w-full grid-cols-6 max-w-lg bg-white dark:bg-slate-800 shadow-sm">
             {(Object.keys(periodLabels) as Period[]).map((p) => (
               <TabsTrigger 
                 key={p} 
