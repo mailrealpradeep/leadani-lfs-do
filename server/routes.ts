@@ -21182,14 +21182,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const totalStages = sortedStages.length;
       const finalStageNumber = sortedStages[totalStages - 1]?.stage_number;
 
-      // Build user metrics
+      // Build user metrics - using same logic as Company Performance
       const userMetrics = eligibleUsers.map(({ user, sheetId }) => {
         // Filter leads: only from user's assigned company sheet
         // For single-sheet users, all leads on their sheet count as their performance
         const userLeads = leads.filter(lead => lead.sheet_id === sheetId);
         
-        // Calculate stage metrics for this user
-        const stageMetrics = sortedStages.map((stage, index) => {
+        // First pass: collect stage data with potential values (same as Company Performance)
+        const stageData = sortedStages.map((stage, index) => {
           let stageLeads: any[] = [];
           
           if (stage.trigger_type === 'all_leads') {
@@ -21215,23 +21215,65 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           const count = stageLeads.length;
           const value = stageLeads.reduce((sum, lead) => sum + getLeadValue(lead), 0);
           const isFinalStage = index === totalStages - 1;
-          const incentives = isFinalStage 
+          
+          // Calculate actual incentives only for final stage
+          const actualIncentives = isFinalStage
             ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
             : 0;
-          const projectedValue = !isFinalStage ? value * (stage.expected_conversion_percent || 100) / 100 : 0;
-          const projectedIncentive = !isFinalStage 
-            ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0) * (stage.expected_conversion_percent || 100) / 100
-            : 0;
+          
+          // Calculate potential incentive for ALL leads in this stage (as if they all converted)
+          // This is used for projections on non-final stages
+          const potentialIncentive = stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
 
           return {
-            stage_id: stage.id,
-            stage_number: stage.stage_number,
-            stage_name: stage.stage_name,
-            color: stage.color,
-            expected_percent: stage.expected_conversion_percent || 0,
+            stage,
+            stageLeads,
             count,
-            value: Math.round(value * 100) / 100,
-            incentives: Math.round(incentives * 100) / 100,
+            value,
+            actualIncentives,
+            potentialValue: value,
+            potentialIncentive,
+          };
+        });
+
+        // Calculate cascading projection multipliers for each stage (same as Company Performance)
+        // Multiplier = product of expected_percent from NEXT stage to final stage
+        const projectionMultipliers = stageData.map((_, index) => {
+          if (index === totalStages - 1) {
+            // Final stage: no projection needed, use actual values
+            return 1;
+          }
+          
+          // Calculate product of expected percentages from next stage to final stage
+          let multiplier = 1;
+          for (let i = index + 1; i < totalStages; i++) {
+            const expectedPercent = stageData[i].stage.expected_conversion_percent;
+            // If expected percent is not set (0 or null), treat as 100% pass-through
+            if (expectedPercent && expectedPercent > 0) {
+              multiplier *= (expectedPercent / 100);
+            }
+          }
+          return multiplier;
+        });
+
+        // Second pass: calculate final metrics with projected values
+        const stageMetrics = stageData.map((data, index) => {
+          const isFinalStage = index === totalStages - 1;
+          const projectionMultiplier = projectionMultipliers[index];
+          
+          // Projected values: potential × multiplier (for non-final stages)
+          const projectedValue = isFinalStage ? 0 : data.potentialValue * projectionMultiplier;
+          const projectedIncentive = isFinalStage ? 0 : data.potentialIncentive * projectionMultiplier;
+
+          return {
+            stage_id: data.stage.id,
+            stage_number: data.stage.stage_number,
+            stage_name: data.stage.stage_name,
+            color: data.stage.color,
+            expected_percent: data.stage.expected_conversion_percent || 0,
+            count: data.count,
+            value: Math.round(data.value * 100) / 100,
+            incentives: Math.round(data.actualIncentives * 100) / 100,
             projected_value: Math.round(projectedValue * 100) / 100,
             projected_incentive: Math.round(projectedIncentive * 100) / 100,
             is_final_stage: isFinalStage,
