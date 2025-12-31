@@ -121,19 +121,26 @@ function CompactStageCard({
   stage, 
   currency, 
   isFirstStage, 
-  isFinalStage 
+  isFinalStage,
+  prevStageCount
 }: { 
   stage: UserStageMetrics; 
   currency: string; 
   isFirstStage: boolean;
   isFinalStage: boolean;
+  prevStageCount: number;
 }) {
+  // Calculate actual conversion percentage
+  const actualPercent = prevStageCount > 0 
+    ? Math.round((stage.count / prevStageCount) * 100) 
+    : 0;
+
   return (
     <div 
-      className="flex-1 min-w-[180px] p-3 rounded-lg border-2 h-full"
+      className="flex-1 min-w-[180px] min-h-[200px] p-3 rounded-lg border-2 flex flex-col"
       style={{ borderColor: stage.color, backgroundColor: `${stage.color}10` }}
     >
-      {/* Header with badge and expected % */}
+      {/* Header with badge */}
       <div className="flex items-center justify-between mb-2">
         <Badge 
           variant="outline" 
@@ -163,7 +170,7 @@ function CompactStageCard({
       </div>
       
       {/* Metrics row */}
-      <div className="space-y-1">
+      <div className="space-y-1 flex-1">
         {isFinalStage ? (
           <>
             <div className="flex items-center justify-between text-xs bg-background/50 rounded px-2 py-1">
@@ -191,8 +198,35 @@ function CompactStageCard({
             </div>
           </>
         ) : (
-          <div className="text-xs text-center text-muted-foreground bg-background/50 rounded px-2 py-1">
-            All leads in pipeline
+          <div className="flex items-center justify-between text-xs bg-background/50 rounded px-2 py-1">
+            <span className="text-muted-foreground">All leads in pipeline</span>
+          </div>
+        )}
+      </div>
+      
+      {/* Expected vs Actual Conversion - matching Pipeline Overview */}
+      <div className="mt-auto pt-2">
+        {isFirstStage ? (
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <p className="text-muted-foreground">Expected</p>
+              <p className="font-medium">100%</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Actual</p>
+              <p className="font-medium">100%</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <p className="text-muted-foreground">Expected</p>
+              <p className="font-medium">{stage.expected_percent}%</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Actual</p>
+              <p className="font-medium">{actualPercent}%</p>
+            </div>
           </div>
         )}
       </div>
@@ -1083,39 +1117,58 @@ export default function ConversionSettings() {
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {userAnalytics.users.map((user) => (
-                          <div 
-                            key={user.user_id}
-                            className="p-4 rounded-lg border bg-muted/20"
-                            data-testid={`user-pipeline-${user.user_id}`}
-                          >
-                            {/* User header */}
-                            <div className="flex items-center gap-3 mb-3">
-                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
-                                {user.user_name.charAt(0).toUpperCase()}
+                        {userAnalytics.users.map((user) => {
+                          // Calculate total projected incentive (sum of all non-final stage projected incentives)
+                          const totalProjectedIncentive = user.stages.reduce((sum, stage, idx) => {
+                            if (idx < user.stages.length - 1) {
+                              return sum + (stage.projected_incentive || 0);
+                            }
+                            return sum;
+                          }, 0);
+                          
+                          return (
+                            <div 
+                              key={user.user_id}
+                              className="p-4 rounded-lg border bg-muted/20"
+                              data-testid={`user-pipeline-${user.user_id}`}
+                            >
+                              {/* User header */}
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
+                                  {user.user_name.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-semibold truncate">{user.user_name}</p>
+                                    {totalProjectedIncentive > 0 && (
+                                      <span className="inline-flex items-center gap-1 text-xs bg-gradient-to-r from-purple-500/10 to-indigo-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full border border-purple-200 dark:border-purple-800">
+                                        <Zap className="w-3 h-3" />
+                                        Proj. Incentive: {userAnalytics.currency} {totalProjectedIncentive.toLocaleString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground truncate">{user.user_email}</p>
+                                </div>
+                                <Badge variant="secondary" className="text-xs px-2">
+                                  {user.total_leads} leads
+                                </Badge>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-semibold truncate">{user.user_name}</p>
-                                <p className="text-xs text-muted-foreground truncate">{user.user_email}</p>
+                              {/* Stage cards - matching Pipeline Overview layout */}
+                              <div className="flex items-stretch gap-2 overflow-x-auto pb-2">
+                                {user.stages.map((stage, idx) => (
+                                  <CompactStageCard
+                                    key={stage.stage_id}
+                                    stage={stage}
+                                    currency={userAnalytics.currency}
+                                    isFirstStage={idx === 0}
+                                    isFinalStage={idx === user.stages.length - 1}
+                                    prevStageCount={idx > 0 ? user.stages[idx - 1].count : stage.count}
+                                  />
+                                ))}
                               </div>
-                              <Badge variant="secondary" className="text-xs px-2">
-                                {user.total_leads} leads
-                              </Badge>
                             </div>
-                            {/* Stage cards - matching Pipeline Overview layout */}
-                            <div className="flex items-stretch gap-2 overflow-x-auto pb-2">
-                              {user.stages.map((stage, idx) => (
-                                <CompactStageCard
-                                  key={stage.stage_id}
-                                  stage={stage}
-                                  currency={userAnalytics.currency}
-                                  isFirstStage={idx === 0}
-                                  isFinalStage={idx === user.stages.length - 1}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </CardContent>
