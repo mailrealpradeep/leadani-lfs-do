@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, CheckCircle2, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon, Sparkles, GitBranchPlus, History, GitBranch } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, CheckCircle2, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon, Sparkles, GitBranchPlus, History, GitBranch, Key } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -36,6 +36,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
@@ -66,6 +75,12 @@ export function AppSidebar() {
   const { setOpenMobile, isMobile } = useSidebar();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
+  
+  // Change password dialog state
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   // Close mobile sidebar when navigating
   const handleNavClick = () => {
@@ -208,6 +223,50 @@ export function AppSidebar() {
       });
     },
   });
+
+  // Change password mutation
+  const changePasswordMutation = useMutation({
+    mutationFn: async ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) => {
+      return await apiRequest("POST", "/api/auth/change-password", { currentPassword, newPassword });
+    },
+    onSuccess: () => {
+      setIsChangePasswordOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      toast({
+        title: "Password changed",
+        description: "Your password has been updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to change password",
+        description: error.message,
+      });
+    },
+  });
+
+  const handleChangePassword = () => {
+    if (newPassword !== confirmPassword) {
+      toast({
+        variant: "destructive",
+        title: "Passwords don't match",
+        description: "Please make sure both passwords are the same",
+      });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({
+        variant: "destructive",
+        title: "Password too short",
+        description: "Password must be at least 6 characters",
+      });
+      return;
+    }
+    changePasswordMutation.mutate({ currentPassword, newPassword });
+  };
 
   // Super Admin has a completely different, focused sidebar
   const superAdminItems = [
@@ -674,6 +733,15 @@ export function AppSidebar() {
             <Button
               variant="ghost"
               size="sm"
+              onClick={() => setIsChangePasswordOpen(true)}
+              data-testid="button-change-password"
+              title="Change Password"
+            >
+              <Key className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               asChild
               data-testid="button-help"
             >
@@ -731,6 +799,79 @@ export function AppSidebar() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Change Password Dialog */}
+      <Dialog open={isChangePasswordOpen} onOpenChange={(open) => {
+        setIsChangePasswordOpen(open);
+        if (!open) {
+          setCurrentPassword("");
+          setNewPassword("");
+          setConfirmPassword("");
+        }
+      }}>
+        <DialogContent data-testid="dialog-change-password">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              Change Password
+            </DialogTitle>
+            <DialogDescription>
+              Enter your current password and choose a new one
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="current-password">Current Password</Label>
+              <Input
+                id="current-password"
+                type="password"
+                placeholder="Enter current password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                data-testid="input-current-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New Password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                placeholder="Enter new password (min 6 characters)"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                data-testid="input-new-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm New Password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                placeholder="Re-enter new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                data-testid="input-confirm-password"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsChangePasswordOpen(false)}
+              data-testid="button-cancel-change-password"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleChangePassword}
+              disabled={!currentPassword || !newPassword || !confirmPassword || changePasswordMutation.isPending}
+              data-testid="button-confirm-change-password"
+            >
+              {changePasswordMutation.isPending ? "Updating..." : "Change Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Column Visibility Sheet */}
       <SheetUI open={isColumnVisibilityOpen} onOpenChange={setIsColumnVisibilityOpen}>

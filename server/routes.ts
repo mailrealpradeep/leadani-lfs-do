@@ -694,6 +694,53 @@ ${questionsList}`;
     }
   });
 
+  // User self-service password change
+  app.post("/api/auth/change-password", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: "Current password and new password are required" });
+      }
+      
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: "New password must be at least 6 characters" });
+      }
+      
+      const user = await storage.getUser(req.userId!);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Verify current password
+      const isValid = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!isValid) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+      
+      // Hash new password
+      const newPasswordHash = await bcrypt.hash(newPassword, 10);
+      
+      // Update password
+      await storage.updateUserPassword(user.id, newPasswordHash);
+      
+      // Audit log
+      await storage.createAuditLog({
+        user_id: user.id,
+        company_id: user.company_id,
+        action: "password_changed",
+        model: "user",
+        model_id: user.id,
+        payload: { self_service: true },
+      });
+      
+      res.json({ message: "Password changed successfully" });
+    } catch (error: any) {
+      console.error("Change password error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // PUBLIC ROUTES (Unauthenticated)
   // ============================================================================
