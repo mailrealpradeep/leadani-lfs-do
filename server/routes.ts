@@ -21166,8 +21166,13 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Build user metrics
       const userMetrics = eligibleUsers.map(user => {
-        // Filter leads assigned to this user
-        const userLeads = leads.filter(lead => lead.assigned_user_id === user.id);
+        // Get user's single assigned sheet
+        const userSheetId = user.sheet_ids![0];
+        
+        // Filter leads: only from user's assigned sheet AND assigned to this user
+        const userLeads = leads.filter(lead => 
+          lead.sheet_id === userSheetId && lead.assigned_user_id === user.id
+        );
         
         // Calculate stage metrics for this user
         const stageMetrics = sortedStages.map((stage, index) => {
