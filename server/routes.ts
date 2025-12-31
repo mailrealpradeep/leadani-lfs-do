@@ -21308,6 +21308,217 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // ACTUAL CONVERSIONS - Historical stage-to-stage conversion rates
+  // ============================================================================
+  app.get("/api/conversion-settings/actual-conversions", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { startDate, endDate } = req.query;
+      const settings = await storage.getConversionSettingsComplete(req.companyId);
+      
+      if (!settings || !settings.config || !settings.stages.length) {
+        return res.json({ 
+          company: { stages: [] },
+          users: [],
+          stages_config: [],
+          period_start: startDate || null,
+          period_end: endDate || null,
+        });
+      }
+
+      // Get company for timezone
+      const company = await storage.getCompany(req.companyId);
+      const timezone = company?.settings?.timezone || 'Asia/Kolkata';
+
+      // Sort stages by stage_number
+      const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+
+      // Build date filter for activity logs
+      let dateFilter: { date_from?: string; date_to?: string } = {};
+      if (startDate && endDate) {
+        dateFilter = {
+          date_from: startDate as string,
+          date_to: endDate as string,
+        };
+      }
+
+      // Get activity logs for lead updates in this company
+      const activityLogs = await storage.getActivityLogs({
+        company_id: req.companyId,
+        action: 'lead_updated',
+        ...dateFilter,
+        limit: 100000, // Get all logs within range
+      });
+
+      // Get all sheets for this company (to identify single-sheet users)
+      const sheets = await storage.getSheetsByCompanyId(req.companyId);
+      const companySheets = sheets.filter(s => !s.is_personal);
+      const sheetIdSet = new Set(companySheets.map(s => s.id));
+
+      // Get all company users
+      const companyUsers = await storage.getUsersByCompanyId(req.companyId);
+      
+      // Filter to single-sheet users (non-admins assigned to exactly one company sheet)
+      const singleSheetUsers: { user: any; sheetId: string }[] = [];
+      for (const user of companyUsers) {
+        if (user.role === 'company_admin') continue;
+        const userSheets = await storage.getSheetIdsByUserId(user.id);
+        const assignedCompanySheets = userSheets.filter(id => sheetIdSet.has(id));
+        if (assignedCompanySheets.length === 1) {
+          singleSheetUsers.push({ user, sheetId: assignedCompanySheets[0] });
+        }
+      }
+
+      // Get all leads and their owner mapping
+      const allLeads: any[] = [];
+      for (const sheet of companySheets) {
+        const sheetLeads = await storage.getLeadsBySheetId(sheet.id);
+        allLeads.push(...sheetLeads.filter(l => !l.deleted_at));
+      }
+      
+      // Build lead -> owner_user_id mapping
+      const leadOwnerMap = new Map<string, string>();
+      for (const lead of allLeads) {
+        if (lead.owner_user_id) {
+          leadOwnerMap.set(lead.id, lead.owner_user_id);
+        }
+      }
+
+      // Helper: Get unique leads that ever reached a stage based on activity logs
+      const getLeadsReachedStage = (stage: any, logs: any[], filterUserId?: string): Set<string> => {
+        const leadIds = new Set<string>();
+        
+        // Determine which field(s) to check based on trigger_type
+        let fieldKeys: string[] = [];
+        if (stage.trigger_type === 'lead_status') {
+          fieldKeys = ['lead_status'];
+        } else if (stage.trigger_type === 'visit_status') {
+          fieldKeys = ['visit_status'];
+        } else if (stage.trigger_type === 'combined') {
+          fieldKeys = ['lead_status', 'visit_status'];
+        } else if (stage.trigger_type === 'all_leads') {
+          // For Stage 1 (all_leads), count all leads in sheets
+          for (const lead of allLeads) {
+            if (filterUserId) {
+              if (leadOwnerMap.get(lead.id) === filterUserId) {
+                leadIds.add(lead.id);
+              }
+            } else {
+              leadIds.add(lead.id);
+            }
+          }
+          return leadIds;
+        }
+
+        // Scan activity logs for transitions to this stage
+        for (const log of logs) {
+          if (!log.target_id || !log.details?.changes) continue;
+          
+          // If filtering by user, check lead ownership
+          if (filterUserId && leadOwnerMap.get(log.target_id) !== filterUserId) {
+            continue;
+          }
+
+          for (const change of log.details.changes) {
+            if (fieldKeys.includes(change.field_key)) {
+              if (stage.trigger_values.includes(change.new_value)) {
+                leadIds.add(log.target_id);
+              }
+            }
+          }
+        }
+        
+        return leadIds;
+      };
+
+      // Calculate stage-to-stage conversions for company
+      const companyStageData = sortedStages.map((stage, idx) => {
+        const leadsReached = getLeadsReachedStage(stage, activityLogs.logs);
+        const count = leadsReached.size;
+        
+        // Calculate percentage: count / previous stage count
+        let percentage = 0;
+        if (idx === 0) {
+          percentage = 100; // Stage 1 is always 100%
+        } else {
+          const prevStageLeads = getLeadsReachedStage(sortedStages[idx - 1], activityLogs.logs);
+          const prevCount = prevStageLeads.size;
+          percentage = prevCount > 0 ? (count / prevCount) * 100 : 0;
+        }
+
+        return {
+          stage_id: stage.id,
+          stage_number: stage.stage_number,
+          stage_name: stage.stage_name,
+          color: stage.color,
+          count,
+          percentage: Math.round(percentage * 10) / 10,
+        };
+      });
+
+      // Calculate per-user stage data
+      const userStageData = singleSheetUsers.map(({ user, sheetId }) => {
+        const userStages = sortedStages.map((stage, idx) => {
+          const leadsReached = getLeadsReachedStage(stage, activityLogs.logs, user.id);
+          const count = leadsReached.size;
+          
+          let percentage = 0;
+          if (idx === 0) {
+            percentage = 100;
+          } else {
+            const prevStageLeads = getLeadsReachedStage(sortedStages[idx - 1], activityLogs.logs, user.id);
+            const prevCount = prevStageLeads.size;
+            percentage = prevCount > 0 ? (count / prevCount) * 100 : 0;
+          }
+
+          return {
+            stage_id: stage.id,
+            stage_number: stage.stage_number,
+            stage_name: stage.stage_name,
+            color: stage.color,
+            count,
+            percentage: Math.round(percentage * 10) / 10,
+          };
+        });
+
+        return {
+          user_id: user.id,
+          user_name: user.name,
+          user_email: user.email,
+          stages: userStages,
+        };
+      });
+
+      // Sort users by Stage 1 count descending
+      userStageData.sort((a, b) => {
+        const aCount = a.stages[0]?.count || 0;
+        const bCount = b.stages[0]?.count || 0;
+        return bCount - aCount;
+      });
+
+      res.json({
+        company: {
+          stages: companyStageData,
+        },
+        users: userStageData,
+        stages_config: sortedStages.map(s => ({
+          stage_number: s.stage_number,
+          stage_name: s.stage_name,
+          color: s.color,
+        })),
+        period_start: startDate || null,
+        period_end: endDate || null,
+      });
+    } catch (error: any) {
+      console.error("Error fetching actual conversions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================
   // Run initial cleanup on startup

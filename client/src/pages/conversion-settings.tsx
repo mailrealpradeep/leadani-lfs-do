@@ -45,6 +45,7 @@ import {
   Users,
   Eye,
   EyeOff,
+  Table2,
 } from "lucide-react";
 import type { ConversionConfig, ConversionStage, ConversionValue, ConversionIncentive, ConversionApproval, DropdownOption, Company } from "@shared/schema";
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
@@ -114,6 +115,31 @@ interface UserAnalyticsResponse {
   users: UserPipelineMetrics[];
   currency: string;
   stages_config: { stage_number: number; stage_name: string; color: string }[];
+}
+
+// Actual Conversions - historical stage-to-stage conversion rates
+interface ActualConversionStage {
+  stage_id: string;
+  stage_number: number;
+  stage_name: string;
+  color: string;
+  count: number;
+  percentage: number;
+}
+
+interface ActualConversionUser {
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  stages: ActualConversionStage[];
+}
+
+interface ActualConversionsResponse {
+  company: { stages: ActualConversionStage[] };
+  users: ActualConversionUser[];
+  stages_config: { stage_number: number; stage_name: string; color: string }[];
+  period_start: string | null;
+  period_end: string | null;
 }
 
 // Compact Stage Card for User Performance - matches Pipeline Overview style
@@ -361,7 +387,8 @@ function SortableStageItem({ stage, stageAnalytics, onEdit, onDelete, isDeleting
 export default function ConversionSettings() {
   const { isCompanyAdmin, isSuperAdmin } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"overview" | "stages" | "value" | "incentives" | "approvals">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "stages" | "value" | "incentives" | "approvals" | "actual_conversions">("overview");
+  const [actualConvDateFilter, setActualConvDateFilter] = useState<DateFilter>("this_month");
   const [dateFilter, setDateFilter] = useState<DateFilter>("this_month");
   const [editingStage, setEditingStage] = useState<Partial<ConversionStage> | null>(null);
   const [isAddingStage, setIsAddingStage] = useState(false);
@@ -467,6 +494,49 @@ export default function ConversionSettings() {
       return res.json();
     },
     enabled: !!settings?.config && showUserPipeline,
+  });
+
+  // Calculate date range for actual conversions tab
+  const actualConvDateRange = useMemo(() => {
+    const now = new Date();
+    switch (actualConvDateFilter) {
+      case "today":
+        return { start: startOfDay(now), end: endOfDay(now) };
+      case "this_week":
+        return { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) };
+      case "last_week":
+        const lastWeekStart = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
+        return { start: lastWeekStart, end: endOfWeek(lastWeekStart, { weekStartsOn: 1 }) };
+      case "this_month":
+        return { start: startOfMonth(now), end: endOfMonth(now) };
+      case "last_month":
+        const lastMonth = subMonths(now, 1);
+        return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) };
+      case "this_year":
+        return { start: startOfYear(now), end: endOfYear(now) };
+      default:
+        return { start: startOfMonth(now), end: endOfMonth(now) };
+    }
+  }, [actualConvDateFilter]);
+
+  // Fetch actual conversions data (only when tab is active)
+  const { 
+    data: actualConversions, 
+    isLoading: actualConversionsLoading,
+  } = useQuery<ActualConversionsResponse>({
+    queryKey: ["/api/conversion-settings/actual-conversions", actualConvDateRange.start.toISOString(), actualConvDateRange.end.toISOString()],
+    queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch(`/api/conversion-settings/actual-conversions?startDate=${actualConvDateRange.start.toISOString()}&endDate=${actualConvDateRange.end.toISOString()}`, {
+        credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+      if (!res.ok) throw new Error("Failed to fetch actual conversions");
+      return res.json();
+    },
+    enabled: !!settings?.config && activeTab === "actual_conversions",
   });
 
   // Create/Update config mutation
@@ -1182,7 +1252,7 @@ export default function ConversionSettings() {
 
       {/* Configuration Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
+        <TabsList className="grid grid-cols-6 w-full max-w-3xl">
           <TabsTrigger value="overview" data-testid="tab-overview">
             <BarChart3 className="w-4 h-4 mr-2" />
             Overview
@@ -1202,6 +1272,10 @@ export default function ConversionSettings() {
           <TabsTrigger value="approvals" data-testid="tab-approvals">
             <CheckCircle className="w-4 h-4 mr-2" />
             Approvals
+          </TabsTrigger>
+          <TabsTrigger value="actual_conversions" data-testid="tab-actual-conversions">
+            <Table2 className="w-4 h-4 mr-2" />
+            Actual Conv.
           </TabsTrigger>
         </TabsList>
 
@@ -1568,6 +1642,134 @@ export default function ConversionSettings() {
             onSave={(data) => approvalMutation.mutate(data)}
             isPending={approvalMutation.isPending}
           />
+        </TabsContent>
+
+        {/* Actual Conversions Tab */}
+        <TabsContent value="actual_conversions" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Table2 className="w-5 h-5" />
+                    Actual Conversions
+                  </CardTitle>
+                  <CardDescription>
+                    Historical stage-to-stage conversion rates based on activity logs
+                  </CardDescription>
+                </div>
+                <Select value={actualConvDateFilter} onValueChange={(v) => setActualConvDateFilter(v as DateFilter)}>
+                  <SelectTrigger className="w-[180px]" data-testid="select-actual-conv-date-filter">
+                    <Calendar className="w-4 h-4 mr-2" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="this_week">This Week</SelectItem>
+                    <SelectItem value="last_week">Last Week</SelectItem>
+                    <SelectItem value="this_month">This Month</SelectItem>
+                    <SelectItem value="last_month">Last Month</SelectItem>
+                    <SelectItem value="this_year">This Year</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {actualConversionsLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : !actualConversions?.company?.stages?.length ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Table2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>No conversion data available</p>
+                  <p className="text-sm mt-1">Configure stages and start tracking leads to see conversion rates</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left p-3 font-semibold bg-muted/30">Name</th>
+                        {actualConversions.company.stages.slice(1).map((stage) => (
+                          <th 
+                            key={stage.stage_id} 
+                            className="text-center p-3 font-semibold"
+                            style={{ backgroundColor: `${stage.color}15` }}
+                          >
+                            <div className="flex flex-col items-center gap-1">
+                              <Badge 
+                                variant="outline" 
+                                className="text-xs"
+                                style={{ borderColor: stage.color, color: stage.color }}
+                              >
+                                Stage {stage.stage_number}
+                              </Badge>
+                              <span className="text-sm">{stage.stage_name}</span>
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Company Row */}
+                      <tr className="border-b bg-primary/5 font-medium">
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                              <Target className="w-4 h-4 text-primary" />
+                            </div>
+                            <span>Company</span>
+                          </div>
+                        </td>
+                        {actualConversions.company.stages.slice(1).map((stage) => (
+                          <td key={stage.stage_id} className="text-center p-3">
+                            <div className="flex flex-col items-center">
+                              <span className="text-lg font-bold" style={{ color: stage.color }}>
+                                {stage.percentage}%
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                ({stage.count} leads)
+                              </span>
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                      {/* User Rows */}
+                      {actualConversions.users.map((user) => (
+                        <tr key={user.user_id} className="border-b hover:bg-muted/30 transition-colors">
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-semibold">
+                                {user.user_name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{user.user_name}</span>
+                                <span className="text-xs text-muted-foreground">{user.user_email}</span>
+                              </div>
+                            </div>
+                          </td>
+                          {user.stages.slice(1).map((stage) => (
+                            <td key={stage.stage_id} className="text-center p-3">
+                              <div className="flex flex-col items-center">
+                                <span className="text-base font-semibold" style={{ color: stage.color }}>
+                                  {stage.percentage}%
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({stage.count})
+                                </span>
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
