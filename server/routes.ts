@@ -20814,6 +20814,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const incentiveConfig = settings.incentive;
       const currency = valueConfig?.currency || 'INR';
 
+      // Get the closing_value column's default value from company columns
+      const companyColumns = await storage.getColumnsByCompanyId(req.companyId);
+      const closingValueColumn = companyColumns.find(c => c.column_key === 'closing_value');
+      const columnDefaultValue = (closingValueColumn?.config as any)?.default_value;
+
       // Helper function to calculate lead value
       const getLeadValue = (lead: any): number => {
         // First, check the closing_value system column (custom_fields is where dynamic values are stored)
@@ -20830,14 +20835,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           }
         }
         
-        // Fall back to valueConfig settings if closing_value is not set
-        if (valueConfig) {
-          // If fixed value type, use the fixed amount
-          if (valueConfig.value_type === 'fixed' && valueConfig.fixed_amount) {
-            return valueConfig.fixed_amount;
-          }
-          // Use default_amount as final fallback
-          return valueConfig.default_amount || 0;
+        // Fall back to column's default value (from Column Settings)
+        if (columnDefaultValue !== undefined && columnDefaultValue !== null) {
+          return columnDefaultValue;
+        }
+        
+        // Fall back to valueConfig.default_amount (from Conversion Settings)
+        if (valueConfig?.default_amount) {
+          return valueConfig.default_amount;
         }
         
         return 0;

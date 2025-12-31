@@ -69,6 +69,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
   const [editDropdownOptions, setEditDropdownOptions] = useState<string[]>([]);
   const [editDropdownInput, setEditDropdownInput] = useState("");
   const [editColumnConfig, setEditColumnConfig] = useState<any>({}); // Store full config
+  const [editDefaultValue, setEditDefaultValue] = useState<string>(""); // For closing_value column
   
   // Delete confirmation state
   const [columnToDelete, setColumnToDelete] = useState<CustomColumn | null>(null);
@@ -296,6 +297,16 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
         config.hidden_system_values = currentHiddenSystemValues;
       }
       
+      // Handle default_value for closing_value column
+      if (editColumnKey === 'closing_value') {
+        if (editDefaultValue !== '' && editDefaultValue.trim() !== '') {
+          config.default_value = parseFloat(editDefaultValue) || 0;
+        } else {
+          // Clear the default_value when field is empty
+          delete config.default_value;
+        }
+      }
+      
       if (editColumnType === "dropdown") {
         if (editDropdownOptions.length === 0) {
           toast({
@@ -328,6 +339,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
     setEditColumnKey(column.column_key);
     setEditColumnType(column.type as any);
     setEditColumnConfig(column.config || {});
+    setEditDefaultValue(column.config?.default_value?.toString() || "");
     
     if (column.type === "dropdown" && column.config?.dropdown_options) {
       setEditDropdownOptions(column.config.dropdown_options as string[]);
@@ -345,6 +357,7 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
     setEditDropdownOptions([]);
     setEditDropdownInput("");
     setEditColumnConfig({});
+    setEditDefaultValue("");
   };
 
   const handleAddNewDropdownOption = () => {
@@ -569,10 +582,12 @@ export function CompanyColumnManager({ headless = false }: CompanyColumnManagerP
                       editColumnType={editColumnType}
                       editDropdownOptions={editDropdownOptions}
                       editDropdownInput={editDropdownInput}
+                      editDefaultValue={editDefaultValue}
                       setEditColumnName={setEditColumnName}
                       setEditColumnType={setEditColumnType}
                       setEditDropdownOptions={setEditDropdownOptions}
                       setEditDropdownInput={setEditDropdownInput}
+                      setEditDefaultValue={setEditDefaultValue}
                       handleUpdateColumn={handleUpdateColumn}
                       handleAddEditDropdownOption={handleAddEditDropdownOption}
                       handleRemoveEditDropdownOption={handleRemoveEditDropdownOption}
@@ -679,10 +694,12 @@ function SortableColumnItem({
   editColumnType,
   editDropdownOptions,
   editDropdownInput,
+  editDefaultValue,
   setEditColumnName,
   setEditColumnType,
   setEditDropdownOptions,
   setEditDropdownInput,
+  setEditDefaultValue,
   handleUpdateColumn,
   handleAddEditDropdownOption,
   handleRemoveEditDropdownOption,
@@ -702,10 +719,12 @@ function SortableColumnItem({
   editColumnType: "text" | "number" | "date" | "datetime" | "dropdown" | "boolean" | "mobile" | "percentage";
   editDropdownOptions: string[];
   editDropdownInput: string;
+  editDefaultValue: string;
   setEditColumnName: (value: string) => void;
   setEditColumnType: (value: "text" | "number" | "date" | "datetime" | "dropdown" | "boolean" | "mobile" | "percentage") => void;
   setEditDropdownOptions: (value: string[]) => void;
   setEditDropdownInput: (value: string) => void;
+  setEditDefaultValue: (value: string) => void;
   handleUpdateColumn: (e: React.FormEvent, columnId: string) => void;
   handleAddEditDropdownOption: () => void;
   handleRemoveEditDropdownOption: (option: string) => void;
@@ -786,6 +805,24 @@ function SortableColumnItem({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Default Value field for Closing Value column */}
+          {editColumnKey === 'closing_value' && (
+            <div className="space-y-2">
+              <Label htmlFor="edit-default-value">Default Value</Label>
+              <Input
+                id="edit-default-value"
+                type="number"
+                placeholder="e.g., 50000"
+                value={editDefaultValue}
+                onChange={(e) => setEditDefaultValue(e.target.value)}
+                data-testid="input-edit-default-value"
+              />
+              <p className="text-sm text-muted-foreground">
+                Used in Conversion Settings when a lead doesn't have a closing value
+              </p>
+            </div>
+          )}
 
           {editColumnType === "dropdown" && (
             <div className="space-y-4">
@@ -968,6 +1005,9 @@ function SortableColumnItem({
               </div>
               <div className="text-xs text-muted-foreground mt-1">
                 Key: {column.column_key}
+                {column.column_key === 'closing_value' && column.config?.default_value !== undefined && (
+                  <span className="ml-2">• Default: {column.config.default_value.toLocaleString()}</span>
+                )}
               </div>
               {column.type === "dropdown" && column.config?.dropdown_options && (
                 <div className="flex flex-wrap gap-1 mt-2">

@@ -1147,19 +1147,15 @@ function ValueSettingsTab({
   onSave: (data: any) => void;
   isPending: boolean;
 }) {
-  const [valueType, setValueType] = useState<string>(settings.value?.value_type || 'fixed');
-  const [fixedAmount, setFixedAmount] = useState<string>(settings.value?.fixed_amount?.toString() || '');
-  const [sourceColumn, setSourceColumn] = useState<string>(settings.value?.source_column_key || '');
   const [defaultAmount, setDefaultAmount] = useState<string>(settings.value?.default_amount?.toString() || '');
   const [currency, setCurrency] = useState<string>(settings.value?.currency || 'INR');
 
   const handleSave = () => {
     onSave({
       config_id: settings.config?.id,
-      value_type: valueType,
-      fixed_amount: valueType === 'fixed' ? parseFloat(fixedAmount) || null : null,
-      source_column_key: valueType === 'from_lead' ? sourceColumn : null,
-      default_amount: valueType === 'from_lead' ? parseFloat(defaultAmount) || null : null,
+      value_type: 'from_lead',
+      source_column_key: 'closing_value',
+      default_amount: parseFloat(defaultAmount) || 0,
       currency,
     });
   };
@@ -1172,108 +1168,48 @@ function ValueSettingsTab({
           Conversion Value Settings
         </CardTitle>
         <CardDescription>
-          Define how the value of each conversion is calculated
+          Configure how deal values are calculated for your pipeline
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div>
-          <Label>Value Type</Label>
-          <Select value={valueType} onValueChange={setValueType}>
-            <SelectTrigger className="w-full max-w-md mt-2" data-testid="select-value-type">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="fixed">Fixed Amount</SelectItem>
-              <SelectItem value="from_lead">From Lead Field</SelectItem>
-              <SelectItem value="manual">Manual Entry</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 max-w-lg">
+          <p className="text-sm text-blue-800 dark:text-blue-200">
+            Values are automatically read from the <strong>Closing Value</strong> column in your lead spreadsheet.
+            If a lead doesn't have a closing value, the default amount below will be used.
+          </p>
         </div>
 
-        {valueType === 'fixed' && (
-          <div className="grid gap-4 md:grid-cols-2 max-w-md">
-            <div>
-              <Label>Fixed Amount</Label>
-              <Input
-                type="number"
-                value={fixedAmount}
-                onChange={(e) => setFixedAmount(e.target.value)}
-                placeholder="e.g., 50000"
-                className="mt-2"
-                data-testid="input-fixed-amount"
-              />
-            </div>
-            <div>
-              <Label>Currency</Label>
-              <Select value={currency} onValueChange={setCurrency}>
-                <SelectTrigger className="mt-2" data-testid="select-currency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="INR">INR</SelectItem>
-                  <SelectItem value="USD">USD</SelectItem>
-                  <SelectItem value="EUR">EUR</SelectItem>
-                  <SelectItem value="GBP">GBP</SelectItem>
-                  <SelectItem value="AED">AED</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        )}
-
-        {valueType === 'from_lead' && (
-          <div className="space-y-4 max-w-md">
-            <div>
-              <Label>Source Column Key</Label>
-              <Input
-                value={sourceColumn}
-                onChange={(e) => setSourceColumn(e.target.value)}
-                placeholder="e.g., deal_value, budget"
-                className="mt-2"
-                data-testid="input-source-column"
-              />
-              <p className="text-sm text-muted-foreground mt-1">
-                The custom field key that contains the deal value
-              </p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <Label>Default Amount (if field is empty)</Label>
-                <Input
-                  type="number"
-                  value={defaultAmount}
-                  onChange={(e) => setDefaultAmount(e.target.value)}
-                  placeholder="e.g., 25000"
-                  className="mt-2"
-                  data-testid="input-default-amount"
-                />
-              </div>
-              <div>
-                <Label>Currency</Label>
-                <Select value={currency} onValueChange={setCurrency}>
-                  <SelectTrigger className="mt-2" data-testid="select-currency-from-lead">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="INR">INR</SelectItem>
-                    <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="EUR">EUR</SelectItem>
-                    <SelectItem value="GBP">GBP</SelectItem>
-                    <SelectItem value="AED">AED</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {valueType === 'manual' && (
-          <div className="p-4 rounded-lg bg-muted/50 max-w-md">
-            <p className="text-sm text-muted-foreground">
-              With manual entry, users will be prompted to enter the conversion value each time a lead reaches the final stage.
+        <div className="grid gap-4 md:grid-cols-2 max-w-md">
+          <div>
+            <Label>Default Amount</Label>
+            <Input
+              type="number"
+              value={defaultAmount}
+              onChange={(e) => setDefaultAmount(e.target.value)}
+              placeholder="e.g., 50000"
+              className="mt-2"
+              data-testid="input-default-amount"
+            />
+            <p className="text-sm text-muted-foreground mt-1">
+              Used when Closing Value is empty
             </p>
           </div>
-        )}
+          <div>
+            <Label>Currency</Label>
+            <Select value={currency} onValueChange={setCurrency}>
+              <SelectTrigger className="mt-2" data-testid="select-currency">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="INR">INR</SelectItem>
+                <SelectItem value="USD">USD</SelectItem>
+                <SelectItem value="EUR">EUR</SelectItem>
+                <SelectItem value="GBP">GBP</SelectItem>
+                <SelectItem value="AED">AED</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         <Button onClick={handleSave} disabled={isPending} data-testid="button-save-value">
           {isPending ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
