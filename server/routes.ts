@@ -21062,6 +21062,190 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get pipeline analytics grouped by user (for User Performance section)
+  app.get("/api/conversion-settings/analytics/by-user", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { startDate, endDate, sheetIds } = req.query;
+      const settings = await storage.getConversionSettingsComplete(req.companyId);
+      
+      if (!settings || !settings.config || settings.stages.length === 0) {
+        return res.json({ users: [], currency: 'INR' });
+      }
+
+      // Get sheets to analyze
+      let sheets = await storage.getSheetsByCompanyId(req.companyId);
+      if (sheetIds) {
+        const selectedIds = (sheetIds as string).split(',');
+        sheets = sheets.filter(s => selectedIds.includes(s.id));
+      }
+      const sheetIdList = sheets.map(s => s.id);
+
+      // Get all users for this company
+      const allUsers = await storage.getUsersByCompanyId(req.companyId);
+      
+      // Filter users: only general users with single sheet assignment (exclude admins and multi-sheet users)
+      const eligibleUsers = allUsers.filter(user => {
+        // Exclude admins
+        if (user.role === 'company_admin' || user.role === 'super_admin') return false;
+        // Only include users with exactly one sheet
+        const userSheetIds = user.sheet_ids || [];
+        if (userSheetIds.length !== 1) return false;
+        // Only include if their sheet is in the analyzed sheets
+        return sheetIdList.includes(userSheetIds[0]);
+      });
+
+      if (eligibleUsers.length === 0) {
+        return res.json({ users: [], currency: 'INR' });
+      }
+
+      // Get all leads from these sheets
+      let leads: any[] = [];
+      for (const sheetId of sheetIdList) {
+        const sheetLeads = await storage.getLeadsBySheetId(sheetId);
+        leads = leads.concat(sheetLeads.filter(l => !l.deleted_at));
+      }
+
+      // Filter by date if provided
+      if (startDate && endDate) {
+        const start = new Date(startDate as string);
+        const end = new Date(endDate as string);
+        leads = leads.filter(lead => {
+          const createdAt = new Date(lead.created_at);
+          return createdAt >= start && createdAt <= end;
+        });
+      }
+
+      // Get value configuration
+      const valueConfig = settings.value;
+      const incentiveConfig = settings.incentive;
+      const currency = valueConfig?.currency || 'INR';
+
+      // Get the closing_value column's default value
+      const companyColumns = await storage.getCustomColumnsByCompany(req.companyId);
+      const closingValueColumn = companyColumns.find(c => c.column_key === 'closing_value');
+      const columnDefaultValue = (closingValueColumn?.config as any)?.default_value;
+
+      // Helper functions
+      const getLeadValue = (lead: any): number => {
+        const closingValue = lead.custom_fields?.closing_value;
+        if (closingValue !== null && closingValue !== undefined && closingValue !== '') {
+          const cleanValue = String(closingValue).replace(/[^\d.-]/g, '');
+          const parsed = parseFloat(cleanValue);
+          if (!isNaN(parsed)) return parsed;
+        }
+        if (columnDefaultValue !== undefined && columnDefaultValue !== null) return columnDefaultValue;
+        if (valueConfig?.default_amount) return valueConfig.default_amount;
+        return 0;
+      };
+
+      const getIncentive = (value: number): number => {
+        if (!incentiveConfig) return 0;
+        if (incentiveConfig.incentive_type === 'fixed') return incentiveConfig.fixed_amount || 0;
+        if (incentiveConfig.incentive_type === 'percentage') return value * ((incentiveConfig.percentage_value || 0) / 100);
+        if (incentiveConfig.incentive_type === 'tiered' && incentiveConfig.tier_rules) {
+          const sortedTiers = [...incentiveConfig.tier_rules].sort((a, b) => (a.min_value || 0) - (b.min_value || 0));
+          for (let i = sortedTiers.length - 1; i >= 0; i--) {
+            const tier = sortedTiers[i];
+            if (value >= (tier.min_value || 0)) {
+              if (tier.incentive_type === 'fixed') return tier.fixed_amount || 0;
+              if (tier.incentive_type === 'percentage') return value * ((tier.percentage_value || 0) / 100);
+            }
+          }
+        }
+        return 0;
+      };
+
+      // Sort stages
+      const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+      const totalStages = sortedStages.length;
+      const finalStageNumber = sortedStages[totalStages - 1]?.stage_number;
+
+      // Build user metrics
+      const userMetrics = eligibleUsers.map(user => {
+        // Filter leads assigned to this user
+        const userLeads = leads.filter(lead => lead.assigned_user_id === user.id);
+        
+        // Calculate stage metrics for this user
+        const stageMetrics = sortedStages.map((stage, index) => {
+          let stageLeads: any[] = [];
+          
+          if (stage.trigger_type === 'all_leads') {
+            stageLeads = userLeads;
+          } else if (stage.trigger_type === 'lead_status') {
+            stageLeads = userLeads.filter(lead => {
+              const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+              return stage.trigger_values.includes(leadStatus);
+            });
+          } else if (stage.trigger_type === 'visit_status') {
+            stageLeads = userLeads.filter(lead => {
+              const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+              return stage.trigger_values.includes(visitStatus);
+            });
+          } else if (stage.trigger_type === 'combined') {
+            stageLeads = userLeads.filter(lead => {
+              const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+              const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+              return stage.trigger_values.includes(leadStatus) || stage.trigger_values.includes(visitStatus);
+            });
+          }
+
+          const count = stageLeads.length;
+          const value = stageLeads.reduce((sum, lead) => sum + getLeadValue(lead), 0);
+          const isFinalStage = index === totalStages - 1;
+          const incentives = isFinalStage 
+            ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
+            : 0;
+          const projectedValue = !isFinalStage ? value * (stage.expected_conversion_percent || 100) / 100 : 0;
+          const projectedIncentive = !isFinalStage 
+            ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0) * (stage.expected_conversion_percent || 100) / 100
+            : 0;
+
+          return {
+            stage_id: stage.id,
+            stage_number: stage.stage_number,
+            stage_name: stage.stage_name,
+            color: stage.color,
+            expected_percent: stage.expected_conversion_percent || 0,
+            count,
+            value: Math.round(value * 100) / 100,
+            incentives: Math.round(incentives * 100) / 100,
+            projected_value: Math.round(projectedValue * 100) / 100,
+            projected_incentive: Math.round(projectedIncentive * 100) / 100,
+            is_final_stage: isFinalStage,
+          };
+        });
+
+        return {
+          user_id: user.id,
+          user_name: user.name,
+          user_email: user.email,
+          stages: stageMetrics,
+          total_leads: userLeads.length,
+        };
+      });
+
+      // Sort by total leads descending (top performers first)
+      userMetrics.sort((a, b) => b.total_leads - a.total_leads);
+
+      res.json({
+        users: userMetrics,
+        currency,
+        stages_config: sortedStages.map(s => ({
+          stage_number: s.stage_number,
+          stage_name: s.stage_name,
+          color: s.color,
+        })),
+      });
+    } catch (error: any) {
+      console.error("Error fetching user pipeline analytics:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // SCHEDULED CLEANUP - 30-Day Lead Retention
   // ============================================================================

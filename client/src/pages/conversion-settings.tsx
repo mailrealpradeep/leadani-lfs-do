@@ -42,6 +42,9 @@ import {
   ArrowRight,
   Zap,
   ChevronDown,
+  Users,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import type { ConversionConfig, ConversionStage, ConversionValue, ConversionIncentive, ConversionApproval, DropdownOption, Company } from "@shared/schema";
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
@@ -83,6 +86,95 @@ interface AnalyticsResponse {
 }
 
 type DateFilter = "today" | "this_week" | "last_week" | "this_month" | "last_month" | "this_quarter" | "this_year" | "custom";
+
+// User-level stage metrics (compact version)
+interface UserStageMetrics {
+  stage_id: string;
+  stage_number: number;
+  stage_name: string;
+  color: string;
+  expected_percent: number;
+  count: number;
+  value: number;
+  incentives: number;
+  projected_value: number;
+  projected_incentive: number;
+  is_final_stage: boolean;
+}
+
+interface UserPipelineMetrics {
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  stages: UserStageMetrics[];
+  total_leads: number;
+}
+
+interface UserAnalyticsResponse {
+  users: UserPipelineMetrics[];
+  currency: string;
+  stages_config: { stage_number: number; stage_name: string; color: string }[];
+}
+
+// Compact Stage Card for User Performance
+function CompactStageCard({ 
+  stage, 
+  currency, 
+  isFirstStage, 
+  isFinalStage 
+}: { 
+  stage: UserStageMetrics; 
+  currency: string; 
+  isFirstStage: boolean;
+  isFinalStage: boolean;
+}) {
+  return (
+    <div 
+      className="min-w-[140px] p-2 rounded-md border"
+      style={{ borderColor: stage.color, backgroundColor: `${stage.color}08` }}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <Badge 
+          variant="outline" 
+          className="text-[10px] px-1.5 py-0"
+          style={{ borderColor: stage.color, color: stage.color }}
+        >
+          S{stage.stage_number}
+        </Badge>
+        {!isFirstStage && (
+          <span className="text-[9px] text-muted-foreground">
+            EC {stage.expected_percent}%
+          </span>
+        )}
+      </div>
+      
+      <div className="flex items-baseline justify-between gap-1">
+        <span className="text-xs font-medium truncate max-w-[60px]" title={stage.stage_name}>
+          {stage.stage_name}
+        </span>
+        <span className="text-sm font-bold" style={{ color: stage.color }}>
+          {stage.count}
+        </span>
+      </div>
+      
+      <div className="flex items-center justify-between gap-1 mt-1 text-[9px] text-muted-foreground">
+        {isFinalStage ? (
+          <>
+            <span title="Revenue">R {(stage.value / 1000).toFixed(0)}K</span>
+            <span title="Incentive">I {(stage.incentives / 1000).toFixed(0)}K</span>
+          </>
+        ) : !isFirstStage ? (
+          <>
+            <span title="Projected Revenue">PR {(stage.projected_value / 1000).toFixed(0)}K</span>
+            <span title="Projected Incentive">PI {(stage.projected_incentive / 1000).toFixed(0)}K</span>
+          </>
+        ) : (
+          <span className="text-center w-full">All leads</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const DEFAULT_STAGE_COLORS = [
   "#3B82F6", // blue
@@ -220,6 +312,7 @@ export default function ConversionSettings() {
   const [newStageTriggerValues, setNewStageTriggerValues] = useState<string[]>([]);
   const [newStageColor, setNewStageColor] = useState(DEFAULT_STAGE_COLORS[0]);
   const [newStageExpectedPercent, setNewStageExpectedPercent] = useState<string>("");
+  const [showUserPipeline, setShowUserPipeline] = useState(false);
 
   const isAdmin = isCompanyAdmin || isSuperAdmin;
 
@@ -296,6 +389,26 @@ export default function ConversionSettings() {
       return res.json();
     },
     enabled: !!settings?.config,
+  });
+
+  // Fetch user-level analytics (only when showUserPipeline is true)
+  const { 
+    data: userAnalytics, 
+    isLoading: userAnalyticsLoading,
+  } = useQuery<UserAnalyticsResponse>({
+    queryKey: ["/api/conversion-settings/analytics/by-user", dateRange.start.toISOString(), dateRange.end.toISOString()],
+    queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch(`/api/conversion-settings/analytics/by-user?startDate=${dateRange.start.toISOString()}&endDate=${dateRange.end.toISOString()}`, {
+        credentials: "include",
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+      if (!res.ok) throw new Error("Failed to fetch user analytics");
+      return res.json();
+    },
+    enabled: !!settings?.config && showUserPipeline,
   });
 
   // Create/Update config mutation
@@ -889,6 +1002,102 @@ export default function ConversionSettings() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* User Performance Section */}
+      {analytics && analytics.stages.length > 0 && (
+        <div className="space-y-3">
+          <Button
+            variant="outline"
+            onClick={() => setShowUserPipeline(!showUserPipeline)}
+            className="w-full sm:w-auto"
+            data-testid="button-toggle-user-pipeline"
+          >
+            {showUserPipeline ? (
+              <>
+                <EyeOff className="w-4 h-4 mr-2" />
+                Hide User Pipeline
+              </>
+            ) : (
+              <>
+                <Eye className="w-4 h-4 mr-2" />
+                Show User Pipeline
+              </>
+            )}
+          </Button>
+
+          <AnimatePresence>
+            {showUserPipeline && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Users className="w-4 h-4" />
+                      User Performance
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Individual pipeline metrics by user (single-sheet users only)
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {userAnalyticsLoading ? (
+                      <div className="space-y-3">
+                        {[1, 2, 3].map(i => (
+                          <Skeleton key={i} className="h-20 w-full" />
+                        ))}
+                      </div>
+                    ) : !userAnalytics?.users?.length ? (
+                      <div className="text-center py-6 text-muted-foreground">
+                        <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p>No single-sheet users found</p>
+                        <p className="text-xs mt-1">Only users assigned to exactly one sheet are shown</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {userAnalytics.users.map((user) => (
+                          <div 
+                            key={user.user_id}
+                            className="p-3 rounded-lg border bg-muted/30"
+                            data-testid={`user-pipeline-${user.user_id}`}
+                          >
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary">
+                                {user.user_name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{user.user_name}</p>
+                                <p className="text-[10px] text-muted-foreground truncate">{user.user_email}</p>
+                              </div>
+                              <Badge variant="secondary" className="text-[10px]">
+                                {user.total_leads} leads
+                              </Badge>
+                            </div>
+                            <div className="flex gap-2 overflow-x-auto pb-1">
+                              {user.stages.map((stage, idx) => (
+                                <CompactStageCard
+                                  key={stage.stage_id}
+                                  stage={stage}
+                                  currency={userAnalytics.currency}
+                                  isFirstStage={idx === 0}
+                                  isFinalStage={idx === user.stages.length - 1}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       )}
 
       {/* Configuration Tabs */}
