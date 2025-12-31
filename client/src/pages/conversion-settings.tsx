@@ -116,7 +116,7 @@ interface UserAnalyticsResponse {
   stages_config: { stage_number: number; stage_name: string; color: string }[];
 }
 
-// Compact Stage Card for User Performance
+// Compact Stage Card for User Performance - matches Pipeline Overview style
 function CompactStageCard({ 
   stage, 
   currency, 
@@ -130,46 +130,70 @@ function CompactStageCard({
 }) {
   return (
     <div 
-      className="min-w-[140px] p-2 rounded-md border"
-      style={{ borderColor: stage.color, backgroundColor: `${stage.color}08` }}
+      className="flex-1 min-w-[180px] p-3 rounded-lg border-2 h-full"
+      style={{ borderColor: stage.color, backgroundColor: `${stage.color}10` }}
     >
-      <div className="flex items-center justify-between mb-1">
+      {/* Header with badge and expected % */}
+      <div className="flex items-center justify-between mb-2">
         <Badge 
           variant="outline" 
-          className="text-[10px] px-1.5 py-0"
+          className="text-xs"
           style={{ borderColor: stage.color, color: stage.color }}
         >
-          S{stage.stage_number}
+          Stage {stage.stage_number}
         </Badge>
         {!isFirstStage && (
-          <span className="text-[9px] text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground bg-background/50 rounded px-1.5 py-0.5">
             EC {stage.expected_percent}%
           </span>
         )}
       </div>
       
-      <div className="flex items-baseline justify-between gap-1">
-        <span className="text-xs font-medium truncate max-w-[60px]" title={stage.stage_name}>
-          {stage.stage_name}
+      {/* Stage name */}
+      <h4 className="font-semibold text-sm mb-2 truncate" title={stage.stage_name}>
+        {stage.stage_name}
+      </h4>
+      
+      {/* Lead count */}
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <span className="text-xl font-bold" style={{ color: stage.color }}>
+          {stage.count.toLocaleString()}
         </span>
-        <span className="text-sm font-bold" style={{ color: stage.color }}>
-          {stage.count}
-        </span>
+        <span className="text-xs text-muted-foreground">leads</span>
       </div>
       
-      <div className="flex items-center justify-between gap-1 mt-1 text-[9px] text-muted-foreground">
+      {/* Metrics row */}
+      <div className="space-y-1">
         {isFinalStage ? (
           <>
-            <span title="Revenue">R {(stage.value / 1000).toFixed(0)}K</span>
-            <span title="Incentive">I {(stage.incentives / 1000).toFixed(0)}K</span>
+            <div className="flex items-center justify-between text-xs bg-background/50 rounded px-2 py-1">
+              <span className="text-muted-foreground">Revenue</span>
+              <span className="font-semibold text-emerald-600">
+                {currency} {stage.value.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs bg-background/50 rounded px-2 py-1">
+              <span className="text-muted-foreground">Incentive</span>
+              <span className="font-semibold text-purple-600">
+                {currency} {stage.incentives.toLocaleString()}
+              </span>
+            </div>
           </>
         ) : !isFirstStage ? (
           <>
-            <span title="Projected Revenue">PR {(stage.projected_value / 1000).toFixed(0)}K</span>
-            <span title="Projected Incentive">PI {(stage.projected_incentive / 1000).toFixed(0)}K</span>
+            <div className="flex items-center justify-between text-xs bg-background/50 rounded px-2 py-1">
+              <span className="text-muted-foreground">Proj. Revenue</span>
+              <span className="font-medium">{currency} {stage.projected_value.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs bg-background/50 rounded px-2 py-1">
+              <span className="text-muted-foreground">Proj. Incentive</span>
+              <span className="font-medium">{currency} {stage.projected_incentive.toLocaleString()}</span>
+            </div>
           </>
         ) : (
-          <span className="text-center w-full">All leads</span>
+          <div className="text-xs text-center text-muted-foreground bg-background/50 rounded px-2 py-1">
+            All leads in pipeline
+          </div>
         )}
       </div>
     </div>
@@ -1058,26 +1082,28 @@ export default function ConversionSettings() {
                         <p className="text-xs mt-1">Only users assigned to exactly one sheet are shown</p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {userAnalytics.users.map((user) => (
                           <div 
                             key={user.user_id}
-                            className="p-3 rounded-lg border bg-muted/30"
+                            className="p-4 rounded-lg border bg-muted/20"
                             data-testid={`user-pipeline-${user.user_id}`}
                           >
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary">
+                            {/* User header */}
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
                                 {user.user_name.charAt(0).toUpperCase()}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate">{user.user_name}</p>
-                                <p className="text-[10px] text-muted-foreground truncate">{user.user_email}</p>
+                                <p className="font-semibold truncate">{user.user_name}</p>
+                                <p className="text-xs text-muted-foreground truncate">{user.user_email}</p>
                               </div>
-                              <Badge variant="secondary" className="text-[10px]">
+                              <Badge variant="secondary" className="text-xs px-2">
                                 {user.total_leads} leads
                               </Badge>
                             </div>
-                            <div className="flex gap-2 overflow-x-auto pb-1">
+                            {/* Stage cards - matching Pipeline Overview layout */}
+                            <div className="flex items-stretch gap-2 overflow-x-auto pb-2">
                               {user.stages.map((stage, idx) => (
                                 <CompactStageCard
                                   key={stage.stage_id}
