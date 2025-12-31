@@ -560,6 +560,7 @@ export default function ConversionSettings() {
             <div className="flex items-stretch gap-2 overflow-x-auto pb-4">
               {analytics.stages.map((stage, index) => {
                 const isFinalStage = index === analytics.stages.length - 1;
+                const isFirstStage = index === 0;
                 return (
                   <motion.div
                     key={stage.stage_id}
@@ -627,8 +628,8 @@ export default function ConversionSettings() {
                           </>
                         )}
 
-                        {/* Non-final stages: Show projected Revenue & Incentive */}
-                        {!isFinalStage && (
+                        {/* Non-final, non-first stages: Show projected Revenue & Incentive */}
+                        {!isFinalStage && !isFirstStage && (
                           <>
                             {stage.projected_value > 0 && (
                               <div className="flex items-center justify-between text-sm bg-background/50 rounded px-2 py-1">
@@ -655,16 +656,23 @@ export default function ConversionSettings() {
                           </>
                         )}
                         
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div>
-                            <p className="text-muted-foreground">Expected</p>
-                            <p className="font-medium">{stage.expected_percent}%</p>
+                        {/* First stage: Only show Actual (always 100%), hide Expected */}
+                        {isFirstStage ? (
+                          <div className="text-xs">
+                            <p className="text-muted-foreground">All leads in pipeline</p>
                           </div>
-                          <div>
-                            <p className="text-muted-foreground">Actual</p>
-                            <p className="font-medium">{stage.actual_percent}%</p>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <p className="text-muted-foreground">Expected</p>
+                              <p className="font-medium">{stage.expected_percent}%</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Actual</p>
+                              <p className="font-medium">{stage.actual_percent}%</p>
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                       
                       {index < analytics.stages.length - 1 && (
