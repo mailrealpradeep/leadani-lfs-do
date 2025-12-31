@@ -1,6 +1,9 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -91,6 +94,119 @@ const DEFAULT_STAGE_COLORS = [
   "#EC4899", // pink
   "#14B8A6", // teal
 ];
+
+interface SortableStageItemProps {
+  stage: ConversionStage;
+  stageAnalytics?: StageMetrics;
+  onEdit: (stage: ConversionStage) => void;
+  onDelete: (id: string) => void;
+  isDeleting: boolean;
+}
+
+function SortableStageItem({ stage, stageAnalytics, onEdit, onDelete, isDeleting }: SortableStageItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: stage.id, disabled: stage.stage_number === 1 });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    borderLeftWidth: 4,
+    borderLeftColor: stage.color,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-4 p-4 rounded-lg border hover-elevate bg-background"
+    >
+      <div 
+        className={`flex items-center gap-2 text-muted-foreground ${stage.stage_number !== 1 ? 'cursor-move' : 'cursor-not-allowed opacity-50'}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="w-4 h-4" />
+        <span className="font-mono text-sm">{stage.stage_number}</span>
+      </div>
+
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <h4 className="font-medium">{stage.stage_name}</h4>
+          <Badge variant="outline" className="text-xs">
+            {stage.trigger_type.replace(/_/g, ' ')}
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {stage.trigger_type === 'all_leads' 
+            ? 'Counts all leads created'
+            : stage.trigger_values.length > 0 
+              ? stage.trigger_values.join(', ')
+              : 'No trigger values set'}
+        </p>
+      </div>
+
+      <div className="text-right">
+        <div className="flex items-center gap-4">
+          {stage.stage_number === 1 ? (
+            <div>
+              <p className="text-sm text-muted-foreground">Baseline</p>
+              <p className="font-medium text-primary">100%</p>
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm text-muted-foreground">Expected</p>
+              <p className="font-medium">{stage.expected_conversion_percent || 0}%</p>
+            </div>
+          )}
+          {stageAnalytics && (
+            <div>
+              <p className="text-sm text-muted-foreground">Actual</p>
+              <p className="font-medium">{stageAnalytics.actual_percent}%</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {stage.stage_number !== 1 && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(stage)}
+              data-testid={`button-edit-stage-${stage.id}`}
+            >
+              <Edit2 className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (confirm('Are you sure you want to delete this stage?')) {
+                  onDelete(stage.id);
+                }
+              }}
+              disabled={isDeleting}
+              data-testid={`button-delete-stage-${stage.id}`}
+            >
+              <Trash2 className="w-4 h-4 text-destructive" />
+            </Button>
+          </>
+        )}
+        {stage.stage_number === 1 && (
+          <Badge variant="secondary" className="text-xs">Fixed</Badge>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ConversionSettings() {
   const { isCompanyAdmin, isSuperAdmin } = useAuth();
@@ -242,6 +358,57 @@ export default function ConversionSettings() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  // Reorder stages mutation
+  const reorderStagesMutation = useMutation({
+    mutationFn: async ({ config_id, stage_ids }: { config_id: string; stage_ids: string[] }) => {
+      return await apiRequest("POST", "/api/conversion-settings/stages/reorder", { config_id, stage_ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conversion-settings"] });
+      toast({ title: "Stages reordered" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // DnD sensors for stage reordering
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end for stage reordering
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (!over || active.id === over.id || !settings?.stages || !settings?.config) {
+      return;
+    }
+
+    const oldIndex = settings.stages.findIndex(s => s.id === active.id);
+    const newIndex = settings.stages.findIndex(s => s.id === over.id);
+
+    if (oldIndex !== -1 && newIndex !== -1) {
+      // Stage 1 (New Lead) should always stay at position 0
+      const stage1 = settings.stages.find(s => s.stage_number === 1);
+      if (stage1 && (active.id === stage1.id || (newIndex === 0 && over.id === stage1.id))) {
+        toast({ title: "Cannot move", description: "The first stage (New Lead) must stay at position 1", variant: "destructive" });
+        return;
+      }
+
+      const newStages = arrayMove(settings.stages, oldIndex, newIndex);
+      const newStageIds = newStages.map(s => s.id);
+      
+      reorderStagesMutation.mutate({
+        config_id: settings.config.id,
+        stage_ids: newStageIds,
+      });
+    }
+  };
 
   // Save value settings mutation
   const valueMutation = useMutation({
@@ -818,94 +985,32 @@ export default function ConversionSettings() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {settings.stages.map((stage, index) => {
-                    const stageAnalytics = analytics?.stages.find(s => s.stage_id === stage.id);
-                    return (
-                      <motion.div
-                        key={stage.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        className="flex items-center gap-4 p-4 rounded-lg border hover-elevate"
-                        style={{ borderLeftWidth: 4, borderLeftColor: stage.color }}
-                      >
-                        <div className="flex items-center gap-2 text-muted-foreground cursor-move">
-                          <GripVertical className="w-4 h-4" />
-                          <span className="font-mono text-sm">{stage.stage_number}</span>
-                        </div>
-
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-medium">{stage.stage_name}</h4>
-                            <Badge variant="outline" className="text-xs">
-                              {stage.trigger_type.replace(/_/g, ' ')}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {stage.trigger_type === 'all_leads' 
-                              ? 'Counts all leads created'
-                              : stage.trigger_values.length > 0 
-                                ? stage.trigger_values.join(', ')
-                                : 'No trigger values set'}
-                          </p>
-                        </div>
-
-                        <div className="text-right">
-                          <div className="flex items-center gap-4">
-                            {stage.stage_number === 1 ? (
-                              <div>
-                                <p className="text-sm text-muted-foreground">Baseline</p>
-                                <p className="font-medium text-primary">100%</p>
-                              </div>
-                            ) : (
-                              <div>
-                                <p className="text-sm text-muted-foreground">Expected</p>
-                                <p className="font-medium">{stage.expected_conversion_percent || 0}%</p>
-                              </div>
-                            )}
-                            {stageAnalytics && (
-                              <div>
-                                <p className="text-sm text-muted-foreground">Actual</p>
-                                <p className="font-medium">{stageAnalytics.actual_percent}%</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {stage.stage_number !== 1 && (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setEditingStage(stage)}
-                                data-testid={`button-edit-stage-${stage.id}`}
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  if (confirm('Are you sure you want to delete this stage?')) {
-                                    deleteStageMutation.mutate(stage.id);
-                                  }
-                                }}
-                                data-testid={`button-delete-stage-${stage.id}`}
-                              >
-                                <Trash2 className="w-4 h-4 text-destructive" />
-                              </Button>
-                            </>
-                          )}
-                          {stage.stage_number === 1 && (
-                            <Badge variant="secondary" className="text-xs">Fixed</Badge>
-                          )}
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </div>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={settings.stages.map(s => s.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-3">
+                      {settings.stages.map((stage) => {
+                        const stageAnalytics = analytics?.stages.find(s => s.stage_id === stage.id);
+                        return (
+                          <SortableStageItem
+                            key={stage.id}
+                            stage={stage}
+                            stageAnalytics={stageAnalytics}
+                            onEdit={setEditingStage}
+                            onDelete={(id) => deleteStageMutation.mutate(id)}
+                            isDeleting={deleteStageMutation.isPending}
+                          />
+                        );
+                      })}
+                    </div>
+                  </SortableContext>
+                </DndContext>
               )}
             </CardContent>
           </Card>
@@ -1088,7 +1193,7 @@ export default function ConversionSettings() {
                 </Button>
                 <Button 
                   onClick={() => {
-                    if (editingStage) {
+                    if (editingStage && editingStage.id) {
                       updateStageMutation.mutate({
                         id: editingStage.id,
                         updates: {
