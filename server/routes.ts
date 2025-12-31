@@ -21369,10 +21369,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const singleSheetUsers: { user: any; sheetId: string }[] = [];
       for (const user of companyUsers) {
         if (user.role === 'company_admin') continue;
-        const userSheets = await storage.getSheetIdsByUserId(user.id);
-        const assignedCompanySheets = userSheets.filter(id => sheetIdSet.has(id));
+        const userSheets = await storage.getSheetsByUserId(user.id);
+        const assignedCompanySheets = userSheets.filter(s => sheetIdSet.has(s.id));
         if (assignedCompanySheets.length === 1) {
-          singleSheetUsers.push({ user, sheetId: assignedCompanySheets[0] });
+          singleSheetUsers.push({ user, sheetId: assignedCompanySheets[0].id });
         }
       }
 
@@ -21418,6 +21418,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
 
         // Scan activity logs for transitions to this stage
+        const triggerValues = stage.trigger_values || [];
+        if (triggerValues.length === 0) {
+          // No trigger values configured - cannot match any transitions
+          return leadIds;
+        }
+
         for (const log of logs) {
           if (!log.target_id || !log.details?.changes) continue;
           
@@ -21428,7 +21434,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
           for (const change of log.details.changes) {
             if (fieldKeys.includes(change.field_key)) {
-              if (stage.trigger_values.includes(change.new_value)) {
+              if (triggerValues.includes(change.new_value)) {
                 leadIds.add(log.target_id);
               }
             }
