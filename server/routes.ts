@@ -21076,27 +21076,45 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json({ users: [], currency: 'INR' });
       }
 
-      // Get sheets to analyze
+      // Get non-private sheets to analyze
       let sheets = await storage.getSheetsByCompanyId(req.companyId);
+      // Exclude private sheets
+      sheets = sheets.filter(s => !s.is_private);
       if (sheetIds) {
         const selectedIds = (sheetIds as string).split(',');
         sheets = sheets.filter(s => selectedIds.includes(s.id));
       }
       const sheetIdList = sheets.map(s => s.id);
+      const sheetIdSet = new Set(sheetIdList);
 
       // Get all users for this company
       const allUsers = await storage.getUsersByCompanyId(req.companyId);
       
-      // Filter users: only general users with single sheet assignment (exclude admins and multi-sheet users)
-      const eligibleUsers = allUsers.filter(user => {
+      // Build a map of user -> their non-private sheet assignments
+      const userSheetMap: Map<string, string[]> = new Map();
+      for (const sheet of sheets) {
+        const sheetUsers = await storage.getSheetUsers(sheet.id);
+        for (const su of sheetUsers) {
+          const existing = userSheetMap.get(su.user_id) || [];
+          existing.push(sheet.id);
+          userSheetMap.set(su.user_id, existing);
+        }
+      }
+      
+      // Filter users: only general users with exactly 1 non-private sheet assignment
+      const eligibleUsers: Array<{ user: typeof allUsers[0]; sheetId: string }> = [];
+      for (const user of allUsers) {
         // Exclude admins
-        if (user.role === 'company_admin' || user.role === 'super_admin') return false;
-        // Only include users with exactly one sheet
-        const userSheetIds = user.sheet_ids || [];
-        if (userSheetIds.length !== 1) return false;
-        // Only include if their sheet is in the analyzed sheets
-        return sheetIdList.includes(userSheetIds[0]);
-      });
+        if (user.role === 'company_admin' || user.role === 'super_admin') continue;
+        
+        // Get user's non-private sheet assignments
+        const userSheets = userSheetMap.get(user.id) || [];
+        
+        // Only include users with exactly one non-private sheet in analyzed sheets
+        if (userSheets.length === 1 && sheetIdSet.has(userSheets[0])) {
+          eligibleUsers.push({ user, sheetId: userSheets[0] });
+        }
+      }
 
       if (eligibleUsers.length === 0) {
         return res.json({ users: [], currency: 'INR' });
@@ -21165,13 +21183,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const finalStageNumber = sortedStages[totalStages - 1]?.stage_number;
 
       // Build user metrics
-      const userMetrics = eligibleUsers.map(user => {
-        // Get user's single assigned sheet
-        const userSheetId = user.sheet_ids![0];
-        
+      const userMetrics = eligibleUsers.map(({ user, sheetId }) => {
         // Filter leads: only from user's assigned sheet AND assigned to this user
         const userLeads = leads.filter(lead => 
-          lead.sheet_id === userSheetId && lead.assigned_user_id === user.id
+          lead.sheet_id === sheetId && lead.assigned_user_id === user.id
         );
         
         // Calculate stage metrics for this user
