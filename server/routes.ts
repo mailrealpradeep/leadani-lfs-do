@@ -20815,7 +20815,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const currency = valueConfig?.currency || 'INR';
 
       // Get the closing_value column's default value from company columns
-      const companyColumns = await storage.getColumnsByCompanyId(req.companyId);
+      const companyColumns = await storage.getCustomColumnsByCompany(req.companyId);
       const closingValueColumn = companyColumns.find(c => c.column_key === 'closing_value');
       const columnDefaultValue = (closingValueColumn?.config as any)?.default_value;
 
