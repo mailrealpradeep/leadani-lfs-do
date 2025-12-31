@@ -1118,9 +1118,10 @@ export default function ConversionSettings() {
                     ) : (
                       <div className="space-y-4">
                         {userAnalytics.users.map((user) => {
-                          // Calculate total projected incentive (sum of all non-final stage projected incentives)
+                          // Calculate total projected incentive (sum of all non-final stage projected incentives, excluding Stage 1)
                           const totalProjectedIncentive = user.stages.reduce((sum, stage, idx) => {
-                            if (idx < user.stages.length - 1) {
+                            // Exclude first stage (idx === 0) and final stage
+                            if (idx > 0 && idx < user.stages.length - 1) {
                               return sum + (stage.projected_incentive || 0);
                             }
                             return sum;
