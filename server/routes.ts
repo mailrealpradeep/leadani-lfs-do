@@ -250,6 +250,8 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   // Skip successful requests - only count failed login attempts
   skipSuccessfulRequests: true,
+  // Disable validation to avoid trust proxy warning in Replit environment
+  validate: { trustProxy: false },
 });
 
 const webhookLimiter = rateLimit({
@@ -258,6 +260,7 @@ const webhookLimiter = rateLimit({
   message: { error: "Too many webhook requests, please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
 });
 
 const signupLimiter = rateLimit({
@@ -266,6 +269,7 @@ const signupLimiter = rateLimit({
   message: { error: "Too many signup attempts, please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
