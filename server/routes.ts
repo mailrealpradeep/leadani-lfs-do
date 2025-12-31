@@ -21076,10 +21076,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json({ users: [], currency: 'INR' });
       }
 
-      // Get non-private sheets to analyze
+      // Get non-personal sheets to analyze
       let sheets = await storage.getSheetsByCompanyId(req.companyId);
-      // Exclude private sheets
-      sheets = sheets.filter(s => !s.is_private);
+      // Exclude personal sheets
+      sheets = sheets.filter(s => !s.is_personal);
       if (sheetIds) {
         const selectedIds = (sheetIds as string).split(',');
         sheets = sheets.filter(s => selectedIds.includes(s.id));
@@ -21184,10 +21184,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Build user metrics
       const userMetrics = eligibleUsers.map(({ user, sheetId }) => {
-        // Filter leads: only from user's assigned sheet AND assigned to this user
-        const userLeads = leads.filter(lead => 
-          lead.sheet_id === sheetId && lead.assigned_user_id === user.id
-        );
+        // Filter leads: only from user's assigned company sheet
+        // For single-sheet users, all leads on their sheet count as their performance
+        const userLeads = leads.filter(lead => lead.sheet_id === sheetId);
         
         // Calculate stage metrics for this user
         const stageMetrics = sortedStages.map((stage, index) => {
