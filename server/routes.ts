@@ -20632,6 +20632,184 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get current user's pipeline projected incentive (for Vision Board dual-ring)
+  // This is accessible by any authenticated user (not just admins)
+  app.get("/api/vision-board/my-pipeline", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const settings = await storage.getConversionSettingsComplete(req.companyId);
+      
+      if (!settings || !settings.config || settings.stages.length === 0) {
+        return res.json({ projected_incentive: 0, actual_incentive: 0, stages: [] });
+      }
+
+      // Get user's assigned sheets (non-personal only)
+      const userSheets = await storage.getSheetsByUserId(req.userId);
+      const nonPersonalSheets = userSheets.filter(s => !s.is_personal);
+
+      if (nonPersonalSheets.length === 0) {
+        return res.json({ projected_incentive: 0, actual_incentive: 0, stages: [] });
+      }
+
+      // Get all leads from user's sheets
+      let leads: any[] = [];
+      for (const sheet of nonPersonalSheets) {
+        const sheetLeads = await storage.getLeadsBySheetId(sheet.id);
+        leads = leads.concat(sheetLeads.filter(l => !l.deleted_at));
+      }
+
+      // Get value and incentive configurations
+      const valueConfig = settings.value;
+      const incentiveConfig = settings.incentive;
+      const currency = valueConfig?.currency || 'INR';
+
+      // Get the closing_value column's default value
+      const companyColumns = await storage.getCustomColumnsByCompany(req.companyId);
+      const closingValueColumn = companyColumns.find(c => c.column_key === 'closing_value');
+      const columnDefaultValue = (closingValueColumn?.config as any)?.default_value;
+
+      // Helper functions
+      const getLeadValue = (lead: any): number => {
+        const closingValue = lead.custom_fields?.closing_value;
+        if (closingValue !== null && closingValue !== undefined && closingValue !== '') {
+          const cleanValue = String(closingValue).replace(/[^\d.-]/g, '');
+          const parsed = parseFloat(cleanValue);
+          if (!isNaN(parsed)) return parsed;
+        }
+        if (columnDefaultValue !== undefined && columnDefaultValue !== null) return columnDefaultValue;
+        if (valueConfig?.default_amount) return valueConfig.default_amount;
+        return 0;
+      };
+
+      const getIncentive = (value: number): number => {
+        if (!incentiveConfig) return 0;
+        if (incentiveConfig.incentive_type === 'fixed') return incentiveConfig.fixed_amount || 0;
+        if (incentiveConfig.incentive_type === 'percentage') return value * ((incentiveConfig.percentage_value || 0) / 100);
+        if (incentiveConfig.incentive_type === 'tiered' && incentiveConfig.tier_rules) {
+          const sortedTiers = [...incentiveConfig.tier_rules].sort((a, b) => (a.min_value || 0) - (b.min_value || 0));
+          for (let i = sortedTiers.length - 1; i >= 0; i--) {
+            const tier = sortedTiers[i];
+            if (value >= (tier.min_value || 0)) {
+              if (tier.incentive_type === 'fixed') return tier.fixed_amount || 0;
+              if (tier.incentive_type === 'percentage') return value * ((tier.percentage_value || 0) / 100);
+            }
+          }
+        }
+        return 0;
+      };
+
+      // Sort stages
+      const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+      const totalStages = sortedStages.length;
+
+      // First pass: collect stage data with potential values
+      const stageData = sortedStages.map((stage, index) => {
+        let stageLeads: any[] = [];
+        
+        if (stage.trigger_type === 'all_leads') {
+          stageLeads = leads;
+        } else if (stage.trigger_type === 'lead_status') {
+          stageLeads = leads.filter(lead => {
+            const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+            return stage.trigger_values.includes(leadStatus);
+          });
+        } else if (stage.trigger_type === 'visit_status') {
+          stageLeads = leads.filter(lead => {
+            const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+            return stage.trigger_values.includes(visitStatus);
+          });
+        } else if (stage.trigger_type === 'combined') {
+          stageLeads = leads.filter(lead => {
+            const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+            const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+            return stage.trigger_values.includes(leadStatus) || stage.trigger_values.includes(visitStatus);
+          });
+        }
+
+        const count = stageLeads.length;
+        const value = stageLeads.reduce((sum, lead) => sum + getLeadValue(lead), 0);
+        const isFinalStage = index === totalStages - 1;
+        
+        // Calculate actual incentives only for final stage
+        const actualIncentives = isFinalStage
+          ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
+          : 0;
+        
+        // Calculate potential incentive for ALL leads in this stage
+        const potentialIncentive = stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
+
+        return {
+          stage,
+          stageLeads,
+          count,
+          value,
+          actualIncentives,
+          potentialValue: value,
+          potentialIncentive,
+        };
+      });
+
+      // Calculate cascading projection multipliers for each stage
+      const projectionMultipliers = stageData.map((_, index) => {
+        if (index === totalStages - 1) {
+          return 1; // Final stage: no projection needed
+        }
+        
+        let multiplier = 1;
+        for (let i = index + 1; i < totalStages; i++) {
+          const expectedPercent = stageData[i].stage.expected_conversion_percent;
+          if (expectedPercent && expectedPercent > 0) {
+            multiplier *= (expectedPercent / 100);
+          }
+        }
+        return multiplier;
+      });
+
+      // Calculate totals
+      let totalProjectedIncentive = 0;
+      let totalActualIncentive = 0;
+
+      const stageMetrics = stageData.map((data, index) => {
+        const isFinalStage = index === totalStages - 1;
+        const projectionMultiplier = projectionMultipliers[index];
+        
+        const projectedIncentive = isFinalStage ? 0 : data.potentialIncentive * projectionMultiplier;
+
+        if (isFinalStage) {
+          totalActualIncentive += data.actualIncentives;
+        } else {
+          totalProjectedIncentive += projectedIncentive;
+        }
+
+        return {
+          stage_number: data.stage.stage_number,
+          stage_name: data.stage.stage_name,
+          color: data.stage.color,
+          count: data.count,
+          incentives: Math.round(data.actualIncentives * 100) / 100,
+          projected_incentive: Math.round(projectedIncentive * 100) / 100,
+          is_final_stage: isFinalStage,
+        };
+      });
+
+      // Total projected = projected from pipeline + actual already earned
+      totalProjectedIncentive += totalActualIncentive;
+
+      res.json({
+        projected_incentive: Math.round(totalProjectedIncentive * 100) / 100,
+        actual_incentive: Math.round(totalActualIncentive * 100) / 100,
+        currency,
+        stages: stageMetrics,
+      });
+    } catch (error: any) {
+      console.error("Error fetching user pipeline for vision board:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Admin: Get company-wide vision board stats
   app.get("/api/vision-board/admin/company-stats", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
