@@ -1647,6 +1647,67 @@ export default function VisionBoardPage() {
     enabled: !!visionBoard?.id && !isTeamView,
   });
 
+  // Fetch user pipeline analytics to get projected incentive from Conversion Settings
+  interface UserPipelineStage {
+    stage_id: string;
+    stage_number: number;
+    stage_name: string;
+    color: string;
+    count: number;
+    value: number;
+    incentives: number;
+    projected_value: number;
+    projected_incentive: number;
+    is_final_stage: boolean;
+  }
+  interface UserPipelineData {
+    user_id: string;
+    user_name: string;
+    user_email: string;
+    stages: UserPipelineStage[];
+    total_leads: number;
+  }
+  interface UserPipelineResponse {
+    users: UserPipelineData[];
+    currency: string;
+    stages_config: Array<{ stage_number: number; stage_name: string; color: string }>;
+  }
+  
+  const { data: userPipelineData } = useQuery<UserPipelineResponse>({
+    queryKey: ["/api/conversion-settings/analytics/by-user"],
+    enabled: !isTeamView && !!user?.id,
+  });
+  
+  // Calculate projected incentive from user pipeline data
+  const userProjectedData = (() => {
+    if (!userPipelineData?.users || !user?.id) return { projectedIncentive: 0, actualIncentive: 0 };
+    
+    const currentUserData = userPipelineData.users.find(u => u.user_id === user.id);
+    if (!currentUserData) return { projectedIncentive: 0, actualIncentive: 0 };
+    
+    // Sum projected_incentive from all non-final stages + incentives from final stage
+    let totalProjectedIncentive = 0;
+    let totalActualIncentive = 0;
+    
+    currentUserData.stages.forEach(stage => {
+      if (stage.is_final_stage) {
+        // Final stage: this is actual earned incentive
+        totalActualIncentive += stage.incentives;
+      } else {
+        // Non-final stages: this is projected incentive
+        totalProjectedIncentive += stage.projected_incentive;
+      }
+    });
+    
+    // Total projected = projected from pipeline + actual already earned
+    totalProjectedIncentive += totalActualIncentive;
+    
+    return { 
+      projectedIncentive: totalProjectedIncentive, 
+      actualIncentive: totalActualIncentive 
+    };
+  })();
+
   if (boardLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -1712,9 +1773,13 @@ export default function VisionBoardPage() {
     progressPercent: progress?.earnings.progress_percent || 0,
     earned: progress?.earnings.total || 0,
     remaining: progress?.earnings.remaining || 0,
-    projectedIncentive: progress?.earnings.projected_incentive || 0,
-    actualIncentive: progress?.earnings.actual_incentive || 0,
-    projectedProgressPercent: progress?.earnings.projected_progress_percent || 0,
+    // Use projected incentive from Conversion Settings user pipeline (not backend calculation)
+    projectedIncentive: userProjectedData.projectedIncentive,
+    actualIncentive: userProjectedData.actualIncentive,
+    // Calculate projected progress percent = (projected incentive / goal amount) × 100
+    projectedProgressPercent: visionBoard.goal_amount > 0 
+      ? Math.min(100, (userProjectedData.projectedIncentive / visionBoard.goal_amount) * 100) 
+      : 0,
     effortTargets: progress?.effort_targets?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     effortAchieved: progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(visionBoard.target_date),
@@ -1827,7 +1892,7 @@ export default function VisionBoardPage() {
                   )}
                 </div>
                 <div className="flex flex-col items-center">
-                  {!isTeamView && displayData.projectedProgressPercent > 0 ? (
+                  {!isTeamView && userPipelineData?.users && userPipelineData.users.length > 0 ? (
                     <DualRingProgress 
                       actualProgress={displayData.progressPercent}
                       projectedProgress={displayData.projectedProgressPercent}
@@ -1867,7 +1932,7 @@ export default function VisionBoardPage() {
                     </CircularProgress>
                   )}
                   
-                  {!isTeamView && displayData.projectedProgressPercent > 0 && (
+                  {!isTeamView && userPipelineData?.users && userPipelineData.users.length > 0 && (
                     <div className="flex items-center gap-4 mt-3 text-xs">
                       <div className="flex items-center gap-1.5">
                         <div className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-purple-500" />
@@ -1881,7 +1946,7 @@ export default function VisionBoardPage() {
                   )}
                   
                   <div className="mt-6 text-center space-y-2 w-full">
-                    {!isTeamView && displayData.projectedIncentive > 0 ? (
+                    {!isTeamView && userPipelineData?.users && userPipelineData.users.length > 0 ? (
                       <>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
