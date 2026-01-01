@@ -20793,13 +20793,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           color: data.stage.color,
           count: data.count,
           incentives: Math.round(data.actualIncentives * 100) / 100,
-          projected_incentive: Math.round(projectedIncentive * 100) / 100,
+          // Zero out projected_incentive for all_leads stages in response
+          projected_incentive: isAllLeadsStage ? 0 : Math.round(projectedIncentive * 100) / 100,
           is_final_stage: isFinalStage,
         };
       });
 
-      // Total projected = projected from pipeline + actual already earned
-      totalProjectedIncentive += totalActualIncentive;
+      // Note: projected_incentive shows only future pipeline incentives (excluding actual earned)
+      // actual_incentive shows incentives from final stage conversions
 
       res.json({
         projected_incentive: Math.round(totalProjectedIncentive * 100) / 100,
