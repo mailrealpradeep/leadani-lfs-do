@@ -19237,6 +19237,54 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // =============================================================================
+  // FOLLOWUP TRANSACTIONS - Unified follow-up event tracking
+  // =============================================================================
+
+  // Get followup transactions for company (Admin only) - paginated with filters
+  app.get("/api/followups/transactions", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { userId, sheetId, startDate, endDate, page, limit } = req.query;
+      const result = await storage.getFollowupTransactions(req.companyId, {
+        userId: userId as string | undefined,
+        sheetId: sheetId as string | undefined,
+        startDate: startDate ? new Date(startDate as string) : undefined,
+        endDate: endDate ? new Date(endDate as string) : undefined,
+        page: page ? parseInt(page as string) : undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+      });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error fetching followup transactions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get followup stats for a user (for Vision Board and other displays)
+  app.get("/api/followups/stats", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { userId, startDate, endDate } = req.query;
+      
+      // Users can only see their own stats unless they're admin
+      const targetUserId = (req.userRole === "super_admin" || req.userRole === "company_admin")
+        ? (userId as string || req.userId!)
+        : req.userId!;
+      
+      const start = startDate ? new Date(startDate as string) : new Date(new Date().setHours(0, 0, 0, 0));
+      const end = endDate ? new Date(endDate as string) : new Date();
+      
+      const result = await storage.getFollowupStats(targetUserId, start, end);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error fetching followup stats:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get PowerScore rules (Company Admin or read for users)
   app.get("/api/powerscore/rules", authMiddleware, async (req: AuthRequest, res) => {
     try {
