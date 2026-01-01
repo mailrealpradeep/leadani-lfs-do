@@ -120,14 +120,6 @@ const motivationalMessages = [
   "Champions are made through daily discipline",
 ];
 
-function getMotivationalMessage(progressPercent: number): string {
-  if (progressPercent >= 90) return "Almost there! The finish line is in sight!";
-  if (progressPercent >= 75) return "Incredible progress! Keep the momentum going!";
-  if (progressPercent >= 50) return "Halfway there! You're on fire!";
-  if (progressPercent >= 25) return "Great start! Keep building that momentum!";
-  return motivationalMessages[Math.floor(Math.random() * motivationalMessages.length)];
-}
-
 function formatCurrency(amount: number, currency: string): string {
   const symbol = currencySymbols[currency] || currency;
   if (amount >= 10000000) return `${symbol}${(amount / 10000000).toFixed(2)} Cr`;
@@ -191,6 +183,18 @@ function CircularProgress({
   );
 }
 
+// Helper function to get motivational message based on progress
+function getMotivationalMessage(actualProgress: number, projectedProgress: number): string {
+  const ratio = projectedProgress > 0 ? (actualProgress / projectedProgress) * 100 : 0;
+  
+  if (actualProgress >= 100) return "Goal Achieved!";
+  if (ratio >= 80) return "Almost there!";
+  if (ratio >= 50) return "Halfway to target!";
+  if (ratio >= 25) return "Building momentum!";
+  if (actualProgress > 0) return "Great start!";
+  return "Let's go!";
+}
+
 function DualRingProgress({ 
   actualProgress, 
   projectedProgress,
@@ -206,17 +210,33 @@ function DualRingProgress({
   innerStrokeWidth?: number;
   children?: React.ReactNode;
 }) {
-  const gap = 4;
+  const gap = 6;
   const outerRadius = (size - outerStrokeWidth) / 2;
   const innerRadius = outerRadius - outerStrokeWidth / 2 - gap - innerStrokeWidth / 2;
   const outerCircumference = 2 * Math.PI * outerRadius;
   const innerCircumference = 2 * Math.PI * innerRadius;
-  const outerOffset = outerCircumference - (Math.min(projectedProgress, 100) / 100) * outerCircumference;
-  const innerOffset = innerCircumference - (Math.min(actualProgress, 100) / 100) * innerCircumference;
+  
+  // Guard against undefined/NaN values FIRST
+  const safeProjectedProgress = Number.isFinite(projectedProgress) ? projectedProgress : 0;
+  const safeActualProgress = Number.isFinite(actualProgress) ? actualProgress : 0;
+  
+  // Use safe values for offset calculations
+  const outerOffset = outerCircumference - (Math.min(safeProjectedProgress, 100) / 100) * outerCircumference;
+  const innerOffset = innerCircumference - (Math.min(safeActualProgress, 100) / 100) * innerCircumference;
   
   return (
     <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="transform -rotate-90">
+      {/* Subtle glow effect for outer ring */}
+      {safeProjectedProgress > 0 && (
+        <div 
+          className="absolute inset-0 rounded-full opacity-20 blur-lg"
+          style={{
+            background: `conic-gradient(from 270deg, #F59E0B ${safeProjectedProgress}%, transparent ${safeProjectedProgress}%)`,
+          }}
+        />
+      )}
+      <svg width={size} height={size} className="transform -rotate-90 relative z-10">
+        {/* Outer ring background - amber/gold tint */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -224,8 +244,9 @@ function DualRingProgress({
           fill="none"
           stroke="currentColor"
           strokeWidth={outerStrokeWidth}
-          className="text-blue-100 dark:text-blue-900/30"
+          className="text-amber-100 dark:text-amber-900/20"
         />
+        {/* Outer ring - Gold/Amber gradient for PROJECTED */}
         <motion.circle
           cx={size / 2}
           cy={size / 2}
@@ -238,7 +259,9 @@ function DualRingProgress({
           initial={{ strokeDashoffset: outerCircumference }}
           animate={{ strokeDashoffset: outerOffset }}
           transition={{ duration: 1.5, ease: "easeOut" }}
+          style={{ filter: 'drop-shadow(0 0 6px rgba(245, 158, 11, 0.5))' }}
         />
+        {/* Inner ring background - emerald tint */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -246,8 +269,9 @@ function DualRingProgress({
           fill="none"
           stroke="currentColor"
           strokeWidth={innerStrokeWidth}
-          className="text-slate-200 dark:text-slate-700"
+          className="text-emerald-100 dark:text-emerald-900/20"
         />
+        {/* Inner ring - Emerald green gradient for ACTUAL */}
         <motion.circle
           cx={size / 2}
           cy={size / 2}
@@ -260,20 +284,24 @@ function DualRingProgress({
           initial={{ strokeDashoffset: innerCircumference }}
           animate={{ strokeDashoffset: innerOffset }}
           transition={{ duration: 1.5, ease: "easeOut", delay: 0.2 }}
+          style={{ filter: 'drop-shadow(0 0 6px rgba(16, 185, 129, 0.5))' }}
         />
         <defs>
+          {/* Gold/Amber gradient for Projected ring */}
           <linearGradient id="projectedGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#3B82F6" />
-            <stop offset="100%" stopColor="#8B5CF6" />
+            <stop offset="0%" stopColor="#F59E0B" />
+            <stop offset="50%" stopColor="#F97316" />
+            <stop offset="100%" stopColor="#EAB308" />
           </linearGradient>
+          {/* Emerald green gradient for Actual ring */}
           <linearGradient id="actualGradient" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#10B981" />
-            <stop offset="50%" stopColor="#3B82F6" />
-            <stop offset="100%" stopColor="#8B5CF6" />
+            <stop offset="50%" stopColor="#059669" />
+            <stop offset="100%" stopColor="#34D399" />
           </linearGradient>
         </defs>
       </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
+      <div className="absolute inset-0 flex items-center justify-center z-20">
         {children}
       </div>
     </div>
@@ -1866,16 +1894,29 @@ export default function VisionBoardPage() {
                       outerStrokeWidth={8}
                       innerStrokeWidth={12}
                     >
-                      <div className="text-center">
+                      <div className="text-center px-2" data-testid="dual-ring-center-content">
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: 0.8, duration: 0.5 }}
+                        >
+                          <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-actual-earned">
+                            {formatCurrency(displayData.earned || 0, currency)}
+                          </p>
+                          <p className="text-xs text-muted-foreground -mt-0.5">of</p>
+                          <p className="text-sm font-semibold text-amber-600 dark:text-amber-400" data-testid="text-projected-incentive">
+                            {formatCurrency(displayData.projectedIncentive || 0, currency)}
+                          </p>
+                        </motion.div>
                         <motion.p
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
-                          transition={{ delay: 0.8 }}
-                          className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent"
+                          transition={{ delay: 1.2 }}
+                          className="text-[10px] font-medium mt-1 bg-gradient-to-r from-emerald-600 to-amber-600 bg-clip-text text-transparent"
+                          data-testid="text-motivational-message"
                         >
-                          {Math.round(displayData.progressPercent)}%
+                          {getMotivationalMessage(displayData.progressPercent || 0, displayData.projectedProgressPercent || 0)}
                         </motion.p>
-                        <p className="text-xs text-muted-foreground mt-1">{labels.progressSubLabel}</p>
                       </div>
                     </DualRingProgress>
                   ) : (
@@ -1899,14 +1940,14 @@ export default function VisionBoardPage() {
                   )}
                   
                   {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 && (
-                    <div className="flex items-center gap-4 mt-3 text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-purple-500" />
-                        <span className="text-muted-foreground">Projected {Math.round(displayData.projectedProgressPercent)}%</span>
+                    <div className="flex items-center gap-4 mt-3 text-xs" data-testid="dual-ring-legend">
+                      <div className="flex items-center gap-1.5" data-testid="legend-projected">
+                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 shadow-sm shadow-amber-500/50" />
+                        <span className="text-muted-foreground">Projected {Math.round(displayData.projectedProgressPercent || 0)}%</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-green-500 to-blue-500" />
-                        <span className="text-muted-foreground">Actual {Math.round(displayData.progressPercent)}%</span>
+                      <div className="flex items-center gap-1.5" data-testid="legend-actual">
+                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-500 to-green-400 shadow-sm shadow-emerald-500/50" />
+                        <span className="text-muted-foreground">Actual {Math.round(displayData.progressPercent || 0)}%</span>
                       </div>
                     </div>
                   )}
@@ -1914,17 +1955,17 @@ export default function VisionBoardPage() {
                   <div className="mt-6 text-center space-y-2 w-full">
                     {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 ? (
                       <>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
+                        <div className="grid grid-cols-2 gap-3" data-testid="incentive-cards">
+                          <div className="p-2 rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/30" data-testid="card-projected">
                             <p className="text-xs text-muted-foreground">Projected</p>
-                            <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                              {formatCurrency(displayData.projectedIncentive, currency)}
+                            <p className="text-lg font-bold text-amber-600 dark:text-amber-400">
+                              {formatCurrency(displayData.projectedIncentive || 0, currency)}
                             </p>
                           </div>
-                          <div className="p-2 rounded-lg bg-green-50 dark:bg-green-950/30">
+                          <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30 border border-emerald-200/50 dark:border-emerald-800/30" data-testid="card-actual">
                             <p className="text-xs text-muted-foreground">Actual</p>
-                            <p className="text-lg font-bold text-green-600 dark:text-green-400">
-                              {formatCurrency(displayData.earned, currency)}
+                            <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                              {formatCurrency(displayData.earned || 0, currency)}
                             </p>
                           </div>
                         </div>
@@ -1974,7 +2015,10 @@ export default function VisionBoardPage() {
               <div className="flex items-start gap-3">
                 <Sparkles className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
                 <p className="text-sm">
-                  {getMotivationalMessage(progress?.earnings.progress_percent || 0)}
+                  {getMotivationalMessage(
+                    progress?.earnings.progress_percent || 0, 
+                    progress?.earnings.projected_progress_percent || progress?.earnings.progress_percent || 0
+                  )}
                 </p>
               </div>
             </motion.div>
