@@ -20248,7 +20248,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       let sales = 0;
       let visits = 0;
       let leads_attended = 0;
-      let followups = 0;
       
       for (const log of logsSubset) {
         // Sales: lead_updated with lead_status changed to "Converted"
@@ -20267,14 +20266,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         if (log.action === 'lead_created') {
           leads_attended++;
         }
-        
-        // Follow-ups: lead_update_added action (remarks/follow-up dialog)
-        if (log.action === 'lead_update_added') {
-          followups++;
-        }
       }
       
-      return { sales, visits, leads_attended, followups };
+      return { sales, visits, leads_attended };
     };
     
     // Filter logs by period (ensure Date comparisons work correctly)
@@ -20283,11 +20277,19 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
     const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
     
+    // Get deduplicated follow-up counts from followup_events table
+    const [yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups] = await Promise.all([
+      storage.getFollowupStats(userId, yearStart, now),
+      storage.getFollowupStats(userId, monthStart, now),
+      storage.getFollowupStats(userId, weekStart, now),
+      storage.getFollowupStats(userId, dayStart, now),
+    ]);
+    
     return {
-      yearly: countMetrics(yearlyLogs),
-      monthly: countMetrics(monthlyLogs),
-      weekly: countMetrics(weeklyLogs),
-      daily: countMetrics(dailyLogs),
+      yearly: { ...countMetrics(yearlyLogs), followups: yearlyFollowups.count },
+      monthly: { ...countMetrics(monthlyLogs), followups: monthlyFollowups.count },
+      weekly: { ...countMetrics(weeklyLogs), followups: weeklyFollowups.count },
+      daily: { ...countMetrics(dailyLogs), followups: dailyFollowups.count },
     };
   };
 
