@@ -46,6 +46,9 @@ interface VisionBoardProgress {
     progress_percent: number;
     goal: number;
     remaining: number;
+    projected_incentive?: number;
+    actual_incentive?: number;
+    projected_progress_percent?: number;
   };
   timeline: {
     total_days: number;
@@ -86,6 +89,9 @@ interface VisionBoardApiResponse {
       progress_percent: number;
       goal: number;
       remaining: number;
+      projected_incentive?: number;
+      actual_incentive?: number;
+      projected_progress_percent?: number;
     };
     team_totals?: {
       total_earnings: number;
@@ -172,6 +178,95 @@ function CircularProgress({
         />
         <defs>
           <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#10B981" />
+            <stop offset="50%" stopColor="#3B82F6" />
+            <stop offset="100%" stopColor="#8B5CF6" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DualRingProgress({ 
+  actualProgress, 
+  projectedProgress,
+  size = 200, 
+  outerStrokeWidth = 10,
+  innerStrokeWidth = 12,
+  children 
+}: { 
+  actualProgress: number; 
+  projectedProgress: number;
+  size?: number;
+  outerStrokeWidth?: number;
+  innerStrokeWidth?: number;
+  children?: React.ReactNode;
+}) {
+  const gap = 4;
+  const outerRadius = (size - outerStrokeWidth) / 2;
+  const innerRadius = outerRadius - outerStrokeWidth / 2 - gap - innerStrokeWidth / 2;
+  const outerCircumference = 2 * Math.PI * outerRadius;
+  const innerCircumference = 2 * Math.PI * innerRadius;
+  const outerOffset = outerCircumference - (Math.min(projectedProgress, 100) / 100) * outerCircumference;
+  const innerOffset = innerCircumference - (Math.min(actualProgress, 100) / 100) * innerCircumference;
+  
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="transform -rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={outerRadius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={outerStrokeWidth}
+          className="text-blue-100 dark:text-blue-900/30"
+        />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={outerRadius}
+          fill="none"
+          stroke="url(#projectedGradient)"
+          strokeWidth={outerStrokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={outerCircumference}
+          initial={{ strokeDashoffset: outerCircumference }}
+          animate={{ strokeDashoffset: outerOffset }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={innerRadius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={innerStrokeWidth}
+          className="text-slate-200 dark:text-slate-700"
+        />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={innerRadius}
+          fill="none"
+          stroke="url(#actualGradient)"
+          strokeWidth={innerStrokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={innerCircumference}
+          initial={{ strokeDashoffset: innerCircumference }}
+          animate={{ strokeDashoffset: innerOffset }}
+          transition={{ duration: 1.5, ease: "easeOut", delay: 0.2 }}
+        />
+        <defs>
+          <linearGradient id="projectedGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#3B82F6" />
+            <stop offset="100%" stopColor="#8B5CF6" />
+          </linearGradient>
+          <linearGradient id="actualGradient" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#10B981" />
             <stop offset="50%" stopColor="#3B82F6" />
             <stop offset="100%" stopColor="#8B5CF6" />
@@ -1602,6 +1697,9 @@ export default function VisionBoardPage() {
     progressPercent: teamTotals?.overall_progress_percent || 0,
     earned: teamTotals?.total_earnings || 0,
     remaining: Math.max(0, (teamTotals?.total_goal || 0) - (teamTotals?.total_earnings || 0)),
+    projectedIncentive: 0,
+    actualIncentive: 0,
+    projectedProgressPercent: 0,
     effortTargets: teamAggregate.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     effortAchieved: teamProgress?.team_effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(teamAggregate.target_date),
@@ -1614,6 +1712,9 @@ export default function VisionBoardPage() {
     progressPercent: progress?.earnings.progress_percent || 0,
     earned: progress?.earnings.total || 0,
     remaining: progress?.earnings.remaining || 0,
+    projectedIncentive: progress?.earnings.projected_incentive || 0,
+    actualIncentive: progress?.earnings.actual_incentive || 0,
+    projectedProgressPercent: progress?.earnings.projected_progress_percent || 0,
     effortTargets: progress?.effort_targets?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     effortAchieved: progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(visionBoard.target_date),
@@ -1726,37 +1827,99 @@ export default function VisionBoardPage() {
                   )}
                 </div>
                 <div className="flex flex-col items-center">
-                  <CircularProgress 
-                    progress={displayData.progressPercent}
-                    size={180}
-                    strokeWidth={14}
-                  >
-                    <div className="text-center">
-                      <motion.p
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.8 }}
-                        className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent"
-                      >
-                        {Math.round(displayData.progressPercent)}%
-                      </motion.p>
-                      <p className="text-xs text-muted-foreground mt-1">{labels.progressSubLabel}</p>
-                    </div>
-                  </CircularProgress>
+                  {!isTeamView && displayData.projectedProgressPercent > 0 ? (
+                    <DualRingProgress 
+                      actualProgress={displayData.progressPercent}
+                      projectedProgress={displayData.projectedProgressPercent}
+                      size={180}
+                      outerStrokeWidth={8}
+                      innerStrokeWidth={12}
+                    >
+                      <div className="text-center">
+                        <motion.p
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.8 }}
+                          className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent"
+                        >
+                          {Math.round(displayData.progressPercent)}%
+                        </motion.p>
+                        <p className="text-xs text-muted-foreground mt-1">{labels.progressSubLabel}</p>
+                      </div>
+                    </DualRingProgress>
+                  ) : (
+                    <CircularProgress 
+                      progress={displayData.progressPercent}
+                      size={180}
+                      strokeWidth={14}
+                    >
+                      <div className="text-center">
+                        <motion.p
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.8 }}
+                          className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent"
+                        >
+                          {Math.round(displayData.progressPercent)}%
+                        </motion.p>
+                        <p className="text-xs text-muted-foreground mt-1">{labels.progressSubLabel}</p>
+                      </div>
+                    </CircularProgress>
+                  )}
                   
-                  <div className="mt-6 text-center space-y-2">
-                    <div>
-                      <p className="text-sm text-muted-foreground">{labels.earnedLabel}</p>
-                      <p className="text-2xl font-bold text-green-600">
-                        {formatCurrency(displayData.earned, currency)}
-                      </p>
+                  {!isTeamView && displayData.projectedProgressPercent > 0 && (
+                    <div className="flex items-center gap-4 mt-3 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-purple-500" />
+                        <span className="text-muted-foreground">Projected {Math.round(displayData.projectedProgressPercent)}%</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-green-500 to-blue-500" />
+                        <span className="text-muted-foreground">Actual {Math.round(displayData.progressPercent)}%</span>
+                      </div>
                     </div>
-                    <div className="border-t pt-2">
-                      <p className="text-sm text-muted-foreground">{labels.remainingLabel}</p>
-                      <p className="text-xl font-semibold">
-                        {formatCurrency(displayData.remaining, currency)}
-                      </p>
-                    </div>
+                  )}
+                  
+                  <div className="mt-6 text-center space-y-2 w-full">
+                    {!isTeamView && displayData.projectedIncentive > 0 ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
+                            <p className="text-xs text-muted-foreground">Projected</p>
+                            <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                              {formatCurrency(displayData.projectedIncentive, currency)}
+                            </p>
+                          </div>
+                          <div className="p-2 rounded-lg bg-green-50 dark:bg-green-950/30">
+                            <p className="text-xs text-muted-foreground">Actual</p>
+                            <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                              {formatCurrency(displayData.earned, currency)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="border-t pt-2">
+                          <p className="text-sm text-muted-foreground">{labels.remainingLabel}</p>
+                          <p className="text-xl font-semibold">
+                            {formatCurrency(displayData.remaining, currency)}
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <p className="text-sm text-muted-foreground">{labels.earnedLabel}</p>
+                          <p className="text-2xl font-bold text-green-600">
+                            {formatCurrency(displayData.earned, currency)}
+                          </p>
+                        </div>
+                        <div className="border-t pt-2">
+                          <p className="text-sm text-muted-foreground">{labels.remainingLabel}</p>
+                          <p className="text-xl font-semibold">
+                            {formatCurrency(displayData.remaining, currency)}
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
                   
                   {!isTeamView && visionBoard && (

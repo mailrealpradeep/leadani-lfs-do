@@ -20480,6 +20480,132 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         targetDate
       );
 
+      // Calculate projected incentive from Conversion Settings pipeline
+      let projectedIncentive = 0;
+      let actualIncentive = 0;
+      let projectedProgressPercent = 0;
+      
+      if (req.companyId) {
+        try {
+          const settings = await storage.getConversionSettingsComplete(req.companyId);
+          
+          if (settings && settings.config && settings.stages.length > 0) {
+            // Get user's assigned sheets
+            const userSheets = await storage.getSheetsByUserId(req.userId!);
+            const nonPersonalSheets = userSheets.filter(s => !s.is_personal);
+            
+            if (nonPersonalSheets.length > 0) {
+              // Get all leads from user's sheets
+              let leads: any[] = [];
+              for (const sheet of nonPersonalSheets) {
+                const sheetLeads = await storage.getLeadsBySheetId(sheet.id);
+                leads = leads.concat(sheetLeads.filter(l => !l.deleted_at));
+              }
+              
+              const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+              const totalStages = sortedStages.length;
+              const finalStage = sortedStages[totalStages - 1];
+              
+              // Value configuration
+              const valueConfig = settings.config.value_config;
+              const getLeadValue = (lead: any): number => {
+                if (!valueConfig) return 0;
+                if (valueConfig.value_type === 'fixed') return valueConfig.fixed_value || 0;
+                if (valueConfig.value_type === 'from_field' && valueConfig.field_key) {
+                  const val = lead.custom_fields?.[valueConfig.field_key];
+                  return typeof val === 'number' ? val : parseFloat(val) || 0;
+                }
+                return 0;
+              };
+              
+              // Incentive configuration
+              const incentiveConfig = settings.config.incentive_config;
+              const getIncentive = (value: number): number => {
+                if (!incentiveConfig) return 0;
+                if (incentiveConfig.incentive_type === 'fixed') return incentiveConfig.fixed_amount || 0;
+                if (incentiveConfig.incentive_type === 'percentage') return value * ((incentiveConfig.percentage_value || 0) / 100);
+                if (incentiveConfig.incentive_type === 'tiered' && incentiveConfig.tier_rules) {
+                  const sortedTiers = [...incentiveConfig.tier_rules].sort((a, b) => (a.min_value || 0) - (b.min_value || 0));
+                  for (let i = sortedTiers.length - 1; i >= 0; i--) {
+                    const tier = sortedTiers[i];
+                    if (value >= (tier.min_value || 0)) {
+                      if (tier.incentive_type === 'fixed') return tier.fixed_amount || 0;
+                      if (tier.incentive_type === 'percentage') return value * ((tier.percentage_value || 0) / 100);
+                    }
+                  }
+                }
+                return 0;
+              };
+              
+              // Calculate stage data with potential values
+              const stageData = sortedStages.map((stage, index) => {
+                let stageLeads: any[] = [];
+                const triggerValues = stage.trigger_values || [];
+                
+                if (stage.trigger_type === 'all_leads') {
+                  stageLeads = leads;
+                } else if (stage.trigger_type === 'lead_status') {
+                  stageLeads = leads.filter(lead => {
+                    const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+                    return triggerValues.includes(leadStatus);
+                  });
+                } else if (stage.trigger_type === 'visit_status') {
+                  stageLeads = leads.filter(lead => {
+                    const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+                    return triggerValues.includes(visitStatus);
+                  });
+                } else if (stage.trigger_type === 'combined') {
+                  stageLeads = leads.filter(lead => {
+                    const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+                    const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+                    return triggerValues.includes(leadStatus) || triggerValues.includes(visitStatus);
+                  });
+                }
+                
+                const isFinalStage = index === totalStages - 1;
+                const actualInc = isFinalStage
+                  ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
+                  : 0;
+                const potentialInc = stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
+                
+                return { stage, stageLeads, count: stageLeads.length, actualIncentives: actualInc, potentialIncentive: potentialInc };
+              });
+              
+              // Calculate projection multipliers
+              const projectionMultipliers = stageData.map((_, index) => {
+                if (index === totalStages - 1) return 1;
+                let multiplier = 1;
+                for (let i = index + 1; i < totalStages; i++) {
+                  const expectedPercent = stageData[i].stage.expected_conversion_percent;
+                  if (expectedPercent && expectedPercent > 0) {
+                    multiplier *= (expectedPercent / 100);
+                  }
+                }
+                return multiplier;
+              });
+              
+              // Sum up projected and actual incentives
+              stageData.forEach((data, index) => {
+                const isFinalStage = index === totalStages - 1;
+                if (isFinalStage) {
+                  actualIncentive += data.actualIncentives;
+                } else {
+                  projectedIncentive += data.potentialIncentive * projectionMultipliers[index];
+                }
+              });
+              
+              // Add actual incentive to projected total
+              projectedIncentive += actualIncentive;
+              
+              // Calculate projected progress percent
+              projectedProgressPercent = board.goal_amount > 0 ? (projectedIncentive / board.goal_amount) * 100 : 0;
+            }
+          }
+        } catch (err) {
+          console.error("Error calculating projected incentive:", err);
+        }
+      }
+
       res.json({
         board,
         earnings: {
@@ -20487,6 +20613,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           progress_percent: Math.min(100, progressPercent),
           goal: board.goal_amount,
           remaining: Math.max(0, board.goal_amount - totalEarned),
+          projected_incentive: Math.round(projectedIncentive * 100) / 100,
+          actual_incentive: Math.round(actualIncentive * 100) / 100,
+          projected_progress_percent: Math.min(100, projectedProgressPercent),
         },
         timeline: {
           total_days: totalDays,
