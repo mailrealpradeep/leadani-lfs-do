@@ -889,10 +889,12 @@ interface ClosedSale {
 
 function UpdateIncentivesDialog({ 
   visionBoardId, 
-  onSuccess 
+  onSuccess,
+  triggerVariant = "full"
 }: { 
   visionBoardId: string; 
   onSuccess: () => void;
+  triggerVariant?: "full" | "ghost";
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -965,13 +967,25 @@ function UpdateIncentivesDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
-          data-testid="button-update-incentives"
-        >
-          <TrendingUp className="h-4 w-4 mr-2" />
-          Update Incentives
-        </Button>
+        {triggerVariant === "ghost" ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground h-8 px-3"
+            data-testid="button-update-incentives"
+          >
+            <TrendingUp className="h-3.5 w-3.5 mr-1.5" />
+            <span className="text-xs">Add Incentive</span>
+          </Button>
+        ) : (
+          <Button
+            className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+            data-testid="button-update-incentives"
+          >
+            <TrendingUp className="h-4 w-4 mr-2" />
+            Update Incentives
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
@@ -1149,10 +1163,12 @@ function UpdateIncentivesDialog({
 
 function EditVisionWizard({ 
   visionBoard, 
-  onSuccess 
+  onSuccess,
+  triggerVariant = "icon"
 }: { 
   visionBoard: VisionBoard; 
   onSuccess: () => void;
+  triggerVariant?: "icon" | "ghost";
 }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -1258,14 +1274,26 @@ function EditVisionWizard({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground hover:text-foreground"
-          data-testid="button-edit-vision"
-        >
-          <Edit2 className="h-4 w-4" />
-        </Button>
+        {triggerVariant === "ghost" ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground h-8 px-3"
+            data-testid="button-edit-vision"
+          >
+            <Edit2 className="h-3.5 w-3.5 mr-1.5" />
+            <span className="text-xs">Edit Goal</span>
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground"
+            data-testid="button-edit-vision"
+          >
+            <Edit2 className="h-4 w-4" />
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="text-center pb-2">
@@ -1848,17 +1876,8 @@ export default function VisionBoardPage() {
           >
             <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl overflow-hidden">
               <CardContent className="p-6">
-                <div className="flex justify-between items-start mb-2">
+                <div className="mb-2">
                   <span className="text-sm font-medium text-muted-foreground">{labels.progressLabel}</span>
-                  {!isTeamView && visionBoard && (
-                    <EditVisionWizard 
-                      visionBoard={visionBoard} 
-                      onSuccess={() => {
-                        queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] });
-                        refetchProgress();
-                      }} 
-                    />
-                  )}
                 </div>
                 <div className="flex flex-col items-center">
                   {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 ? (
@@ -1976,27 +1995,49 @@ export default function VisionBoardPage() {
                     )}
                   </div>
                   
-                  {!isTeamView && visionBoard && (
-                    <div className="w-full mt-6">
-                      <UpdateIncentivesDialog 
-                        visionBoardId={visionBoard.id} 
-                        onSuccess={() => refetchProgress()} 
-                      />
-                    </div>
-                  )}
                 </div>
               </CardContent>
             </Card>
+            
+            {!isTeamView && visionBoard && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.35 }}
+                className="mt-3"
+              >
+                <Card className="border-0 shadow-md bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-center gap-3" data-testid="action-bar">
+                      <EditVisionWizard 
+                        visionBoard={visionBoard} 
+                        onSuccess={() => {
+                          queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] });
+                          refetchProgress();
+                        }}
+                        triggerVariant="ghost"
+                      />
+                      <div className="h-4 w-px bg-border" />
+                      <UpdateIncentivesDialog 
+                        visionBoardId={visionBoard.id} 
+                        onSuccess={() => refetchProgress()}
+                        triggerVariant="ghost"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
             
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="mt-4 p-4 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20"
+              className="mt-3 p-3 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20"
             >
               <div className="flex items-start gap-3">
-                <Sparkles className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
-                <p className="text-sm">
+                <Sparkles className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs">
                   {getMotivationalMessage(
                     progress?.earnings.progress_percent || 0, 
                     progress?.earnings.projected_progress_percent || progress?.earnings.progress_percent || 0
