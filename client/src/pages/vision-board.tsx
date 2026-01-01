@@ -1801,7 +1801,7 @@ export default function VisionBoardPage() {
     effortTitle: "Team Effort Targets",
   } : {
     headerTitle: "Your Dream",
-    progressLabel: "Goal Progress",
+    progressLabel: "Vision Progress",
     progressSubLabel: "Completed",
     earnedLabel: "Earned",
     remainingLabel: "Remaining",
@@ -2119,21 +2119,29 @@ export default function VisionBoardPage() {
                   </CardTitle>
                   {!isTeamView && (
                     <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                      {(["daily", "weekly", "monthly", "yearly"] as const).map((period) => (
-                        <button
-                          key={period}
-                          onClick={() => setSelectedPeriod(period)}
-                          className={cn(
-                            "px-3 py-1.5 text-sm rounded-md transition-all",
-                            selectedPeriod === period
-                              ? "bg-white dark:bg-slate-600 shadow font-medium"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          data-testid={`button-period-${period}`}
-                        >
-                          {period.charAt(0).toUpperCase() + period.slice(1)}
-                        </button>
-                      ))}
+                      {(["daily", "weekly", "monthly", "yearly"] as const).map((period) => {
+                        const periodLabels: Record<typeof period, string> = {
+                          daily: "Today",
+                          weekly: "This Week",
+                          monthly: "This Month",
+                          yearly: "This Year"
+                        };
+                        return (
+                          <button
+                            key={period}
+                            onClick={() => setSelectedPeriod(period)}
+                            className={cn(
+                              "px-3 py-1.5 text-sm rounded-md transition-all",
+                              selectedPeriod === period
+                                ? "bg-white dark:bg-slate-600 shadow font-medium"
+                                : "text-muted-foreground hover:text-foreground"
+                            )}
+                            data-testid={`button-period-${period}`}
+                          >
+                            {periodLabels[period]}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                   {isTeamView && (
