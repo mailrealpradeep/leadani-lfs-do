@@ -199,8 +199,8 @@ function DualRingProgress({
   actualProgress, 
   projectedProgress,
   size = 200, 
-  outerStrokeWidth = 10,
-  innerStrokeWidth = 12,
+  outerStrokeWidth = 14,
+  innerStrokeWidth = 16,
   children 
 }: { 
   actualProgress: number; 
@@ -210,7 +210,7 @@ function DualRingProgress({
   innerStrokeWidth?: number;
   children?: React.ReactNode;
 }) {
-  const gap = 6;
+  const gap = 8;
   const outerRadius = (size - outerStrokeWidth) / 2;
   const innerRadius = outerRadius - outerStrokeWidth / 2 - gap - innerStrokeWidth / 2;
   const outerCircumference = 2 * Math.PI * outerRadius;
@@ -225,18 +225,39 @@ function DualRingProgress({
   const innerOffset = innerCircumference - (Math.min(safeActualProgress, 100) / 100) * innerCircumference;
   
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      {/* Subtle glow effect for outer ring */}
+    <div className="relative" style={{ width: size, height: size }} data-testid="dual-ring-container">
+      {/* Intense outer glow effect for projected ring */}
       {safeProjectedProgress > 0 && (
-        <div 
-          className="absolute inset-0 rounded-full opacity-20 blur-lg"
+        <motion.div 
+          className="absolute inset-0 rounded-full"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 0.4, scale: 1 }}
+          transition={{ duration: 1.2, ease: "easeOut" }}
           style={{
             background: `conic-gradient(from 270deg, #F59E0B ${safeProjectedProgress}%, transparent ${safeProjectedProgress}%)`,
+            filter: 'blur(20px)',
+          }}
+        />
+      )}
+      {/* Inner glow effect for actual ring */}
+      {safeActualProgress > 0 && (
+        <motion.div 
+          className="absolute rounded-full"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 0.35, scale: 1 }}
+          transition={{ duration: 1.2, ease: "easeOut", delay: 0.2 }}
+          style={{
+            top: outerStrokeWidth + gap,
+            left: outerStrokeWidth + gap,
+            right: outerStrokeWidth + gap,
+            bottom: outerStrokeWidth + gap,
+            background: `conic-gradient(from 270deg, #10B981 ${safeActualProgress}%, transparent ${safeActualProgress}%)`,
+            filter: 'blur(16px)',
           }}
         />
       )}
       <svg width={size} height={size} className="transform -rotate-90 relative z-10">
-        {/* Outer ring background - amber/gold tint */}
+        {/* Outer ring background - amber/gold tint with subtle pattern */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -244,9 +265,9 @@ function DualRingProgress({
           fill="none"
           stroke="currentColor"
           strokeWidth={outerStrokeWidth}
-          className="text-amber-100 dark:text-amber-900/20"
+          className="text-amber-200/60 dark:text-amber-900/30"
         />
-        {/* Outer ring - Gold/Amber gradient for PROJECTED */}
+        {/* Outer ring - Gold/Amber gradient for PROJECTED with spring animation */}
         <motion.circle
           cx={size / 2}
           cy={size / 2}
@@ -258,8 +279,14 @@ function DualRingProgress({
           strokeDasharray={outerCircumference}
           initial={{ strokeDashoffset: outerCircumference }}
           animate={{ strokeDashoffset: outerOffset }}
-          transition={{ duration: 1.5, ease: "easeOut" }}
-          style={{ filter: 'drop-shadow(0 0 6px rgba(245, 158, 11, 0.5))' }}
+          transition={{ 
+            duration: 2, 
+            ease: [0.34, 1.56, 0.64, 1],
+            type: "spring",
+            stiffness: 60,
+            damping: 15
+          }}
+          style={{ filter: 'drop-shadow(0 0 12px rgba(245, 158, 11, 0.7)) drop-shadow(0 0 4px rgba(251, 191, 36, 0.9))' }}
         />
         {/* Inner ring background - emerald tint */}
         <circle
@@ -269,9 +296,9 @@ function DualRingProgress({
           fill="none"
           stroke="currentColor"
           strokeWidth={innerStrokeWidth}
-          className="text-emerald-100 dark:text-emerald-900/20"
+          className="text-emerald-200/60 dark:text-emerald-900/30"
         />
-        {/* Inner ring - Emerald green gradient for ACTUAL */}
+        {/* Inner ring - Emerald green gradient for ACTUAL with spring animation */}
         <motion.circle
           cx={size / 2}
           cy={size / 2}
@@ -283,21 +310,30 @@ function DualRingProgress({
           strokeDasharray={innerCircumference}
           initial={{ strokeDashoffset: innerCircumference }}
           animate={{ strokeDashoffset: innerOffset }}
-          transition={{ duration: 1.5, ease: "easeOut", delay: 0.2 }}
-          style={{ filter: 'drop-shadow(0 0 6px rgba(16, 185, 129, 0.5))' }}
+          transition={{ 
+            duration: 2.2, 
+            ease: [0.34, 1.56, 0.64, 1],
+            type: "spring",
+            stiffness: 50,
+            damping: 12,
+            delay: 0.3
+          }}
+          style={{ filter: 'drop-shadow(0 0 12px rgba(16, 185, 129, 0.7)) drop-shadow(0 0 4px rgba(52, 211, 153, 0.9))' }}
         />
         <defs>
-          {/* Gold/Amber gradient for Projected ring */}
-          <linearGradient id="projectedGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#F59E0B" />
-            <stop offset="50%" stopColor="#F97316" />
-            <stop offset="100%" stopColor="#EAB308" />
+          {/* Vivid Gold/Amber gradient for Projected ring */}
+          <linearGradient id="projectedGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#FBBF24" />
+            <stop offset="30%" stopColor="#F59E0B" />
+            <stop offset="60%" stopColor="#F97316" />
+            <stop offset="100%" stopColor="#EA580C" />
           </linearGradient>
-          {/* Emerald green gradient for Actual ring */}
-          <linearGradient id="actualGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#10B981" />
-            <stop offset="50%" stopColor="#059669" />
-            <stop offset="100%" stopColor="#34D399" />
+          {/* Vivid Emerald green gradient for Actual ring */}
+          <linearGradient id="actualGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#34D399" />
+            <stop offset="30%" stopColor="#10B981" />
+            <stop offset="60%" stopColor="#059669" />
+            <stop offset="100%" stopColor="#047857" />
           </linearGradient>
         </defs>
       </svg>
@@ -1969,11 +2005,22 @@ export default function VisionBoardPage() {
                             </p>
                           </div>
                         </div>
-                        <div className="border-t pt-2">
-                          <p className="text-sm text-muted-foreground">{labels.remainingLabel}</p>
-                          <p className="text-xl font-semibold">
-                            {formatCurrency(displayData.remaining, currency)}
-                          </p>
+                        <div className="border-t pt-3" data-testid="remaining-section-dual">
+                          <p className="text-sm text-muted-foreground mb-2">{labels.remainingLabel}</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="p-2 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
+                              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Projected</p>
+                              <p className="text-base font-bold text-amber-700 dark:text-amber-300">
+                                {formatCurrency(Math.max(0, (visionBoard?.goal_amount || 0) - (displayData.projectedIncentive || 0)), currency)}
+                              </p>
+                            </div>
+                            <div className="p-2 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30">
+                              <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Actual</p>
+                              <p className="text-base font-bold text-emerald-700 dark:text-emerald-300">
+                                {formatCurrency(displayData.remaining || 0, currency)}
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       </>
                     ) : (
