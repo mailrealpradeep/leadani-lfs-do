@@ -880,7 +880,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
 // ============================================================================
 // DRIZZLE ORM TABLE DEFINITIONS (for PostgreSQL)
 // ============================================================================
-import { pgTable, varchar, text, boolean, json, jsonb, timestamp, integer, doublePrecision } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, json, jsonb, timestamp, integer, doublePrecision, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const companies = pgTable('companies', {
@@ -3807,6 +3807,7 @@ export const followupEventTypes = [
 export type FollowupEventType = typeof followupEventTypes[number];
 
 // Followup Events table - tracks all follow-up actions with 1-minute deduplication
+// Uses a window_key column to enforce uniqueness within the same minute window
 export const followup_events = pgTable('followup_events', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
@@ -3814,9 +3815,13 @@ export const followup_events = pgTable('followup_events', {
   lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
   user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   event_types: json('event_types').$type<FollowupEventType[]>().notNull().default([]), // Array of event types in this follow-up
+  window_key: varchar('window_key', { length: 50 }).notNull(), // Minute-truncated key: "lead_id:user_id:YYYY-MM-DD-HH-MM"
   triggered_at: timestamp('triggered_at').defaultNow().notNull(), // When the follow-up started
   updated_at: timestamp('updated_at').defaultNow().notNull(), // Last update within the dedup window
-});
+}, (table) => [
+  // Unique constraint to prevent race conditions - one event per lead+user per minute
+  uniqueIndex('idx_followup_events_window').on(table.window_key),
+]);
 
 export type FollowupEvent = typeof followup_events.$inferSelect;
 export type InsertFollowupEvent = typeof followup_events.$inferInsert;

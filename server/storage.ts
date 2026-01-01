@@ -2307,9 +2307,21 @@ export class MemStorage implements IStorage {
     });
   }
 
-  // Followup Events (MemStorage - unified follow-up tracking with 1-minute deduplication)
+  // Followup Events (MemStorage - unified follow-up tracking with 60-second sliding window)
   private followupEvents: Map<string, FollowupEvent> = new Map();
-  private readonly FOLLOWUP_WINDOW_SECONDS = 60; // 1 minute deduplication window
+  private readonly FOLLOWUP_DEDUP_SECONDS = 60;
+
+  // Generate a unique window key for deduplication: "leadId:userId:YYYY-MM-DD-HH-MM"
+  private generateWindowKey(leadId: string, userId: string, timestamp: Date): string {
+    const year = timestamp.getUTCFullYear();
+    const month = String(timestamp.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(timestamp.getUTCDate()).padStart(2, '0');
+    const hour = String(timestamp.getUTCHours()).padStart(2, '0');
+    const minute = String(timestamp.getUTCMinutes()).padStart(2, '0');
+    const shortLeadId = leadId.slice(-8);
+    const shortUserId = userId.slice(-8);
+    return `${shortLeadId}:${shortUserId}:${year}${month}${day}${hour}${minute}`;
+  }
 
   async recordFollowupEvent(params: {
     companyId: string;
@@ -2319,26 +2331,33 @@ export class MemStorage implements IStorage {
     eventTypes: FollowupEventType[];
   }): Promise<{ isNew: boolean; eventId: string }> {
     const { companyId, sheetId, leadId, userId, eventTypes } = params;
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - this.FOLLOWUP_DEDUP_SECONDS * 1000);
     
-    // Check for existing event within the dedup window
-    const existingEvent = await this.getRecentFollowupEvent(leadId, userId, this.FOLLOWUP_WINDOW_SECONDS);
+    // First, check for any existing event within the true 60-second sliding window
+    // Use updated_at (not triggered_at) so merged events keep the row alive for 60s
+    const recentEvent = Array.from(this.followupEvents.values()).find(
+      event => event.lead_id === leadId && 
+               event.user_id === userId && 
+               new Date(event.updated_at) >= cutoff
+    );
     
-    if (existingEvent) {
+    if (recentEvent) {
       // Update existing event - merge event types
-      const existingTypes = existingEvent.event_types || [];
+      const existingTypes = recentEvent.event_types || [];
       const mergedTypes = [...new Set([...existingTypes, ...eventTypes])] as FollowupEventType[];
       const updated: FollowupEvent = {
-        ...existingEvent,
+        ...recentEvent,
         event_types: mergedTypes,
-        updated_at: new Date(),
+        updated_at: now,
       };
-      this.followupEvents.set(existingEvent.id, updated);
-      return { isNew: false, eventId: existingEvent.id };
+      this.followupEvents.set(recentEvent.id, updated);
+      return { isNew: false, eventId: recentEvent.id };
     }
     
     // Create new event
     const id = randomUUID();
-    const now = new Date();
+    const windowKey = this.generateWindowKey(leadId, userId, now);
     const newEvent: FollowupEvent = {
       id,
       company_id: companyId,
@@ -2346,6 +2365,7 @@ export class MemStorage implements IStorage {
       lead_id: leadId,
       user_id: userId,
       event_types: eventTypes,
+      window_key: windowKey,
       triggered_at: now,
       updated_at: now,
     };
@@ -5537,7 +5557,20 @@ export class PgStorage implements IStorage {
   }
 
   // Followup Events (Unified follow-up tracking with 1-minute deduplication)
-  private readonly FOLLOWUP_WINDOW_SECONDS = 60; // 1 minute deduplication window
+  private readonly FOLLOWUP_DEDUP_SECONDS = 60;
+  
+  // Generate a unique window key for deduplication: "leadId:userId:YYYY-MM-DD-HH-MM"
+  private generateWindowKey(leadId: string, userId: string, timestamp: Date): string {
+    const year = timestamp.getUTCFullYear();
+    const month = String(timestamp.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(timestamp.getUTCDate()).padStart(2, '0');
+    const hour = String(timestamp.getUTCHours()).padStart(2, '0');
+    const minute = String(timestamp.getUTCMinutes()).padStart(2, '0');
+    // Use last 8 chars of each ID to keep key under 50 chars
+    const shortLeadId = leadId.slice(-8);
+    const shortUserId = userId.slice(-8);
+    return `${shortLeadId}:${shortUserId}:${year}${month}${day}${hour}${minute}`;
+  }
 
   async recordFollowupEvent(params: {
     companyId: string;
@@ -5547,40 +5580,111 @@ export class PgStorage implements IStorage {
     eventTypes: FollowupEventType[];
   }): Promise<{ isNew: boolean; eventId: string }> {
     const { companyId, sheetId, leadId, userId, eventTypes } = params;
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - this.FOLLOWUP_DEDUP_SECONDS * 1000);
     
-    // Check for existing event within the dedup window
-    const existingEvent = await this.getRecentFollowupEvent(leadId, userId, this.FOLLOWUP_WINDOW_SECONDS);
+    // First, check for any existing event within the true 60-second sliding window
+    // Use updated_at (not triggered_at) so merged events keep the row alive for 60s
+    // This handles the minute-boundary edge case (e.g., 12:00:59 vs 12:01:10)
+    const recentEvents = await db.select()
+      .from(dbSchema.followup_events)
+      .where(and(
+        eq(dbSchema.followup_events.lead_id, leadId),
+        eq(dbSchema.followup_events.user_id, userId),
+        gte(dbSchema.followup_events.updated_at, cutoff)
+      ))
+      .orderBy(desc(dbSchema.followup_events.updated_at))
+      .limit(1);
     
-    if (existingEvent) {
-      // Update existing event - merge event types
-      const existingTypes = existingEvent.event_types || [];
+    if (recentEvents.length > 0) {
+      // Existing event found within 60 seconds - merge event types
+      const existingEvent = recentEvents[0];
+      const existingTypes = (existingEvent.event_types || []) as FollowupEventType[];
       const mergedTypes = [...new Set([...existingTypes, ...eventTypes])] as FollowupEventType[];
       
       await db.update(dbSchema.followup_events)
         .set({
           event_types: mergedTypes,
-          updated_at: new Date(),
+          updated_at: now,
         })
         .where(eq(dbSchema.followup_events.id, existingEvent.id));
       
       return { isNew: false, eventId: existingEvent.id };
     }
     
-    // Create new event
+    // No recent event - try to insert new one (window_key provides race condition protection)
+    const windowKey = this.generateWindowKey(leadId, userId, now);
     const id = randomUUID();
-    const now = new Date();
-    await db.insert(dbSchema.followup_events).values({
-      id,
-      company_id: companyId,
-      sheet_id: sheetId,
-      lead_id: leadId,
-      user_id: userId,
-      event_types: eventTypes,
-      triggered_at: now,
-      updated_at: now,
-    });
     
-    return { isNew: true, eventId: id };
+    try {
+      await db.insert(dbSchema.followup_events)
+        .values({
+          id,
+          company_id: companyId,
+          sheet_id: sheetId,
+          lead_id: leadId,
+          user_id: userId,
+          event_types: eventTypes,
+          window_key: windowKey,
+          triggered_at: now,
+          updated_at: now,
+        })
+        .onConflictDoNothing({ target: dbSchema.followup_events.window_key });
+      
+      // Check if our insert succeeded by looking up the row
+      const result = await db.select()
+        .from(dbSchema.followup_events)
+        .where(eq(dbSchema.followup_events.window_key, windowKey))
+        .limit(1);
+      
+      if (result.length > 0) {
+        const existingEvent = result[0];
+        // If the ID matches, it's a new insert
+        if (existingEvent.id === id) {
+          return { isNew: true, eventId: id };
+        }
+        
+        // Otherwise, another concurrent request won - merge event types
+        const existingTypes = (existingEvent.event_types || []) as FollowupEventType[];
+        const mergedTypes = [...new Set([...existingTypes, ...eventTypes])] as FollowupEventType[];
+        
+        await db.update(dbSchema.followup_events)
+          .set({
+            event_types: mergedTypes,
+            updated_at: now,
+          })
+          .where(eq(dbSchema.followup_events.id, existingEvent.id));
+        
+        return { isNew: false, eventId: existingEvent.id };
+      }
+      
+      // Should not happen, but return as new if we can't find the row
+      return { isNew: true, eventId: id };
+    } catch (error: any) {
+      // Handle unique constraint violation gracefully
+      if (error.code === '23505') { // PostgreSQL unique_violation
+        const result = await db.select()
+          .from(dbSchema.followup_events)
+          .where(eq(dbSchema.followup_events.window_key, windowKey))
+          .limit(1);
+        
+        if (result.length > 0) {
+          const existingEvent = result[0];
+          const existingTypes = (existingEvent.event_types || []) as FollowupEventType[];
+          const mergedTypes = [...new Set([...existingTypes, ...eventTypes])] as FollowupEventType[];
+          
+          await db.update(dbSchema.followup_events)
+            .set({
+              event_types: mergedTypes,
+              updated_at: now,
+            })
+            .where(eq(dbSchema.followup_events.id, existingEvent.id));
+          
+          return { isNew: false, eventId: existingEvent.id };
+        }
+      }
+      throw error;
+    }
   }
 
   async getRecentFollowupEvent(leadId: string, userId: string, windowSeconds: number = 60): Promise<FollowupEvent | undefined> {
