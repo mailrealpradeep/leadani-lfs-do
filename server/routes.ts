@@ -11676,6 +11676,76 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // GET /api/custom-views/:id/column-preferences - Get user's column width preferences for a custom view
+  app.get("/api/custom-views/:id/column-preferences", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const viewId = req.params.id;
+      
+      // Authorization: Verify custom view exists and belongs to user's company
+      const view = await storage.getCustomView(viewId);
+      if (!view) {
+        return res.status(404).json({ error: "Custom view not found" });
+      }
+      if (view.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Use a special key format to store custom view column preferences in the same table
+      const fakeSheetId = `custom-view-${viewId}`;
+      const preferences = await storage.getUserColumnPreferences(req.userId!, fakeSheetId);
+      
+      const preferencesMap: Record<string, number> = {};
+      preferences.forEach(pref => {
+        preferencesMap[pref.column_key] = pref.width;
+      });
+      
+      res.json(preferencesMap);
+    } catch (error: any) {
+      console.error("Get custom view column preferences error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/custom-views/:id/column-preferences - Save user's column width preferences for a custom view
+  app.post("/api/custom-views/:id/column-preferences", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const viewId = req.params.id;
+      
+      // Authorization: Verify custom view exists and belongs to user's company
+      const view = await storage.getCustomView(viewId);
+      if (!view) {
+        return res.status(404).json({ error: "Custom view not found" });
+      }
+      if (view.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const { preferences } = req.body;
+      
+      if (!preferences || typeof preferences !== 'object') {
+        return res.status(400).json({ error: "preferences must be an object" });
+      }
+      
+      const preferencesArray = Object.entries(preferences)
+        .map(([column_key, width]) => {
+          const numWidth = Number(width);
+          if (!isFinite(numWidth) || numWidth < 60) {
+            throw new Error(`Invalid width for column ${column_key}: must be a finite number >= 60`);
+          }
+          return { column_key, width: numWidth };
+        });
+      
+      // Use a special key format to store custom view column preferences
+      const fakeSheetId = `custom-view-${viewId}`;
+      await storage.saveUserColumnPreferences(req.userId!, fakeSheetId, preferencesArray);
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Save custom view column preferences error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // WEBHOOKS
   // ============================================================================

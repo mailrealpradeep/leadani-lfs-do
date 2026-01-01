@@ -1215,13 +1215,22 @@ export function SpreadsheetGrid({
   }, [finalValueMap]);
 
   // Load column width preferences (only in single-sheet mode)
-  const { data: columnPreferences = {} } = useQuery<Record<string, number>>({
+  const { data: sheetColumnPreferences = {} } = useQuery<Record<string, number>>({
     queryKey: ["/api/sheets", activeSheetId, "column-preferences"],
     enabled: !!activeSheetId && !isMultiMode,
   });
 
+  // Load column width preferences for Custom Views
+  const { data: customViewColumnPreferences = {} } = useQuery<Record<string, number>>({
+    queryKey: ["/api/custom-views", customViewId, "column-preferences"],
+    enabled: customViewMode && !!customViewId,
+  });
+
+  // Combined column preferences based on mode
+  const columnPreferences = customViewMode ? customViewColumnPreferences : sheetColumnPreferences;
+
   // Save column width preferences mutation (only in single-sheet mode)
-  const saveColumnPreferencesMutation = useMutation({
+  const saveSheetColumnPreferencesMutation = useMutation({
     mutationFn: async (preferences: Record<string, number>) => {
       return await apiRequest("POST", `/api/sheets/${activeSheetId}/column-preferences`, { preferences });
     },
@@ -1237,6 +1246,27 @@ export function SpreadsheetGrid({
       });
     },
   });
+
+  // Save column width preferences mutation for Custom Views
+  const saveCustomViewColumnPreferencesMutation = useMutation({
+    mutationFn: async (preferences: Record<string, number>) => {
+      return await apiRequest("POST", `/api/custom-views/${customViewId}/column-preferences`, { preferences });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "column-preferences"] });
+    },
+    onError: (error: any) => {
+      console.error("Failed to save custom view column preferences:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save column width preferences",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Use the appropriate mutation based on mode
+  const saveColumnPreferencesMutation = customViewMode ? saveCustomViewColumnPreferencesMutation : saveSheetColumnPreferencesMutation;
 
   // User sheet view (column order and hidden columns) - only in single-sheet mode
   const { data: userSheetView } = useQuery<{ column_order: string[]; hidden_columns: string[] }>({
@@ -1917,11 +1947,11 @@ export function SpreadsheetGrid({
     return lead.custom_fields[columnKey];
   };
 
-  // Sync column preferences into local state when loaded or sheet changes
+  // Sync column preferences into local state when loaded or sheet/custom view changes
   useEffect(() => {
     // Always sync preferences from backend (could be empty object for sheets without saved prefs)
     setColumnWidths(columnPreferences);
-  }, [columnPreferences, sheetId]);
+  }, [columnPreferences, sheetId, customViewId]);
 
   // Column resize handlers
   const handleResizeStart = (e: React.MouseEvent, columnKey: string) => {
