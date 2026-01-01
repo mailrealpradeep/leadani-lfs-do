@@ -1915,39 +1915,31 @@ export default function VisionBoardPage() {
                   )}
                   
                   {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 && (
-                    <div className="flex items-center justify-center gap-6 mt-2 text-xs" data-testid="dual-ring-legend">
+                    <div className="flex items-center justify-center gap-4 mt-2 text-xs" data-testid="dual-ring-legend">
                       <div className="flex items-center gap-1.5" data-testid="legend-projected">
                         <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                        <span className="text-muted-foreground">Projected {Math.round(displayData.projectedProgressPercent || 0)}%</span>
+                        <span className="text-muted-foreground">
+                          Projected {Math.round(displayData.projectedProgressPercent || 0)}% 
+                          <span className="font-medium text-amber-600 dark:text-amber-400" data-testid="card-projected">
+                            ({formatCurrency(displayData.projectedIncentive || 0, currency)})
+                          </span>
+                        </span>
                       </div>
                       <div className="flex items-center gap-1.5" data-testid="legend-actual">
                         <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                        <span className="text-muted-foreground">Actual {Math.round(displayData.progressPercent || 0)}%</span>
+                        <span className="text-muted-foreground">
+                          Actual {Math.round(displayData.progressPercent || 0)}% 
+                          <span className="font-medium text-emerald-600 dark:text-emerald-400" data-testid="card-actual">
+                            ({formatCurrency(displayData.earned || 0, currency)})
+                          </span>
+                        </span>
                       </div>
                     </div>
                   )}
                   
-                  <div className="mt-4 w-full">
+                  <div className="mt-3 w-full">
                     {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 ? (
-                      <div className="space-y-2" data-testid="compact-stats">
-                        <div className="flex items-center justify-between text-sm border-b pb-1.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-4 rounded-full bg-amber-500" />
-                            <span className="text-muted-foreground">Projected</span>
-                          </div>
-                          <span className="font-semibold text-amber-600 dark:text-amber-400" data-testid="card-projected">
-                            {formatCurrency(displayData.projectedIncentive || 0, currency)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm border-b pb-1.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-4 rounded-full bg-emerald-500" />
-                            <span className="text-muted-foreground">Actual</span>
-                          </div>
-                          <span className="font-semibold text-emerald-600 dark:text-emerald-400" data-testid="card-actual">
-                            {formatCurrency(displayData.earned || 0, currency)}
-                          </span>
-                        </div>
+                      <div data-testid="compact-stats">
                         <div className="pt-1" data-testid="remaining-section-dual">
                           <p className="text-xs text-muted-foreground text-center mb-1.5">{labels.remainingLabel}</p>
                           <div className="flex items-center justify-between gap-4">
