@@ -3793,6 +3793,43 @@ export const insertWatchlistLeadSchema = createInsertSchema(watchlist_leads).omi
 export type InsertWatchlistLeadData = z.infer<typeof insertWatchlistLeadSchema>;
 
 // ============================================================================
+// FOLLOWUP EVENTS (Unified tracking for all lead follow-up actions)
+// ============================================================================
+
+// Event types that constitute a follow-up
+export const followupEventTypes = [
+  "remark",           // Added a remark/note to lead history
+  "dropdown_change",  // Changed a dropdown field value
+  "date_change",      // Changed a date field (NFDT, visit date, etc.)
+  "field_update",     // General field update
+] as const;
+
+export type FollowupEventType = typeof followupEventTypes[number];
+
+// Followup Events table - tracks all follow-up actions with 1-minute deduplication
+export const followup_events = pgTable('followup_events', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  event_types: json('event_types').$type<FollowupEventType[]>().notNull().default([]), // Array of event types in this follow-up
+  triggered_at: timestamp('triggered_at').defaultNow().notNull(), // When the follow-up started
+  updated_at: timestamp('updated_at').defaultNow().notNull(), // Last update within the dedup window
+});
+
+export type FollowupEvent = typeof followup_events.$inferSelect;
+export type InsertFollowupEvent = typeof followup_events.$inferInsert;
+
+export const insertFollowupEventSchema = createInsertSchema(followup_events).omit({
+  id: true,
+  triggered_at: true,
+  updated_at: true,
+});
+
+export type InsertFollowupEventData = z.infer<typeof insertFollowupEventSchema>;
+
+// ============================================================================
 // POWERSCORE - Gamified Scoring System
 // ============================================================================
 
