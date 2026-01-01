@@ -54,6 +54,7 @@ import Plan from "@/pages/plan";
 import Watchlist from "@/pages/watchlist";
 import PowerScore from "@/pages/powerscore";
 import PowerScoreTransactions from "@/pages/powerscore-transactions";
+import FollowupTransactions from "@/pages/followup-transactions";
 import PowerFlow from "@/pages/powerflow";
 import VisionBoard from "@/pages/vision-board";
 import ConversionSettings from "@/pages/conversion-settings";
@@ -157,6 +158,9 @@ function Router() {
       </Route>
       <Route path="/powerscore/transactions">
         {() => <ProtectedRoute component={PowerScoreTransactions} adminOnly />}
+      </Route>
+      <Route path="/followup-transactions">
+        {() => <ProtectedRoute component={FollowupTransactions} adminOnly />}
       </Route>
       <Route path="/powerflow">
         {() => <ProtectedRoute component={PowerFlow} />}

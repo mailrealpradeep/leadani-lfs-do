@@ -406,6 +406,12 @@ export function AppSidebar() {
           testId: "link-powerscore-transactions",
         },
         {
+          title: "Followup Transactions",
+          url: "/followup-transactions",
+          icon: History,
+          testId: "link-followup-transactions",
+        },
+        {
           title: "Outgoing Webhooks",
           url: "/outgoing-webhooks",
           icon: Send,
