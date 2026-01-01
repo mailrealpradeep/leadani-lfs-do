@@ -52,17 +52,17 @@ export function detectFollowupEventTypes(params: {
   hasRemarkUpdate: boolean;
   hasDropdownChanges: boolean;
   hasDateFieldChanges: boolean;
-  hasNFDTChange: boolean;
+  hasFieldUpdate: boolean;
 }): FollowupEventType[] {
   const types: FollowupEventType[] = [];
   
   if (params.hasRemarkUpdate) types.push("remark");
   if (params.hasDropdownChanges) types.push("dropdown_change");
-  if (params.hasDateFieldChanges) types.push("date_field_change");
-  if (params.hasNFDTChange) types.push("nfdt_change");
+  if (params.hasDateFieldChanges) types.push("date_change");
+  if (params.hasFieldUpdate) types.push("field_update");
   
   if (types.length === 0) {
-    types.push("other");
+    types.push("field_update");
   }
   
   return types;

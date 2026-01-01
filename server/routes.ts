@@ -52,6 +52,7 @@ import {
 } from "./google-sheets-backup";
 import { extractGoogleSheetId } from "@shared/schema";
 import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals, checkPointsToReverse, reverseLeadUpdatePoints } from "./powerscore-service";
+import { recordFollowupAndAwardPoints, detectFollowupEventTypes } from "./followup-service";
 import { setSocketIO } from "./socket-manager";
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
@@ -6856,15 +6857,17 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         payload: req.body,
       });
 
-      // Award PowerScore points for lead updates (including login bonus for first activity of the day)
+      // Award PowerScore points for lead updates (with 1-minute deduplication)
       const company = await storage.getCompany(sheet.company_id);
       if (company) {
         const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
+        let hasDateFieldChanges = false;
         
-        // Calculate dropdown changes if custom_fields were updated
+        // Calculate dropdown and date changes if custom_fields were updated
         if (req.body.custom_fields) {
           const customColumns = await storage.getCustomColumns(lead.sheet_id);
           const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+          const dateColumns = customColumns.filter(col => col.type === "date" || col.type === "date_time");
           
           for (const col of dropdownColumns) {
             const oldVal = lead.custom_fields?.[col.column_key] ?? null;
@@ -6877,17 +6880,35 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
               });
             }
           }
+          
+          for (const col of dateColumns) {
+            const oldVal = lead.custom_fields?.[col.column_key] ?? null;
+            const newVal = req.body.custom_fields[col.column_key];
+            if (newVal !== undefined && oldVal !== newVal) {
+              hasDateFieldChanges = true;
+              break;
+            }
+          }
         }
         
-        // Always call awardLeadUpdatePoints for any lead update
-        // This ensures login bonus is awarded even for non-dropdown updates
         const companyTimezone = getCompanyTimezone(company);
-        awardLeadUpdatePoints({
+        
+        // Detect event types for followup tracking
+        const eventTypes = detectFollowupEventTypes({
+          hasRemarkUpdate: false, // This route is for field updates, not remarks
+          hasDropdownChanges: dropdownChanges.length > 0,
+          hasDateFieldChanges,
+          hasFieldUpdate: Object.keys(req.body.custom_fields || {}).length > 0,
+        });
+        
+        // Record followup event (with 1-minute deduplication) and award points only if new
+        recordFollowupAndAwardPoints({
           userId: req.userId!,
           companyId: sheet.company_id,
           companyTimezone,
+          sheetId: lead.sheet_id,
           leadId: lead.id,
-        }, dropdownChanges).catch(err => console.error("PowerScore lead update error:", err));
+        }, eventTypes, dropdownChanges).catch(err => console.error("Followup/PowerScore error:", err));
         
         // Reversal protection: Reverse points when values change away from bonus-triggering values
         // This creates negative transactions to deduct previously awarded points
@@ -7513,16 +7534,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         payload: req.body,
       });
 
-      // Award PowerScore points for lead update
+      // Award PowerScore points for lead update (with 1-minute deduplication)
       const company = await storage.getCompany(sheet.company_id);
       if (company) {
         const companyTimezone = getCompanyTimezone(company);
-        awardLeadUpdatePoints({
+        
+        // Detect event types for this remark/NFDT update
+        const eventTypes = detectFollowupEventTypes({
+          hasRemarkUpdate: !!req.body.remark,
+          hasDropdownChanges: false,
+          hasDateFieldChanges: !!req.body.next_followup_date,
+          hasFieldUpdate: false,
+        });
+        
+        // Record followup event (with 1-minute deduplication) and award points only if new
+        recordFollowupAndAwardPoints({
           userId: req.userId!,
           companyId: sheet.company_id,
           companyTimezone,
+          sheetId: lead.sheet_id,
           leadId: lead.id,
-        }, []).catch(err => console.error("PowerScore lead update error:", err));
+        }, eventTypes, []).catch(err => console.error("Followup/PowerScore error:", err));
       }
 
       // Activity log for lead update (remarks/NFDT)
