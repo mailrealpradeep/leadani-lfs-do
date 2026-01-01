@@ -199,8 +199,8 @@ function DualRingProgress({
   actualProgress, 
   projectedProgress,
   size = 200, 
-  outerStrokeWidth = 14,
-  innerStrokeWidth = 16,
+  outerStrokeWidth = 10,
+  innerStrokeWidth = 10,
   children 
 }: { 
   actualProgress: number; 
@@ -210,7 +210,7 @@ function DualRingProgress({
   innerStrokeWidth?: number;
   children?: React.ReactNode;
 }) {
-  const gap = 8;
+  const gap = 6;
   const outerRadius = (size - outerStrokeWidth) / 2;
   const innerRadius = outerRadius - outerStrokeWidth / 2 - gap - innerStrokeWidth / 2;
   const outerCircumference = 2 * Math.PI * outerRadius;
@@ -226,38 +226,8 @@ function DualRingProgress({
   
   return (
     <div className="relative" style={{ width: size, height: size }} data-testid="dual-ring-container">
-      {/* Intense outer glow effect for projected ring */}
-      {safeProjectedProgress > 0 && (
-        <motion.div 
-          className="absolute inset-0 rounded-full"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 0.4, scale: 1 }}
-          transition={{ duration: 1.2, ease: "easeOut" }}
-          style={{
-            background: `conic-gradient(from 270deg, #F59E0B ${safeProjectedProgress}%, transparent ${safeProjectedProgress}%)`,
-            filter: 'blur(20px)',
-          }}
-        />
-      )}
-      {/* Inner glow effect for actual ring */}
-      {safeActualProgress > 0 && (
-        <motion.div 
-          className="absolute rounded-full"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 0.35, scale: 1 }}
-          transition={{ duration: 1.2, ease: "easeOut", delay: 0.2 }}
-          style={{
-            top: outerStrokeWidth + gap,
-            left: outerStrokeWidth + gap,
-            right: outerStrokeWidth + gap,
-            bottom: outerStrokeWidth + gap,
-            background: `conic-gradient(from 270deg, #10B981 ${safeActualProgress}%, transparent ${safeActualProgress}%)`,
-            filter: 'blur(16px)',
-          }}
-        />
-      )}
-      <svg width={size} height={size} className="transform -rotate-90 relative z-10">
-        {/* Outer ring background - amber/gold tint with subtle pattern */}
+      <svg width={size} height={size} className="transform -rotate-90">
+        {/* Outer ring background - clean light track */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -265,30 +235,23 @@ function DualRingProgress({
           fill="none"
           stroke="currentColor"
           strokeWidth={outerStrokeWidth}
-          className="text-amber-200/60 dark:text-amber-900/30"
+          className="text-amber-100 dark:text-amber-950/40"
         />
-        {/* Outer ring - Gold/Amber gradient for PROJECTED with spring animation */}
+        {/* Outer ring - Clean amber/orange for PROJECTED */}
         <motion.circle
           cx={size / 2}
           cy={size / 2}
           r={outerRadius}
           fill="none"
-          stroke="url(#projectedGradient)"
+          stroke="#F59E0B"
           strokeWidth={outerStrokeWidth}
           strokeLinecap="round"
           strokeDasharray={outerCircumference}
           initial={{ strokeDashoffset: outerCircumference }}
           animate={{ strokeDashoffset: outerOffset }}
-          transition={{ 
-            duration: 2, 
-            ease: [0.34, 1.56, 0.64, 1],
-            type: "spring",
-            stiffness: 60,
-            damping: 15
-          }}
-          style={{ filter: 'drop-shadow(0 0 12px rgba(245, 158, 11, 0.7)) drop-shadow(0 0 4px rgba(251, 191, 36, 0.9))' }}
+          transition={{ duration: 1.2, ease: "easeOut" }}
         />
-        {/* Inner ring background - emerald tint */}
+        {/* Inner ring background - clean light track */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -296,48 +259,24 @@ function DualRingProgress({
           fill="none"
           stroke="currentColor"
           strokeWidth={innerStrokeWidth}
-          className="text-emerald-200/60 dark:text-emerald-900/30"
+          className="text-emerald-100 dark:text-emerald-950/40"
         />
-        {/* Inner ring - Emerald green gradient for ACTUAL with spring animation */}
+        {/* Inner ring - Clean emerald for ACTUAL */}
         <motion.circle
           cx={size / 2}
           cy={size / 2}
           r={innerRadius}
           fill="none"
-          stroke="url(#actualGradient)"
+          stroke="#10B981"
           strokeWidth={innerStrokeWidth}
           strokeLinecap="round"
           strokeDasharray={innerCircumference}
           initial={{ strokeDashoffset: innerCircumference }}
           animate={{ strokeDashoffset: innerOffset }}
-          transition={{ 
-            duration: 2.2, 
-            ease: [0.34, 1.56, 0.64, 1],
-            type: "spring",
-            stiffness: 50,
-            damping: 12,
-            delay: 0.3
-          }}
-          style={{ filter: 'drop-shadow(0 0 12px rgba(16, 185, 129, 0.7)) drop-shadow(0 0 4px rgba(52, 211, 153, 0.9))' }}
+          transition={{ duration: 1.2, ease: "easeOut", delay: 0.15 }}
         />
-        <defs>
-          {/* Vivid Gold/Amber gradient for Projected ring */}
-          <linearGradient id="projectedGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#FBBF24" />
-            <stop offset="30%" stopColor="#F59E0B" />
-            <stop offset="60%" stopColor="#F97316" />
-            <stop offset="100%" stopColor="#EA580C" />
-          </linearGradient>
-          {/* Vivid Emerald green gradient for Actual ring */}
-          <linearGradient id="actualGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#34D399" />
-            <stop offset="30%" stopColor="#10B981" />
-            <stop offset="60%" stopColor="#059669" />
-            <stop offset="100%" stopColor="#047857" />
-          </linearGradient>
-        </defs>
       </svg>
-      <div className="absolute inset-0 flex items-center justify-center z-20">
+      <div className="absolute inset-0 flex items-center justify-center">
         {children}
       </div>
     </div>
@@ -1976,53 +1915,57 @@ export default function VisionBoardPage() {
                   )}
                   
                   {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 && (
-                    <div className="flex items-center gap-4 mt-3 text-xs" data-testid="dual-ring-legend">
+                    <div className="flex items-center justify-center gap-6 mt-2 text-xs" data-testid="dual-ring-legend">
                       <div className="flex items-center gap-1.5" data-testid="legend-projected">
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 shadow-sm shadow-amber-500/50" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
                         <span className="text-muted-foreground">Projected {Math.round(displayData.projectedProgressPercent || 0)}%</span>
                       </div>
                       <div className="flex items-center gap-1.5" data-testid="legend-actual">
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-500 to-green-400 shadow-sm shadow-emerald-500/50" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                         <span className="text-muted-foreground">Actual {Math.round(displayData.progressPercent || 0)}%</span>
                       </div>
                     </div>
                   )}
                   
-                  <div className="mt-6 text-center space-y-2 w-full">
+                  <div className="mt-4 w-full">
                     {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 ? (
-                      <>
-                        <div className="grid grid-cols-2 gap-3" data-testid="incentive-cards">
-                          <div className="p-2 rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/30" data-testid="card-projected">
-                            <p className="text-xs text-muted-foreground">Projected</p>
-                            <p className="text-lg font-bold text-amber-600 dark:text-amber-400">
-                              {formatCurrency(displayData.projectedIncentive || 0, currency)}
-                            </p>
+                      <div className="space-y-2" data-testid="compact-stats">
+                        <div className="flex items-center justify-between text-sm border-b pb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-4 rounded-full bg-amber-500" />
+                            <span className="text-muted-foreground">Projected</span>
                           </div>
-                          <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30 border border-emerald-200/50 dark:border-emerald-800/30" data-testid="card-actual">
-                            <p className="text-xs text-muted-foreground">Actual</p>
-                            <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                              {formatCurrency(displayData.earned || 0, currency)}
-                            </p>
-                          </div>
+                          <span className="font-semibold text-amber-600 dark:text-amber-400" data-testid="card-projected">
+                            {formatCurrency(displayData.projectedIncentive || 0, currency)}
+                          </span>
                         </div>
-                        <div className="border-t pt-3" data-testid="remaining-section-dual">
-                          <p className="text-sm text-muted-foreground mb-2">{labels.remainingLabel}</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="p-2 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
-                              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Projected</p>
-                              <p className="text-base font-bold text-amber-700 dark:text-amber-300">
+                        <div className="flex items-center justify-between text-sm border-b pb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-4 rounded-full bg-emerald-500" />
+                            <span className="text-muted-foreground">Actual</span>
+                          </div>
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400" data-testid="card-actual">
+                            {formatCurrency(displayData.earned || 0, currency)}
+                          </span>
+                        </div>
+                        <div className="pt-1" data-testid="remaining-section-dual">
+                          <p className="text-xs text-muted-foreground text-center mb-1.5">{labels.remainingLabel}</p>
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1 text-center py-1 px-2 rounded bg-amber-50 dark:bg-amber-950/30">
+                              <p className="text-[10px] text-amber-600 dark:text-amber-400">Projected</p>
+                              <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
                                 {formatCurrency(Math.max(0, (visionBoard?.goal_amount || 0) - (displayData.projectedIncentive || 0)), currency)}
                               </p>
                             </div>
-                            <div className="p-2 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30">
-                              <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Actual</p>
-                              <p className="text-base font-bold text-emerald-700 dark:text-emerald-300">
+                            <div className="flex-1 text-center py-1 px-2 rounded bg-emerald-50 dark:bg-emerald-950/30">
+                              <p className="text-[10px] text-emerald-600 dark:text-emerald-400">Actual</p>
+                              <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
                                 {formatCurrency(displayData.remaining || 0, currency)}
                               </p>
                             </div>
                           </div>
                         </div>
-                      </>
+                      </div>
                     ) : (
                       <>
                         <div>
