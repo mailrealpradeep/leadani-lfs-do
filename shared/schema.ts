@@ -3749,6 +3749,30 @@ export const customViewFormSchema = z.object({
 export type CustomViewFormData = z.infer<typeof customViewFormSchema>;
 
 // ============================================================================
+// CUSTOM VIEW COLUMN PREFERENCES (Column Width Customization for Custom Views)
+// ============================================================================
+export const customViewColumnPreferences = pgTable('custom_view_column_preferences', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  custom_view_id: varchar('custom_view_id').notNull().references(() => custom_views.id, { onDelete: 'cascade' }),
+  column_key: varchar('column_key').notNull(), // e.g., "name", "mobile", "custom_field_name"
+  width: integer('width').notNull(), // width in pixels
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type CustomViewColumnPreference = typeof customViewColumnPreferences.$inferSelect;
+export type InsertCustomViewColumnPreference = typeof customViewColumnPreferences.$inferInsert;
+
+export const insertCustomViewColumnPreferenceSchema = createInsertSchema(customViewColumnPreferences).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertCustomViewColumnPreferenceData = z.infer<typeof insertCustomViewColumnPreferenceSchema>;
+
+// ============================================================================
 // WATCHLIST LEADS (User's personal lead watchlist)
 // ============================================================================
 export const watchlist_leads = pgTable('watchlist_leads', {

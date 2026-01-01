@@ -528,6 +528,8 @@ export function SpreadsheetGrid({
   const resizeStartX = useRef<number>(0);
   const resizeStartWidth = useRef<number>(0);
   const hasMovedRef = useRef<boolean>(false);
+  const isResizingOrSaving = useRef<boolean>(false); // Prevents preference sync during resize/save
+  const columnWidthsRef = useRef<Record<string, number>>({}); // Always-current columnWidths for event handlers
   
   // Persistent columnsReady state - once true, stays true to prevent header unmounting during refetches
   const [columnsReady, setColumnsReady] = useState(false);
@@ -1134,17 +1136,6 @@ export function SpreadsheetGrid({
         ? customViewProcessed.length 
         : (isMultiMode ? multiSheetTotal : singleSheetTotal);
 
-  // Debug logging for column rendering issue
-  if (isMultiMode) {
-    console.log('[SpreadsheetGrid Debug]', {
-      isMultiMode,
-      companyColumnsLength: companyColumns.length,
-      customColumnsLength: customColumns.length,
-      companyColumnsError: companyColumnsError?.message,
-      isLoadingCompanyColumns,
-      sampleColumn: customColumns[0],
-    });
-  }
 
   const { data: allSheets = [] } = useQuery<any[]>({
     queryKey: ["/api/sheets"],
@@ -1245,6 +1236,12 @@ export function SpreadsheetGrid({
         variant: "destructive",
       });
     },
+    onSettled: () => {
+      // Clear the flag after mutation completes (after cache invalidation settles)
+      setTimeout(() => {
+        isResizingOrSaving.current = false;
+      }, 500);
+    },
   });
 
   // Save column width preferences mutation for Custom Views
@@ -1262,6 +1259,12 @@ export function SpreadsheetGrid({
         description: "Failed to save column width preferences",
         variant: "destructive",
       });
+    },
+    onSettled: () => {
+      // Clear the flag after mutation completes (after cache invalidation settles)
+      setTimeout(() => {
+        isResizingOrSaving.current = false;
+      }, 500);
     },
   });
 
@@ -1949,6 +1952,11 @@ export function SpreadsheetGrid({
 
   // Sync column preferences into local state when loaded or sheet/custom view changes
   useEffect(() => {
+    // Skip sync if user is actively resizing or mutation is in progress
+    // This prevents the newly set widths from being overwritten by stale/refetched data
+    if (isResizingOrSaving.current) {
+      return;
+    }
     // Always sync preferences from backend (could be empty object for sheets without saved prefs)
     setColumnWidths(columnPreferences);
   }, [columnPreferences, sheetId, customViewId]);
@@ -1960,6 +1968,7 @@ export function SpreadsheetGrid({
     setResizingColumn(columnKey);
     resizeStartX.current = e.clientX;
     hasMovedRef.current = false;
+    isResizingOrSaving.current = true; // Block preference sync during resize
     
     // Get current width - use saved width or parse default width for the column type
     const column = columns.find(c => c.key === columnKey);
@@ -1978,20 +1987,27 @@ export function SpreadsheetGrid({
     
     const newWidth = Math.max(60, resizeStartWidth.current + deltaX); // Min width 60px
     
-    setColumnWidths(prev => ({
-      ...prev,
-      [resizingColumn]: newWidth
-    }));
+    setColumnWidths(prev => {
+      const updated = {
+        ...prev,
+        [resizingColumn]: newWidth
+      };
+      // Keep ref in sync for handleResizeEnd to access latest values
+      columnWidthsRef.current = updated;
+      return updated;
+    });
   }, [resizingColumn]);
 
   const handleResizeEnd = useCallback(() => {
     if (resizingColumn && hasMovedRef.current) {
-      const newWidth = columnWidths[resizingColumn];
+      // Use ref to get latest column widths (avoids stale closure issue)
+      const latestWidths = columnWidthsRef.current;
+      const newWidth = latestWidths[resizingColumn];
       // Only save if we have a valid width (use explicit numeric check, not truthiness)
       if (Number.isFinite(newWidth) && newWidth >= 60) {
         // Filter to only include defined widths in the payload
         const updatedPreferences: Record<string, number> = {};
-        Object.entries(columnWidths).forEach(([key, value]) => {
+        Object.entries(latestWidths).forEach(([key, value]) => {
           if (Number.isFinite(value) && value >= 60) {
             updatedPreferences[key] = value;
           }
@@ -2001,7 +2017,7 @@ export function SpreadsheetGrid({
     }
     setResizingColumn(null);
     hasMovedRef.current = false;
-  }, [resizingColumn, columnWidths, saveColumnPreferencesMutation]);
+  }, [resizingColumn, saveColumnPreferencesMutation]);
 
   // Add/remove event listeners for column resizing
   useEffect(() => {

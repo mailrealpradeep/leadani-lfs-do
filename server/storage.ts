@@ -39,6 +39,7 @@ import type {
   Report,
   InsertReport,
   UserColumnPreference,
+  CustomViewColumnPreference,
   PushSubscription,
   InsertPushSubscription,
   AttendanceEntry,
@@ -466,6 +467,10 @@ export interface IStorage {
   // User Column Preferences
   getUserColumnPreferences(userId: string, sheetId: string): Promise<UserColumnPreference[]>;
   saveUserColumnPreferences(userId: string, sheetId: string, preferences: Array<{column_key: string, width: number}>): Promise<void>;
+
+  // Custom View Column Preferences
+  getCustomViewColumnPreferences(userId: string, customViewId: string): Promise<CustomViewColumnPreference[]>;
+  saveCustomViewColumnPreferences(userId: string, customViewId: string, preferences: Array<{column_key: string, width: number}>): Promise<void>;
 
   // Push Subscriptions
   getPushSubscription(userId: string, endpoint: string): Promise<PushSubscription | undefined>;
@@ -2234,6 +2239,39 @@ export class MemStorage implements IStorage {
         updated_at: now,
       };
       this.userColumnPreferences.set(id, preference);
+    });
+  }
+
+  // Custom View Column Preferences (MemStorage)
+  private customViewColumnPreferences: Map<string, CustomViewColumnPreference> = new Map();
+
+  async getCustomViewColumnPreferences(userId: string, customViewId: string): Promise<CustomViewColumnPreference[]> {
+    return Array.from(this.customViewColumnPreferences.values()).filter(
+      pref => pref.user_id === userId && pref.custom_view_id === customViewId
+    );
+  }
+
+  async saveCustomViewColumnPreferences(userId: string, customViewId: string, preferences: Array<{column_key: string, width: number}>): Promise<void> {
+    // Delete existing preferences for this user+custom view combo
+    const toDelete = Array.from(this.customViewColumnPreferences.entries())
+      .filter(([_, pref]) => pref.user_id === userId && pref.custom_view_id === customViewId)
+      .map(([id]) => id);
+    toDelete.forEach(id => this.customViewColumnPreferences.delete(id));
+
+    // Insert new preferences
+    const now = new Date().toISOString();
+    preferences.forEach(pref => {
+      const id = randomUUID();
+      const preference: CustomViewColumnPreference = {
+        id,
+        user_id: userId,
+        custom_view_id: customViewId,
+        column_key: pref.column_key,
+        width: pref.width,
+        created_at: now,
+        updated_at: now,
+      };
+      this.customViewColumnPreferences.set(id, preference);
     });
   }
 
@@ -5315,6 +5353,54 @@ export class PgStorage implements IStorage {
         }))
       );
     }
+  }
+
+  // Custom View Column Preferences
+  async getCustomViewColumnPreferences(userId: string, customViewId: string): Promise<CustomViewColumnPreference[]> {
+    const result = await db.select()
+      .from(dbSchema.customViewColumnPreferences)
+      .where(and(
+        eq(dbSchema.customViewColumnPreferences.user_id, userId),
+        eq(dbSchema.customViewColumnPreferences.custom_view_id, customViewId)
+      ));
+    return result.map(this.mapCustomViewColumnPreference.bind(this));
+  }
+
+  async saveCustomViewColumnPreferences(userId: string, customViewId: string, preferences: Array<{column_key: string, width: number}>): Promise<void> {
+    // Delete existing preferences for this user+custom view combo
+    await db.delete(dbSchema.customViewColumnPreferences)
+      .where(and(
+        eq(dbSchema.customViewColumnPreferences.user_id, userId),
+        eq(dbSchema.customViewColumnPreferences.custom_view_id, customViewId)
+      ));
+
+    // Insert new preferences
+    if (preferences.length > 0) {
+      const now = new Date();
+      await db.insert(dbSchema.customViewColumnPreferences).values(
+        preferences.map(pref => ({
+          id: randomUUID(),
+          user_id: userId,
+          custom_view_id: customViewId,
+          column_key: pref.column_key,
+          width: pref.width,
+          created_at: now,
+          updated_at: now,
+        }))
+      );
+    }
+  }
+
+  private mapCustomViewColumnPreference(row: any): CustomViewColumnPreference {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      custom_view_id: row.custom_view_id,
+      column_key: row.column_key,
+      width: row.width,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
   }
 
   // Push Subscriptions

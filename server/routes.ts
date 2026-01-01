@@ -11682,7 +11682,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const viewId = req.params.id;
       
       // Authorization: Verify custom view exists and belongs to user's company
-      const view = await storage.getCustomView(viewId);
+      const view = await storage.getCustomViewById(viewId);
       if (!view) {
         return res.status(404).json({ error: "Custom view not found" });
       }
@@ -11690,9 +11690,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Access denied" });
       }
       
-      // Use a special key format to store custom view column preferences in the same table
-      const fakeSheetId = `custom-view-${viewId}`;
-      const preferences = await storage.getUserColumnPreferences(req.userId!, fakeSheetId);
+      // Use dedicated custom view column preferences storage
+      const preferences = await storage.getCustomViewColumnPreferences(req.userId!, viewId);
       
       const preferencesMap: Record<string, number> = {};
       preferences.forEach(pref => {
@@ -11712,7 +11711,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const viewId = req.params.id;
       
       // Authorization: Verify custom view exists and belongs to user's company
-      const view = await storage.getCustomView(viewId);
+      const view = await storage.getCustomViewById(viewId);
       if (!view) {
         return res.status(404).json({ error: "Custom view not found" });
       }
@@ -11735,9 +11734,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           return { column_key, width: numWidth };
         });
       
-      // Use a special key format to store custom view column preferences
-      const fakeSheetId = `custom-view-${viewId}`;
-      await storage.saveUserColumnPreferences(req.userId!, fakeSheetId, preferencesArray);
+      // Use dedicated custom view column preferences storage
+      await storage.saveCustomViewColumnPreferences(req.userId!, viewId, preferencesArray);
       
       res.json({ success: true });
     } catch (error: any) {
