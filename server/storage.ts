@@ -172,6 +172,10 @@ import type {
   // Watchlist Leads
   WatchlistLead,
   watchlist_leads,
+  // Followup Events (Unified follow-up tracking)
+  FollowupEvent,
+  FollowupEventType,
+  followup_events,
   // PowerScore (Gamified Leaderboard System)
   PowerScoreRule,
   powerscore_rules,
@@ -273,6 +277,15 @@ export interface LeadsQueryOptions {
   quickFilter?: QuickFilterConfig;
   companyTimezone?: string;
   ownerUserId?: string;
+}
+
+// Followup Event with joined user/lead/sheet details for admin panel
+export interface FollowupEventWithDetails extends FollowupEvent {
+  user_name: string | null;
+  user_email: string | null;
+  lead_name: string | null;
+  lead_mobile: string | null;
+  sheet_name: string | null;
 }
 
 export interface IStorage {
@@ -471,6 +484,25 @@ export interface IStorage {
   // Custom View Column Preferences
   getCustomViewColumnPreferences(userId: string, customViewId: string): Promise<CustomViewColumnPreference[]>;
   saveCustomViewColumnPreferences(userId: string, customViewId: string, preferences: Array<{column_key: string, width: number}>): Promise<void>;
+
+  // Followup Events (Unified follow-up tracking with 1-minute deduplication)
+  recordFollowupEvent(params: {
+    companyId: string;
+    sheetId: string;
+    leadId: string;
+    userId: string;
+    eventTypes: FollowupEventType[];
+  }): Promise<{ isNew: boolean; eventId: string }>;
+  getRecentFollowupEvent(leadId: string, userId: string, windowSeconds?: number): Promise<FollowupEvent | undefined>;
+  getFollowupStats(userId: string, startDate: Date, endDate: Date): Promise<{ count: number }>;
+  getFollowupTransactions(companyId: string, options: {
+    page?: number;
+    limit?: number;
+    userId?: string;
+    sheetId?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<{ transactions: FollowupEventWithDetails[]; total: number; page: number; limit: number }>;
 
   // Push Subscriptions
   getPushSubscription(userId: string, endpoint: string): Promise<PushSubscription | undefined>;
@@ -2273,6 +2305,107 @@ export class MemStorage implements IStorage {
       };
       this.customViewColumnPreferences.set(id, preference);
     });
+  }
+
+  // Followup Events (MemStorage - unified follow-up tracking with 1-minute deduplication)
+  private followupEvents: Map<string, FollowupEvent> = new Map();
+  private readonly FOLLOWUP_WINDOW_SECONDS = 60; // 1 minute deduplication window
+
+  async recordFollowupEvent(params: {
+    companyId: string;
+    sheetId: string;
+    leadId: string;
+    userId: string;
+    eventTypes: FollowupEventType[];
+  }): Promise<{ isNew: boolean; eventId: string }> {
+    const { companyId, sheetId, leadId, userId, eventTypes } = params;
+    
+    // Check for existing event within the dedup window
+    const existingEvent = await this.getRecentFollowupEvent(leadId, userId, this.FOLLOWUP_WINDOW_SECONDS);
+    
+    if (existingEvent) {
+      // Update existing event - merge event types
+      const existingTypes = existingEvent.event_types || [];
+      const mergedTypes = [...new Set([...existingTypes, ...eventTypes])] as FollowupEventType[];
+      const updated: FollowupEvent = {
+        ...existingEvent,
+        event_types: mergedTypes,
+        updated_at: new Date(),
+      };
+      this.followupEvents.set(existingEvent.id, updated);
+      return { isNew: false, eventId: existingEvent.id };
+    }
+    
+    // Create new event
+    const id = randomUUID();
+    const now = new Date();
+    const newEvent: FollowupEvent = {
+      id,
+      company_id: companyId,
+      sheet_id: sheetId,
+      lead_id: leadId,
+      user_id: userId,
+      event_types: eventTypes,
+      triggered_at: now,
+      updated_at: now,
+    };
+    this.followupEvents.set(id, newEvent);
+    return { isNew: true, eventId: id };
+  }
+
+  async getRecentFollowupEvent(leadId: string, userId: string, windowSeconds: number = 60): Promise<FollowupEvent | undefined> {
+    const cutoff = new Date(Date.now() - windowSeconds * 1000);
+    return Array.from(this.followupEvents.values()).find(
+      event => event.lead_id === leadId && 
+               event.user_id === userId && 
+               new Date(event.triggered_at) >= cutoff
+    );
+  }
+
+  async getFollowupStats(userId: string, startDate: Date, endDate: Date): Promise<{ count: number }> {
+    const events = Array.from(this.followupEvents.values()).filter(
+      event => event.user_id === userId &&
+               new Date(event.triggered_at) >= startDate &&
+               new Date(event.triggered_at) <= endDate
+    );
+    return { count: events.length };
+  }
+
+  async getFollowupTransactions(companyId: string, options: {
+    page?: number;
+    limit?: number;
+    userId?: string;
+    sheetId?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<{ transactions: FollowupEventWithDetails[]; total: number; page: number; limit: number }> {
+    const { page = 1, limit = 50, userId, sheetId, startDate, endDate } = options;
+    
+    let events = Array.from(this.followupEvents.values()).filter(e => e.company_id === companyId);
+    
+    if (userId) events = events.filter(e => e.user_id === userId);
+    if (sheetId) events = events.filter(e => e.sheet_id === sheetId);
+    if (startDate) events = events.filter(e => new Date(e.triggered_at) >= startDate);
+    if (endDate) events = events.filter(e => new Date(e.triggered_at) <= endDate);
+    
+    // Sort by triggered_at desc
+    events.sort((a, b) => new Date(b.triggered_at).getTime() - new Date(a.triggered_at).getTime());
+    
+    const total = events.length;
+    const offset = (page - 1) * limit;
+    const paginatedEvents = events.slice(offset, offset + limit);
+    
+    // For MemStorage, we'll just return minimal details
+    const transactions: FollowupEventWithDetails[] = paginatedEvents.map(e => ({
+      ...e,
+      user_name: null,
+      user_email: null,
+      lead_name: null,
+      lead_mobile: null,
+      sheet_name: null,
+    }));
+    
+    return { transactions, total, page, limit };
   }
 
   // Push Subscriptions (MemStorage - minimal implementation)
@@ -5399,6 +5532,158 @@ export class PgStorage implements IStorage {
       column_key: row.column_key,
       width: row.width,
       created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  // Followup Events (Unified follow-up tracking with 1-minute deduplication)
+  private readonly FOLLOWUP_WINDOW_SECONDS = 60; // 1 minute deduplication window
+
+  async recordFollowupEvent(params: {
+    companyId: string;
+    sheetId: string;
+    leadId: string;
+    userId: string;
+    eventTypes: FollowupEventType[];
+  }): Promise<{ isNew: boolean; eventId: string }> {
+    const { companyId, sheetId, leadId, userId, eventTypes } = params;
+    
+    // Check for existing event within the dedup window
+    const existingEvent = await this.getRecentFollowupEvent(leadId, userId, this.FOLLOWUP_WINDOW_SECONDS);
+    
+    if (existingEvent) {
+      // Update existing event - merge event types
+      const existingTypes = existingEvent.event_types || [];
+      const mergedTypes = [...new Set([...existingTypes, ...eventTypes])] as FollowupEventType[];
+      
+      await db.update(dbSchema.followup_events)
+        .set({
+          event_types: mergedTypes,
+          updated_at: new Date(),
+        })
+        .where(eq(dbSchema.followup_events.id, existingEvent.id));
+      
+      return { isNew: false, eventId: existingEvent.id };
+    }
+    
+    // Create new event
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(dbSchema.followup_events).values({
+      id,
+      company_id: companyId,
+      sheet_id: sheetId,
+      lead_id: leadId,
+      user_id: userId,
+      event_types: eventTypes,
+      triggered_at: now,
+      updated_at: now,
+    });
+    
+    return { isNew: true, eventId: id };
+  }
+
+  async getRecentFollowupEvent(leadId: string, userId: string, windowSeconds: number = 60): Promise<FollowupEvent | undefined> {
+    const cutoff = new Date(Date.now() - windowSeconds * 1000);
+    const result = await db.select()
+      .from(dbSchema.followup_events)
+      .where(and(
+        eq(dbSchema.followup_events.lead_id, leadId),
+        eq(dbSchema.followup_events.user_id, userId),
+        gte(dbSchema.followup_events.triggered_at, cutoff)
+      ))
+      .orderBy(desc(dbSchema.followup_events.triggered_at))
+      .limit(1);
+    
+    if (result.length === 0) return undefined;
+    return this.mapFollowupEvent(result[0]);
+  }
+
+  async getFollowupStats(userId: string, startDate: Date, endDate: Date): Promise<{ count: number }> {
+    const result = await db.select({ count: sql<number>`count(*)::int` })
+      .from(dbSchema.followup_events)
+      .where(and(
+        eq(dbSchema.followup_events.user_id, userId),
+        gte(dbSchema.followup_events.triggered_at, startDate),
+        lte(dbSchema.followup_events.triggered_at, endDate)
+      ));
+    
+    return { count: result[0]?.count || 0 };
+  }
+
+  async getFollowupTransactions(companyId: string, options: {
+    page?: number;
+    limit?: number;
+    userId?: string;
+    sheetId?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<{ transactions: FollowupEventWithDetails[]; total: number; page: number; limit: number }> {
+    const { page = 1, limit = 50, userId, sheetId, startDate, endDate } = options;
+    
+    // Build conditions
+    const conditions = [eq(dbSchema.followup_events.company_id, companyId)];
+    if (userId) conditions.push(eq(dbSchema.followup_events.user_id, userId));
+    if (sheetId) conditions.push(eq(dbSchema.followup_events.sheet_id, sheetId));
+    if (startDate) conditions.push(gte(dbSchema.followup_events.triggered_at, startDate));
+    if (endDate) conditions.push(lte(dbSchema.followup_events.triggered_at, endDate));
+    
+    // Get total count
+    const countResult = await db.select({ count: sql<number>`count(*)::int` })
+      .from(dbSchema.followup_events)
+      .where(and(...conditions));
+    const total = countResult[0]?.count || 0;
+    
+    // Get paginated results with joins
+    const offset = (page - 1) * limit;
+    const result = await db.select({
+      event: dbSchema.followup_events,
+      user_name: dbSchema.users.name,
+      user_email: dbSchema.users.email,
+      sheet_name: dbSchema.sheets.name,
+    })
+      .from(dbSchema.followup_events)
+      .leftJoin(dbSchema.users, eq(dbSchema.followup_events.user_id, dbSchema.users.id))
+      .leftJoin(dbSchema.sheets, eq(dbSchema.followup_events.sheet_id, dbSchema.sheets.id))
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.followup_events.triggered_at))
+      .limit(limit)
+      .offset(offset);
+    
+    // Get lead details separately
+    const leadIds = [...new Set(result.map(r => r.event.lead_id))];
+    const leads = leadIds.length > 0 
+      ? await db.select().from(dbSchema.leads).where(inArray(dbSchema.leads.id, leadIds))
+      : [];
+    const leadMap = new Map(leads.map(l => [l.id, l]));
+    
+    const transactions: FollowupEventWithDetails[] = result.map(r => {
+      const lead = leadMap.get(r.event.lead_id);
+      const leadName = lead?.custom_fields?.full_name || lead?.custom_fields?.name || null;
+      const leadMobile = lead?.custom_fields?.mobile || lead?.custom_fields?.mobile_no || null;
+      
+      return {
+        ...this.mapFollowupEvent(r.event),
+        user_name: r.user_name,
+        user_email: r.user_email,
+        lead_name: leadName,
+        lead_mobile: leadMobile,
+        sheet_name: r.sheet_name,
+      };
+    });
+    
+    return { transactions, total, page, limit };
+  }
+
+  private mapFollowupEvent(row: any): FollowupEvent {
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      sheet_id: row.sheet_id,
+      lead_id: row.lead_id,
+      user_id: row.user_id,
+      event_types: row.event_types || [],
+      triggered_at: row.triggered_at,
       updated_at: row.updated_at,
     };
   }
