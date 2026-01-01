@@ -20775,12 +20775,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const stageMetrics = stageData.map((data, index) => {
         const isFinalStage = index === totalStages - 1;
         const projectionMultiplier = projectionMultipliers[index];
+        const isAllLeadsStage = data.stage.trigger_type === 'all_leads';
         
         const projectedIncentive = isFinalStage ? 0 : data.potentialIncentive * projectionMultiplier;
 
         if (isFinalStage) {
           totalActualIncentive += data.actualIncentives;
-        } else {
+        } else if (!isAllLeadsStage) {
+          // Only add projected incentive from stages that represent pipeline progress
+          // Exclude "all_leads" stages (e.g., "New Lead") as they don't represent actionable leads
           totalProjectedIncentive += projectedIncentive;
         }
 
