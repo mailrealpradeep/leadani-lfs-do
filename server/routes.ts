@@ -20878,6 +20878,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     if (sheetIds.length > 0) {
       // Query activity logs for this user's activity on their accessible sheets
       // Filter by user_id so we only count THIS user's sales/visits, not all activity on the sheets
+      console.log(`[calculateEffortMetrics] userId: ${userId}, sheetIds: ${sheetIds.length}, querying activity logs...`);
       const logs = await db.select()
         .from(dbSchema.activity_logs)
         .where(and(
@@ -20886,12 +20887,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           eq(dbSchema.activity_logs.user_id, userId),  // Only count this user's activity
           gte(dbSchema.activity_logs.occurred_at, yearStart)
         ));
+      console.log(`[calculateEffortMetrics] Found ${logs.length} activity logs for user ${userId}`);
       
       // Filter logs by period
       const yearlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
       const monthlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
       const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
       const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
+      console.log(`[calculateEffortMetrics] Daily logs: ${dailyLogs.length}, dayStart: ${dayStart.toISOString()}`);
       
       // Count leads across ALL sheets
       const countLeadsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
@@ -20932,11 +20935,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         countFollowupsAcrossSheets(dayStart, now),
       ]);
       
+      const dailyMetrics = countSalesVisits(dailyLogs);
+      console.log(`[calculateEffortMetrics] Daily sales: ${dailyMetrics.sales}, visits: ${dailyMetrics.visits}`);
+      
       return {
         yearly: { ...countSalesVisits(yearlyLogs), leads_attended: yearlyLeads, followups: yearlyFollowups },
         monthly: { ...countSalesVisits(monthlyLogs), leads_attended: monthlyLeads, followups: monthlyFollowups },
         weekly: { ...countSalesVisits(weeklyLogs), leads_attended: weeklyLeads, followups: weeklyFollowups },
-        daily: { ...countSalesVisits(dailyLogs), leads_attended: dailyLeads, followups: dailyFollowups },
+        daily: { ...dailyMetrics, leads_attended: dailyLeads, followups: dailyFollowups },
       };
     } else {
       // Legacy fallback: count by owner_user_id (should rarely be used now)
