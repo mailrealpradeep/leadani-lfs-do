@@ -12,7 +12,7 @@ import crypto from "crypto";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths, startOfWeek, endOfWeek, subWeeks } from "date-fns";
 import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartOfDayInTimezone, getEndOfDayInTimezone, getYesterdayRangeInTimezone, getMonthRangeInTimezone } from "./timezone-utils";
-import { seedData, seedClosingValueColumn } from "./seed";
+import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConversionDates } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition } from "@shared/schema";
@@ -161,11 +161,16 @@ async function getUserPipelineMetrics(
     }
 
     // Get date-filtered leads for actual incentive
+    // Uses conversion_date if available (set when lead_status becomes "Converted")
+    // Falls back to created_at for backward compatibility
     let dateFilteredLeads = allLeads;
     if (actualDateFilter) {
       dateFilteredLeads = allLeads.filter(lead => {
-        const createdAt = new Date(lead.created_at);
-        return createdAt >= actualDateFilter.startDate && createdAt <= actualDateFilter.endDate;
+        // Prefer conversion_date (when the lead was actually converted)
+        // Fall back to created_at for leads that were converted before this feature
+        const conversionDate = lead.custom_fields?.conversion_date;
+        const dateToCheck = conversionDate ? new Date(conversionDate) : new Date(lead.created_at);
+        return dateToCheck >= actualDateFilter.startDate && dateToCheck <= actualDateFilter.endDate;
       });
     }
 
@@ -546,6 +551,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await seedClosingValueColumn();
   } catch (error) {
     console.error("Failed to seed closing_value column:", error);
+  }
+
+  // Add last_edit and conversion_date system columns to existing companies
+  try {
+    await seedSystemDateColumns();
+  } catch (error) {
+    console.error("Failed to seed system date columns:", error);
+  }
+
+  // Backfill conversion_date for existing Converted leads
+  try {
+    await backfillConversionDates();
+  } catch (error) {
+    console.error("Failed to backfill conversion dates:", error);
   }
 
   // Socket.io connection handling with company isolation
@@ -1493,22 +1512,34 @@ ${questionsList}`;
         const webhookTimestamp = leadData.created_at || incomingData.created_at;
         const webhookCreatedAt = await parseWebhookTimestamp(webhookTimestamp);
         
+        // Build custom_fields with lead data
+        const customFields: Record<string, any> = {
+          name: leadData.name || "",
+          mobile_no: leadData.mobile_no || "",
+          whatsapp_no: leadData.whatsapp_no || leadData.mobile_no || "",
+          lang: leadData.lang || "",
+          occupation: leadData.occupation || "",
+          qualification: leadData.qualification || "",
+          lead_date: leadData.lead_date || today,
+          lead_time: leadData.lead_time || currentTime,
+          lead_status: leadData.lead_status || "New",
+          visit_status: leadData.visit_status || "Not Visited",
+          ...leadData,
+        };
+        
+        // AUTO-UPDATE: Set conversion_date if lead_status is "Converted"
+        const leadStatus = customFields.lead_status;
+        if (leadStatus && 
+            typeof leadStatus === 'string' && 
+            leadStatus.toLowerCase() === 'converted' &&
+            !customFields.conversion_date) {
+          customFields.conversion_date = new Date().toISOString();
+        }
+        
         return await storage.createLead({
           sheet_id: targetSheetId,
           owner_user_id: webhook.created_by_user_id,
-          custom_fields: {
-            name: leadData.name || "",
-            mobile_no: leadData.mobile_no || "",
-            whatsapp_no: leadData.whatsapp_no || leadData.mobile_no || "",
-            lang: leadData.lang || "",
-            occupation: leadData.occupation || "",
-            qualification: leadData.qualification || "",
-            lead_date: leadData.lead_date || today,
-            lead_time: leadData.lead_time || currentTime,
-            lead_status: leadData.lead_status || "New",
-            visit_status: leadData.visit_status || "Not Visited",
-            ...leadData,
-          },
+          custom_fields: customFields,
           meta: leadData.meta || {},
           // Use webhook timestamp as lead creation time (fallback to system time if invalid)
           created_at: webhookCreatedAt,
@@ -7034,6 +7065,21 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (req.body.custom_fields) {
         // Merge with existing custom_fields to preserve unchanged fields (standard PATCH behavior)
         updatePayload.custom_fields = { ...(lead.custom_fields || {}), ...req.body.custom_fields };
+        
+        // AUTO-UPDATE: Set last_edit timestamp whenever any field is changed
+        const now = new Date().toISOString();
+        updatePayload.custom_fields.last_edit = now;
+        
+        // AUTO-UPDATE: Set conversion_date when lead_status changes to "Converted"
+        const oldLeadStatus = lead.custom_fields?.lead_status;
+        const newLeadStatus = updatePayload.custom_fields.lead_status;
+        if (newLeadStatus && 
+            typeof newLeadStatus === 'string' && 
+            newLeadStatus.toLowerCase() === 'converted' &&
+            oldLeadStatus?.toLowerCase() !== 'converted' &&
+            !updatePayload.custom_fields.conversion_date) {
+          updatePayload.custom_fields.conversion_date = now;
+        }
         // Extract created_at from custom_fields if present and convert to Date
         if (updatePayload.custom_fields.created_at !== undefined) {
           const createdAtValue = updatePayload.custom_fields.created_at;
@@ -13009,6 +13055,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
               leadData.custom_fields[key] = null;
             }
           });
+
+          // AUTO-UPDATE: Set conversion_date if lead_status is "Converted" during import
+          const leadStatus = leadData.custom_fields.lead_status;
+          if (leadStatus && 
+              typeof leadStatus === 'string' && 
+              leadStatus.toLowerCase() === 'converted' &&
+              !leadData.custom_fields.conversion_date) {
+            leadData.custom_fields.conversion_date = new Date().toISOString();
+          }
 
           // Check for duplicate mobile number before creating
           const mobileNo = leadData.custom_fields.mobile_no;

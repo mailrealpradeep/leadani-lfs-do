@@ -340,3 +340,108 @@ export async function seedClosingValueColumn() {
   
   console.log(`[Seed] Closing Value column: Created for ${created} companies, Skipped ${skipped} (already exists)`);
 }
+
+// Function to add last_edit and conversion_date system columns to all existing companies
+export async function seedSystemDateColumns() {
+  console.log("[Seed] Adding last_edit and conversion_date system columns to existing companies...");
+  
+  const companies = await storage.getAllCompanies();
+  let lastEditCreated = 0;
+  let lastEditSkipped = 0;
+  let conversionDateCreated = 0;
+  let conversionDateSkipped = 0;
+  
+  for (const company of companies) {
+    const existingColumns = await storage.getCustomColumnsByCompany(company.id);
+    const maxOrderIndex = existingColumns.reduce((max, col) => Math.max(max, col.order_index || 0), 0);
+    
+    // Add last_edit column if not exists
+    const hasLastEdit = existingColumns.some(col => col.column_key === 'last_edit');
+    if (!hasLastEdit) {
+      await storage.createCustomColumn({
+        company_id: company.id,
+        sheet_id: null,
+        name: "Last Edit",
+        column_key: "last_edit",
+        type: "datetime" as const,
+        config: { 
+          is_system_column: true, 
+          is_readonly: true,
+          auto_update: true,
+          description: "Automatically updated when any field is edited"
+        },
+        order_index: maxOrderIndex + 1,
+      });
+      lastEditCreated++;
+    } else {
+      lastEditSkipped++;
+    }
+    
+    // Add conversion_date column if not exists
+    const hasConversionDate = existingColumns.some(col => col.column_key === 'conversion_date');
+    if (!hasConversionDate) {
+      await storage.createCustomColumn({
+        company_id: company.id,
+        sheet_id: null,
+        name: "Conversion Date",
+        column_key: "conversion_date",
+        type: "datetime" as const,
+        config: { 
+          is_system_column: true, 
+          is_readonly: true,
+          auto_update: true,
+          description: "Automatically set when lead status is marked as Converted"
+        },
+        order_index: maxOrderIndex + 2,
+      });
+      conversionDateCreated++;
+    } else {
+      conversionDateSkipped++;
+    }
+  }
+  
+  console.log(`[Seed] Last Edit column: Created for ${lastEditCreated} companies, Skipped ${lastEditSkipped} (already exists)`);
+  console.log(`[Seed] Conversion Date column: Created for ${conversionDateCreated} companies, Skipped ${conversionDateSkipped} (already exists)`);
+}
+
+// Backfill conversion_date for existing leads that are already in Converted status
+export async function backfillConversionDates() {
+  console.log("[Seed] Backfilling conversion_date for existing Converted leads...");
+  
+  const companies = await storage.getAllCompanies();
+  let updatedCount = 0;
+  
+  for (const company of companies) {
+    const sheets = await storage.getSheetsByCompanyId(company.id);
+    
+    for (const sheet of sheets) {
+      const leads = await storage.getLeadsBySheetId(sheet.id);
+      
+      for (const lead of leads) {
+        if (lead.deleted_at) continue;
+        
+        // Check if lead status is "Converted" (case-insensitive)
+        const leadStatus = lead.custom_fields?.lead_status;
+        const isConverted = leadStatus && 
+          typeof leadStatus === 'string' && 
+          leadStatus.toLowerCase() === 'converted';
+        
+        // Only backfill if converted and no conversion_date set
+        if (isConverted && !lead.custom_fields?.conversion_date) {
+          // Use updated_at as the conversion date (best available approximation)
+          const conversionDate = lead.updated_at || lead.created_at;
+          
+          await storage.updateLead(lead.id, {
+            custom_fields: {
+              ...lead.custom_fields,
+              conversion_date: conversionDate,
+            }
+          });
+          updatedCount++;
+        }
+      }
+    }
+  }
+  
+  console.log(`[Seed] Backfilled conversion_date for ${updatedCount} leads`);
+}
