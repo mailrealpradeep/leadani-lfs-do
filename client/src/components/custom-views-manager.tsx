@@ -99,7 +99,7 @@ interface CustomView {
   show_badge: boolean;
   conditions: CustomViewCondition[]; // Flat list of conditions with per-condition AND/OR operators
   sheet_ids: string[] | null; // null = all sheets, array = selected sheets
-  section: 'custom_views' | 'data_mismatch'; // Which sidebar section to display in
+  section: 'custom_views' | 'data_mismatch' | 'action_today' | 'overdue_actions' | 'achievement'; // Which sidebar section to display in
   is_enabled: boolean;
   order_index: number;
   created_at: string;
@@ -325,7 +325,7 @@ export function CustomViewsManager() {
   ]);
   const [sheetMode, setSheetMode] = useState<"all" | "selected">("all");
   const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
-  const [section, setSection] = useState<"custom_views" | "data_mismatch">("custom_views");
+  const [section, setSection] = useState<"custom_views" | "data_mismatch" | "action_today" | "overdue_actions" | "achievement">("custom_views");
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -834,7 +834,7 @@ export function CustomViewsManager() {
               <Label className="text-base font-medium">Display In</Label>
               <Select
                 value={section}
-                onValueChange={(value: "custom_views" | "data_mismatch") => setSection(value)}
+                onValueChange={(value: "custom_views" | "data_mismatch" | "action_today" | "overdue_actions" | "achievement") => setSection(value)}
               >
                 <SelectTrigger className="w-64" data-testid="select-section">
                   <SelectValue placeholder="Select section" />
@@ -842,6 +842,9 @@ export function CustomViewsManager() {
                 <SelectContent>
                   <SelectItem value="custom_views">Custom Views</SelectItem>
                   <SelectItem value="data_mismatch">Data Mismatch</SelectItem>
+                  <SelectItem value="action_today">Action Today</SelectItem>
+                  <SelectItem value="overdue_actions">Overdue Actions</SelectItem>
+                  <SelectItem value="achievement">Achievement</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

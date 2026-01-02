@@ -120,7 +120,7 @@ export function AppSidebar() {
     icon: string;
     icon_color: string;
     show_badge: boolean;
-    section: 'custom_views' | 'data_mismatch';
+    section: 'custom_views' | 'data_mismatch' | 'action_today' | 'overdue_actions' | 'achievement';
     is_enabled: boolean;
   }
 
@@ -134,6 +134,9 @@ export function AppSidebar() {
   // Separate views by section
   const customViewsSection = enabledViews.filter(v => !v.section || v.section === 'custom_views');
   const dataMismatchSection = enabledViews.filter(v => v.section === 'data_mismatch');
+  const actionTodaySection = enabledViews.filter(v => v.section === 'action_today');
+  const overdueActionsSection = enabledViews.filter(v => v.section === 'overdue_actions');
+  const achievementSection = enabledViews.filter(v => v.section === 'achievement');
 
   // Fetch custom views counts for badges
   const { data: customViewsCounts } = useQuery<{ counts: Record<string, number> }>({
@@ -536,6 +539,117 @@ export function AppSidebar() {
                           asChild
                           isActive={location === viewUrl}
                           data-testid={`link-data-mismatch-${view.id}`}
+                        >
+                          <Link href={viewUrl} onClick={handleNavClick}>
+                            <IconComponent className={`h-4 w-4 ${colorClass}`} />
+                            <span className="flex-1">{view.name}</span>
+                            {view.show_badge && count > 0 && (
+                              <span className={`ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full ${getBadgeColor(view.icon_color)} px-1.5 text-xs font-medium text-white`}>
+                                {count}
+                              </span>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+
+          {/* Action Today Section */}
+          {!isSuperAdminAccount && actionTodaySection.length > 0 && (
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-4">Action Today</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {actionTodaySection.map((view) => {
+                    const IconComponent = ICON_MAP[view.icon] || Clock;
+                    const colorClass = COLOR_MAP[view.icon_color] || "text-amber-500";
+                    const count = customViewsCounts?.counts?.[view.id] || 0;
+                    const viewUrl = `/custom-view/${view.id}`;
+                    
+                    return (
+                      <SidebarMenuItem key={view.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={location === viewUrl}
+                          data-testid={`link-action-today-${view.id}`}
+                        >
+                          <Link href={viewUrl} onClick={handleNavClick}>
+                            <IconComponent className={`h-4 w-4 ${colorClass}`} />
+                            <span className="flex-1">{view.name}</span>
+                            {view.show_badge && count > 0 && (
+                              <span className={`ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full ${getBadgeColor(view.icon_color)} px-1.5 text-xs font-medium text-white`}>
+                                {count}
+                              </span>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+
+          {/* Overdue Actions Section */}
+          {!isSuperAdminAccount && overdueActionsSection.length > 0 && (
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-4">Overdue Actions</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {overdueActionsSection.map((view) => {
+                    const IconComponent = ICON_MAP[view.icon] || AlertTriangle;
+                    const colorClass = COLOR_MAP[view.icon_color] || "text-red-500";
+                    const count = customViewsCounts?.counts?.[view.id] || 0;
+                    const viewUrl = `/custom-view/${view.id}`;
+                    
+                    return (
+                      <SidebarMenuItem key={view.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={location === viewUrl}
+                          data-testid={`link-overdue-actions-${view.id}`}
+                        >
+                          <Link href={viewUrl} onClick={handleNavClick}>
+                            <IconComponent className={`h-4 w-4 ${colorClass}`} />
+                            <span className="flex-1">{view.name}</span>
+                            {view.show_badge && count > 0 && (
+                              <span className={`ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full ${getBadgeColor(view.icon_color)} px-1.5 text-xs font-medium text-white`}>
+                                {count}
+                              </span>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+
+          {/* Achievement Section */}
+          {!isSuperAdminAccount && achievementSection.length > 0 && (
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-4">Achievement</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {achievementSection.map((view) => {
+                    const IconComponent = ICON_MAP[view.icon] || Award;
+                    const colorClass = COLOR_MAP[view.icon_color] || "text-green-500";
+                    const count = customViewsCounts?.counts?.[view.id] || 0;
+                    const viewUrl = `/custom-view/${view.id}`;
+                    
+                    return (
+                      <SidebarMenuItem key={view.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={location === viewUrl}
+                          data-testid={`link-achievement-${view.id}`}
                         >
                           <Link href={viewUrl} onClick={handleNavClick}>
                             <IconComponent className={`h-4 w-4 ${colorClass}`} />
