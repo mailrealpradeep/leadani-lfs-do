@@ -2111,20 +2111,9 @@ export default function VisionBoardPage() {
                     )}
                   </div>
                   
-                </div>
-              </CardContent>
-            </Card>
-            
-            {!isTeamView && visionBoard && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.35 }}
-                className="mt-3"
-              >
-                <Card className="border-0 shadow-md bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
-                  <CardContent className="p-3">
-                    <div className="flex items-center justify-center gap-3" data-testid="action-bar">
+                  {/* Edit Goal / Add Incentive links - subtle */}
+                  {!isTeamView && visionBoard && (
+                    <div className="flex items-center justify-center gap-2 mt-4 pt-3 border-t border-border/50" data-testid="action-bar">
                       <EditVisionWizard 
                         visionBoard={visionBoard} 
                         onSuccess={() => {
@@ -2133,34 +2122,19 @@ export default function VisionBoardPage() {
                         }}
                         triggerVariant="ghost"
                       />
-                      <div className="h-4 w-px bg-border" />
+                      <span className="text-muted-foreground/50">·</span>
                       <UpdateIncentivesDialog 
                         visionBoardId={visionBoard.id} 
                         onSuccess={() => refetchProgress()}
                         triggerVariant="ghost"
                       />
                     </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            )}
-            
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-              className="mt-3 p-3 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20"
-            >
-              <div className="flex items-start gap-3">
-                <Sparkles className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                <p className="text-xs">
-                  {getMotivationalMessage(
-                    progress?.earnings.progress_percent || 0, 
-                    progress?.earnings.projected_progress_percent || progress?.earnings.progress_percent || 0
                   )}
-                </p>
-              </div>
-            </motion.div>
+                  
+                </div>
+              </CardContent>
+            </Card>
+            
           </motion.div>
 
             {/* Column 2: Effort Target */}
