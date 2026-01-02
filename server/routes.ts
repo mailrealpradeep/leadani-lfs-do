@@ -20682,7 +20682,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     // Get all user IDs who have vision boards
     const teamUserIds = allBoards.map(b => b.user_id);
     
-    // Query activity logs for all team members
+    // Get all sheets for this company to count leads
+    const companySheets = await db.select().from(sheets).where(eq(sheets.company_id, companyId));
+    const companySheetIds = companySheets.map(s => s.id);
+    
+    // Query activity logs for vision board users only (not all company employees)
     const teamLogs = await db.select()
       .from(activity_logs)
       .where(and(
@@ -20691,15 +20695,28 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         gte(activity_logs.occurred_at, yearStart)
       ));
     
-    const countTeamMetrics = (logsSubset: typeof teamLogs) => {
+    // Count leads directly from leads table by created_at (not activity_logs)
+    // This captures leads from webhooks, imports, and manual creation
+    // Include all leads (even soft-deleted) to match historical counts
+    const countLeadsCreated = async (startDate: Date): Promise<number> => {
+      if (companySheetIds.length === 0) return 0;
+      const result = await db.select({ count: sql<number>`count(*)` })
+        .from(leads)
+        .where(and(
+          inArray(leads.sheet_id, companySheetIds),
+          gte(leads.created_at, startDate)
+        ));
+      return Number(result[0]?.count || 0);
+    };
+    
+    // Count sales, visits, followups from activity logs (these are logged correctly)
+    const countActivityMetrics = (logsSubset: typeof teamLogs) => {
       let sales = 0;
       let visits = 0;
-      let leads_attended = 0;
       let followups = 0;
       
       for (const log of logsSubset) {
         if (log.action === 'lead_updated' && log.details?.changes) {
-          // Use correct field names: field_key and new_value (not field/to)
           const statusChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
             .find(c => c.field_key === 'lead_status' && c.new_value === 'Converted');
           if (statusChange) sales++;
@@ -20709,11 +20726,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           if (visitChange) visits++;
         }
         
-        if (log.action === 'lead_created') leads_attended++;
         if (log.action === 'lead_update_added') followups++;
       }
       
-      return { sales, visits, leads_attended, followups };
+      return { sales, visits, followups };
     };
     
     // Calculate team projected/actual incentives by summing all team members' incentives
@@ -20734,11 +20750,32 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
     }
     
+    // Calculate team effort achieved with leads from leads table and other metrics from activity_logs
+    // Filter activity logs by period
+    const yearlyLogs = teamLogs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
+    const monthlyLogs = teamLogs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
+    const weeklyLogs = teamLogs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
+    const dailyLogs = teamLogs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
+    
+    // Count leads for each period (async) - from startDate to now
+    const [yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads] = await Promise.all([
+      countLeadsCreated(yearStart),
+      countLeadsCreated(monthStart),
+      countLeadsCreated(weekStart),
+      countLeadsCreated(dayStart),
+    ]);
+    
+    // Get activity-based metrics
+    const yearlyActivity = countActivityMetrics(yearlyLogs);
+    const monthlyActivity = countActivityMetrics(monthlyLogs);
+    const weeklyActivity = countActivityMetrics(weeklyLogs);
+    const dailyActivity = countActivityMetrics(dailyLogs);
+    
     const teamEffortAchieved = {
-      yearly: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime())),
-      monthly: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime())),
-      weekly: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime())),
-      daily: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime())),
+      yearly: { ...yearlyActivity, leads_attended: yearlyLeads },
+      monthly: { ...monthlyActivity, leads_attended: monthlyLeads },
+      weekly: { ...weeklyActivity, leads_attended: weeklyLeads },
+      daily: { ...dailyActivity, leads_attended: dailyLeads },
     };
 
     return {
