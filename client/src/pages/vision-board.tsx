@@ -1980,14 +1980,17 @@ export default function VisionBoardPage() {
         </div>
       )}
 
-      <div className="max-w-5xl mx-auto px-4 -mt-20 relative z-10 pb-12">
+      <div className="max-w-6xl mx-auto px-4 -mt-20 relative z-10 pb-12">
         <div className="flex flex-col gap-6">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl overflow-hidden">
+          {/* Row 1: Vision Progress + Effort Target (2 columns) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Column 1: Vision Progress */}
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl overflow-hidden h-full">
               <CardContent className="p-6">
                 <div className="mb-2">
                   <span className="text-sm font-medium text-muted-foreground">{labels.progressLabel}</span>
@@ -2160,18 +2163,19 @@ export default function VisionBoardPage() {
             </motion.div>
           </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-          >
-            <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <CardTitle className="flex items-center gap-2">
-                    <Target className="h-5 w-5 text-blue-500" />
-                    {labels.effortTitle}
-                  </CardTitle>
+            {/* Column 2: Effort Target */}
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+            >
+              <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl h-full">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <CardTitle className="flex items-center gap-2">
+                      <Target className="h-5 w-5 text-blue-500" />
+                      {labels.effortTitle}
+                    </CardTitle>
                   {!isTeamView && (
                     <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700 rounded-lg">
                       {(["daily", "weekly", "monthly", "yearly"] as const).map((period) => {
@@ -2245,8 +2249,11 @@ export default function VisionBoardPage() {
                 </p>
               </CardContent>
             </Card>
-            
-            {/* Custom Views Section Cards */}
+          </motion.div>
+          </div>
+          
+          {/* Row 2: Quick Actions (single column) */}
+          {/* Custom Views Section Cards */}
             {Object.keys(viewsBySection).length > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -2423,66 +2430,64 @@ export default function VisionBoardPage() {
               </motion.div>
             )}
             
-            {/* Goal Timeline - moved to end */}
-            {!isTeamView && progress && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 }}
-                className="mt-6"
-              >
-                <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30">
-                  <CardContent className="p-4 space-y-4">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-5 w-5 text-blue-500" />
-                      <span className="font-semibold">Goal Timeline</span>
-                    </div>
-                    
-                    <div className="text-center py-3">
-                      <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-                        {progress?.timeline.days_remaining || 0}
-                      </p>
-                      <p className="text-sm text-muted-foreground">days remaining</p>
-                    </div>
-                    
-                    <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progress?.timeline.time_progress_percent || 0}%` }}
-                        transition={{ duration: 1, delay: 0.7 }}
-                        className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
-                      />
-                    </div>
-                    
-                    <div className="grid grid-cols-3 gap-2 text-center pt-2">
-                      <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
-                        <p className="text-lg font-bold">
-                          {Math.ceil((progress?.timeline.days_remaining || 0) / 7)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">weeks</p>
-                      </div>
-                      <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
-                        <p className="text-lg font-bold">
-                          {Math.ceil((progress?.timeline.days_remaining || 0) / 30)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">months</p>
-                      </div>
-                      <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
-                        <p className="text-lg font-bold">
-                          {Math.round(progress?.timeline.time_progress_percent || 0)}%
-                        </p>
-                        <p className="text-xs text-muted-foreground">elapsed</p>
-                      </div>
-                    </div>
-                    
-                    <p className="text-xs text-center text-muted-foreground border-t pt-3">
-                      Target: {format(displayData.targetDate, "MMMM d, yyyy")}
+          {/* Row 3: Goal Timeline (single column) */}
+          {!isTeamView && progress && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6 }}
+            >
+              <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30">
+                <CardContent className="p-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-blue-500" />
+                    <span className="font-semibold">Goal Timeline</span>
+                  </div>
+                  
+                  <div className="text-center py-3">
+                    <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                      {progress?.timeline.days_remaining || 0}
                     </p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            )}
-          </motion.div>
+                    <p className="text-sm text-muted-foreground">days remaining</p>
+                  </div>
+                  
+                  <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progress?.timeline.time_progress_percent || 0}%` }}
+                      transition={{ duration: 1, delay: 0.7 }}
+                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-2 text-center pt-2">
+                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                      <p className="text-lg font-bold">
+                        {Math.ceil((progress?.timeline.days_remaining || 0) / 7)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">weeks</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                      <p className="text-lg font-bold">
+                        {Math.ceil((progress?.timeline.days_remaining || 0) / 30)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">months</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                      <p className="text-lg font-bold">
+                        {Math.round(progress?.timeline.time_progress_percent || 0)}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">elapsed</p>
+                    </div>
+                  </div>
+                  
+                  <p className="text-xs text-center text-muted-foreground border-t pt-3">
+                    Target: {format(displayData.targetDate, "MMMM d, yyyy")}
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
         </div>
       </div>
     </div>
