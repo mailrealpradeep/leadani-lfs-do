@@ -19485,6 +19485,16 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         case 'this_month':
           startDate = startOfThisMonthUtc;
           break;
+        case 'last_month': {
+          const zonedNowForMonth = toZonedTime(now, timezone);
+          const prevMonth = new Date(zonedNowForMonth.getFullYear(), zonedNowForMonth.getMonth() - 1, 1);
+          const firstDayOfPrevMonth = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}-01`;
+          const lastDayOfPrevMonth = new Date(zonedNowForMonth.getFullYear(), zonedNowForMonth.getMonth(), 0).getDate();
+          const lastDayOfPrevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}-${String(lastDayOfPrevMonth).padStart(2, '0')}`;
+          startDate = fromZonedTime(`${firstDayOfPrevMonth}T00:00:00`, timezone);
+          endDate = fromZonedTime(`${lastDayOfPrevMonthStr}T23:59:59.999`, timezone);
+          break;
+        }
         case 'all_time':
           startDate = new Date(0);
           break;
