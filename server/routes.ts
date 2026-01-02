@@ -57,7 +57,7 @@ import { setSocketIO } from "./socket-manager";
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
 import * as dbSchema from "@shared/schema";
-import { eq, and, gte, inArray, isNotNull, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, inArray, isNotNull, isNull, desc, sql } from "drizzle-orm";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -20556,6 +20556,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   };
 
   // Helper: Calculate effort metrics from activity_logs for a user within date range
+  // New Leads now counts all leads owned by user created in period (including webhook/import)
   const calculateEffortMetrics = async (
     userId: string, 
     companyId: string, 
@@ -20578,7 +20579,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const dayStart = new Date(now);
     dayStart.setHours(0, 0, 0, 0);
     
-    // Query activity logs
+    // Query activity logs for sales and visits metrics
     const logs = await db.select()
       .from(activity_logs)
       .where(and(
@@ -20587,10 +20588,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         gte(activity_logs.occurred_at, yearStart)
       ));
     
-    const countMetrics = (logsSubset: typeof logs) => {
+    // Count sales and visits from activity logs (status transitions)
+    const countSalesVisits = (logsSubset: typeof logs) => {
       let sales = 0;
       let visits = 0;
-      let leads_attended = 0;
       
       for (const log of logsSubset) {
         // Sales: lead_updated with lead_status changed to "Converted"
@@ -20604,14 +20605,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
             .find(c => c.field === 'visit_status' && c.to === 'Visited');
           if (visitChange) visits++;
         }
-        
-        // New Leads: lead_created action
-        if (log.action === 'lead_created') {
-          leads_attended++;
-        }
       }
       
-      return { sales, visits, leads_attended };
+      return { sales, visits };
     };
     
     // Filter logs by period (ensure Date comparisons work correctly)
@@ -20620,19 +20616,41 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
     const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
     
+    // Count New Leads directly from leads table (includes webhook/import leads)
+    // This counts all leads owned by the user created in each period
+    const countLeadsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+      const result = await db.select({ count: sql<number>`count(*)::int` })
+        .from(dbSchema.leads)
+        .where(and(
+          eq(dbSchema.leads.owner_user_id, userId),
+          gte(dbSchema.leads.created_at, periodStart),
+          lte(dbSchema.leads.created_at, periodEnd),
+          isNull(dbSchema.leads.deleted_at)
+        ));
+      return result[0]?.count || 0;
+    };
+    
     // Get deduplicated follow-up counts from followup_events table
-    const [yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups] = await Promise.all([
+    // AND count leads owned by user in each period
+    const [
+      yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups,
+      yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads
+    ] = await Promise.all([
       storage.getFollowupStats(userId, yearStart, now),
       storage.getFollowupStats(userId, monthStart, now),
       storage.getFollowupStats(userId, weekStart, now),
       storage.getFollowupStats(userId, dayStart, now),
+      countLeadsInPeriod(yearStart, now),
+      countLeadsInPeriod(monthStart, now),
+      countLeadsInPeriod(weekStart, now),
+      countLeadsInPeriod(dayStart, now),
     ]);
     
     return {
-      yearly: { ...countMetrics(yearlyLogs), followups: yearlyFollowups.count },
-      monthly: { ...countMetrics(monthlyLogs), followups: monthlyFollowups.count },
-      weekly: { ...countMetrics(weeklyLogs), followups: weeklyFollowups.count },
-      daily: { ...countMetrics(dailyLogs), followups: dailyFollowups.count },
+      yearly: { ...countSalesVisits(yearlyLogs), leads_attended: yearlyLeads, followups: yearlyFollowups.count },
+      monthly: { ...countSalesVisits(monthlyLogs), leads_attended: monthlyLeads, followups: monthlyFollowups.count },
+      weekly: { ...countSalesVisits(weeklyLogs), leads_attended: weeklyLeads, followups: weeklyFollowups.count },
+      daily: { ...countSalesVisits(dailyLogs), leads_attended: dailyLeads, followups: dailyFollowups.count },
     };
   };
 
