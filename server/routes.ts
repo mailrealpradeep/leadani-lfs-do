@@ -20876,12 +20876,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     // If we have sheet IDs, query ALL sheets and sum the results
     // Otherwise fall back to owner_user_id counting
     if (sheetIds.length > 0) {
-      // Query activity logs for ALL sheets
+      // Query activity logs for this user's activity on their accessible sheets
+      // Filter by user_id so we only count THIS user's sales/visits, not all activity on the sheets
       const logs = await db.select()
         .from(dbSchema.activity_logs)
         .where(and(
           inArray(dbSchema.activity_logs.sheet_id, sheetIds),
           eq(dbSchema.activity_logs.company_id, companyId),
+          eq(dbSchema.activity_logs.user_id, userId),  // Only count this user's activity
           gte(dbSchema.activity_logs.occurred_at, yearStart)
         ));
       
