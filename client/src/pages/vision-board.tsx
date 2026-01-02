@@ -1983,7 +1983,7 @@ export default function VisionBoardPage() {
       <div className="max-w-6xl mx-auto px-4 -mt-20 relative z-10 pb-12">
         <div className="flex flex-col gap-6">
           {/* Row 1: Vision Progress + Effort Target (2 columns) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6">
             {/* Column 1: Vision Progress */}
             <motion.div
               initial={{ opacity: 0, y: 30 }}
