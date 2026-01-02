@@ -20588,8 +20588,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
   // Helper: Check if user should see team vision board (admin or multi-sheet access)
   const shouldSeeTeamVisionBoard = async (userId: string, userRole: string | undefined, companyId: string | null): Promise<boolean> => {
+    console.log('[shouldSeeTeamVisionBoard] userId:', userId, 'userRole:', userRole, 'companyId:', companyId);
+    
     // Admins always see team view
     if (userRole === 'super_admin' || userRole === 'company_admin') {
+      console.log('[shouldSeeTeamVisionBoard] User is admin, returning true');
       return true;
     }
     
@@ -20598,9 +20601,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const sheets = await storage.getSheetsByUserId(userId);
       // Filter to only company sheets (not personal)
       const companySheets = sheets.filter(s => s.company_id === companyId && !s.is_personal);
+      console.log('[shouldSeeTeamVisionBoard] Multi-sheet check:', companySheets.length, 'sheets');
       return companySheets.length > 1;
     }
     
+    console.log('[shouldSeeTeamVisionBoard] Returning false (no company or not enough sheets)');
     return false;
   };
 
