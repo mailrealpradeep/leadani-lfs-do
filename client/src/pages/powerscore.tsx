@@ -70,9 +70,10 @@ interface DebugData {
 function DebugPanel() {
   const [expanded, setExpanded] = useState(false);
   
-  const { data: debugData, isLoading } = useQuery<DebugData>({
+  const { data: debugData, isLoading, error } = useQuery<DebugData>({
     queryKey: ["/api/powerscore/debug-transactions"],
     enabled: expanded,
+    retry: false,
   });
 
   return (
@@ -94,8 +95,15 @@ function DebugPanel() {
         <CardContent className="pt-0">
           {isLoading ? (
             <div className="text-sm text-muted-foreground">Loading debug data...</div>
+          ) : error ? (
+            <div className="text-sm text-red-600 p-2 bg-red-100 rounded">
+              <div className="font-semibold">Error loading debug data:</div>
+              <div>{(error as Error).message}</div>
+              <div className="text-xs mt-1">Code Version: 2026-01-02-v2</div>
+            </div>
           ) : debugData ? (
             <div className="space-y-4 text-xs font-mono">
+              <div className="text-xs text-muted-foreground mb-2">Code Version: 2026-01-02-v2 (with voided filter)</div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="p-2 bg-white dark:bg-slate-800 rounded border">
                   <div className="text-muted-foreground">Total Transactions</div>
@@ -174,7 +182,10 @@ function DebugPanel() {
               </div>
             </div>
           ) : (
-            <div className="text-sm text-muted-foreground">No debug data available</div>
+            <div className="text-sm text-muted-foreground">
+              No debug data available
+              <div className="text-xs mt-1">Code Version: 2026-01-02-v2</div>
+            </div>
           )}
         </CardContent>
       )}
