@@ -348,7 +348,7 @@ function DualRingProgress({
           fill="none"
           stroke="currentColor"
           strokeWidth={innerStrokeWidth}
-          className="text-emerald-100 dark:text-emerald-950/40"
+          className="text-emerald-100 dark:text-emerald-800/50"
         />
         {/* Inner ring - Clean emerald for ACTUAL */}
         <motion.circle
@@ -356,7 +356,7 @@ function DualRingProgress({
           cy={size / 2}
           r={innerRadius}
           fill="none"
-          stroke="#10B981"
+          className="stroke-emerald-500 dark:stroke-emerald-400"
           strokeWidth={innerStrokeWidth}
           strokeLinecap="round"
           strokeDasharray={innerCircumference}
@@ -1980,13 +1980,12 @@ export default function VisionBoardPage() {
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-4 -mt-20 relative z-10 pb-12">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="max-w-5xl mx-auto px-4 -mt-20 relative z-10 pb-12">
+        <div className="flex flex-col gap-6">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="lg:col-span-1"
           >
             <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl overflow-hidden">
               <CardContent className="p-6">
@@ -2011,7 +2010,7 @@ export default function VisionBoardPage() {
                           <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-actual-earned">
                             {formatCurrency(displayData.earned || 0, currency)}
                           </p>
-                          <p className="text-xs text-muted-foreground -mt-0.5">of</p>
+                          <p className="text-xs text-muted-foreground -mt-0.5">/</p>
                           <p className="text-sm font-semibold text-amber-600 dark:text-amber-400" data-testid="text-projected-incentive">
                             {formatCurrency(displayData.projectedIncentive || 0, currency)}
                           </p>
@@ -2165,7 +2164,6 @@ export default function VisionBoardPage() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="lg:col-span-2"
           >
             <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl">
               <CardHeader className="pb-2">
