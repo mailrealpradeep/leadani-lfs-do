@@ -20,7 +20,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useBackButtonGuard, BackButtonGuardDialog } from "@/hooks/use-back-button-guard";
 import { Button } from "@/components/ui/button";
-import { Plus, Eye } from "lucide-react";
+import { Plus, Eye, Sparkles } from "lucide-react";
 import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -78,7 +78,8 @@ function AuthenticatedHomeRouter() {
     return <Redirect to="/super-admin" />;
   }
   
-  return <ProtectedRoute component={Dashboard} />;
+  // Vision Board is the default home screen for all users
+  return <Redirect to="/vision-board" />;
 }
 
 function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => JSX.Element; adminOnly?: boolean }) {
@@ -232,6 +233,22 @@ function DashboardHeader() {
       data-app-header
     >
       <SidebarTrigger data-testid="button-sidebar-toggle" />
+      
+      {/* Vision Board - Prominent home icon, always visible */}
+      <Link href="/vision-board">
+        <Button
+          size="icon"
+          variant={location === "/vision-board" ? "default" : "ghost"}
+          className="relative"
+          data-testid="button-vision-board-header"
+          aria-label="Vision Board"
+        >
+          <Sparkles className="h-4 w-4" />
+          {location !== "/vision-board" && (
+            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+          )}
+        </Button>
+      </Link>
       
       {/* Global Search - collapses to icon, expands on click and hides quick filters */}
       <GlobalSearch onExpandedChange={setIsSearchExpanded} />
