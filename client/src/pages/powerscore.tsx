@@ -10,12 +10,16 @@ import {
   RefreshCw,
   Target,
   Calendar,
+  Bug,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
 import { AnimatedPodium } from "@/components/powerscore/animated-podium";
@@ -39,6 +43,143 @@ const periodLabels: Record<Period, string> = {
 interface LeaderboardResponse {
   leaderboard: PowerScoreLeaderboardEntry[];
   period: string;
+}
+
+interface DebugTransaction {
+  id: string;
+  rule_id: string;
+  points: number;
+  description: string;
+  voided_by_transaction_id: string | null;
+  created_at: string;
+  rule_name: string | null;
+  status: 'VALID' | 'VOIDED' | 'REVERSAL';
+  should_count: boolean;
+}
+
+interface DebugData {
+  user_id: string;
+  date: string;
+  total_transactions: number;
+  valid_transactions: number;
+  total_valid_points: number;
+  breakdown_by_rule: Array<{ rule_id: string; rule_name: string; count: number; points: number }>;
+  all_transactions: DebugTransaction[];
+}
+
+function DebugPanel() {
+  const [expanded, setExpanded] = useState(false);
+  
+  const { data: debugData, isLoading } = useQuery<DebugData>({
+    queryKey: ["/api/powerscore/debug-transactions"],
+    enabled: expanded,
+  });
+
+  return (
+    <Card className="border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20">
+      <CardHeader 
+        className="cursor-pointer py-3" 
+        onClick={() => setExpanded(!expanded)}
+      >
+        <CardTitle className="text-sm flex items-center justify-between">
+          <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+            <Bug className="h-4 w-4" />
+            Debug: Raw Transaction Data (Today)
+          </div>
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </CardTitle>
+      </CardHeader>
+      
+      {expanded && (
+        <CardContent className="pt-0">
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground">Loading debug data...</div>
+          ) : debugData ? (
+            <div className="space-y-4 text-xs font-mono">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="p-2 bg-white dark:bg-slate-800 rounded border">
+                  <div className="text-muted-foreground">Total Transactions</div>
+                  <div className="text-lg font-bold">{debugData.total_transactions}</div>
+                </div>
+                <div className="p-2 bg-white dark:bg-slate-800 rounded border">
+                  <div className="text-muted-foreground">Valid Transactions</div>
+                  <div className="text-lg font-bold text-green-600">{debugData.valid_transactions}</div>
+                </div>
+                <div className="p-2 bg-white dark:bg-slate-800 rounded border">
+                  <div className="text-muted-foreground">Total Valid Points</div>
+                  <div className="text-lg font-bold text-amber-600">{debugData.total_valid_points}</div>
+                </div>
+                <div className="p-2 bg-white dark:bg-slate-800 rounded border">
+                  <div className="text-muted-foreground">Date</div>
+                  <div className="text-lg font-bold">{debugData.date}</div>
+                </div>
+              </div>
+              
+              <div>
+                <div className="font-semibold mb-2 text-foreground">Breakdown by Rule (Valid Only):</div>
+                <div className="space-y-1">
+                  {debugData.breakdown_by_rule.map((rule) => (
+                    <div key={rule.rule_id} className="flex justify-between items-center p-2 bg-white dark:bg-slate-800 rounded border">
+                      <span>{rule.rule_name}</span>
+                      <span className="text-green-600">{rule.count} actions = {rule.points} pts</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="font-semibold mb-2 text-foreground">All Transactions (with status):</div>
+                <div className="max-h-96 overflow-auto space-y-1">
+                  {debugData.all_transactions.map((t) => (
+                    <div 
+                      key={t.id} 
+                      className={cn(
+                        "p-2 rounded border text-xs",
+                        t.status === 'VALID' ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800" :
+                        t.status === 'VOIDED' ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800" :
+                        "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800"
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <Badge 
+                            variant={t.status === 'VALID' ? 'default' : 'destructive'}
+                            className={cn(
+                              "text-xs",
+                              t.status === 'VALID' && "bg-green-500",
+                              t.status === 'REVERSAL' && "bg-yellow-500"
+                            )}
+                          >
+                            {t.status}
+                          </Badge>
+                          <span className="font-medium">{t.rule_name}</span>
+                        </div>
+                        <span className={cn(
+                          "font-bold",
+                          t.points > 0 ? "text-green-600" : "text-red-600"
+                        )}>
+                          {t.points > 0 ? '+' : ''}{t.points} pts
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground mt-1 truncate" title={t.description}>
+                        {t.description}
+                      </div>
+                      <div className="text-muted-foreground text-[10px] mt-1">
+                        ID: {t.id.substring(0, 8)}... | 
+                        {t.voided_by_transaction_id && ` Voided by: ${t.voided_by_transaction_id.substring(0, 8)}...`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">No debug data available</div>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
 }
 
 function CompactPersonalStats({ stats }: { stats: PowerScorePersonalStats }) {
@@ -348,6 +489,8 @@ export default function PowerScore() {
         {personalStats && (
           <CompactPersonalStats stats={personalStats} />
         )}
+        
+        <DebugPanel />
       </div>
     </div>
   );
