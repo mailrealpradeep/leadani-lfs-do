@@ -2152,28 +2152,12 @@ export default function VisionBoardPage() {
               <CardContent className="pt-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <EffortMetricCard
-                    icon={CheckCircle2}
-                    label="Sales"
-                    target={currentTargets.sales}
-                    achieved={currentAchieved.sales}
-                    gradient="from-green-400 to-emerald-500"
-                    delay={0.1}
-                  />
-                  <EffortMetricCard
-                    icon={MapPin}
-                    label="Visits"
-                    target={currentTargets.visits}
-                    achieved={currentAchieved.visits}
-                    gradient="from-blue-400 to-cyan-500"
-                    delay={0.2}
-                  />
-                  <EffortMetricCard
                     icon={Users}
                     label="New Leads"
                     target={currentTargets.leads_attended}
                     achieved={currentAchieved.leads_attended}
                     gradient="from-purple-400 to-pink-500"
-                    delay={0.3}
+                    delay={0.1}
                   />
                   <EffortMetricCard
                     icon={MessageSquare}
@@ -2181,6 +2165,22 @@ export default function VisionBoardPage() {
                     target={currentTargets.followups}
                     achieved={currentAchieved.followups}
                     gradient="from-orange-400 to-red-500"
+                    delay={0.2}
+                  />
+                  <EffortMetricCard
+                    icon={MapPin}
+                    label="Visits"
+                    target={currentTargets.visits}
+                    achieved={currentAchieved.visits}
+                    gradient="from-blue-400 to-cyan-500"
+                    delay={0.3}
+                  />
+                  <EffortMetricCard
+                    icon={CheckCircle2}
+                    label="Sales"
+                    target={currentTargets.sales}
+                    achieved={currentAchieved.sales}
+                    gradient="from-green-400 to-emerald-500"
                     delay={0.4}
                   />
                 </div>
