@@ -21248,12 +21248,22 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       };
 
       // Determine sheet IDs for counting metrics:
-      // Get ALL user's accessible non-personal sheets - we sum across ALL sheets
+      // For admins: Get ALL company sheets (they should see summed metrics across all sheets)
+      // For regular users: Get only sheets they have access to via sheet_users
       let accessibleSheetIds: string[] = [];
       if (req.companyId) {
-        const userSheets = await storage.getSheetsByUserId(req.userId!);
-        const companySheets = userSheets.filter(s => s.company_id === req.companyId && !s.is_personal);
-        accessibleSheetIds = companySheets.map(s => s.id);
+        if (req.userRole === "super_admin" || req.userRole === "company_admin") {
+          // Admins see ALL non-personal company sheets
+          const allCompanySheets = await storage.getSheetsByCompanyId(req.companyId);
+          accessibleSheetIds = allCompanySheets
+            .filter(s => !s.deleted_at && !s.is_personal)
+            .map(s => s.id);
+        } else {
+          // Regular users see only sheets they're assigned to
+          const userSheets = await storage.getSheetsByUserId(req.userId!);
+          const companySheets = userSheets.filter(s => s.company_id === req.companyId && !s.is_personal);
+          accessibleSheetIds = companySheets.map(s => s.id);
+        }
       }
 
       // Calculate effort achievements from activity_logs with date filtering
