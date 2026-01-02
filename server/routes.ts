@@ -20713,26 +20713,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         .from(dbSchema.leads)
         .where(and(
           inArray(dbSchema.leads.sheet_id, companySheetIds),
-          sql`${dbSchema.leads.custom_fields}->>'visit_status' = 'Visited'`,
-          sql`${dbSchema.leads.custom_fields}->>'visit_date' IS NOT NULL`,
-          sql`${dbSchema.leads.custom_fields}->>'visit_date' != ''`,
-          sql`(${dbSchema.leads.custom_fields}->>'visit_date')::timestamp >= ${periodStart}`,
-          sql`(${dbSchema.leads.custom_fields}->>'visit_date')::timestamp < ${periodEnd}`,
+          sql`custom_fields->>'visit_status' = 'Visited'`,
+          sql`custom_fields->>'visit_date' IS NOT NULL`,
+          sql`custom_fields->>'visit_date' != ''`,
+          sql`(custom_fields->>'visit_date')::timestamp >= ${periodStart}`,
+          sql`(custom_fields->>'visit_date')::timestamp < ${periodEnd}`,
           isNull(dbSchema.leads.deleted_at)
         ));
       return result[0]?.count || 0;
     };
     
-    // Count sales: leads where lead_status='Converted' AND conversion_date is within period
+    // Count sales: leads where conversion_date (custom_fields) is within period
     const countSalesInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
       if (companySheetIds.length === 0) return 0;
       const result = await db.select({ count: sql<number>`count(*)::int` })
         .from(dbSchema.leads)
         .where(and(
           inArray(dbSchema.leads.sheet_id, companySheetIds),
-          sql`${dbSchema.leads.custom_fields}->>'lead_status' = 'Converted'`,
-          gte(dbSchema.leads.conversion_date, periodStart),
-          lte(dbSchema.leads.conversion_date, periodEnd),
+          sql`custom_fields->>'conversion_date' IS NOT NULL`,
+          sql`custom_fields->>'conversion_date' != ''`,
+          sql`(custom_fields->>'conversion_date')::timestamp >= ${periodStart}`,
+          sql`(custom_fields->>'conversion_date')::timestamp < ${periodEnd}`,
           isNull(dbSchema.leads.deleted_at)
         ));
       return result[0]?.count || 0;
@@ -20881,26 +20882,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         .from(dbSchema.leads)
         .where(and(
           inArray(dbSchema.leads.sheet_id, sheetIds),
-          sql`${dbSchema.leads.custom_fields}->>'visit_status' = 'Visited'`,
-          sql`${dbSchema.leads.custom_fields}->>'visit_date' IS NOT NULL`,
-          sql`${dbSchema.leads.custom_fields}->>'visit_date' != ''`,
-          sql`(${dbSchema.leads.custom_fields}->>'visit_date')::timestamp >= ${periodStart}`,
-          sql`(${dbSchema.leads.custom_fields}->>'visit_date')::timestamp < ${periodEnd}`,
+          sql`custom_fields->>'visit_status' = 'Visited'`,
+          sql`custom_fields->>'visit_date' IS NOT NULL`,
+          sql`custom_fields->>'visit_date' != ''`,
+          sql`(custom_fields->>'visit_date')::timestamp >= ${periodStart}`,
+          sql`(custom_fields->>'visit_date')::timestamp < ${periodEnd}`,
           isNull(dbSchema.leads.deleted_at)
         ));
       return result[0]?.count || 0;
     };
     
-    // Count sales: leads where lead_status='Converted' AND conversion_date is within period
+    // Count sales: leads where conversion_date (custom_fields) is within period
     const countSalesInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
       if (sheetIds.length === 0) return 0;
       const result = await db.select({ count: sql<number>`count(*)::int` })
         .from(dbSchema.leads)
         .where(and(
           inArray(dbSchema.leads.sheet_id, sheetIds),
-          sql`${dbSchema.leads.custom_fields}->>'lead_status' = 'Converted'`,
-          gte(dbSchema.leads.conversion_date, periodStart),
-          lte(dbSchema.leads.conversion_date, periodEnd),
+          sql`custom_fields->>'conversion_date' IS NOT NULL`,
+          sql`custom_fields->>'conversion_date' != ''`,
+          sql`(custom_fields->>'conversion_date')::timestamp >= ${periodStart}`,
+          sql`(custom_fields->>'conversion_date')::timestamp < ${periodEnd}`,
           isNull(dbSchema.leads.deleted_at)
         ));
       return result[0]?.count || 0;
