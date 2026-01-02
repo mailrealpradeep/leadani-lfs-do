@@ -20,7 +20,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useBackButtonGuard, BackButtonGuardDialog } from "@/hooks/use-back-button-guard";
 import { Button } from "@/components/ui/button";
-import { Plus, Eye, Target } from "lucide-react";
+import { Plus, Eye } from "lucide-react";
 import type { CustomColumn } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -243,7 +243,7 @@ function DashboardHeader() {
           data-testid="button-vision-board-header"
           aria-label="Vision Board"
         >
-          <Target className="h-4 w-4" />
+          <span className="text-base leading-none">🎯</span>
           {location !== "/vision-board" && (
             <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
           )}
