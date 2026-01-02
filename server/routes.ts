@@ -20630,46 +20630,52 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         targetDate
       );
 
-      // Calculate projected incentive from Conversion Settings pipeline
+      // Fetch projected and actual incentives directly from Conversion Settings
+      // Uses the SAME logic as /api/conversion-settings/analytics/by-user endpoint
       let projectedIncentive = 0;
       let actualIncentive = 0;
       let projectedProgressPercent = 0;
       
-      if (req.companyId) {
+      if (req.companyId && req.userId) {
         try {
           const settings = await storage.getConversionSettingsComplete(req.companyId);
           
           if (settings && settings.config && settings.stages.length > 0) {
-            // Get user's assigned sheets
-            const userSheets = await storage.getSheetsByUserId(req.userId!);
+            // Get user's assigned non-personal sheets (same as Conversion Settings)
+            const userSheets = await storage.getSheetsByUserId(req.userId);
             const nonPersonalSheets = userSheets.filter(s => !s.is_personal);
             
-            if (nonPersonalSheets.length > 0) {
-              // Get all leads from user's sheets
-              let leads: any[] = [];
-              for (const sheet of nonPersonalSheets) {
-                const sheetLeads = await storage.getLeadsBySheetId(sheet.id);
-                leads = leads.concat(sheetLeads.filter(l => !l.deleted_at));
-              }
+            // Only calculate for single-sheet users (same eligibility as Conversion Settings)
+            if (nonPersonalSheets.length === 1) {
+              const userSheetId = nonPersonalSheets[0].id;
               
-              const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
-              const totalStages = sortedStages.length;
-              const finalStage = sortedStages[totalStages - 1];
+              // Get leads from user's sheet (no date filter - same as Conversion Settings page)
+              const sheetLeads = await storage.getLeadsBySheetId(userSheetId);
+              const leads = sheetLeads.filter(l => !l.deleted_at);
               
-              // Value configuration
-              const valueConfig = settings.config.value_config;
+              // Use value and incentive configs (CORRECT field paths)
+              const valueConfig = settings.value;
+              const incentiveConfig = settings.incentive;
+              
+              // Get closing_value column's default value
+              const companyColumns = await storage.getCustomColumnsByCompany(req.companyId);
+              const closingValueColumn = companyColumns.find(c => c.column_key === 'closing_value');
+              const columnDefaultValue = (closingValueColumn?.config as any)?.default_value;
+              
+              // Helper: get lead value (same logic as Conversion Settings)
               const getLeadValue = (lead: any): number => {
-                if (!valueConfig) return 0;
-                if (valueConfig.value_type === 'fixed') return valueConfig.fixed_value || 0;
-                if (valueConfig.value_type === 'from_field' && valueConfig.field_key) {
-                  const val = lead.custom_fields?.[valueConfig.field_key];
-                  return typeof val === 'number' ? val : parseFloat(val) || 0;
+                const closingValue = lead.custom_fields?.closing_value;
+                if (closingValue !== null && closingValue !== undefined && closingValue !== '') {
+                  const cleanValue = String(closingValue).replace(/[^\d.-]/g, '');
+                  const parsed = parseFloat(cleanValue);
+                  if (!isNaN(parsed)) return parsed;
                 }
+                if (columnDefaultValue !== undefined && columnDefaultValue !== null) return columnDefaultValue;
+                if (valueConfig?.default_amount) return valueConfig.default_amount;
                 return 0;
               };
               
-              // Incentive configuration
-              const incentiveConfig = settings.config.incentive_config;
+              // Helper: get incentive (same logic as Conversion Settings)
               const getIncentive = (value: number): number => {
                 if (!incentiveConfig) return 0;
                 if (incentiveConfig.incentive_type === 'fixed') return incentiveConfig.fixed_amount || 0;
@@ -20687,41 +20693,43 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
                 return 0;
               };
               
-              // Calculate stage data with potential values
+              const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+              const totalStages = sortedStages.length;
+              
+              // Calculate stage data (same logic as Conversion Settings)
               const stageData = sortedStages.map((stage, index) => {
                 let stageLeads: any[] = [];
-                const triggerValues = stage.trigger_values || [];
                 
                 if (stage.trigger_type === 'all_leads') {
                   stageLeads = leads;
                 } else if (stage.trigger_type === 'lead_status') {
                   stageLeads = leads.filter(lead => {
                     const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
-                    return triggerValues.includes(leadStatus);
+                    return stage.trigger_values.includes(leadStatus);
                   });
                 } else if (stage.trigger_type === 'visit_status') {
                   stageLeads = leads.filter(lead => {
                     const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
-                    return triggerValues.includes(visitStatus);
+                    return stage.trigger_values.includes(visitStatus);
                   });
                 } else if (stage.trigger_type === 'combined') {
                   stageLeads = leads.filter(lead => {
                     const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
                     const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
-                    return triggerValues.includes(leadStatus) || triggerValues.includes(visitStatus);
+                    return stage.trigger_values.includes(leadStatus) || stage.trigger_values.includes(visitStatus);
                   });
                 }
                 
                 const isFinalStage = index === totalStages - 1;
-                const actualInc = isFinalStage
+                const actualIncentives = isFinalStage
                   ? stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
                   : 0;
-                const potentialInc = stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
+                const potentialIncentive = stageLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
                 
-                return { stage, stageLeads, count: stageLeads.length, actualIncentives: actualInc, potentialIncentive: potentialInc };
+                return { stage, count: stageLeads.length, actualIncentives, potentialIncentive };
               });
               
-              // Calculate projection multipliers
+              // Calculate projection multipliers (same as Conversion Settings)
               const projectionMultipliers = stageData.map((_, index) => {
                 if (index === totalStages - 1) return 1;
                 let multiplier = 1;
@@ -20734,7 +20742,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
                 return multiplier;
               });
               
-              // Sum up projected and actual incentives
+              // Sum projected and actual incentives (same as Conversion Settings)
               stageData.forEach((data, index) => {
                 const isFinalStage = index === totalStages - 1;
                 if (isFinalStage) {
@@ -20744,15 +20752,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
                 }
               });
               
-              // Add actual incentive to projected total
+              // Total projected = projected from pipeline + actual from final stage
               projectedIncentive += actualIncentive;
               
-              // Calculate projected progress percent
+              // Calculate projected progress percent against goal
               projectedProgressPercent = board.goal_amount > 0 ? (projectedIncentive / board.goal_amount) * 100 : 0;
             }
           }
         } catch (err) {
-          console.error("Error calculating projected incentive:", err);
+          console.error("Error fetching incentives from Conversion Settings:", err);
         }
       }
 
