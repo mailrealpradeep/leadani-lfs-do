@@ -60,6 +60,22 @@ import { eq, and, gte, inArray } from "drizzle-orm";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
+// Fixed dropdown columns that always exist regardless of custom_columns table
+// These are system-level dropdown fields that should always trigger PowerScore rules
+const FIXED_DROPDOWN_COLUMNS = ["visit_status", "lead_status"];
+
+// Helper function to get all dropdown column keys (custom + fixed)
+// Ensures PowerScore triggers for fixed columns even when custom_columns table is empty
+function getAllDropdownKeys(customColumns: { column_key: string; type: string }[]): string[] {
+  const customDropdownColumns = customColumns.filter(col => col.type === "dropdown");
+  const customDropdownKeys = new Set(customDropdownColumns.map(col => col.column_key));
+  
+  return [
+    ...customDropdownColumns.map(col => col.column_key),
+    ...FIXED_DROPDOWN_COLUMNS.filter(key => !customDropdownKeys.has(key))
+  ];
+}
+
 // Helper function to get value from a lead's field (standard or custom)
 function getLeadFieldValue(lead: Lead, columnKey: string): any {
   // Special handling for thought field (lead meta)
@@ -1692,15 +1708,15 @@ ${questionsList}`;
             const sheetForScoring = await storage.getSheet(existingLead.sheet_id);
             if (sheetForScoring) {
               const customColumns = await storage.getCustomColumns(existingLead.sheet_id);
-              const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+              const allDropdownKeys = getAllDropdownKeys(customColumns);
               const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
               
-              for (const col of dropdownColumns) {
-                const oldVal = existingLead.custom_fields?.[col.column_key] ?? null;
-                const newVal = mergedCustomFields[col.column_key];
+              for (const columnKey of allDropdownKeys) {
+                const oldVal = existingLead.custom_fields?.[columnKey] ?? null;
+                const newVal = mergedCustomFields[columnKey];
                 if (newVal !== undefined && oldVal !== newVal) {
                   dropdownChanges.push({
-                    columnKey: col.column_key,
+                    columnKey,
                     oldValue: oldVal,
                     newValue: newVal,
                   });
@@ -1905,14 +1921,14 @@ ${questionsList}`;
         const sheetForScoring = await storage.getSheet(lead.sheet_id);
         if (sheetForScoring) {
           const customColumns = await storage.getCustomColumns(lead.sheet_id);
-          const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+          const allDropdownKeys = getAllDropdownKeys(customColumns);
           const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
           
-          for (const col of dropdownColumns) {
-            const newVal = lead.custom_fields[col.column_key];
+          for (const columnKey of allDropdownKeys) {
+            const newVal = lead.custom_fields[columnKey];
             if (newVal !== undefined && newVal !== null && newVal !== "") {
               dropdownChanges.push({
-                columnKey: col.column_key,
+                columnKey,
                 oldValue: null, // New lead - old value is always null
                 newValue: newVal,
               });
@@ -6636,14 +6652,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Award PowerScore points for initial dropdown values on lead creation
       if (company && lead.custom_fields) {
-        const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+        const allDropdownKeys = getAllDropdownKeys(customColumns);
         const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
         
-        for (const col of dropdownColumns) {
-          const newVal = lead.custom_fields[col.column_key];
+        for (const columnKey of allDropdownKeys) {
+          const newVal = lead.custom_fields[columnKey];
           if (newVal !== undefined && newVal !== null && newVal !== "") {
             dropdownChanges.push({
-              columnKey: col.column_key,
+              columnKey,
               oldValue: null, // New lead - old value is always null
               newValue: newVal,
             });
@@ -7172,15 +7188,16 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         // Calculate dropdown and date changes if custom_fields were updated
         if (req.body.custom_fields) {
           const customColumns = await storage.getCustomColumns(lead.sheet_id);
-          const dropdownColumns = customColumns.filter(col => col.type === "dropdown");
+          const allDropdownKeys = getAllDropdownKeys(customColumns);
           const dateColumns = customColumns.filter(col => col.type === "date" || col.type === "date_time");
           
-          for (const col of dropdownColumns) {
-            const oldVal = lead.custom_fields?.[col.column_key] ?? null;
-            const newVal = req.body.custom_fields[col.column_key];
+          // Check all dropdown columns (both custom and fixed) for changes
+          for (const columnKey of allDropdownKeys) {
+            const oldVal = lead.custom_fields?.[columnKey] ?? null;
+            const newVal = req.body.custom_fields[columnKey];
             if (newVal !== undefined && oldVal !== newVal) {
               dropdownChanges.push({
-                columnKey: col.column_key,
+                columnKey,
                 oldValue: oldVal,
                 newValue: newVal,
               });
