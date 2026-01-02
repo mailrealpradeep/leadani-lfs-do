@@ -20797,7 +20797,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         target_date: latestTarget,
         start_date: earliestStart,
         images: allImages.slice(0, 5),
-        effort_targets: avgEffortTargets,
+        effort_targets: effortTotals,
         is_active: true,
       },
       progress: {
