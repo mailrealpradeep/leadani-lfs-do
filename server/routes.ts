@@ -56,7 +56,8 @@ import { recordFollowupAndAwardPoints, detectFollowupEventTypes } from "./follow
 import { setSocketIO } from "./socket-manager";
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
-import { eq, and, gte, inArray, isNotNull, desc } from "drizzle-orm";
+import * as dbSchema from "@shared/schema";
+import { eq, and, gte, inArray, isNotNull, desc, sql } from "drizzle-orm";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
