@@ -381,6 +381,207 @@ async function getUserPipelineMetrics(
   }
 }
 
+// Helper: Get pipeline metrics for a SINGLE sheet (for multi-sheet user aggregation)
+async function getUserPipelineMetricsForSheet(
+  companyId: string,
+  userId: string,
+  sheetId: string,
+  actualDateFilter?: { startDate: Date; endDate: Date }
+): Promise<UserPipelineMetrics | null> {
+  try {
+    // Get conversion settings for company
+    const settings = await storage.getConversionSettingsComplete(companyId);
+    if (!settings || !settings.config || settings.stages.length === 0) {
+      return null;
+    }
+
+    // Get user info
+    const user = await storage.getUser(userId);
+    if (!user) return null;
+
+    // Get leads ONLY from the specified sheet
+    const sheetLeads = await storage.getLeadsBySheetId(sheetId);
+    const allLeads = sheetLeads.filter(l => !l.deleted_at);
+    
+    if (allLeads.length === 0) {
+      return {
+        user_id: user.id,
+        user_name: user.name,
+        user_email: user.email,
+        sheet_ids: [sheetId],
+        total_leads: 0,
+        stages: [],
+        total_projected_incentive: 0,
+        total_actual_incentive: 0,
+      };
+    }
+
+    // Stage-specific date filtering helper (same as main function)
+    const getStageDate = (lead: any, stage: any, isFirstStage: boolean, isFinalStage: boolean): Date | null => {
+      if (isFirstStage) {
+        return lead.created_at ? new Date(lead.created_at) : null;
+      }
+      if (isFinalStage) {
+        const conversionDate = lead.custom_fields?.conversion_date;
+        if (conversionDate) return new Date(conversionDate);
+        return lead.created_at ? new Date(lead.created_at) : null;
+      }
+      if (stage.trigger_type === 'visit_status') {
+        const visitDate = lead.custom_fields?.visit_date || lead.visit_date;
+        if (visitDate) return new Date(visitDate);
+        return null;
+      }
+      const lastEdit = lead.custom_fields?.last_edit;
+      if (lastEdit) return new Date(lastEdit);
+      if (lead.updated_at) return new Date(lead.updated_at);
+      return null;
+    };
+    
+    const filterLeadsByDate = (leads: any[], stage: any, isFirstStage: boolean, isFinalStage: boolean): any[] => {
+      if (!actualDateFilter) return leads;
+      return leads.filter(lead => {
+        const stageDate = getStageDate(lead, stage, isFirstStage, isFinalStage);
+        if (!stageDate || isNaN(stageDate.getTime())) return false;
+        return stageDate >= actualDateFilter.startDate && stageDate <= actualDateFilter.endDate;
+      });
+    };
+
+    // Get value/incentive configuration
+    const valueConfig = settings.value;
+    const incentiveConfig = settings.incentive;
+
+    // Get closing_value column's default value
+    const companyColumns = await storage.getCustomColumnsByCompany(companyId);
+    const closingValueColumn = companyColumns.find(c => c.column_key === 'closing_value');
+    const columnDefaultValue = (closingValueColumn?.config as any)?.default_value;
+
+    const getLeadValue = (lead: any): number => {
+      const closingValue = lead.custom_fields?.closing_value;
+      if (closingValue !== null && closingValue !== undefined && closingValue !== '') {
+        const cleanValue = String(closingValue).replace(/[^\d.-]/g, '');
+        const parsed = parseFloat(cleanValue);
+        if (!isNaN(parsed)) return parsed;
+      }
+      if (columnDefaultValue !== undefined && columnDefaultValue !== null) return columnDefaultValue;
+      if (valueConfig?.default_amount) return valueConfig.default_amount;
+      return 0;
+    };
+
+    const getIncentive = (value: number): number => {
+      if (!incentiveConfig) return 0;
+      if (incentiveConfig.incentive_type === 'fixed') return incentiveConfig.fixed_amount || 0;
+      if (incentiveConfig.incentive_type === 'percentage') return value * ((incentiveConfig.percentage_value || 0) / 100);
+      if (incentiveConfig.incentive_type === 'tiered' && incentiveConfig.tier_rules) {
+        const sortedTiers = [...incentiveConfig.tier_rules].sort((a, b) => (a.min_value || 0) - (b.min_value || 0));
+        for (let i = sortedTiers.length - 1; i >= 0; i--) {
+          const tier = sortedTiers[i];
+          if (value >= (tier.min_value || 0)) {
+            if (tier.incentive_type === 'fixed') return tier.fixed_amount || 0;
+            if (tier.incentive_type === 'percentage') return value * ((tier.percentage_value || 0) / 100);
+          }
+        }
+      }
+      return 0;
+    };
+
+    const filterLeadsByStage = (leads: any[], stage: any): any[] => {
+      if (stage.trigger_type === 'all_leads') {
+        return leads;
+      } else if (stage.trigger_type === 'lead_status') {
+        return leads.filter(lead => {
+          const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+          return stage.trigger_values.includes(leadStatus);
+        });
+      } else if (stage.trigger_type === 'visit_status') {
+        return leads.filter(lead => {
+          const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+          return stage.trigger_values.includes(visitStatus);
+        });
+      } else if (stage.trigger_type === 'combined') {
+        return leads.filter(lead => {
+          const leadStatus = lead.custom_fields?.lead_status || lead.lead_status;
+          const visitStatus = lead.custom_fields?.visit_status || lead.visit_status;
+          return stage.trigger_values.includes(leadStatus) || stage.trigger_values.includes(visitStatus);
+        });
+      }
+      return [];
+    };
+
+    const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+    const totalStages = sortedStages.length;
+
+    const cascadingMultipliers = sortedStages.map((_, index) => {
+      if (index === totalStages - 1) return 1;
+      let multiplier = 1;
+      for (let i = index + 1; i < totalStages; i++) {
+        const expectedPercent = sortedStages[i].expected_conversion_percent;
+        if (expectedPercent && expectedPercent > 0) {
+          multiplier *= (expectedPercent / 100);
+        }
+      }
+      return multiplier;
+    });
+
+    let totalProjectedIncentive = 0;
+    let totalActualIncentive = 0;
+
+    const stageMetrics: PipelineStageMetric[] = sortedStages.map((stage, index) => {
+      const isFirstStage = index === 0;
+      const isFinalStage = index === totalStages - 1;
+      const stageLeadsForProjected = filterLeadsByStage(allLeads, stage);
+      const stageLeadsWithDateFilter = filterLeadsByDate(stageLeadsForProjected, stage, isFirstStage, isFinalStage);
+      const count = actualDateFilter ? stageLeadsWithDateFilter.length : stageLeadsForProjected.length;
+      const countLeads = actualDateFilter ? stageLeadsWithDateFilter : stageLeadsForProjected;
+      const value = countLeads.reduce((sum, lead) => sum + getLeadValue(lead), 0);
+      const potentialIncentive = countLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
+      const actualIncentives = isFinalStage
+        ? stageLeadsWithDateFilter.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
+        : 0;
+
+      let projectedIncentive = 0;
+      let projectedValue = 0;
+      if (!isFirstStage && !isFinalStage) {
+        projectedIncentive = potentialIncentive * cascadingMultipliers[index];
+        projectedValue = value * cascadingMultipliers[index];
+        totalProjectedIncentive += projectedIncentive;
+      }
+
+      if (isFinalStage) {
+        totalActualIncentive += actualIncentives;
+      }
+
+      return {
+        stage_id: stage.id,
+        stage_number: stage.stage_number,
+        stage_name: stage.stage_name,
+        color: stage.color || '#666666',
+        expected_percent: stage.expected_conversion_percent || 0,
+        count,
+        value: Math.round(value * 100) / 100,
+        incentives: Math.round(actualIncentives * 100) / 100,
+        projected_value: Math.round(projectedValue * 100) / 100,
+        projected_incentive: Math.round(projectedIncentive * 100) / 100,
+        is_first_stage: isFirstStage,
+        is_final_stage: isFinalStage,
+      };
+    });
+
+    return {
+      user_id: user.id,
+      user_name: user.name,
+      user_email: user.email,
+      sheet_ids: [sheetId],
+      total_leads: allLeads.length,
+      stages: stageMetrics,
+      total_projected_incentive: Math.round(totalProjectedIncentive * 100) / 100,
+      total_actual_incentive: Math.round(totalActualIncentive * 100) / 100,
+    };
+  } catch (error) {
+    console.error("Error in getUserPipelineMetricsForSheet:", error);
+    return null;
+  }
+}
+
 // Helper function to evaluate custom view conditions with per-condition AND/OR operators
 // Conditions are evaluated left-to-right: each condition's next_operator connects it to the next
 function evaluateCustomViewConditions(lead: Lead, conditions: any[]): boolean {
@@ -20556,14 +20757,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   };
 
   // Helper: Calculate effort metrics from activity_logs for a user within date range
-  // New Leads counts all leads in the user's assigned sheet (includes webhook/import)
-  // For single-sheet users, sheetId is their assigned sheet; leads count by sheet, not owner
+  // For single-sheet users: count by their one sheet
+  // For multi-sheet users: sum across ALL their accessible sheets
   const calculateEffortMetrics = async (
     userId: string, 
     companyId: string, 
     startDate: Date, 
     endDate: Date,
-    sheetId?: string | null  // Optional: for single-sheet users, count by sheet instead of owner
+    sheetIds: string[]  // Array of sheet IDs to sum across (or empty for legacy owner fallback)
   ): Promise<{
     yearly: { sales: number; visits: number; leads_attended: number; followups: number };
     monthly: { sales: number; visits: number; leads_attended: number; followups: number };
@@ -20581,22 +20782,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const dayStart = new Date(now);
     dayStart.setHours(0, 0, 0, 0);
     
-    // Query activity logs for sales and visits metrics
-    // For single-sheet users: count ALL visits/sales in their sheet (includes changes by admins/others)
-    // For multi-sheet/admin users: count only their own actions (by user_id)
-    const logs = await db.select()
-      .from(activity_logs)
-      .where(and(
-        sheetId 
-          ? eq(activity_logs.sheet_id, sheetId)  // Single-sheet: by sheet
-          : eq(activity_logs.user_id, userId),   // Multi-sheet/admin: by user
-        eq(activity_logs.company_id, companyId),
-        gte(activity_logs.occurred_at, yearStart)
-      ));
-    
     // Count sales and visits from activity logs (status transitions)
     // Field structure: { field_key: string, new_value: string, ... }
-    const countSalesVisits = (logsSubset: typeof logs) => {
+    const countSalesVisits = (logsSubset: any[]) => {
       let sales = 0;
       let visits = 0;
       
@@ -20617,29 +20805,85 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       return { sales, visits };
     };
     
-    // Filter logs by period (ensure Date comparisons work correctly)
-    const yearlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
-    const monthlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
-    const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
-    const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
-    
-    // Count New Leads directly from leads table (includes webhook/import leads)
-    // If sheetId is provided: count leads in that sheet (for single-sheet users like Shreelekha)
-    // Otherwise: count leads owned by the user (fallback for admins/multi-sheet)
-    const countLeadsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      if (sheetId) {
-        // For single-sheet users: count ALL leads in their sheet, regardless of owner
+    // If we have sheet IDs, query ALL sheets and sum the results
+    // Otherwise fall back to owner_user_id counting
+    if (sheetIds.length > 0) {
+      // Query activity logs for ALL sheets
+      const logs = await db.select()
+        .from(activity_logs)
+        .where(and(
+          inArray(activity_logs.sheet_id, sheetIds),
+          eq(activity_logs.company_id, companyId),
+          gte(activity_logs.occurred_at, yearStart)
+        ));
+      
+      // Filter logs by period
+      const yearlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
+      const monthlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
+      const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
+      const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
+      
+      // Count leads across ALL sheets
+      const countLeadsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
         const result = await db.select({ count: sql<number>`count(*)::int` })
           .from(dbSchema.leads)
           .where(and(
-            eq(dbSchema.leads.sheet_id, sheetId),
+            inArray(dbSchema.leads.sheet_id, sheetIds),
             gte(dbSchema.leads.created_at, periodStart),
             lte(dbSchema.leads.created_at, periodEnd),
             isNull(dbSchema.leads.deleted_at)
           ));
         return result[0]?.count || 0;
-      } else {
-        // Fallback: count leads owned by user (for admins/multi-sheet users)
+      };
+      
+      // Count followups across ALL sheets
+      const countFollowupsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+        const result = await db.select({ count: sql<number>`count(*)::int` })
+          .from(dbSchema.followup_events)
+          .where(and(
+            inArray(dbSchema.followup_events.sheet_id, sheetIds),
+            gte(dbSchema.followup_events.triggered_at, periodStart),
+            lte(dbSchema.followup_events.triggered_at, periodEnd)
+          ));
+        return result[0]?.count || 0;
+      };
+      
+      const [
+        yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads,
+        yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups
+      ] = await Promise.all([
+        countLeadsAcrossSheets(yearStart, now),
+        countLeadsAcrossSheets(monthStart, now),
+        countLeadsAcrossSheets(weekStart, now),
+        countLeadsAcrossSheets(dayStart, now),
+        countFollowupsAcrossSheets(yearStart, now),
+        countFollowupsAcrossSheets(monthStart, now),
+        countFollowupsAcrossSheets(weekStart, now),
+        countFollowupsAcrossSheets(dayStart, now),
+      ]);
+      
+      return {
+        yearly: { ...countSalesVisits(yearlyLogs), leads_attended: yearlyLeads, followups: yearlyFollowups },
+        monthly: { ...countSalesVisits(monthlyLogs), leads_attended: monthlyLeads, followups: monthlyFollowups },
+        weekly: { ...countSalesVisits(weeklyLogs), leads_attended: weeklyLeads, followups: weeklyFollowups },
+        daily: { ...countSalesVisits(dailyLogs), leads_attended: dailyLeads, followups: dailyFollowups },
+      };
+    } else {
+      // Legacy fallback: count by owner_user_id (should rarely be used now)
+      const logs = await db.select()
+        .from(activity_logs)
+        .where(and(
+          eq(activity_logs.user_id, userId),
+          eq(activity_logs.company_id, companyId),
+          gte(activity_logs.occurred_at, yearStart)
+        ));
+      
+      const yearlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
+      const monthlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
+      const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
+      const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
+      
+      const countLeadsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
         const result = await db.select({ count: sql<number>`count(*)::int` })
           .from(dbSchema.leads)
           .where(and(
@@ -20649,31 +20893,29 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
             isNull(dbSchema.leads.deleted_at)
           ));
         return result[0]?.count || 0;
-      }
-    };
-    
-    // Get deduplicated follow-up counts from followup_events table
-    // AND count leads in user's sheet (or owned by user) in each period
-    const [
-      yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups,
-      yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads
-    ] = await Promise.all([
-      storage.getFollowupStats(userId, yearStart, now),
-      storage.getFollowupStats(userId, monthStart, now),
-      storage.getFollowupStats(userId, weekStart, now),
-      storage.getFollowupStats(userId, dayStart, now),
-      countLeadsInPeriod(yearStart, now),
-      countLeadsInPeriod(monthStart, now),
-      countLeadsInPeriod(weekStart, now),
-      countLeadsInPeriod(dayStart, now),
-    ]);
-    
-    return {
-      yearly: { ...countSalesVisits(yearlyLogs), leads_attended: yearlyLeads, followups: yearlyFollowups.count },
-      monthly: { ...countSalesVisits(monthlyLogs), leads_attended: monthlyLeads, followups: monthlyFollowups.count },
-      weekly: { ...countSalesVisits(weeklyLogs), leads_attended: weeklyLeads, followups: weeklyFollowups.count },
-      daily: { ...countSalesVisits(dailyLogs), leads_attended: dailyLeads, followups: dailyFollowups.count },
-    };
+      };
+      
+      const [
+        yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups,
+        yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads
+      ] = await Promise.all([
+        storage.getFollowupStats(userId, yearStart, now),
+        storage.getFollowupStats(userId, monthStart, now),
+        storage.getFollowupStats(userId, weekStart, now),
+        storage.getFollowupStats(userId, dayStart, now),
+        countLeadsInPeriod(yearStart, now),
+        countLeadsInPeriod(monthStart, now),
+        countLeadsInPeriod(weekStart, now),
+        countLeadsInPeriod(dayStart, now),
+      ]);
+      
+      return {
+        yearly: { ...countSalesVisits(yearlyLogs), leads_attended: yearlyLeads, followups: yearlyFollowups.count },
+        monthly: { ...countSalesVisits(monthlyLogs), leads_attended: monthlyLeads, followups: monthlyFollowups.count },
+        weekly: { ...countSalesVisits(weeklyLogs), leads_attended: weeklyLeads, followups: weeklyFollowups.count },
+        daily: { ...countSalesVisits(dailyLogs), leads_attended: dailyLeads, followups: dailyFollowups.count },
+      };
+    }
   };
 
   // Get current user's vision board (or team aggregates for admins/multi-sheet users)
@@ -21005,37 +21247,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         },
       };
 
-      // Determine sheet_id for counting leads:
-      // 1. Get user's current accessible non-personal sheets
-      // 2. Use board.sheet_id if it's in the accessible list
-      // 3. If only one accessible sheet, use that (auto-detect for single-sheet users)
-      // 4. Fall back to owner_user_id counting for multi-sheet/admin users
-      let effectiveSheetId: string | null = null;
+      // Determine sheet IDs for counting metrics:
+      // Get ALL user's accessible non-personal sheets - we sum across ALL sheets
+      let accessibleSheetIds: string[] = [];
       if (req.companyId) {
         const userSheets = await storage.getSheetsByUserId(req.userId!);
         const companySheets = userSheets.filter(s => s.company_id === req.companyId && !s.is_personal);
-        
-        if (board.sheet_id && companySheets.some(s => s.id === board.sheet_id)) {
-          // Board's sheet_id is valid and user still has access
-          effectiveSheetId = board.sheet_id;
-        } else if (companySheets.length === 1) {
-          // Auto-detect: user has exactly one sheet
-          effectiveSheetId = companySheets[0].id;
-        }
-        // If user has multiple sheets or board.sheet_id is stale, leave as null (owner fallback)
+        accessibleSheetIds = companySheets.map(s => s.id);
       }
 
       // Calculate effort achievements from activity_logs with date filtering
-      // Pass effectiveSheetId so single-sheet users count leads by sheet (includes webhook leads)
+      // Sum across ALL accessible sheets (single-sheet users get their 1 sheet, multi-sheet users get all)
       const effortAchieved = await calculateEffortMetrics(
         req.userId!, 
         req.companyId!, 
         startDate, 
         targetDate,
-        effectiveSheetId  // For single-sheet users: count leads in their sheet
+        accessibleSheetIds  // Sum metrics across ALL accessible sheets
       );
 
       // Use SHARED HELPER for projected/actual incentive (same formula as Conversion Settings)
+      // getUserPipelineMetrics already aggregates across ALL user's accessible sheets
       // Projected: All-time, no date filter, middle stages only with cascading multipliers
       // Actual: Date-filtered using Vision Board dates, last stage only
       let projectedIncentive = 0;
@@ -21047,6 +21279,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         try {
           // Use Vision Board dates for actual incentive filter
           const actualDateFilter = { startDate, endDate: targetDate };
+          // getUserPipelineMetrics already handles multi-sheet aggregation internally
           const metrics = await getUserPipelineMetrics(req.companyId, req.userId, actualDateFilter);
           
           if (metrics) {
