@@ -20688,16 +20688,16 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const teamUserIds = allBoards.map(b => b.user_id);
     
     // Get all sheets for this company to count leads
-    const companySheets = await db.select().from(sheets).where(eq(sheets.company_id, companyId));
+    const companySheets = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.company_id, companyId));
     const companySheetIds = companySheets.map(s => s.id);
     
     // Query activity logs for vision board users only (not all company employees)
     const teamLogs = await db.select()
-      .from(activity_logs)
+      .from(dbSchema.activity_logs)
       .where(and(
-        eq(activity_logs.company_id, companyId),
-        inArray(activity_logs.user_id, teamUserIds),
-        gte(activity_logs.occurred_at, yearStart)
+        eq(dbSchema.activity_logs.company_id, companyId),
+        inArray(dbSchema.activity_logs.user_id, teamUserIds),
+        gte(dbSchema.activity_logs.occurred_at, yearStart)
       ));
     
     // Count leads directly from leads table by created_at (not activity_logs)
@@ -20706,10 +20706,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const countLeadsCreated = async (startDate: Date): Promise<number> => {
       if (companySheetIds.length === 0) return 0;
       const result = await db.select({ count: sql<number>`count(*)` })
-        .from(leads)
+        .from(dbSchema.leads)
         .where(and(
-          inArray(leads.sheet_id, companySheetIds),
-          gte(leads.created_at, startDate)
+          inArray(dbSchema.leads.sheet_id, companySheetIds),
+          gte(dbSchema.leads.created_at, startDate)
         ));
       return Number(result[0]?.count || 0);
     };
@@ -20878,11 +20878,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     if (sheetIds.length > 0) {
       // Query activity logs for ALL sheets
       const logs = await db.select()
-        .from(activity_logs)
+        .from(dbSchema.activity_logs)
         .where(and(
-          inArray(activity_logs.sheet_id, sheetIds),
-          eq(activity_logs.company_id, companyId),
-          gte(activity_logs.occurred_at, yearStart)
+          inArray(dbSchema.activity_logs.sheet_id, sheetIds),
+          eq(dbSchema.activity_logs.company_id, companyId),
+          gte(dbSchema.activity_logs.occurred_at, yearStart)
         ));
       
       // Filter logs by period
@@ -20939,11 +20939,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     } else {
       // Legacy fallback: count by owner_user_id (should rarely be used now)
       const logs = await db.select()
-        .from(activity_logs)
+        .from(dbSchema.activity_logs)
         .where(and(
-          eq(activity_logs.user_id, userId),
-          eq(activity_logs.company_id, companyId),
-          gte(activity_logs.occurred_at, yearStart)
+          eq(dbSchema.activity_logs.user_id, userId),
+          eq(dbSchema.activity_logs.company_id, companyId),
+          gte(dbSchema.activity_logs.occurred_at, yearStart)
         ));
       
       const yearlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
