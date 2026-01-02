@@ -56,7 +56,7 @@ import { recordFollowupAndAwardPoints, detectFollowupEventTypes } from "./follow
 import { setSocketIO } from "./socket-manager";
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
-import { eq, and, gte, inArray } from "drizzle-orm";
+import { eq, and, gte, inArray, isNotNull, desc } from "drizzle-orm";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -19322,6 +19322,83 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // ============================================================================
   // POWERSCORE (Gamified Leaderboard System)
   // ============================================================================
+
+  // DEBUG: Get raw PowerScore transactions for current user (temporary endpoint)
+  app.get("/api/powerscore/debug-transactions", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const userId = req.userId!;
+      
+      // Get all transactions for today with voided status
+      const result = await db
+        .select({
+          id: dbSchema.powerscore_transactions.id,
+          rule_id: dbSchema.powerscore_transactions.rule_id,
+          points: dbSchema.powerscore_transactions.points,
+          description: dbSchema.powerscore_transactions.description,
+          voided_by_transaction_id: dbSchema.powerscore_transactions.voided_by_transaction_id,
+          created_at: dbSchema.powerscore_transactions.created_at,
+          rule_name: dbSchema.powerscore_rules.name,
+        })
+        .from(dbSchema.powerscore_transactions)
+        .leftJoin(dbSchema.powerscore_rules, eq(dbSchema.powerscore_transactions.rule_id, dbSchema.powerscore_rules.id))
+        .where(
+          and(
+            eq(dbSchema.powerscore_transactions.user_id, userId),
+            gte(dbSchema.powerscore_transactions.created_at, sql`CURRENT_DATE`)
+          )
+        )
+        .orderBy(desc(dbSchema.powerscore_transactions.created_at));
+
+      // Get all voided_by_transaction_ids to identify reversal transactions
+      const voidedByIds = await db
+        .select({ voided_by_transaction_id: dbSchema.powerscore_transactions.voided_by_transaction_id })
+        .from(dbSchema.powerscore_transactions)
+        .where(isNotNull(dbSchema.powerscore_transactions.voided_by_transaction_id));
+
+      const reversalIds = new Set(voidedByIds.map(v => v.voided_by_transaction_id));
+
+      // Annotate each transaction with its status
+      const annotated = result.map(t => ({
+        ...t,
+        status: t.voided_by_transaction_id ? 'VOIDED' : 
+                reversalIds.has(t.id) ? 'REVERSAL' : 'VALID',
+        should_count: !t.voided_by_transaction_id && !reversalIds.has(t.id)
+      }));
+
+      // Calculate totals
+      const validTransactions = annotated.filter(t => t.should_count);
+      const totalValidPoints = validTransactions.reduce((sum, t) => sum + t.points, 0);
+
+      // Group by rule
+      const byRule = new Map<string, { rule_name: string; count: number; points: number }>();
+      for (const t of validTransactions) {
+        const key = t.rule_id;
+        if (!byRule.has(key)) {
+          byRule.set(key, { rule_name: t.rule_name || 'Unknown', count: 0, points: 0 });
+        }
+        const entry = byRule.get(key)!;
+        entry.count++;
+        entry.points += t.points;
+      }
+
+      res.json({
+        user_id: userId,
+        date: new Date().toISOString().split('T')[0],
+        total_transactions: result.length,
+        valid_transactions: validTransactions.length,
+        total_valid_points: totalValidPoints,
+        breakdown_by_rule: Array.from(byRule.entries()).map(([id, data]) => ({ rule_id: id, ...data })),
+        all_transactions: annotated
+      });
+    } catch (error: any) {
+      console.error("Error fetching debug transactions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Get PowerScore leaderboard for a period
   app.get("/api/powerscore/leaderboard", authMiddleware, async (req: AuthRequest, res) => {
