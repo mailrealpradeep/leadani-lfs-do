@@ -108,6 +108,9 @@ interface VisionBoardApiResponse {
       total_earnings: number;
       total_goal: number;
       overall_progress_percent: number;
+      projected_incentive?: number;
+      actual_incentive?: number;
+      projected_progress_percent?: number;
     };
   };
 }
@@ -1869,9 +1872,10 @@ export default function VisionBoardPage() {
     progressPercent: teamTotals?.overall_progress_percent || 0,
     earned: teamTotals?.total_earnings || 0,
     remaining: Math.max(0, (teamTotals?.total_goal || 0) - (teamTotals?.total_earnings || 0)),
-    projectedIncentive: 0,
-    actualIncentive: 0,
-    projectedProgressPercent: 0,
+    // Use actual team incentive values from API for unified dual-ring UI
+    projectedIncentive: teamTotals?.projected_incentive || 0,
+    actualIncentive: teamTotals?.actual_incentive || 0,
+    projectedProgressPercent: teamTotals?.projected_progress_percent || 0,
     effortTargets: teamAggregate.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     effortAchieved: teamProgress?.team_effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(teamAggregate.target_date),
@@ -1996,119 +2000,81 @@ export default function VisionBoardPage() {
                   <span className="text-sm font-medium text-muted-foreground">{labels.progressLabel}</span>
                 </div>
                 <div className="flex flex-col items-center">
-                  {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 ? (
-                    <DualRingProgress 
-                      actualProgress={displayData.progressPercent}
-                      projectedProgress={displayData.projectedProgressPercent}
-                      size={180}
-                      outerStrokeWidth={8}
-                      innerStrokeWidth={12}
-                    >
-                      <div className="text-center px-2" data-testid="dual-ring-center-content">
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ delay: 0.8, duration: 0.5 }}
-                        >
-                          <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-actual-earned">
-                            {formatCurrency(displayData.earned || 0, currency)}
-                          </p>
-                          <p className="text-xs text-muted-foreground -mt-0.5">/</p>
-                          <p className="text-sm font-semibold text-amber-600 dark:text-amber-400" data-testid="text-projected-incentive">
-                            {formatCurrency(displayData.projectedIncentive || 0, currency)}
-                          </p>
-                        </motion.div>
-                        <motion.p
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: 1.2 }}
-                          className="text-[10px] font-medium mt-1 bg-gradient-to-r from-emerald-600 to-amber-600 bg-clip-text text-transparent"
-                          data-testid="text-motivational-message"
-                        >
-                          {getMotivationalMessage(displayData.progressPercent || 0, displayData.projectedProgressPercent || 0)}
-                        </motion.p>
-                      </div>
-                    </DualRingProgress>
-                  ) : (
-                    <CircularProgress 
-                      progress={displayData.progressPercent}
-                      size={180}
-                      strokeWidth={14}
-                    >
-                      <div className="text-center">
-                        <motion.p
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: 0.8 }}
-                          className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent"
-                        >
-                          {Math.round(displayData.progressPercent)}%
-                        </motion.p>
-                        <p className="text-xs text-muted-foreground mt-1">{labels.progressSubLabel}</p>
-                      </div>
-                    </CircularProgress>
-                  )}
+                  {/* Unified dual-ring UI for both team and personal views */}
+                  <DualRingProgress 
+                    actualProgress={displayData.progressPercent}
+                    projectedProgress={displayData.projectedProgressPercent}
+                    size={180}
+                    outerStrokeWidth={8}
+                    innerStrokeWidth={12}
+                  >
+                    <div className="text-center px-2" data-testid="dual-ring-center-content">
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.8, duration: 0.5 }}
+                      >
+                        <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-actual-earned">
+                          {formatCurrency(displayData.earned || 0, currency)}
+                        </p>
+                        <p className="text-xs text-muted-foreground -mt-0.5">/</p>
+                        <p className="text-sm font-semibold text-amber-600 dark:text-amber-400" data-testid="text-projected-incentive">
+                          {formatCurrency(displayData.projectedIncentive || 0, currency)}
+                        </p>
+                      </motion.div>
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 1.2 }}
+                        className="text-[10px] font-medium mt-1 bg-gradient-to-r from-emerald-600 to-amber-600 bg-clip-text text-transparent"
+                        data-testid="text-motivational-message"
+                      >
+                        {getMotivationalMessage(displayData.progressPercent || 0, displayData.projectedProgressPercent || 0)}
+                      </motion.p>
+                    </div>
+                  </DualRingProgress>
                   
-                  {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 && (
-                    <div className="flex items-center justify-center gap-4 mt-2 text-xs" data-testid="dual-ring-legend">
-                      <div className="flex items-center gap-1.5" data-testid="legend-projected">
-                        <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                        <span className="text-muted-foreground">
-                          Projected {Math.round(displayData.projectedProgressPercent || 0)}% 
-                          <span className="font-medium text-amber-600 dark:text-amber-400" data-testid="card-projected">
-                            ({formatCurrency(displayData.projectedIncentive || 0, currency)})
-                          </span>
+                  {/* Unified legend for both team and personal views */}
+                  <div className="flex items-center justify-center gap-4 mt-2 text-xs" data-testid="dual-ring-legend">
+                    <div className="flex items-center gap-1.5" data-testid="legend-projected">
+                      <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                      <span className="text-muted-foreground">
+                        Projected {Math.round(displayData.projectedProgressPercent || 0)}% 
+                        <span className="font-medium text-amber-600 dark:text-amber-400" data-testid="card-projected">
+                          ({formatCurrency(displayData.projectedIncentive || 0, currency)})
                         </span>
-                      </div>
-                      <div className="flex items-center gap-1.5" data-testid="legend-actual">
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                        <span className="text-muted-foreground">
-                          Actual {Math.round(displayData.progressPercent || 0)}% 
-                          <span className="font-medium text-emerald-600 dark:text-emerald-400" data-testid="card-actual">
-                            ({formatCurrency(displayData.earned || 0, currency)})
-                          </span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5" data-testid="legend-actual">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                      <span className="text-muted-foreground">
+                        Actual {Math.round(displayData.progressPercent || 0)}% 
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400" data-testid="card-actual">
+                          ({formatCurrency(displayData.earned || 0, currency)})
                         </span>
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* Unified Remaining section for both team and personal views */}
+                  <div className="mt-3 w-full" data-testid="compact-stats">
+                    <div className="pt-1" data-testid="remaining-section-dual">
+                      <p className="text-xs text-muted-foreground text-center mb-1.5">{labels.remainingLabel}</p>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1 text-center py-1 px-2 rounded bg-amber-50 dark:bg-amber-950/30">
+                          <p className="text-[10px] text-amber-600 dark:text-amber-400">Projected</p>
+                          <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                            {formatCurrency(Math.max(0, displayData.goalAmount - (displayData.projectedIncentive || 0)), currency)}
+                          </p>
+                        </div>
+                        <div className="flex-1 text-center py-1 px-2 rounded bg-emerald-50 dark:bg-emerald-950/30">
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400">Actual</p>
+                          <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                            {formatCurrency(displayData.remaining || 0, currency)}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  )}
-                  
-                  <div className="mt-3 w-full">
-                    {!isTeamView && myPipelineData && myPipelineData.stages && myPipelineData.stages.length > 0 ? (
-                      <div data-testid="compact-stats">
-                        <div className="pt-1" data-testid="remaining-section-dual">
-                          <p className="text-xs text-muted-foreground text-center mb-1.5">{labels.remainingLabel}</p>
-                          <div className="flex items-center justify-between gap-4">
-                            <div className="flex-1 text-center py-1 px-2 rounded bg-amber-50 dark:bg-amber-950/30">
-                              <p className="text-[10px] text-amber-600 dark:text-amber-400">Projected</p>
-                              <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
-                                {formatCurrency(Math.max(0, (visionBoard?.goal_amount || 0) - (displayData.projectedIncentive || 0)), currency)}
-                              </p>
-                            </div>
-                            <div className="flex-1 text-center py-1 px-2 rounded bg-emerald-50 dark:bg-emerald-950/30">
-                              <p className="text-[10px] text-emerald-600 dark:text-emerald-400">Actual</p>
-                              <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                                {formatCurrency(displayData.remaining || 0, currency)}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <p className="text-sm text-muted-foreground">{labels.earnedLabel}</p>
-                          <p className="text-2xl font-bold text-green-600">
-                            {formatCurrency(displayData.earned, currency)}
-                          </p>
-                        </div>
-                        <div className="border-t pt-2">
-                          <p className="text-sm text-muted-foreground">{labels.remainingLabel}</p>
-                          <p className="text-xl font-semibold">
-                            {formatCurrency(displayData.remaining, currency)}
-                          </p>
-                        </div>
-                      </>
-                    )}
                   </div>
                   
                   {/* Edit Goal / Add Incentive links - subtle */}
@@ -2150,36 +2116,32 @@ export default function VisionBoardPage() {
                       <Target className="h-5 w-5 text-blue-500" />
                       {labels.effortTitle}
                     </CardTitle>
-                  {!isTeamView && (
-                    <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                      {(["daily", "weekly", "monthly", "yearly"] as const).map((period) => {
-                        const periodLabels: Record<typeof period, string> = {
-                          daily: "Today",
-                          weekly: "This Week",
-                          monthly: "This Month",
-                          yearly: "This Year"
-                        };
-                        return (
-                          <button
-                            key={period}
-                            onClick={() => setSelectedPeriod(period)}
-                            className={cn(
-                              "px-3 py-1.5 text-sm rounded-md transition-all",
-                              selectedPeriod === period
-                                ? "bg-white dark:bg-slate-600 shadow font-medium"
-                                : "text-muted-foreground hover:text-foreground"
-                            )}
-                            data-testid={`button-period-${period}`}
-                          >
-                            {periodLabels[period]}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {isTeamView && (
-                    <span className="text-sm text-muted-foreground">Total Yearly Targets</span>
-                  )}
+                  {/* Unified date filter for both team and personal views */}
+                  <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700 rounded-lg">
+                    {(["daily", "weekly", "monthly", "yearly"] as const).map((period) => {
+                      const periodLabels: Record<typeof period, string> = {
+                        daily: "Today",
+                        weekly: "This Week",
+                        monthly: "This Month",
+                        yearly: "This Year"
+                      };
+                      return (
+                        <button
+                          key={period}
+                          onClick={() => setSelectedPeriod(period)}
+                          className={cn(
+                            "px-3 py-1.5 text-sm rounded-md transition-all",
+                            selectedPeriod === period
+                              ? "bg-white dark:bg-slate-600 shadow font-medium"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          data-testid={`button-period-${period}`}
+                        >
+                          {periodLabels[period]}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="pt-4">

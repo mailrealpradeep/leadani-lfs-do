@@ -20699,12 +20699,13 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       for (const log of logsSubset) {
         if (log.action === 'lead_updated' && log.details?.changes) {
-          const statusChange = (log.details.changes as Array<{field: string; to: string}>)
-            .find(c => c.field === 'lead_status' && c.to === 'Converted');
+          // Use correct field names: field_key and new_value (not field/to)
+          const statusChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
+            .find(c => c.field_key === 'lead_status' && c.new_value === 'Converted');
           if (statusChange) sales++;
           
-          const visitChange = (log.details.changes as Array<{field: string; to: string}>)
-            .find(c => c.field === 'visit_status' && c.to === 'Visited');
+          const visitChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
+            .find(c => c.field_key === 'visit_status' && c.new_value === 'Visited');
           if (visitChange) visits++;
         }
         
@@ -20714,6 +20715,24 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       return { sales, visits, leads_attended, followups };
     };
+    
+    // Calculate team projected/actual incentives by summing all team members' incentives
+    let teamProjectedIncentive = 0;
+    let teamActualIncentive = 0;
+    
+    // Calculate incentives for each team member using the shared helper
+    for (const board of allBoards) {
+      try {
+        const dateFilter = { startDate: earliestStart, endDate: latestTarget };
+        const metrics = await getUserPipelineMetrics(companyId, board.user_id, dateFilter);
+        if (metrics) {
+          teamProjectedIncentive += metrics.total_projected_incentive || 0;
+          teamActualIncentive += metrics.total_actual_incentive || 0;
+        }
+      } catch (err) {
+        // Skip this user's incentive calculation on error
+      }
+    }
     
     const teamEffortAchieved = {
       yearly: countTeamMetrics(teamLogs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime())),
@@ -20750,6 +20769,13 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           total_earnings: totalEarnings,
           total_goal: totalGoal,
           overall_progress_percent: totalGoal > 0 ? Math.round((totalEarnings / totalGoal) * 100) : 0,
+          // Add team projected/actual incentives for unified UI
+          projected_incentive: teamProjectedIncentive,
+          actual_incentive: teamActualIncentive,
+          // Projected progress percent is based ONLY on projected incentive (matches personal view logic)
+          projected_progress_percent: totalGoal > 0 
+            ? Math.min(100, (teamProjectedIncentive / totalGoal) * 100) 
+            : 0,
         },
         team_effort_achieved: teamEffortAchieved,
       },
