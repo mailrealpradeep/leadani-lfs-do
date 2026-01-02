@@ -286,7 +286,7 @@ export function AppSidebar() {
   const mainItems = isSuperAdminAccount ? [] : [
     {
       title: "My Sheets",
-      url: "/",
+      url: "/dashboard",
       icon: LayoutGrid,
       testId: "link-sheets",
     },
