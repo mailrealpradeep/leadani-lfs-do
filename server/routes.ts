@@ -20674,67 +20674,81 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       .sort((a, b) => a.getTime() - b.getTime())[0];
     const latestTarget = targetDates[targetDates.length - 1];
 
-    // Calculate team effort achieved by summing all team members' activity logs
+    // Calculate team effort achieved using lead-based counting (respects company timezone)
     const now = new Date();
-    const yearStart = new Date(now.getFullYear(), 0, 1);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    weekStart.setHours(0, 0, 0, 0);
-    const dayStart = new Date(now);
-    dayStart.setHours(0, 0, 0, 0);
+    const company = await storage.getCompany(companyId);
+    const companyTimezone = getCompanyTimezone(company);
     
-    // Get all user IDs who have vision boards
-    const teamUserIds = allBoards.map(b => b.user_id);
+    // Define period boundaries using company timezone
+    const yearStart = getStartOfDayInTimezone(new Date(now.getFullYear(), 0, 1), companyTimezone);
+    const monthStart = getStartOfDayInTimezone(new Date(now.getFullYear(), now.getMonth(), 1), companyTimezone);
+    const weekStartDate = new Date(now);
+    weekStartDate.setDate(weekStartDate.getDate() - weekStartDate.getDay());
+    const weekStart = getStartOfDayInTimezone(weekStartDate, companyTimezone);
+    const dayStart = getStartOfDayInTimezone(now, companyTimezone);
+    const dayEnd = getEndOfDayInTimezone(now, companyTimezone);
     
     // Get all sheets for this company to count leads
     const companySheets = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.company_id, companyId));
     const companySheetIds = companySheets.map(s => s.id);
     
-    // Query activity logs for vision board users only (not all company employees)
-    const teamLogs = await db.select()
-      .from(dbSchema.activity_logs)
-      .where(and(
-        eq(dbSchema.activity_logs.company_id, companyId),
-        inArray(dbSchema.activity_logs.user_id, teamUserIds),
-        gte(dbSchema.activity_logs.occurred_at, yearStart)
-      ));
-    
-    // Count leads directly from leads table by created_at (not activity_logs)
-    // This captures leads from webhooks, imports, and manual creation
-    // Include all leads (even soft-deleted) to match historical counts
-    const countLeadsCreated = async (startDate: Date): Promise<number> => {
+    // Count leads directly from leads table by created_at
+    const countLeadsCreated = async (startDate: Date, endDate: Date): Promise<number> => {
       if (companySheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)` })
+      const result = await db.select({ count: sql<number>`count(*)::int` })
         .from(dbSchema.leads)
         .where(and(
           inArray(dbSchema.leads.sheet_id, companySheetIds),
-          gte(dbSchema.leads.created_at, startDate)
+          gte(dbSchema.leads.created_at, startDate),
+          lte(dbSchema.leads.created_at, endDate),
+          isNull(dbSchema.leads.deleted_at)
         ));
-      return Number(result[0]?.count || 0);
+      return result[0]?.count || 0;
     };
     
-    // Count sales, visits, followups from activity logs (these are logged correctly)
-    const countActivityMetrics = (logsSubset: typeof teamLogs) => {
-      let sales = 0;
-      let visits = 0;
-      let followups = 0;
-      
-      for (const log of logsSubset) {
-        if (log.action === 'lead_updated' && log.details?.changes) {
-          const statusChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
-            .find(c => c.field_key === 'lead_status' && c.new_value === 'Converted');
-          if (statusChange) sales++;
-          
-          const visitChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
-            .find(c => c.field_key === 'visit_status' && c.new_value === 'Visited');
-          if (visitChange) visits++;
-        }
-        
-        if (log.action === 'lead_update_added') followups++;
-      }
-      
-      return { sales, visits, followups };
+    // Count visits: leads where visit_status='Visited' AND visit_date is within period
+    const countVisitsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+      if (companySheetIds.length === 0) return 0;
+      const result = await db.select({ count: sql<number>`count(*)::int` })
+        .from(dbSchema.leads)
+        .where(and(
+          inArray(dbSchema.leads.sheet_id, companySheetIds),
+          sql`${dbSchema.leads.custom_fields}->>'visit_status' = 'Visited'`,
+          sql`${dbSchema.leads.custom_fields}->>'visit_date' IS NOT NULL`,
+          sql`${dbSchema.leads.custom_fields}->>'visit_date' != ''`,
+          sql`(${dbSchema.leads.custom_fields}->>'visit_date')::timestamp >= ${periodStart}`,
+          sql`(${dbSchema.leads.custom_fields}->>'visit_date')::timestamp < ${periodEnd}`,
+          isNull(dbSchema.leads.deleted_at)
+        ));
+      return result[0]?.count || 0;
+    };
+    
+    // Count sales: leads where lead_status='Converted' AND conversion_date is within period
+    const countSalesInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+      if (companySheetIds.length === 0) return 0;
+      const result = await db.select({ count: sql<number>`count(*)::int` })
+        .from(dbSchema.leads)
+        .where(and(
+          inArray(dbSchema.leads.sheet_id, companySheetIds),
+          sql`${dbSchema.leads.custom_fields}->>'lead_status' = 'Converted'`,
+          gte(dbSchema.leads.conversion_date, periodStart),
+          lte(dbSchema.leads.conversion_date, periodEnd),
+          isNull(dbSchema.leads.deleted_at)
+        ));
+      return result[0]?.count || 0;
+    };
+    
+    // Count followups from followup_events table
+    const countFollowupsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+      if (companySheetIds.length === 0) return 0;
+      const result = await db.select({ count: sql<number>`count(*)::int` })
+        .from(dbSchema.followup_events)
+        .where(and(
+          inArray(dbSchema.followup_events.sheet_id, companySheetIds),
+          gte(dbSchema.followup_events.triggered_at, periodStart),
+          lte(dbSchema.followup_events.triggered_at, periodEnd)
+        ));
+      return result[0]?.count || 0;
     };
     
     // Calculate team projected/actual incentives by summing all team members' incentives
@@ -20755,32 +20769,36 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
     }
     
-    // Calculate team effort achieved with leads from leads table and other metrics from activity_logs
-    // Filter activity logs by period
-    const yearlyLogs = teamLogs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
-    const monthlyLogs = teamLogs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
-    const weeklyLogs = teamLogs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
-    const dailyLogs = teamLogs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
-    
-    // Count leads for each period (async) - from startDate to now
-    const [yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads] = await Promise.all([
-      countLeadsCreated(yearStart),
-      countLeadsCreated(monthStart),
-      countLeadsCreated(weekStart),
-      countLeadsCreated(dayStart),
+    // Calculate team effort achieved using lead-based counting for all metrics
+    const [
+      yearlyVisits, monthlyVisits, weeklyVisits, dailyVisits,
+      yearlySales, monthlySales, weeklySales, dailySales,
+      yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads,
+      yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups
+    ] = await Promise.all([
+      countVisitsInPeriod(yearStart, now),
+      countVisitsInPeriod(monthStart, now),
+      countVisitsInPeriod(weekStart, now),
+      countVisitsInPeriod(dayStart, dayEnd),
+      countSalesInPeriod(yearStart, now),
+      countSalesInPeriod(monthStart, now),
+      countSalesInPeriod(weekStart, now),
+      countSalesInPeriod(dayStart, dayEnd),
+      countLeadsCreated(yearStart, now),
+      countLeadsCreated(monthStart, now),
+      countLeadsCreated(weekStart, now),
+      countLeadsCreated(dayStart, dayEnd),
+      countFollowupsInPeriod(yearStart, now),
+      countFollowupsInPeriod(monthStart, now),
+      countFollowupsInPeriod(weekStart, now),
+      countFollowupsInPeriod(dayStart, dayEnd),
     ]);
     
-    // Get activity-based metrics
-    const yearlyActivity = countActivityMetrics(yearlyLogs);
-    const monthlyActivity = countActivityMetrics(monthlyLogs);
-    const weeklyActivity = countActivityMetrics(weeklyLogs);
-    const dailyActivity = countActivityMetrics(dailyLogs);
-    
     const teamEffortAchieved = {
-      yearly: { ...yearlyActivity, leads_attended: yearlyLeads },
-      monthly: { ...monthlyActivity, leads_attended: monthlyLeads },
-      weekly: { ...weeklyActivity, leads_attended: weeklyLeads },
-      daily: { ...dailyActivity, leads_attended: dailyLeads },
+      yearly: { sales: yearlySales, visits: yearlyVisits, leads_attended: yearlyLeads, followups: yearlyFollowups },
+      monthly: { sales: monthlySales, visits: monthlyVisits, leads_attended: monthlyLeads, followups: monthlyFollowups },
+      weekly: { sales: weeklySales, visits: weeklyVisits, leads_attended: weeklyLeads, followups: weeklyFollowups },
+      daily: { sales: dailySales, visits: dailyVisits, leads_attended: dailyLeads, followups: dailyFollowups },
     };
 
     return {
@@ -20824,7 +20842,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     };
   };
 
-  // Helper: Calculate effort metrics from activity_logs for a user within date range
+  // Helper: Calculate effort metrics from leads table for a user within date range
+  // Counts visits by visit_date, sales by conversion_date (respects company timezone)
   // For single-sheet users: count by their one sheet
   // For multi-sheet users: sum across ALL their accessible sheets
   const calculateEffortMetrics = async (
@@ -20841,157 +20860,110 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   }> => {
     const now = new Date();
     
-    // Define period boundaries
-    const yearStart = new Date(now.getFullYear(), 0, 1);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
-    weekStart.setHours(0, 0, 0, 0);
-    const dayStart = new Date(now);
-    dayStart.setHours(0, 0, 0, 0);
+    // Get company timezone for proper date boundaries
+    const company = await storage.getCompany(companyId);
+    const companyTimezone = getCompanyTimezone(company);
     
-    // Count sales and visits from activity logs (status transitions)
-    // Field structure: { field_key: string, new_value: string, ... }
-    const countSalesVisits = (logsSubset: any[]) => {
-      let sales = 0;
-      let visits = 0;
-      
-      for (const log of logsSubset) {
-        // Sales: lead_updated with lead_status changed to "Converted"
-        if (log.action === 'lead_updated' && log.details?.changes) {
-          const statusChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
-            .find(c => c.field_key === 'lead_status' && c.new_value === 'Converted');
-          if (statusChange) sales++;
-          
-          // Visits: visit_status changed to "Visited"
-          const visitChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
-            .find(c => c.field_key === 'visit_status' && c.new_value === 'Visited');
-          if (visitChange) visits++;
-        }
-      }
-      
-      return { sales, visits };
+    // Define period boundaries using company timezone
+    const yearStart = getStartOfDayInTimezone(new Date(now.getFullYear(), 0, 1), companyTimezone);
+    const monthStart = getStartOfDayInTimezone(new Date(now.getFullYear(), now.getMonth(), 1), companyTimezone);
+    const weekStartDate = new Date(now);
+    weekStartDate.setDate(weekStartDate.getDate() - weekStartDate.getDay()); // Sunday
+    const weekStart = getStartOfDayInTimezone(weekStartDate, companyTimezone);
+    const dayStart = getStartOfDayInTimezone(now, companyTimezone);
+    const dayEnd = getEndOfDayInTimezone(now, companyTimezone);
+    
+    // Count visits: leads where visit_status='Visited' AND visit_date is within period
+    // Only count leads with valid visit_date set
+    const countVisitsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+      if (sheetIds.length === 0) return 0;
+      const result = await db.select({ count: sql<number>`count(*)::int` })
+        .from(dbSchema.leads)
+        .where(and(
+          inArray(dbSchema.leads.sheet_id, sheetIds),
+          sql`${dbSchema.leads.custom_fields}->>'visit_status' = 'Visited'`,
+          sql`${dbSchema.leads.custom_fields}->>'visit_date' IS NOT NULL`,
+          sql`${dbSchema.leads.custom_fields}->>'visit_date' != ''`,
+          sql`(${dbSchema.leads.custom_fields}->>'visit_date')::timestamp >= ${periodStart}`,
+          sql`(${dbSchema.leads.custom_fields}->>'visit_date')::timestamp < ${periodEnd}`,
+          isNull(dbSchema.leads.deleted_at)
+        ));
+      return result[0]?.count || 0;
     };
     
-    // If we have sheet IDs, query ALL sheets and sum the results
-    // Otherwise fall back to owner_user_id counting
-    if (sheetIds.length > 0) {
-      // Query activity logs for this user's activity on their accessible sheets
-      // Filter by user_id so we only count THIS user's sales/visits, not all activity on the sheets
-      console.log(`[calculateEffortMetrics] userId: ${userId}, sheetIds: ${sheetIds.length}, querying activity logs...`);
-      const logs = await db.select()
-        .from(dbSchema.activity_logs)
+    // Count sales: leads where lead_status='Converted' AND conversion_date is within period
+    const countSalesInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+      if (sheetIds.length === 0) return 0;
+      const result = await db.select({ count: sql<number>`count(*)::int` })
+        .from(dbSchema.leads)
         .where(and(
-          inArray(dbSchema.activity_logs.sheet_id, sheetIds),
-          eq(dbSchema.activity_logs.company_id, companyId),
-          eq(dbSchema.activity_logs.user_id, userId),  // Only count this user's activity
-          gte(dbSchema.activity_logs.occurred_at, yearStart)
+          inArray(dbSchema.leads.sheet_id, sheetIds),
+          sql`${dbSchema.leads.custom_fields}->>'lead_status' = 'Converted'`,
+          gte(dbSchema.leads.conversion_date, periodStart),
+          lte(dbSchema.leads.conversion_date, periodEnd),
+          isNull(dbSchema.leads.deleted_at)
         ));
-      console.log(`[calculateEffortMetrics] Found ${logs.length} activity logs for user ${userId}`);
-      
-      // Filter logs by period
-      const yearlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
-      const monthlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
-      const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
-      const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
-      console.log(`[calculateEffortMetrics] Daily logs: ${dailyLogs.length}, dayStart: ${dayStart.toISOString()}`);
-      
-      // Count leads across ALL sheets
-      const countLeadsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-        const result = await db.select({ count: sql<number>`count(*)::int` })
-          .from(dbSchema.leads)
-          .where(and(
-            inArray(dbSchema.leads.sheet_id, sheetIds),
-            gte(dbSchema.leads.created_at, periodStart),
-            lte(dbSchema.leads.created_at, periodEnd),
-            isNull(dbSchema.leads.deleted_at)
-          ));
-        return result[0]?.count || 0;
-      };
-      
-      // Count followups across ALL sheets
-      const countFollowupsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-        const result = await db.select({ count: sql<number>`count(*)::int` })
-          .from(dbSchema.followup_events)
-          .where(and(
-            inArray(dbSchema.followup_events.sheet_id, sheetIds),
-            gte(dbSchema.followup_events.triggered_at, periodStart),
-            lte(dbSchema.followup_events.triggered_at, periodEnd)
-          ));
-        return result[0]?.count || 0;
-      };
-      
-      const [
-        yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads,
-        yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups
-      ] = await Promise.all([
-        countLeadsAcrossSheets(yearStart, now),
-        countLeadsAcrossSheets(monthStart, now),
-        countLeadsAcrossSheets(weekStart, now),
-        countLeadsAcrossSheets(dayStart, now),
-        countFollowupsAcrossSheets(yearStart, now),
-        countFollowupsAcrossSheets(monthStart, now),
-        countFollowupsAcrossSheets(weekStart, now),
-        countFollowupsAcrossSheets(dayStart, now),
-      ]);
-      
-      const dailyMetrics = countSalesVisits(dailyLogs);
-      console.log(`[calculateEffortMetrics] Daily sales: ${dailyMetrics.sales}, visits: ${dailyMetrics.visits}`);
-      
-      return {
-        yearly: { ...countSalesVisits(yearlyLogs), leads_attended: yearlyLeads, followups: yearlyFollowups },
-        monthly: { ...countSalesVisits(monthlyLogs), leads_attended: monthlyLeads, followups: monthlyFollowups },
-        weekly: { ...countSalesVisits(weeklyLogs), leads_attended: weeklyLeads, followups: weeklyFollowups },
-        daily: { ...dailyMetrics, leads_attended: dailyLeads, followups: dailyFollowups },
-      };
-    } else {
-      // Legacy fallback: count by owner_user_id (should rarely be used now)
-      const logs = await db.select()
-        .from(dbSchema.activity_logs)
+      return result[0]?.count || 0;
+    };
+    
+    // Count leads across ALL sheets by created_at
+    const countLeadsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+      if (sheetIds.length === 0) return 0;
+      const result = await db.select({ count: sql<number>`count(*)::int` })
+        .from(dbSchema.leads)
         .where(and(
-          eq(dbSchema.activity_logs.user_id, userId),
-          eq(dbSchema.activity_logs.company_id, companyId),
-          gte(dbSchema.activity_logs.occurred_at, yearStart)
+          inArray(dbSchema.leads.sheet_id, sheetIds),
+          gte(dbSchema.leads.created_at, periodStart),
+          lte(dbSchema.leads.created_at, periodEnd),
+          isNull(dbSchema.leads.deleted_at)
         ));
-      
-      const yearlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= yearStart.getTime());
-      const monthlyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= monthStart.getTime());
-      const weeklyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= weekStart.getTime());
-      const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
-      
-      const countLeadsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-        const result = await db.select({ count: sql<number>`count(*)::int` })
-          .from(dbSchema.leads)
-          .where(and(
-            eq(dbSchema.leads.owner_user_id, userId),
-            gte(dbSchema.leads.created_at, periodStart),
-            lte(dbSchema.leads.created_at, periodEnd),
-            isNull(dbSchema.leads.deleted_at)
-          ));
-        return result[0]?.count || 0;
-      };
-      
-      const [
-        yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups,
-        yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads
-      ] = await Promise.all([
-        storage.getFollowupStats(userId, yearStart, now),
-        storage.getFollowupStats(userId, monthStart, now),
-        storage.getFollowupStats(userId, weekStart, now),
-        storage.getFollowupStats(userId, dayStart, now),
-        countLeadsInPeriod(yearStart, now),
-        countLeadsInPeriod(monthStart, now),
-        countLeadsInPeriod(weekStart, now),
-        countLeadsInPeriod(dayStart, now),
-      ]);
-      
-      return {
-        yearly: { ...countSalesVisits(yearlyLogs), leads_attended: yearlyLeads, followups: yearlyFollowups.count },
-        monthly: { ...countSalesVisits(monthlyLogs), leads_attended: monthlyLeads, followups: monthlyFollowups.count },
-        weekly: { ...countSalesVisits(weeklyLogs), leads_attended: weeklyLeads, followups: weeklyFollowups.count },
-        daily: { ...countSalesVisits(dailyLogs), leads_attended: dailyLeads, followups: dailyFollowups.count },
-      };
-    }
+      return result[0]?.count || 0;
+    };
+    
+    // Count followups across ALL sheets
+    const countFollowupsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
+      if (sheetIds.length === 0) return 0;
+      const result = await db.select({ count: sql<number>`count(*)::int` })
+        .from(dbSchema.followup_events)
+        .where(and(
+          inArray(dbSchema.followup_events.sheet_id, sheetIds),
+          gte(dbSchema.followup_events.triggered_at, periodStart),
+          lte(dbSchema.followup_events.triggered_at, periodEnd)
+        ));
+      return result[0]?.count || 0;
+    };
+    
+    // Query all metrics in parallel for each period
+    const [
+      yearlyVisits, monthlyVisits, weeklyVisits, dailyVisits,
+      yearlySales, monthlySales, weeklySales, dailySales,
+      yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads,
+      yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups
+    ] = await Promise.all([
+      countVisitsInPeriod(yearStart, now),
+      countVisitsInPeriod(monthStart, now),
+      countVisitsInPeriod(weekStart, now),
+      countVisitsInPeriod(dayStart, dayEnd),
+      countSalesInPeriod(yearStart, now),
+      countSalesInPeriod(monthStart, now),
+      countSalesInPeriod(weekStart, now),
+      countSalesInPeriod(dayStart, dayEnd),
+      countLeadsAcrossSheets(yearStart, now),
+      countLeadsAcrossSheets(monthStart, now),
+      countLeadsAcrossSheets(weekStart, now),
+      countLeadsAcrossSheets(dayStart, dayEnd),
+      countFollowupsAcrossSheets(yearStart, now),
+      countFollowupsAcrossSheets(monthStart, now),
+      countFollowupsAcrossSheets(weekStart, now),
+      countFollowupsAcrossSheets(dayStart, dayEnd),
+    ]);
+    
+    return {
+      yearly: { sales: yearlySales, visits: yearlyVisits, leads_attended: yearlyLeads, followups: yearlyFollowups },
+      monthly: { sales: monthlySales, visits: monthlyVisits, leads_attended: monthlyLeads, followups: monthlyFollowups },
+      weekly: { sales: weeklySales, visits: weeklyVisits, leads_attended: weeklyLeads, followups: weeklyFollowups },
+      daily: { sales: dailySales, visits: dailyVisits, leads_attended: dailyLeads, followups: dailyFollowups },
+    };
   };
 
   // Get current user's vision board (or team aggregates for admins/multi-sheet users)
