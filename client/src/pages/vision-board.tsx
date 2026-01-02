@@ -23,7 +23,18 @@ import {
   X,
   Image as ImageIcon,
   Phone,
+  Flag,
+  Award,
+  Heart,
+  Bell,
+  Bookmark,
+  Check,
+  Flame,
+  AlertTriangle,
+  ExternalLink,
+  type LucideIcon,
 } from "lucide-react";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -100,6 +111,84 @@ interface VisionBoardApiResponse {
     };
   };
 }
+
+// Custom View interface for Vision Board
+interface CustomView {
+  id: string;
+  name: string;
+  icon: string;
+  icon_color: string;
+  show_badge: boolean;
+  section: 'custom_views' | 'data_mismatch' | 'action_today' | 'overdue_actions' | 'achievement';
+  is_enabled: boolean;
+}
+
+// Icon mapping for custom views
+const ICON_MAP: Record<string, LucideIcon> = {
+  star: Star,
+  zap: Zap,
+  target: Target,
+  flag: Flag,
+  award: Award,
+  heart: Heart,
+  bell: Bell,
+  bookmark: Bookmark,
+  check: Check,
+  clock: Clock,
+  flame: Flame,
+  users: Users,
+  "trending-up": TrendingUp,
+  "alert-triangle": AlertTriangle,
+};
+
+// Color mapping for custom views
+const COLOR_MAP: Record<string, string> = {
+  blue: "text-blue-500",
+  green: "text-green-500",
+  orange: "text-orange-500",
+  red: "text-red-500",
+  purple: "text-purple-500",
+  pink: "text-pink-500",
+  yellow: "text-yellow-500",
+  teal: "text-teal-500",
+  indigo: "text-indigo-500",
+  gray: "text-gray-500",
+};
+
+const BG_COLOR_MAP: Record<string, string> = {
+  blue: "bg-blue-500/10",
+  green: "bg-green-500/10",
+  orange: "bg-orange-500/10",
+  red: "bg-red-500/10",
+  purple: "bg-purple-500/10",
+  pink: "bg-pink-500/10",
+  yellow: "bg-yellow-500/10",
+  teal: "bg-teal-500/10",
+  indigo: "bg-indigo-500/10",
+  gray: "bg-gray-500/10",
+};
+
+const BADGE_BG_MAP: Record<string, string> = {
+  blue: "bg-blue-500",
+  green: "bg-green-500",
+  orange: "bg-orange-500",
+  red: "bg-red-500",
+  purple: "bg-purple-500",
+  pink: "bg-pink-500",
+  yellow: "bg-yellow-500",
+  teal: "bg-teal-500",
+  indigo: "bg-indigo-500",
+  gray: "bg-gray-500",
+};
+
+// Section display configuration
+const SECTION_CONFIG: Record<string, { title: string; icon: LucideIcon; gradient: string }> = {
+  overdue_actions: { title: "Overdue Actions", icon: AlertTriangle, gradient: "from-red-500/20 to-orange-500/20" },
+  action_today: { title: "Action Today", icon: Clock, gradient: "from-amber-500/20 to-yellow-500/20" },
+  data_mismatch: { title: "Data Mismatch", icon: AlertTriangle, gradient: "from-orange-500/20 to-red-500/20" },
+  achievement: { title: "Achievement", icon: Award, gradient: "from-green-500/20 to-emerald-500/20" },
+  custom_views: { title: "Custom Views", icon: Star, gradient: "from-blue-500/20 to-purple-500/20" },
+};
 
 const currencySymbols: Record<string, string> = {
   'INR': '₹',
@@ -1705,6 +1794,31 @@ export default function VisionBoardPage() {
     actualIncentive: myPipelineData?.actual_incentive || 0,
   };
 
+  // Fetch custom views for Vision Board section cards
+  const { data: customViews = [] } = useQuery<CustomView[]>({
+    queryKey: ["/api/custom-views"],
+    enabled: !!user?.company_id,
+  });
+
+  const enabledViews = customViews.filter(v => v.is_enabled);
+
+  // Fetch custom view counts
+  const { data: customViewsCounts } = useQuery<{ counts: Record<string, number> }>({
+    queryKey: ["/api/custom-views-counts"],
+    enabled: enabledViews.length > 0,
+    refetchInterval: 60000,
+  });
+
+  // Group views by section in the specified order
+  const sectionOrder = ['overdue_actions', 'action_today', 'data_mismatch', 'achievement', 'custom_views'] as const;
+  const viewsBySection = sectionOrder.reduce((acc, section) => {
+    const sectionViews = enabledViews.filter(v => v.section === section);
+    if (sectionViews.length > 0) {
+      acc[section] = sectionViews;
+    }
+    return acc;
+  }, {} as Record<string, CustomView[]>);
+
   if (boardLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -2190,6 +2304,108 @@ export default function VisionBoardPage() {
                 </p>
               </CardContent>
             </Card>
+            
+            {/* Custom Views Section Cards */}
+            {Object.keys(viewsBySection).length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="mt-6 space-y-4"
+              >
+                <h3 className="text-sm font-medium text-muted-foreground px-1">Quick Actions</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {sectionOrder.map((section, sectionIdx) => {
+                    const views = viewsBySection[section];
+                    if (!views || views.length === 0) return null;
+                    
+                    const config = SECTION_CONFIG[section];
+                    const SectionIcon = config.icon;
+                    const totalCount = views.reduce((sum, view) => {
+                      return sum + (customViewsCounts?.counts?.[view.id] || 0);
+                    }, 0);
+                    
+                    return (
+                      <motion.div
+                        key={section}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.5 + sectionIdx * 0.1 }}
+                      >
+                        <Card className={cn(
+                          "border-0 shadow-lg bg-gradient-to-br backdrop-blur-xl overflow-hidden",
+                          config.gradient,
+                          "bg-white/80 dark:bg-slate-800/80"
+                        )}>
+                          <CardHeader className="pb-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="p-1.5 rounded-lg bg-white/50 dark:bg-slate-700/50">
+                                  <SectionIcon className="h-4 w-4 text-foreground/80" />
+                                </div>
+                                <CardTitle className="text-sm font-medium">{config.title}</CardTitle>
+                              </div>
+                              {totalCount > 0 && (
+                                <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-foreground/10 px-2 text-xs font-medium">
+                                  {totalCount}
+                                </span>
+                              )}
+                            </div>
+                          </CardHeader>
+                          <CardContent className="pt-1 pb-3">
+                            <div className="space-y-1">
+                              {views.map((view) => {
+                                const ViewIcon = ICON_MAP[view.icon] || Star;
+                                const colorClass = COLOR_MAP[view.icon_color] || "text-blue-500";
+                                const bgClass = BG_COLOR_MAP[view.icon_color] || "bg-blue-500/10";
+                                const badgeBgClass = BADGE_BG_MAP[view.icon_color] || "bg-blue-500";
+                                const count = customViewsCounts?.counts?.[view.id] || 0;
+                                
+                                return (
+                                  <Link 
+                                    key={view.id} 
+                                    href={`/custom-view/${view.id}`}
+                                    data-testid={`link-vision-board-view-${view.id}`}
+                                  >
+                                    <motion.div
+                                      whileHover={{ x: 4 }}
+                                      className={cn(
+                                        "flex items-center justify-between p-2 rounded-lg cursor-pointer",
+                                        "bg-white/60 dark:bg-slate-700/50",
+                                        "hover:bg-white/90 dark:hover:bg-slate-600/60",
+                                        "transition-colors duration-150"
+                                      )}
+                                    >
+                                      <div className="flex items-center gap-2.5">
+                                        <div className={cn("p-1.5 rounded-md", bgClass)}>
+                                          <ViewIcon className={cn("h-3.5 w-3.5", colorClass)} />
+                                        </div>
+                                        <span className="text-sm font-medium">{view.name}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        {view.show_badge && count > 0 && (
+                                          <span className={cn(
+                                            "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-xs font-medium text-white",
+                                            badgeBgClass
+                                          )}>
+                                            {count}
+                                          </span>
+                                        )}
+                                        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground/50" />
+                                      </div>
+                                    </motion.div>
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
             
             {earnings && earnings.length > 0 && (
               <motion.div
