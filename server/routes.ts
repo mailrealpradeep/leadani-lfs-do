@@ -20984,7 +20984,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // Get current user's vision board (or team aggregates for admins/multi-sheet users)
   app.get("/api/vision-board", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      console.log('[Vision Board] userId:', req.userId, 'userRole:', req.userRole, 'companyId:', req.companyId);
       const isTeamView = await shouldSeeTeamVisionBoard(req.userId!, req.userRole, req.companyId || null);
+      console.log('[Vision Board] isTeamView:', isTeamView);
       
       if (isTeamView && req.companyId) {
         // Return team aggregates for admins/multi-sheet users
