@@ -693,7 +693,7 @@ export function AppSidebar() {
             </SidebarGroup>
           )}
 
-          {location === "/" && !isSuperAdminAccount && (
+          {(location === "/" || location === "/dashboard") && !isSuperAdminAccount && (
             <>
               <SidebarGroup>
                 <SidebarGroupLabel className="px-4">Current Sheet</SidebarGroupLabel>
