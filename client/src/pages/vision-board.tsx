@@ -1923,7 +1923,7 @@ export default function VisionBoardPage() {
   };
 
   return (
-    <div className="h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950">
+    <div className="h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 pb-16">
       {images.length > 0 ? (
         <div className="relative h-[40vh] min-h-[300px]">
           <ImageCarousel images={images} />
@@ -2159,63 +2159,6 @@ export default function VisionBoardPage() {
                 </p>
               </div>
             </motion.div>
-            
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.6 }}
-              className="mt-4"
-            >
-              <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30">
-                <CardContent className="p-4 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-blue-500" />
-                    <span className="font-semibold">Goal Timeline</span>
-                  </div>
-                  
-                  <div className="text-center py-3">
-                    <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-                      {progress?.timeline.days_remaining || 0}
-                    </p>
-                    <p className="text-sm text-muted-foreground">days remaining</p>
-                  </div>
-                  
-                  <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress?.timeline.time_progress_percent || 0}%` }}
-                      transition={{ duration: 1, delay: 0.7 }}
-                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-3 gap-2 text-center pt-2">
-                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
-                      <p className="text-lg font-bold">
-                        {Math.ceil((progress?.timeline.days_remaining || 0) / 7)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">weeks</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
-                      <p className="text-lg font-bold">
-                        {Math.ceil((progress?.timeline.days_remaining || 0) / 30)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">months</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
-                      <p className="text-lg font-bold">
-                        {Math.round(progress?.timeline.time_progress_percent || 0)}%
-                      </p>
-                      <p className="text-xs text-muted-foreground">elapsed</p>
-                    </div>
-                  </div>
-                  
-                  <p className="text-xs text-center text-muted-foreground border-t pt-3">
-                    Target: {format(displayData.targetDate, "MMMM d, yyyy")}
-                  </p>
-                </CardContent>
-              </Card>
-            </motion.div>
           </motion.div>
 
           <motion.div
@@ -2334,20 +2277,34 @@ export default function VisionBoardPage() {
                       >
                         <Card className={cn(
                           "border-0 shadow-lg bg-gradient-to-br backdrop-blur-xl overflow-hidden",
-                          config.gradient,
-                          "bg-white/80 dark:bg-slate-800/80"
+                          totalCount > 0 ? config.gradient : "from-slate-100 to-slate-50 dark:from-slate-800/50 dark:to-slate-800/30",
+                          totalCount > 0 ? "bg-white/80 dark:bg-slate-800/80" : "bg-white/60 dark:bg-slate-800/60 opacity-75"
                         )}>
                           <CardHeader className="pb-2">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
-                                <div className="p-1.5 rounded-lg bg-white/50 dark:bg-slate-700/50">
-                                  <SectionIcon className="h-4 w-4 text-foreground/80" />
+                                <div className={cn(
+                                  "p-1.5 rounded-lg",
+                                  totalCount > 0 ? "bg-white/50 dark:bg-slate-700/50" : "bg-slate-200/50 dark:bg-slate-700/30"
+                                )}>
+                                  <SectionIcon className={cn(
+                                    "h-4 w-4",
+                                    totalCount > 0 ? "text-foreground/80" : "text-muted-foreground/60"
+                                  )} />
                                 </div>
-                                <CardTitle className="text-sm font-medium">{config.title}</CardTitle>
+                                <CardTitle className={cn(
+                                  "text-sm font-medium",
+                                  totalCount === 0 && "text-muted-foreground"
+                                )}>{config.title}</CardTitle>
                               </div>
-                              {totalCount > 0 && (
+                              {totalCount > 0 ? (
                                 <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-foreground/10 px-2 text-xs font-medium">
                                   {totalCount}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  All caught up
                                 </span>
                               )}
                             </div>
@@ -2463,6 +2420,66 @@ export default function VisionBoardPage() {
                         </motion.div>
                       ))}
                     </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+            
+            {/* Goal Timeline - moved to end */}
+            {!isTeamView && progress && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+                className="mt-6"
+              >
+                <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30">
+                  <CardContent className="p-4 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-blue-500" />
+                      <span className="font-semibold">Goal Timeline</span>
+                    </div>
+                    
+                    <div className="text-center py-3">
+                      <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                        {progress?.timeline.days_remaining || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">days remaining</p>
+                    </div>
+                    
+                    <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progress?.timeline.time_progress_percent || 0}%` }}
+                        transition={{ duration: 1, delay: 0.7 }}
+                        className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2 text-center pt-2">
+                      <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                        <p className="text-lg font-bold">
+                          {Math.ceil((progress?.timeline.days_remaining || 0) / 7)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">weeks</p>
+                      </div>
+                      <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                        <p className="text-lg font-bold">
+                          {Math.ceil((progress?.timeline.days_remaining || 0) / 30)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">months</p>
+                      </div>
+                      <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                        <p className="text-lg font-bold">
+                          {Math.round(progress?.timeline.time_progress_percent || 0)}%
+                        </p>
+                        <p className="text-xs text-muted-foreground">elapsed</p>
+                      </div>
+                    </div>
+                    
+                    <p className="text-xs text-center text-muted-foreground border-t pt-3">
+                      Target: {format(displayData.targetDate, "MMMM d, yyyy")}
+                    </p>
                   </CardContent>
                 </Card>
               </motion.div>
