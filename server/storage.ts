@@ -8950,6 +8950,7 @@ export class PgStorage implements IStorage {
           eq(dbSchema.powerscore_transactions.company_id, companyId),
           gte(dbSchema.powerscore_transactions.created_at, startDate),
           lte(dbSchema.powerscore_transactions.created_at, endDate),
+          isNull(dbSchema.powerscore_transactions.voided_by_transaction_id),
           // Exclude multi-sheet users from leaderboard
           ...(multiSheetUserIds.length > 0 ? [notInArray(dbSchema.powerscore_transactions.user_id, multiSheetUserIds)] : [])
         )
@@ -8997,7 +8998,8 @@ export class PgStorage implements IStorage {
         and(
           eq(dbSchema.powerscore_transactions.user_id, userId),
           gte(dbSchema.powerscore_transactions.created_at, startDate),
-          lte(dbSchema.powerscore_transactions.created_at, endDate)
+          lte(dbSchema.powerscore_transactions.created_at, endDate),
+          isNull(dbSchema.powerscore_transactions.voided_by_transaction_id)
         )
       );
     return Number(result[0]?.total || 0);
@@ -9144,7 +9146,8 @@ export class PgStorage implements IStorage {
         and(
           eq(dbSchema.powerscore_transactions.user_id, userId),
           gte(dbSchema.powerscore_transactions.created_at, startDate),
-          lte(dbSchema.powerscore_transactions.created_at, endDate)
+          lte(dbSchema.powerscore_transactions.created_at, endDate),
+          isNull(dbSchema.powerscore_transactions.voided_by_transaction_id)
         )
       );
 
