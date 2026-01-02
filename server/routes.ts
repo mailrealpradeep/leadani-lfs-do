@@ -160,19 +160,49 @@ async function getUserPipelineMetrics(
       allLeads = allLeads.concat(sheetLeads.filter(l => !l.deleted_at));
     }
 
-    // Get date-filtered leads for actual incentive
-    // Uses conversion_date if available (set when lead_status becomes "Converted")
-    // Falls back to created_at for backward compatibility
-    let dateFilteredLeads = allLeads;
-    if (actualDateFilter) {
-      dateFilteredLeads = allLeads.filter(lead => {
-        // Prefer conversion_date (when the lead was actually converted)
-        // Fall back to created_at for leads that were converted before this feature
+    // Stage-specific date filtering helper
+    // Each stage uses the date relevant to when the lead entered that stage:
+    // - First stage (New Lead): created_at
+    // - Visit stages (visit_status trigger): visit_date  
+    // - Final stage (Converted): conversion_date
+    // - Other stages (Followup): last_edit
+    const getStageDate = (lead: any, stage: any, isFirstStage: boolean, isFinalStage: boolean): Date | null => {
+      if (isFirstStage) {
+        // New Lead stage: use created_at
+        return lead.created_at ? new Date(lead.created_at) : null;
+      }
+      
+      if (isFinalStage) {
+        // Converted/Sale stage: use conversion_date (fallback to created_at for legacy data)
         const conversionDate = lead.custom_fields?.conversion_date;
-        const dateToCheck = conversionDate ? new Date(conversionDate) : new Date(lead.created_at);
-        return dateToCheck >= actualDateFilter.startDate && dateToCheck <= actualDateFilter.endDate;
+        if (conversionDate) return new Date(conversionDate);
+        return lead.created_at ? new Date(lead.created_at) : null;
+      }
+      
+      if (stage.trigger_type === 'visit_status') {
+        // Visited stage: use visit_date
+        const visitDate = lead.custom_fields?.visit_date || lead.visit_date;
+        if (visitDate) return new Date(visitDate);
+        return null;
+      }
+      
+      // Followup/other stages: use last_edit (fallback to updated_at)
+      const lastEdit = lead.custom_fields?.last_edit;
+      if (lastEdit) return new Date(lastEdit);
+      if (lead.updated_at) return new Date(lead.updated_at);
+      return null;
+    };
+    
+    // Filter leads by date for a specific stage
+    const filterLeadsByDate = (leads: any[], stage: any, isFirstStage: boolean, isFinalStage: boolean): any[] => {
+      if (!actualDateFilter) return leads;
+      
+      return leads.filter(lead => {
+        const stageDate = getStageDate(lead, stage, isFirstStage, isFinalStage);
+        if (!stageDate || isNaN(stageDate.getTime())) return false;
+        return stageDate >= actualDateFilter.startDate && stageDate <= actualDateFilter.endDate;
       });
-    }
+    };
 
     // Get value/incentive configuration
     const valueConfig = settings.value;
@@ -266,14 +296,25 @@ async function getUserPipelineMetrics(
 
       // For PROJECTED: Use all leads (no date filter), count leads in this stage
       const stageLeadsForProjected = filterLeadsByStage(allLeads, stage);
-      const count = stageLeadsForProjected.length;
-      const value = stageLeadsForProjected.reduce((sum, lead) => sum + getLeadValue(lead), 0);
-      const potentialIncentive = stageLeadsForProjected.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
+      
+      // For COUNT: Apply stage-specific date filter to get leads that match this stage within the date range
+      // - New Lead (first stage): created_at within date range
+      // - Visited: visit_date within date range
+      // - Followup: last_edit within date range
+      // - Converted (final): conversion_date within date range
+      const stageLeadsWithDateFilter = filterLeadsByDate(
+        stageLeadsForProjected, stage, isFirstStage, isFinalStage
+      );
+      
+      // Use date-filtered count when date filter is active, otherwise use all leads in stage
+      const count = actualDateFilter ? stageLeadsWithDateFilter.length : stageLeadsForProjected.length;
+      const countLeads = actualDateFilter ? stageLeadsWithDateFilter : stageLeadsForProjected;
+      const value = countLeads.reduce((sum, lead) => sum + getLeadValue(lead), 0);
+      const potentialIncentive = countLeads.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0);
 
-      // For ACTUAL: Use date-filtered leads, only count for final stage
-      const stageLeadsForActual = filterLeadsByStage(dateFilteredLeads, stage);
+      // For ACTUAL incentive: Use date-filtered leads for final stage only
       const actualIncentives = isFinalStage
-        ? stageLeadsForActual.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
+        ? stageLeadsWithDateFilter.reduce((sum, lead) => sum + getIncentive(getLeadValue(lead)), 0)
         : 0;
 
       // Projected incentive: EXCLUDE first stage and last stage (middle stages only)
