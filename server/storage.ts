@@ -8950,7 +8950,10 @@ export class PgStorage implements IStorage {
           eq(dbSchema.powerscore_transactions.company_id, companyId),
           gte(dbSchema.powerscore_transactions.created_at, startDate),
           lte(dbSchema.powerscore_transactions.created_at, endDate),
+          // Exclude voided transactions (those that have been reversed)
           isNull(dbSchema.powerscore_transactions.voided_by_transaction_id),
+          // Exclude reversal transactions (those whose ID appears as voided_by_transaction_id in another transaction)
+          sql`${dbSchema.powerscore_transactions.id} NOT IN (SELECT voided_by_transaction_id FROM powerscore_transactions WHERE voided_by_transaction_id IS NOT NULL)`,
           // Exclude multi-sheet users from leaderboard
           ...(multiSheetUserIds.length > 0 ? [notInArray(dbSchema.powerscore_transactions.user_id, multiSheetUserIds)] : [])
         )
@@ -8999,7 +9002,10 @@ export class PgStorage implements IStorage {
           eq(dbSchema.powerscore_transactions.user_id, userId),
           gte(dbSchema.powerscore_transactions.created_at, startDate),
           lte(dbSchema.powerscore_transactions.created_at, endDate),
-          isNull(dbSchema.powerscore_transactions.voided_by_transaction_id)
+          // Exclude voided transactions (those that have been reversed)
+          isNull(dbSchema.powerscore_transactions.voided_by_transaction_id),
+          // Exclude reversal transactions (those whose ID appears as voided_by_transaction_id in another transaction)
+          sql`${dbSchema.powerscore_transactions.id} NOT IN (SELECT voided_by_transaction_id FROM powerscore_transactions WHERE voided_by_transaction_id IS NOT NULL)`
         )
       );
     return Number(result[0]?.total || 0);
@@ -9147,7 +9153,10 @@ export class PgStorage implements IStorage {
           eq(dbSchema.powerscore_transactions.user_id, userId),
           gte(dbSchema.powerscore_transactions.created_at, startDate),
           lte(dbSchema.powerscore_transactions.created_at, endDate),
-          isNull(dbSchema.powerscore_transactions.voided_by_transaction_id)
+          // Exclude voided transactions (those that have been reversed)
+          isNull(dbSchema.powerscore_transactions.voided_by_transaction_id),
+          // Exclude reversal transactions (those whose ID appears as voided_by_transaction_id in another transaction)
+          sql`${dbSchema.powerscore_transactions.id} NOT IN (SELECT voided_by_transaction_id FROM powerscore_transactions WHERE voided_by_transaction_id IS NOT NULL)`
         )
       );
 
