@@ -20556,12 +20556,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   };
 
   // Helper: Calculate effort metrics from activity_logs for a user within date range
-  // New Leads now counts all leads owned by user created in period (including webhook/import)
+  // New Leads counts all leads in the user's assigned sheet (includes webhook/import)
+  // For single-sheet users, sheetId is their assigned sheet; leads count by sheet, not owner
   const calculateEffortMetrics = async (
     userId: string, 
     companyId: string, 
     startDate: Date, 
-    endDate: Date
+    endDate: Date,
+    sheetId?: string | null  // Optional: for single-sheet users, count by sheet instead of owner
   ): Promise<{
     yearly: { sales: number; visits: number; leads_attended: number; followups: number };
     monthly: { sales: number; visits: number; leads_attended: number; followups: number };
@@ -20617,21 +20619,36 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const dailyLogs = logs.filter(l => new Date(l.occurred_at).getTime() >= dayStart.getTime());
     
     // Count New Leads directly from leads table (includes webhook/import leads)
-    // This counts all leads owned by the user created in each period
+    // If sheetId is provided: count leads in that sheet (for single-sheet users like Shreelekha)
+    // Otherwise: count leads owned by the user (fallback for admins/multi-sheet)
     const countLeadsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.leads)
-        .where(and(
-          eq(dbSchema.leads.owner_user_id, userId),
-          gte(dbSchema.leads.created_at, periodStart),
-          lte(dbSchema.leads.created_at, periodEnd),
-          isNull(dbSchema.leads.deleted_at)
-        ));
-      return result[0]?.count || 0;
+      if (sheetId) {
+        // For single-sheet users: count ALL leads in their sheet, regardless of owner
+        const result = await db.select({ count: sql<number>`count(*)::int` })
+          .from(dbSchema.leads)
+          .where(and(
+            eq(dbSchema.leads.sheet_id, sheetId),
+            gte(dbSchema.leads.created_at, periodStart),
+            lte(dbSchema.leads.created_at, periodEnd),
+            isNull(dbSchema.leads.deleted_at)
+          ));
+        return result[0]?.count || 0;
+      } else {
+        // Fallback: count leads owned by user (for admins/multi-sheet users)
+        const result = await db.select({ count: sql<number>`count(*)::int` })
+          .from(dbSchema.leads)
+          .where(and(
+            eq(dbSchema.leads.owner_user_id, userId),
+            gte(dbSchema.leads.created_at, periodStart),
+            lte(dbSchema.leads.created_at, periodEnd),
+            isNull(dbSchema.leads.deleted_at)
+          ));
+        return result[0]?.count || 0;
+      }
     };
     
     // Get deduplicated follow-up counts from followup_events table
-    // AND count leads owned by user in each period
+    // AND count leads in user's sheet (or owned by user) in each period
     const [
       yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups,
       yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads
@@ -20983,12 +21000,34 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         },
       };
 
+      // Determine sheet_id for counting leads:
+      // 1. Get user's current accessible non-personal sheets
+      // 2. Use board.sheet_id if it's in the accessible list
+      // 3. If only one accessible sheet, use that (auto-detect for single-sheet users)
+      // 4. Fall back to owner_user_id counting for multi-sheet/admin users
+      let effectiveSheetId: string | null = null;
+      if (req.companyId) {
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        const companySheets = userSheets.filter(s => s.company_id === req.companyId && !s.is_personal);
+        
+        if (board.sheet_id && companySheets.some(s => s.id === board.sheet_id)) {
+          // Board's sheet_id is valid and user still has access
+          effectiveSheetId = board.sheet_id;
+        } else if (companySheets.length === 1) {
+          // Auto-detect: user has exactly one sheet
+          effectiveSheetId = companySheets[0].id;
+        }
+        // If user has multiple sheets or board.sheet_id is stale, leave as null (owner fallback)
+      }
+
       // Calculate effort achievements from activity_logs with date filtering
+      // Pass effectiveSheetId so single-sheet users count leads by sheet (includes webhook leads)
       const effortAchieved = await calculateEffortMetrics(
         req.userId!, 
         req.companyId!, 
         startDate, 
-        targetDate
+        targetDate,
+        effectiveSheetId  // For single-sheet users: count leads in their sheet
       );
 
       // Use SHARED HELPER for projected/actual incentive (same formula as Conversion Settings)
