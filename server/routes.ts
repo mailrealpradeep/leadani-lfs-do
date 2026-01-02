@@ -20582,15 +20582,20 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     dayStart.setHours(0, 0, 0, 0);
     
     // Query activity logs for sales and visits metrics
+    // For single-sheet users: count ALL visits/sales in their sheet (includes changes by admins/others)
+    // For multi-sheet/admin users: count only their own actions (by user_id)
     const logs = await db.select()
       .from(activity_logs)
       .where(and(
-        eq(activity_logs.user_id, userId),
+        sheetId 
+          ? eq(activity_logs.sheet_id, sheetId)  // Single-sheet: by sheet
+          : eq(activity_logs.user_id, userId),   // Multi-sheet/admin: by user
         eq(activity_logs.company_id, companyId),
         gte(activity_logs.occurred_at, yearStart)
       ));
     
     // Count sales and visits from activity logs (status transitions)
+    // Field structure: { field_key: string, new_value: string, ... }
     const countSalesVisits = (logsSubset: typeof logs) => {
       let sales = 0;
       let visits = 0;
@@ -20598,13 +20603,13 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       for (const log of logsSubset) {
         // Sales: lead_updated with lead_status changed to "Converted"
         if (log.action === 'lead_updated' && log.details?.changes) {
-          const statusChange = (log.details.changes as Array<{field: string; to: string}>)
-            .find(c => c.field === 'lead_status' && c.to === 'Converted');
+          const statusChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
+            .find(c => c.field_key === 'lead_status' && c.new_value === 'Converted');
           if (statusChange) sales++;
           
           // Visits: visit_status changed to "Visited"
-          const visitChange = (log.details.changes as Array<{field: string; to: string}>)
-            .find(c => c.field === 'visit_status' && c.to === 'Visited');
+          const visitChange = (log.details.changes as Array<{field_key: string; new_value: string}>)
+            .find(c => c.field_key === 'visit_status' && c.new_value === 'Visited');
           if (visitChange) visits++;
         }
       }
