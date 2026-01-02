@@ -1725,6 +1725,32 @@ export default function VisionBoardPage() {
   const { user } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("daily");
   
+  // Helper to scale yearly targets based on selected period
+  // Uses same Math.ceil logic as existing yearlyToMonthly/Weekly/Daily helpers
+  const scaleTargetByPeriod = (yearlyTarget: number, period: "daily" | "weekly" | "monthly" | "yearly"): number => {
+    switch (period) {
+      case "daily": return Math.ceil(yearlyTarget / 365);
+      case "weekly": return Math.ceil(yearlyTarget / 52);
+      case "monthly": return Math.ceil(yearlyTarget / 12);
+      case "yearly": return yearlyTarget;
+      default: return yearlyTarget;
+    }
+  };
+  
+  // Helper to scale all effort targets for a period
+  const getScaledEffortTargets = (
+    targets: { sales: number; visits: number; leads_attended: number; followups: number } | null | undefined,
+    period: "daily" | "weekly" | "monthly" | "yearly"
+  ) => {
+    if (!targets) return { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+    return {
+      sales: scaleTargetByPeriod(targets.sales, period),
+      visits: scaleTargetByPeriod(targets.visits, period),
+      leads_attended: scaleTargetByPeriod(targets.leads_attended, period),
+      followups: scaleTargetByPeriod(targets.followups, period),
+    };
+  };
+  
   // Super admin check - they don't have a company
   if (user && !user.company_id) {
     return (
@@ -1876,7 +1902,7 @@ export default function VisionBoardPage() {
     projectedIncentive: teamTotals?.projected_incentive || 0,
     actualIncentive: teamTotals?.actual_incentive || 0,
     projectedProgressPercent: teamTotals?.projected_progress_percent || 0,
-    effortTargets: teamAggregate.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    effortTargets: getScaledEffortTargets(teamAggregate.effort_targets, selectedPeriod),
     effortAchieved: teamProgress?.team_effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(teamAggregate.target_date),
     startDate: new Date(teamAggregate.start_date),
@@ -1895,7 +1921,7 @@ export default function VisionBoardPage() {
     projectedProgressPercent: visionBoard.goal_amount > 0 
       ? Math.min(100, (userProjectedData.projectedIncentive / visionBoard.goal_amount) * 100) 
       : 0,
-    effortTargets: progress?.effort_targets?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    effortTargets: getScaledEffortTargets(visionBoard.effort_targets, selectedPeriod),
     effortAchieved: progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(visionBoard.target_date),
     startDate: visionBoard.start_date ? new Date(visionBoard.start_date) : new Date(visionBoard.created_at!),
