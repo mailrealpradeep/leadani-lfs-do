@@ -18,9 +18,14 @@ interface DropdownChange {
   newValue: string | null;
 }
 
+interface AwardOptions {
+  isFollowupEvent?: boolean;  // Set to true when called from recordFollowupAndAwardPoints
+}
+
 export async function awardLeadUpdatePoints(
   context: ScoringContext,
-  changes: DropdownChange[]
+  changes: DropdownChange[],
+  options: AwardOptions = {}
 ): Promise<{ awarded: number; pending: number }> {
   // Admin accounts don't participate in PowerScore
   const user = await storage.getUser(context.userId);
@@ -63,9 +68,10 @@ export async function awardLeadUpdatePoints(
       totalPending += result.pending;
     }
 
-    // Followup rule: Awards points for each new followup event (1-minute dedup window)
-    // This matches exactly with Vision Board followup counting
-    if (rule.action_type === "followup") {
+    // Followup rule: Awards points ONLY when a new followup event is created
+    // This is triggered via isFollowupEvent flag from recordFollowupAndAwardPoints
+    // Uses the same 1-minute deduplication window as Vision Board, ensuring exact count parity
+    if (rule.action_type === "followup" && options.isFollowupEvent) {
       const result = await processFollowupRule(context, rule, today);
       totalAwarded += result.awarded;
       totalPending += result.pending;

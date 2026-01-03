@@ -40,7 +40,8 @@ export async function recordFollowupAndAwardPoints(
         leadId,
         sheetId,
       },
-      dropdownChanges
+      dropdownChanges,
+      { isFollowupEvent: true }  // Enable followup rule processing for new deduped events
     );
     return { isNew: true, eventId: result.eventId, pointsAwarded: awarded, pointsPending: pending };
   }
