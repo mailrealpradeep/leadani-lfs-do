@@ -62,6 +62,14 @@ export async function awardLeadUpdatePoints(
       totalAwarded += result.awarded;
       totalPending += result.pending;
     }
+
+    // Followup rule: Awards points for each new followup event (1-minute dedup window)
+    // This matches exactly with Vision Board followup counting
+    if (rule.action_type === "followup") {
+      const result = await processFollowupRule(context, rule, today);
+      totalAwarded += result.awarded;
+      totalPending += result.pending;
+    }
   }
 
   return { awarded: totalAwarded, pending: totalPending };
@@ -105,6 +113,71 @@ async function processLeadUpdateRule(
     points: rule.points,
     lead_id: context.leadId || null,
     description: `Lead update`,
+    score_date: scoreDate,
+    approval_id: null,
+    is_approved: null,
+  });
+
+  // Emit celebration event
+  const showAnimationTo = (rule as any).show_animation_to || "user_only";
+  if (showAnimationTo !== "none") {
+    const user = await storage.getUser(context.userId);
+    emitPointsCelebration({
+      userId: context.userId,
+      userName: user?.name || "User",
+      points: rule.points,
+      ruleName: rule.name,
+      actionType: rule.action_type,
+      showAnimationTo,
+      companyId: context.companyId,
+      timestamp: Date.now(),
+    });
+  }
+
+  return { awarded: rule.points, pending: 0 };
+}
+
+// Process followup rule: Awards points for each new followup event
+// This rule is triggered when a new entry is created in followup_events table
+// Uses the same 1-minute deduplication window as Vision Board, ensuring exact count parity
+async function processFollowupRule(
+  context: ScoringContext,
+  rule: PowerScoreRule,
+  scoreDate: string
+): Promise<{ awarded: number; pending: number }> {
+  const { pointsAwarded, hasPending } = await getDailyPointsAndPending(context.userId, rule.id, scoreDate);
+  
+  // Check daily cap - ensure adding this award won't exceed the cap
+  if (rule.daily_cap && pointsAwarded + rule.points > rule.daily_cap) {
+    return { awarded: 0, pending: 0 };
+  }
+
+  if (rule.requires_approval) {
+    // If already has pending approval for this rule today, skip to prevent duplicates
+    if (hasPending) {
+      return { awarded: 0, pending: 0 };
+    }
+    await storage.createPowerScorePendingApproval({
+      company_id: context.companyId,
+      user_id: context.userId,
+      rule_id: rule.id,
+      action_type: rule.action_type,
+      points: rule.points,
+      lead_id: context.leadId || null,
+      description: `Followup on lead`,
+      score_date: scoreDate,
+    });
+    return { awarded: 0, pending: rule.points };
+  }
+
+  await storage.createPowerScoreTransaction({
+    company_id: context.companyId,
+    user_id: context.userId,
+    rule_id: rule.id,
+    action_type: rule.action_type,
+    points: rule.points,
+    lead_id: context.leadId || null,
+    description: `Followup on lead`,
     score_date: scoreDate,
     approval_id: null,
     is_approved: null,

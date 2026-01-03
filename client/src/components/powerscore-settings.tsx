@@ -82,7 +82,7 @@ interface PendingApprovalWithUser extends PowerScorePendingApproval {
 
 interface WizardState {
   step: 1 | 2 | 3;
-  actionType: "lead_update" | "login" | "dropdown_change" | "lead_created";
+  actionType: "lead_update" | "login" | "dropdown_change" | "lead_created" | "followup";
   columnKey: string;
   fromValues: string[];
   toValues: string[];
