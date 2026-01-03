@@ -149,6 +149,7 @@ export default function PowerScoreTransactions() {
       dropdown_change: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
       lead_created: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
       void_adjustment: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+      admin_manual: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
     };
     return styles[actionType] || "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
   };
@@ -315,7 +316,9 @@ export default function PowerScoreTransactions() {
                             variant="secondary" 
                             className={cn("text-xs", getActionTypeBadge(transaction.action_type))}
                           >
-                            {transaction.action_type.replace(/_/g, " ")}
+                            {transaction.action_type === "admin_manual" 
+                              ? "Manual Point" 
+                              : transaction.action_type.replace(/_/g, " ")}
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-[300px]">

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Sparkles, AlertTriangle, CheckCircle2, X, ChevronRight, ChevronLeft, RefreshCw, LogIn, FileEdit, Phone, User, Mail, MapPin, Calendar, MessageSquare, Eye, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, AlertTriangle, CheckCircle2, X, ChevronRight, ChevronLeft, RefreshCw, LogIn, FileEdit, Phone, User, Mail, MapPin, Calendar, MessageSquare, Eye, Clock, Hand } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +15,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import type { PowerScoreRule, PowerScorePendingApproval, CustomColumn } from "@shared/schema";
 
 const ACTION_TYPES = [
@@ -115,12 +117,18 @@ const initialWizardState: WizardState = {
 
 export function PowerScoreSettings() {
   const { toast } = useToast();
+  const { isCompanyAdmin, isSuperAdmin, user: currentUser } = useAuth();
+  const isAdmin = isCompanyAdmin || isSuperAdmin;
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<PowerScoreRule | null>(null);
   const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
   const [processingApprovalId, setProcessingApprovalId] = useState<string | null>(null);
   const [wizard, setWizard] = useState<WizardState>(initialWizardState);
   const [selectedApproval, setSelectedApproval] = useState<PendingApprovalWithUser | null>(null);
+  const [isManualPointsDialogOpen, setIsManualPointsDialogOpen] = useState(false);
+  const [manualPointsUserId, setManualPointsUserId] = useState<string>("");
+  const [manualPoints, setManualPoints] = useState<string>("");
+  const [manualPointsReason, setManualPointsReason] = useState<string>("");
 
   const { data: rules = [], isLoading: rulesLoading } = useQuery<PowerScoreRule[]>({
     queryKey: ["/api/powerscore/rules"],
@@ -133,6 +141,24 @@ export function PowerScoreSettings() {
   const { data: columns = [] } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],
   });
+
+  const { data: usersData } = useQuery<Array<{ id: string; name: string; role: string }>>({
+    queryKey: ["/api/users/simple"],
+    enabled: isAdmin,
+  });
+  
+  // Filter eligible users: exclude admins, multi-sheet users (handled by backend), and current admin
+  const eligibleUsers = usersData?.filter(u => {
+    // Exclude admin roles
+    if (u.role === 'super_admin' || u.role === 'company_admin') {
+      return false;
+    }
+    // Exclude current admin user (prevent self-awarding)
+    if (currentUser && u.id === currentUser.id) {
+      return false;
+    }
+    return true;
+  }) || [];
 
   const pendingApprovals = pendingApprovalsData?.approvals || [];
 
@@ -234,6 +260,31 @@ export function PowerScoreSettings() {
     },
     onSettled: () => {
       setProcessingApprovalId(null);
+    },
+  });
+
+  const manualPointsMutation = useMutation({
+    mutationFn: async (data: { userId: string; points: number; reason: string }) => {
+      return await apiRequest("POST", "/api/powerscore/manual-points", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/powerscore/leaderboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/powerscore/transactions"] });
+      setIsManualPointsDialogOpen(false);
+      setManualPointsUserId("");
+      setManualPoints("");
+      setManualPointsReason("");
+      toast({
+        title: "Points added",
+        description: "Manual points have been successfully added.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add manual points",
+        variant: "destructive",
+      });
     },
   });
 
@@ -369,6 +420,12 @@ export function PowerScoreSettings() {
             <Badge variant="destructive" className="ml-2">{pendingApprovals.length}</Badge>
           )}
         </TabsTrigger>
+        {isAdmin && (
+          <TabsTrigger value="manual" data-testid="tab-manual">
+            <Hand className="h-4 w-4 mr-2" />
+            Manual Points
+          </TabsTrigger>
+        )}
       </TabsList>
 
       <TabsContent value="rules" className="space-y-4">
@@ -581,6 +638,37 @@ export function PowerScoreSettings() {
           </ScrollArea>
         )}
       </TabsContent>
+
+      {isAdmin && (
+        <TabsContent value="manual" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Manually add or deduct points to any user. Use this to correct errors or give appreciation.
+              </p>
+            </div>
+            <Button onClick={() => setIsManualPointsDialogOpen(true)} data-testid="button-add-manual-points">
+              <Hand className="h-4 w-4 mr-2" />
+              Add Manual Points
+            </Button>
+          </div>
+
+          <Card>
+            <CardContent className="py-6">
+              <div className="text-center text-muted-foreground">
+                <Hand className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p className="font-medium mb-1">Manual Points Adjustment</p>
+                <p className="text-sm">
+                  Click "Add Manual Points" to award or deduct points to any user.
+                </p>
+                <p className="text-xs mt-2">
+                  Points can be between -1000 and +1000. A reason is required for all adjustments.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      )}
 
       {/* Create/Edit Rule Wizard Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={(open) => !open && handleCloseDialog()}>
@@ -1066,6 +1154,127 @@ export function PowerScoreSettings() {
             >
               <CheckCircle2 className="h-4 w-4 mr-1" />
               Approve
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual Points Dialog */}
+      <Dialog open={isManualPointsDialogOpen} onOpenChange={setIsManualPointsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Manual Points</DialogTitle>
+            <DialogDescription>
+              Manually award or deduct points to any user. This will appear in PowerScore Transactions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="manual-user">User</Label>
+              <Select value={manualPointsUserId} onValueChange={setManualPointsUserId}>
+                <SelectTrigger id="manual-user" data-testid="select-manual-user">
+                  <SelectValue placeholder="Select a user" />
+                </SelectTrigger>
+                <SelectContent>
+                  {eligibleUsers.length === 0 ? (
+                    <SelectItem value="" disabled>
+                      No eligible users available
+                    </SelectItem>
+                  ) : (
+                    eligibleUsers.map((user) => (
+                      <SelectItem key={user.id} value={user.id}>
+                        {user.name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="manual-points">Points</Label>
+              <Input
+                id="manual-points"
+                type="number"
+                min="-1000"
+                max="1000"
+                step="1"
+                value={manualPoints}
+                onChange={(e) => setManualPoints(e.target.value)}
+                placeholder="Enter points (-1000 to 1000)"
+                data-testid="input-manual-points"
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter positive number to award points, negative to deduct (range: -1000 to 1000)
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="manual-reason">Reason</Label>
+              <Textarea
+                id="manual-reason"
+                value={manualPointsReason}
+                onChange={(e) => setManualPointsReason(e.target.value)}
+                placeholder="Enter reason for this adjustment (required)"
+                maxLength={500}
+                rows={3}
+                data-testid="textarea-manual-reason"
+              />
+              <p className="text-xs text-muted-foreground">
+                {manualPointsReason.length}/500 characters
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsManualPointsDialogOpen(false);
+                setManualPointsUserId("");
+                setManualPoints("");
+                setManualPointsReason("");
+              }}
+              data-testid="button-cancel-manual-points"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!manualPointsUserId) {
+                  toast({
+                    title: "Validation Error",
+                    description: "Please select a user",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                const pointsNum = parseInt(manualPoints, 10);
+                if (isNaN(pointsNum) || pointsNum < -1000 || pointsNum > 1000) {
+                  toast({
+                    title: "Validation Error",
+                    description: "Points must be a number between -1000 and 1000",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                if (!manualPointsReason.trim()) {
+                  toast({
+                    title: "Validation Error",
+                    description: "Reason is required",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                manualPointsMutation.mutate({
+                  userId: manualPointsUserId,
+                  points: pointsNum,
+                  reason: manualPointsReason.trim(),
+                });
+              }}
+              disabled={manualPointsMutation.isPending}
+              data-testid="button-submit-manual-points"
+            >
+              {manualPointsMutation.isPending ? "Submitting..." : "Submit"}
             </Button>
           </DialogFooter>
         </DialogContent>

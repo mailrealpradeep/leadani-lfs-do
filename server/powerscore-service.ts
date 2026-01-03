@@ -488,7 +488,7 @@ async function getDailyPointsAndPending(userId: string, ruleId: string, scoreDat
   };
 }
 
-function getScoreDate(timezone: string): string {
+export function getScoreDate(timezone: string): string {
   const now = new Date();
   const zonedNow = toZonedTime(now, timezone);
   return format(zonedNow, "yyyy-MM-dd");

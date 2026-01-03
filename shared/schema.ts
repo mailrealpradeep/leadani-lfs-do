@@ -3911,6 +3911,8 @@ export const powerscore_transactions = pgTable('powerscore_transactions', {
   voided_by_user_id: varchar('voided_by_user_id').references(() => users.id, { onDelete: 'set null' }), // Admin who voided
   void_reason: varchar('void_reason', { length: 500 }), // Required reason for voiding
   voided_by_transaction_id: varchar('voided_by_transaction_id'), // Links original to the adjustment transaction
+  // Manual points tracking (for admin-created transactions)
+  created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }), // Admin who manually created this transaction
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 

@@ -51,7 +51,7 @@ import {
   startBackupScheduler,
 } from "./google-sheets-backup";
 import { extractGoogleSheetId } from "@shared/schema";
-import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals, checkPointsToReverse, reverseLeadUpdatePoints } from "./powerscore-service";
+import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals, checkPointsToReverse, reverseLeadUpdatePoints, getScoreDate } from "./powerscore-service";
 import { recordFollowupAndAwardPoints, detectFollowupEventTypes } from "./followup-service";
 import { setSocketIO } from "./socket-manager";
 import { db } from "./db";
@@ -4275,7 +4275,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
-  // GET /api/users/simple - Get simple list of users (id, name) for dropdown filters
+  // GET /api/users/simple - Get simple list of users (id, name, role) for dropdown filters
   app.get("/api/users/simple", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId) {
@@ -4284,7 +4284,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const users = await storage.getUsersByCompanyId(req.companyId);
       const simpleUsers = users
         .filter(u => u.is_active !== false)
-        .map(u => ({ id: u.id, name: u.name || u.email }));
+        .map(u => ({ id: u.id, name: u.name || u.email, role: u.role }));
       res.json(simpleUsers);
     } catch (error: any) {
       console.error("Get simple users error:", error);
@@ -19777,6 +19777,101 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       res.json(result);
     } catch (error: any) {
       console.error("Error voiding PowerScore transaction:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Manually add points to a user (Admin only)
+  app.post("/api/powerscore/manual-points", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { userId, points, reason } = req.body;
+
+      // Validate inputs
+      if (!userId || typeof userId !== 'string') {
+        return res.status(400).json({ error: "userId is required" });
+      }
+
+      if (typeof points !== 'number' || !Number.isInteger(points)) {
+        return res.status(400).json({ error: "points must be an integer" });
+      }
+
+      if (points < -1000 || points > 1000) {
+        return res.status(400).json({ error: "points must be between -1000 and 1000" });
+      }
+
+      if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+        return res.status(400).json({ error: "reason is required" });
+      }
+
+      if (reason.length > 500) {
+        return res.status(400).json({ error: "reason must be 500 characters or less" });
+      }
+
+      // Verify the target user belongs to the same company
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (targetUser.company_id !== req.companyId) {
+        return res.status(403).json({ error: "User does not belong to your company" });
+      }
+
+      // Prevent self-awarding
+      if (userId === req.userId!) {
+        return res.status(400).json({ error: "Admins cannot award points to themselves. Please select a different user." });
+      }
+
+      // Check eligibility: Admin accounts don't participate in PowerScore
+      if (targetUser.role === 'super_admin' || targetUser.role === 'company_admin') {
+        return res.status(400).json({ error: "Cannot award points to admin users. Users with role 'super_admin' or 'company_admin' are excluded from PowerScore participation." });
+      }
+
+      // Check eligibility: Multi-sheet users don't participate in PowerScore
+      const isMultiSheet = await storage.isMultiSheetUser(userId);
+      if (isMultiSheet) {
+        return res.status(400).json({ error: "Cannot award points to this user. Users with access to multiple company sheets are excluded from PowerScore participation." });
+      }
+
+      // Get admin user info for description
+      const adminUser = await storage.getUser(req.userId!);
+      if (!adminUser) {
+        return res.status(404).json({ error: "Admin user not found" });
+      }
+
+      const adminName = adminUser.name || adminUser.email || "Admin";
+
+      // Get company timezone for score_date calculation
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      const timezone = company.settings?.timezone || 'Asia/Kolkata';
+      const scoreDate = getScoreDate(timezone);
+
+      // Create transaction with audit trail
+      const transaction = await storage.createPowerScoreTransaction({
+        company_id: req.companyId,
+        user_id: userId,
+        rule_id: null,
+        action_type: "admin_manual",
+        points: points,
+        lead_id: null,
+        description: `Manual Point by ${adminName} (${reason.trim()})`,
+        score_date: scoreDate,
+        approval_id: null,
+        is_approved: null,
+        created_by_user_id: req.userId!, // Store admin user ID for audit trail
+      });
+
+      res.json(transaction);
+    } catch (error: any) {
+      console.error("Error adding manual points:", error);
       res.status(500).json({ error: error.message });
     }
   });

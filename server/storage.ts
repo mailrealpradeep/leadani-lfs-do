@@ -8702,6 +8702,7 @@ export class PgStorage implements IStorage {
       voided_by_user_id: row.voided_by_user_id,
       void_reason: row.void_reason,
       voided_by_transaction_id: row.voided_by_transaction_id,
+      created_by_user_id: row.created_by_user_id,
       created_at: row.created_at,
     };
   }
@@ -8868,6 +8869,7 @@ export class PgStorage implements IStorage {
         voided_by_user_id: adjustment.voided_by_user_id,
         void_reason: adjustment.void_reason,
         voided_by_transaction_id: adjustment.voided_by_transaction_id,
+        created_by_user_id: adjustment.created_by_user_id,
         created_at: adjustment.created_at,
       },
     };
@@ -8889,6 +8891,7 @@ export class PgStorage implements IStorage {
         score_date: transaction.score_date,
         approval_id: transaction.approval_id,
         is_approved: transaction.is_approved,
+        created_by_user_id: transaction.created_by_user_id || null,
         created_at: now,
       })
       .returning();
@@ -8905,6 +8908,7 @@ export class PgStorage implements IStorage {
       score_date: row.score_date,
       approval_id: row.approval_id,
       is_approved: row.is_approved,
+      created_by_user_id: row.created_by_user_id,
       created_at: row.created_at,
     };
   }
