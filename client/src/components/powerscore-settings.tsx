@@ -44,6 +44,12 @@ const ACTION_TYPES = [
     description: "Points for adding a new lead manually (excludes webhook/import)",
     icon: Plus,
   },
+  { 
+    value: "followup", 
+    label: "Followup",
+    description: "Points for each follow-up action (uses 1-minute dedup, matches Vision Board)",
+    icon: Phone,
+  },
 ] as const;
 
 interface LeadDetails {

@@ -3844,6 +3844,7 @@ export const powerScoreActionTypes = [
   "login",            // Points for logging in (once per 24 hours)
   "dropdown_change",  // Points when a dropdown field value changes
   "lead_created",     // Points for adding a new lead manually (excludes webhook/import)
+  "followup",         // Points for each followup event (uses 1-minute dedup window, matches Vision Board)
 ] as const;
 
 export type PowerScoreActionType = typeof powerScoreActionTypes[number];

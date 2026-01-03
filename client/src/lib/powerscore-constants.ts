@@ -5,6 +5,7 @@ export const POWERSCORE_ACTION_LABELS: Record<PowerScoreActionType, string> = {
   login: "Login Bonus",
   dropdown_change: "Dropdown Change",
   lead_created: "Lead Created",
+  followup: "Followup",
 };
 
 export const POWERSCORE_ACTION_ICONS: Record<PowerScoreActionType, string> = {
@@ -12,6 +13,7 @@ export const POWERSCORE_ACTION_ICONS: Record<PowerScoreActionType, string> = {
   login: "clock",
   dropdown_change: "arrow-right-left",
   lead_created: "plus-circle",
+  followup: "phone",
 };
 
 export const POWERSCORE_PERIODS = [
