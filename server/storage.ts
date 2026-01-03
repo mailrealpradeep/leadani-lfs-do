@@ -8702,7 +8702,7 @@ export class PgStorage implements IStorage {
       voided_by_user_id: row.voided_by_user_id,
       void_reason: row.void_reason,
       voided_by_transaction_id: row.voided_by_transaction_id,
-      created_by_user_id: row.created_by_user_id,
+      created_by_user_id: (row as any).created_by_user_id || null, // Handle missing column gracefully
       created_at: row.created_at,
     };
   }
@@ -8878,39 +8878,74 @@ export class PgStorage implements IStorage {
   async createPowerScoreTransaction(transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> {
     const id = randomUUID();
     const now = new Date();
-    const rows = await db.insert(dbSchema.powerscore_transactions)
-      .values({
-        id,
-        user_id: transaction.user_id,
-        company_id: transaction.company_id,
-        rule_id: transaction.rule_id,
-        action_type: transaction.action_type,
-        points: transaction.points,
-        lead_id: transaction.lead_id,
-        description: transaction.description,
-        score_date: transaction.score_date,
-        approval_id: transaction.approval_id,
-        is_approved: transaction.is_approved,
-        created_by_user_id: transaction.created_by_user_id || null,
-        created_at: now,
-      })
-      .returning();
-    const row = rows[0];
-    return {
-      id: row.id,
-      user_id: row.user_id,
-      company_id: row.company_id,
-      rule_id: row.rule_id,
-      action_type: row.action_type as PowerScoreActionType,
-      points: row.points,
-      lead_id: row.lead_id,
-      description: row.description,
-      score_date: row.score_date,
-      approval_id: row.approval_id,
-      is_approved: row.is_approved,
-      created_by_user_id: row.created_by_user_id,
-      created_at: row.created_at,
+    
+    // Build base values object
+    const baseValues: any = {
+      id,
+      user_id: transaction.user_id,
+      company_id: transaction.company_id,
+      rule_id: transaction.rule_id,
+      action_type: transaction.action_type,
+      points: transaction.points,
+      lead_id: transaction.lead_id,
+      description: transaction.description,
+      score_date: transaction.score_date,
+      approval_id: transaction.approval_id,
+      is_approved: transaction.is_approved,
+      created_at: now,
     };
+    
+    // Try to include created_by_user_id if provided, but handle case where column doesn't exist yet
+    let values = baseValues;
+    if (transaction.created_by_user_id !== undefined) {
+      values = { ...baseValues, created_by_user_id: transaction.created_by_user_id };
+    }
+    
+    try {
+      const rows = await db.insert(dbSchema.powerscore_transactions)
+        .values(values)
+        .returning();
+      const row = rows[0];
+      return {
+        id: row.id,
+        user_id: row.user_id,
+        company_id: row.company_id,
+        rule_id: row.rule_id,
+        action_type: row.action_type as PowerScoreActionType,
+        points: row.points,
+        lead_id: row.lead_id,
+        description: row.description,
+        score_date: row.score_date,
+        approval_id: row.approval_id,
+        is_approved: row.is_approved,
+        created_by_user_id: row.created_by_user_id || null,
+        created_at: row.created_at,
+      };
+    } catch (error: any) {
+      // If column doesn't exist, retry without created_by_user_id
+      if (error.message?.includes('created_by_user_id') || error.code === '42703') {
+        const rows = await db.insert(dbSchema.powerscore_transactions)
+          .values(baseValues)
+          .returning();
+        const row = rows[0];
+        return {
+          id: row.id,
+          user_id: row.user_id,
+          company_id: row.company_id,
+          rule_id: row.rule_id,
+          action_type: row.action_type as PowerScoreActionType,
+          points: row.points,
+          lead_id: row.lead_id,
+          description: row.description,
+          score_date: row.score_date,
+          approval_id: row.approval_id,
+          is_approved: row.is_approved,
+          created_by_user_id: null, // Column doesn't exist, return null
+          created_at: row.created_at,
+        };
+      }
+      throw error;
+    }
   }
 
   async markTransactionAsReversed(transactionId: string, reversalTransactionId: string): Promise<void> {
