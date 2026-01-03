@@ -18321,7 +18321,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       for (const currentLead of activeCurrentLeads) {
         if (!snapshotLeadIds.has(currentLead.id)) {
-          await storage.softDeleteLead(currentLead.id);
+          await storage.deleteLead(currentLead.id, req.userId);
           removedCount++;
         }
       }
@@ -18331,10 +18331,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         company_id: snapshot.company_id,
         sheet_id: snapshot.sheet_id,
         snapshot_id: snapshot.id,
-        restored_by: req.userId,
+        restored_by_user_id: req.userId,
         leads_restored: restoredCount,
-        leads_removed: removedCount,
-        leads_updated: updatedCount,
+        updates_restored: updatesRestoredCount,
         created_at: new Date(),
       });
       
