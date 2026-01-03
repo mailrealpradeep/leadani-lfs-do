@@ -8768,12 +8768,18 @@ export class PgStorage implements IStorage {
             ? 'pending' 
             : 'awarded');
       
+      // Determine rule name: use actual rule name, or "Manual Points" for admin_manual, or null as fallback
+      let ruleName = row.rule_name;
+      if (!ruleName && row.transaction.action_type === 'admin_manual') {
+        ruleName = 'Manual Points';
+      }
+      
       return {
         id: row.transaction.id,
         user_id: row.transaction.user_id,
         company_id: row.transaction.company_id,
         rule_id: row.transaction.rule_id,
-        rule_name: row.rule_name || null,
+        rule_name: ruleName || null,
         action_type: row.transaction.action_type as PowerScoreActionType,
         points: row.transaction.points,
         lead_id: row.transaction.lead_id,
@@ -9204,13 +9210,24 @@ export class PgStorage implements IStorage {
     for (const row of result) {
       const ruleId = row.rule_id || 'unknown';
       const existing = breakdown.get(ruleId);
+      
+      // Determine rule name: use actual rule name, or "Manual Points" for admin_manual, or "Unknown Rule" as fallback
+      let ruleName = row.rule_name;
+      if (!ruleName) {
+        if (row.action_type === 'admin_manual') {
+          ruleName = 'Manual Points';
+        } else {
+          ruleName = 'Unknown Rule';
+        }
+      }
+      
       if (existing) {
         existing.points_earned += row.points;
         existing.transaction_count += 1;
       } else {
         breakdown.set(ruleId, {
           rule_id: ruleId,
-          rule_name: row.rule_name || 'Unknown Rule',
+          rule_name: ruleName,
           action_type: row.action_type,
           points_earned: row.points,
           transaction_count: 1,

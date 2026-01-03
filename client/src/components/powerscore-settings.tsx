@@ -268,8 +268,14 @@ export function PowerScoreSettings() {
       return await apiRequest("POST", "/api/powerscore/manual-points", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/powerscore/leaderboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/powerscore/transactions"] });
+      // Invalidate all PowerScore-related queries using predicate matching
+      // This ensures leaderboard (all periods), my-stats, history, breakdown, etc. are refreshed
+      queryClient.invalidateQueries({ 
+        predicate: (query) => {
+          const key = query.queryKey[0];
+          return typeof key === 'string' && key.startsWith('/api/powerscore/');
+        }
+      });
       setIsManualPointsDialogOpen(false);
       setManualPointsUserId("");
       setManualPoints("");
