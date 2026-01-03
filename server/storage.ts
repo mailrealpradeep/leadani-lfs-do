@@ -9187,6 +9187,7 @@ export class PgStorage implements IStorage {
         action_type: dbSchema.powerscore_transactions.action_type,
         daily_cap: dbSchema.powerscore_rules.daily_cap,
         points: dbSchema.powerscore_transactions.points,
+        description: dbSchema.powerscore_transactions.description,
       })
       .from(dbSchema.powerscore_transactions)
       .leftJoin(
@@ -9208,14 +9209,22 @@ export class PgStorage implements IStorage {
     const breakdown = new Map<string, { rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }>();
     
     for (const row of result) {
-      const ruleId = row.rule_id || 'unknown';
-      const existing = breakdown.get(ruleId);
+      // For manual points, group by rule_id + description to separate different reasons
+      // For other transactions, group by rule_id
+      const groupKey = row.action_type === 'admin_manual' && row.description
+        ? `manual_${row.description}`
+        : (row.rule_id || 'unknown');
       
-      // Determine rule name: use actual rule name, or "Manual Points" for admin_manual, or "Unknown Rule" as fallback
+      const existing = breakdown.get(groupKey);
+      
+      // Determine rule name: use actual rule name, or "Manual Points (reason)" for admin_manual, or "Unknown Rule" as fallback
       let ruleName = row.rule_name;
       if (!ruleName) {
         if (row.action_type === 'admin_manual') {
-          ruleName = 'Manual Points';
+          // Extract reason from description: "Manual Point by Admin Name (reason)"
+          const reasonMatch = row.description?.match(/\(([^)]+)\)$/);
+          const reason = reasonMatch ? reasonMatch[1] : '';
+          ruleName = reason ? `Manual Points (${reason})` : 'Manual Points';
         } else {
           ruleName = 'Unknown Rule';
         }
@@ -9225,8 +9234,8 @@ export class PgStorage implements IStorage {
         existing.points_earned += row.points;
         existing.transaction_count += 1;
       } else {
-        breakdown.set(ruleId, {
-          rule_id: ruleId,
+        breakdown.set(groupKey, {
+          rule_id: row.rule_id || 'unknown',
           rule_name: ruleName,
           action_type: row.action_type,
           points_earned: row.points,
