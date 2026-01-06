@@ -285,7 +285,7 @@ const DebouncedFilterInput = memo(function DebouncedFilterInput({
     if (focusedFilterColumnKey === columnKey && inputRef.current) {
       inputRef.current.focus();
     }
-  });
+  }, [columnKey]);
   
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
@@ -1031,41 +1031,46 @@ export function SpreadsheetGrid({
   }, [customViewData?.leads]);
 
   // Update pagination state for display purposes (infinite scroll mode)
+  // Use ref to track previous values and prevent unnecessary updates that cause infinite loops
+  const prevPaginationRef = useRef({ total: 0, mode: "" });
   useEffect(() => {
-    if (hotLeadsMode && hotLeadsProcessed.length >= 0) {
-      setPagination({
-        page: 1,
-        limit: hotLeadsProcessed.length || 50,
-        total: hotLeadsProcessed.length,
-        totalPages: 1,
-      });
-    } else if (watchlistMode && watchlistProcessed.length >= 0) {
-      setPagination({
-        page: 1,
-        limit: watchlistProcessed.length || 50,
-        total: watchlistProcessed.length,
-        totalPages: 1,
-      });
-    } else if (customViewMode && customViewProcessed.length >= 0) {
-      setPagination({
-        page: 1,
-        limit: customViewProcessed.length || 50,
-        total: customViewProcessed.length,
-        totalPages: 1,
-      });
+    let newTotal = 0;
+    let newMode = "";
+    let newLimit = 50;
+    let newTotalPages = 1;
+    
+    if (hotLeadsMode) {
+      newTotal = hotLeadsProcessed.length;
+      newMode = "hotLeads";
+      newLimit = hotLeadsProcessed.length || 50;
+    } else if (watchlistMode) {
+      newTotal = watchlistProcessed.length;
+      newMode = "watchlist";
+      newLimit = watchlistProcessed.length || 50;
+    } else if (customViewMode) {
+      newTotal = customViewProcessed.length;
+      newMode = "customView";
+      newLimit = customViewProcessed.length || 50;
     } else if (isMultiMode && multiSheetTotal > 0) {
-      setPagination({
-        page: 1,
-        limit: INFINITE_SCROLL_LIMIT,
-        total: multiSheetTotal,
-        totalPages: Math.ceil(multiSheetTotal / INFINITE_SCROLL_LIMIT),
-      });
+      newTotal = multiSheetTotal;
+      newMode = "multiSheet";
+      newLimit = INFINITE_SCROLL_LIMIT;
+      newTotalPages = Math.ceil(multiSheetTotal / INFINITE_SCROLL_LIMIT);
     } else if (!isMultiMode && singleSheetTotal > 0) {
+      newTotal = singleSheetTotal;
+      newMode = "singleSheet";
+      newLimit = INFINITE_SCROLL_LIMIT;
+      newTotalPages = Math.ceil(singleSheetTotal / INFINITE_SCROLL_LIMIT);
+    }
+    
+    // Only update pagination if values actually changed to prevent infinite loops
+    if (prevPaginationRef.current.total !== newTotal || prevPaginationRef.current.mode !== newMode) {
+      prevPaginationRef.current = { total: newTotal, mode: newMode };
       setPagination({
         page: 1,
-        limit: INFINITE_SCROLL_LIMIT,
-        total: singleSheetTotal,
-        totalPages: Math.ceil(singleSheetTotal / INFINITE_SCROLL_LIMIT),
+        limit: newLimit,
+        total: newTotal,
+        totalPages: newTotalPages,
       });
     }
   }, [multiSheetTotal, singleSheetTotal, isMultiMode, hotLeadsMode, watchlistMode, customViewMode, hotLeadsProcessed.length, watchlistProcessed.length, customViewProcessed.length, setPagination]);
@@ -3110,6 +3115,11 @@ export function SpreadsheetGrid({
             ["/api/leads/query-infinite"],
             ...(customViewId ? [["/api/custom-views", customViewId, "leads"]] : []),
           ]}
+          hotLeadsMode={hotLeadsMode}
+          customViewMode={customViewMode}
+          isMultiMode={isMultiMode}
+          activeSheetId={activeSheetId}
+          customViewId={customViewId}
           onComplete={() => {
             setPendingTransition(null);
           }}
