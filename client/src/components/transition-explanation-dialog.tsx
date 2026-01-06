@@ -129,9 +129,14 @@ export function TransitionExplanationDialog({
           };
         });
       } else if (isMultiMode) {
-        queryClient.setQueriesData(
-          { queryKey: multiSheetQueryKeyPrefix },
-          (old: any) => {
+        // Update all matching multi-sheet queries individually for reliability
+        const matchingQueries = queryClient.getQueryCache().findAll({ 
+          queryKey: multiSheetQueryKeyPrefix,
+          exact: false 
+        });
+        
+        matchingQueries.forEach((query) => {
+          queryClient.setQueryData(query.queryKey, (old: any) => {
             if (!old?.pages) return old;
             return {
               ...old,
@@ -144,14 +149,19 @@ export function TransitionExplanationDialog({
                 ),
               })),
             };
-          }
-        );
+          });
+        });
       } else if (activeSheetId) {
         // Update the infinite query pages structure
-        // Use setQueriesData with prefix matching to update all matching queries
-        queryClient.setQueriesData(
-          { queryKey: singleSheetQueryKeyPrefix },
-          (old: any) => {
+        // Use findAll to get all matching queries and update them individually
+        // This is more reliable than prefix matching, especially in production builds
+        const matchingQueries = queryClient.getQueryCache().findAll({ 
+          queryKey: singleSheetQueryKeyPrefix,
+          exact: false 
+        });
+        
+        matchingQueries.forEach((query) => {
+          queryClient.setQueryData(query.queryKey, (old: any) => {
             if (!old?.pages) return old;
             // Create a completely new object structure to ensure React Query detects the change
             const updatedPages = old.pages.map((page: any) => {
@@ -169,8 +179,8 @@ export function TransitionExplanationDialog({
               ...old,
               pages: updatedPages,
             };
-          }
-        );
+          });
+        });
       }
 
       // Return context with previous values for rollback
