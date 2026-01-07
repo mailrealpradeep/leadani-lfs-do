@@ -3972,8 +3972,13 @@ export class PgStorage implements IStorage {
             conditions.push(sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
             conditions.push(sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
           } else {
-            conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
-            conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
+            // Check that the custom field value is not NULL and not an empty string before casting to date
+            // Use NULLIF to convert empty strings to NULL, then check for NULL before casting
+            conditions.push(sql`(
+              NULLIF(${dbSchema.leads.custom_fields}->>${key}, '') IS NOT NULL 
+              AND (NULLIF(${dbSchema.leads.custom_fields}->>${key}, '')::date >= ${dateFilter.from}::date)
+              AND (NULLIF(${dbSchema.leads.custom_fields}->>${key}, '')::date <= ${dateFilter.to}::date)
+            )`);
           }
         }
       }
@@ -4079,18 +4084,21 @@ export class PgStorage implements IStorage {
             
           case 'date_before':
           case 'before':
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date`;
+            // Check that the custom field value is not NULL and not an empty string before casting to date
+            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date)`;
             break;
             
           case 'date_after':
           case 'after':
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date`;
+            // Check that the custom field value is not NULL and not an empty string before casting to date
+            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date)`;
             break;
             
           case 'date_equals':
           case 'equals':
             if (relative_date || (value && typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
-              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date`;
+              // Check that the custom field value is not NULL and not an empty string before casting to date
+              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date)`;
             } else {
               sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ${value}`;
             }
