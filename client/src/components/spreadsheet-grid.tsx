@@ -766,8 +766,13 @@ export function SpreadsheetGrid({
     for (const [key, value] of Object.entries(columnFilters)) {
       if (!value) continue;
       if (typeof value === 'string' && value.trim()) {
-        const filterLower = value.toLowerCase();
+        const filterLower = value.toLowerCase().trim();
         filtered = filtered.filter(lead => {
+          // Special handling for sheet name filter in hot leads mode (text input -> substring match)
+          if (key === "__sheet_name__") {
+            const sheetName = (lead.sheet_name || "").toLowerCase().trim();
+            return sheetName.includes(filterLower);
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -852,8 +857,12 @@ export function SpreadsheetGrid({
     for (const [key, value] of Object.entries(columnFilters)) {
       if (!value) continue;
       if (typeof value === 'string' && value.trim()) {
-        const filterLower = value.toLowerCase();
+        const filterLower = value.toLowerCase().trim();
         filtered = filtered.filter(lead => {
+          if (key === "__sheet_name__") {
+            const sheetName = (lead.sheet_name || "").toLowerCase().trim();
+            return sheetName.includes(filterLower);
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -975,8 +984,13 @@ export function SpreadsheetGrid({
     for (const [key, value] of Object.entries(columnFilters)) {
       if (!value) continue;
       if (typeof value === 'string' && value.trim()) {
-        const filterLower = value.toLowerCase();
+        const filterLower = value.toLowerCase().trim();
         filtered = filtered.filter(lead => {
+          // Special handling for sheet name filter in custom view mode (exact match)
+          if (key === "__sheet_name__") {
+            const sheetName = (lead.sheet_name || "").toLowerCase().trim();
+            return sheetName === filterLower;
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -1928,6 +1942,18 @@ export function SpreadsheetGrid({
     // Extract dropdown options from column config
     const config = column.config as any;
     return config?.dropdown_options || [];
+  };
+
+  // Build a list of unique sheet names for filtering in Custom View mode
+  const getSheetNamesForFilter = (): string[] => {
+    if (!customViewData?.leads || !customViewMode) return [];
+    const uniqueNames = new Set<string>();
+    for (const lead of customViewData.leads) {
+      if (lead.sheet_name) {
+        uniqueNames.add(lead.sheet_name.trim());
+      }
+    }
+    return Array.from(uniqueNames).sort((a, b) => a.localeCompare(b));
   };
 
   const toggleSort = (column: string) => {
@@ -3877,7 +3903,19 @@ export function SpreadsheetGrid({
                           </div>
                           {/* Column filters - works in both single and multi-sheet mode */}
                           <div className="relative">
-                            {(col.type === "date" || col.type === "datetime") ? (
+                            {col.key === "__sheet_name__" && customViewMode ? (
+                              <DropdownFilter
+                                value={columnFilters[col.key] as string | null}
+                                onChange={(value) =>
+                                  setColumnFilters((prev) => ({
+                                    ...prev,
+                                    [col.key]: value,
+                                  }))
+                                }
+                                options={getSheetNamesForFilter()}
+                                placeholder="Select sheet..."
+                              />
+                            ) : (col.type === "date" || col.type === "datetime") ? (
                               <DateRangeFilter
                                 value={columnFilters[col.key] as DateFilterValue}
                                 onChange={(value) =>
