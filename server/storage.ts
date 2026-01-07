@@ -3388,8 +3388,10 @@ export class PgStorage implements IStorage {
             conditions.push(sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date >= ${dateFilter.from}::date`);
             conditions.push(sql`(${dbSchema.leads.attended_at} AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date <= ${dateFilter.to}::date`);
           } else {
-            conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date >= ${dateFilter.from}::date`);
-            conditions.push(sql`(${dbSchema.leads.custom_fields}->>${key})::date <= ${dateFilter.to}::date`);
+            // custom_fields values can be blank strings; avoid ''::date errors
+            // BTRIM handles accidental whitespace-only values from sheets
+            conditions.push(sql`NULLIF(BTRIM(${dbSchema.leads.custom_fields}->>${key}), '')::date >= ${dateFilter.from}::date`);
+            conditions.push(sql`NULLIF(BTRIM(${dbSchema.leads.custom_fields}->>${key}), '')::date <= ${dateFilter.to}::date`);
           }
         }
       }
@@ -3495,18 +3497,18 @@ export class PgStorage implements IStorage {
             
           case 'date_before':
           case 'before':
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date`;
+            sqlExpr = sql`NULLIF(BTRIM(${dbSchema.leads.custom_fields}->>${column_key}), '')::date < ${targetDate}::date`;
             break;
             
           case 'date_after':
           case 'after':
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date`;
+            sqlExpr = sql`NULLIF(BTRIM(${dbSchema.leads.custom_fields}->>${column_key}), '')::date > ${targetDate}::date`;
             break;
             
           case 'date_equals':
           case 'equals':
             if (relative_date || (value && typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
-              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date`;
+              sqlExpr = sql`NULLIF(BTRIM(${dbSchema.leads.custom_fields}->>${column_key}), '')::date = ${targetDate}::date`;
             } else {
               sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ${value}`;
             }
