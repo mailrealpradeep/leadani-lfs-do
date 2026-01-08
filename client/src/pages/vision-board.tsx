@@ -32,6 +32,7 @@ import {
   Flame,
   AlertTriangle,
   ExternalLink,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { Link } from "wouter";
@@ -482,6 +483,143 @@ function EffortMetricCard({
               transition={{ duration: 1, delay: delay + 0.3, ease: "easeOut" }}
               className={cn("h-full rounded-full bg-gradient-to-r", gradient)}
             />
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function AverageEffortMeterCard({
+  newLeadsProgress,
+  followupsProgress,
+  visitsProgress,
+  expectedPercent,
+  selectedPeriod,
+  delay = 0.5,
+}: {
+  newLeadsProgress: number;
+  followupsProgress: number;
+  visitsProgress: number;
+  expectedPercent?: number;
+  selectedPeriod?: "daily" | "weekly" | "monthly" | "yearly";
+  delay?: number;
+}) {
+  // Calculate average of the 3 percentages
+  const validProgresses = [newLeadsProgress, followupsProgress, visitsProgress].filter(p => !isNaN(p) && isFinite(p));
+  const averageProgress = validProgresses.length > 0
+    ? validProgresses.reduce((sum, p) => sum + p, 0) / validProgresses.length
+    : 0;
+  
+  // Format percentage: 1 decimal for yearly, whole number for others
+  const formatPercent = (percent: number) => {
+    if (selectedPeriod === "yearly") {
+      return percent.toFixed(1);
+    }
+    return Math.round(percent).toString();
+  };
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay, type: "spring", stiffness: 100 }}
+      whileHover={{ scale: 1.01, y: -2 }}
+      className="relative overflow-hidden"
+    >
+      <div className={cn(
+        "relative rounded-2xl p-4 backdrop-blur-xl border",
+        "bg-white/80 dark:bg-slate-800/80",
+        "border-white/20 dark:border-slate-700/50",
+        "shadow-lg shadow-slate-200/50 dark:shadow-slate-900/50"
+      )}>
+        {/* Vibrant multi-color gradient overlay */}
+        <div className={cn(
+          "absolute top-0 right-0 w-full h-full rounded-2xl blur-3xl opacity-20",
+          "bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500"
+        )} />
+        
+        <div className="relative z-10">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "p-2 rounded-xl bg-gradient-to-br",
+                "from-purple-500 via-pink-500 to-orange-500"
+              )}>
+                <Activity className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold">Average Effort Meter</h3>
+                <p className="text-xs text-muted-foreground">
+                  Combined progress of New Leads, Follow-ups & Visits
+                </p>
+              </div>
+            </div>
+            {expectedPercent !== undefined ? (
+              <div className="flex flex-col items-end gap-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Expected</span>
+                  <span className={cn(
+                    "text-sm px-2.5 py-1 rounded-full font-medium",
+                    "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
+                  )}>
+                    {formatPercent(expectedPercent)}%
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Actual</span>
+                  <span className={cn(
+                    "text-sm px-2.5 py-1 rounded-full font-medium",
+                    averageProgress >= 100 
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : averageProgress >= (expectedPercent ?? 0)
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                      : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                  )}>
+                    {formatPercent(averageProgress)}%
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <span className={cn(
+                "text-sm px-2.5 py-1 rounded-full font-medium",
+                averageProgress >= 100 
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                  : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+              )}>
+                {formatPercent(averageProgress)}%
+              </span>
+            )}
+          </div>
+          
+          {/* Large horizontal progress bar */}
+          <div className="mt-3 h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.min(100, averageProgress)}%` }}
+              transition={{ duration: 1.2, delay: delay + 0.3, ease: "easeOut" }}
+              className={cn(
+                "h-full rounded-full bg-gradient-to-r",
+                "from-purple-500 via-pink-500 to-orange-500"
+              )}
+            />
+          </div>
+          
+          {/* Breakdown of individual metrics */}
+          <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-purple-500" />
+              <span>Leads: {formatPercent(newLeadsProgress)}%</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-orange-500" />
+              <span>Follow-ups: {formatPercent(followupsProgress)}%</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-blue-500" />
+              <span>Visits: {formatPercent(visitsProgress)}%</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1990,6 +2128,17 @@ export default function VisionBoardPage() {
   const currentTargets = displayData.effortTargets;
   const currentAchieved = displayData.effortAchieved;
   
+  // Calculate individual progress percentages for the 3 metrics (excluding Sales)
+  const newLeadsProgress = currentTargets.leads_attended > 0 
+    ? Math.min(100, (currentAchieved.leads_attended / currentTargets.leads_attended) * 100) 
+    : 0;
+  const followupsProgress = currentTargets.followups > 0 
+    ? Math.min(100, (currentAchieved.followups / currentTargets.followups) * 100) 
+    : 0;
+  const visitsProgress = currentTargets.visits > 0 
+    ? Math.min(100, (currentAchieved.visits / currentTargets.visits) * 100) 
+    : 0;
+  
   // Calculate expected percentage based on selected period
   const weeklyOffDays = companySettings?.settings?.weekly_off_days || [];
   const timezone = getCompanyTimezone(company);
@@ -2278,6 +2427,18 @@ export default function VisionBoardPage() {
                     delay={0.4}
                     expectedPercent={expectedPercent}
                     selectedPeriod={selectedPeriod}
+                  />
+                </div>
+                
+                {/* Average Effort Meter Card - Full Width */}
+                <div className="mt-3">
+                  <AverageEffortMeterCard
+                    newLeadsProgress={newLeadsProgress}
+                    followupsProgress={followupsProgress}
+                    visitsProgress={visitsProgress}
+                    expectedPercent={expectedPercent}
+                    selectedPeriod={selectedPeriod}
+                    delay={0.5}
                   />
                 </div>
                 
