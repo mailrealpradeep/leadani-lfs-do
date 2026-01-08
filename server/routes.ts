@@ -20774,7 +20774,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const companyTimezone = getCompanyTimezone(company);
     
     // Define period boundaries using company timezone
-    const yearStart = getStartOfDayInTimezone(new Date(now.getFullYear(), 0, 1), companyTimezone);
+    // For yearly: Use earliest Vision Board start date to start_date + 1 year (not calendar year)
+    const yearStart = getStartOfDayInTimezone(earliestStart, companyTimezone);
+    const yearEndDate = new Date(earliestStart);
+    yearEndDate.setFullYear(yearEndDate.getFullYear() + 1);
+    const yearEnd = getEndOfDayInTimezone(yearEndDate, companyTimezone);
+    
     const monthStart = getStartOfDayInTimezone(new Date(now.getFullYear(), now.getMonth(), 1), companyTimezone);
     const weekStartDate = new Date(now);
     weekStartDate.setDate(weekStartDate.getDate() - weekStartDate.getDay());
@@ -20865,25 +20870,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
     
     // Calculate team effort achieved using lead-based counting for all metrics
+    // For yearly: cap at yearEnd if now is beyond Vision Board year, otherwise use now
+    const yearlyPeriodEnd = now > yearEnd ? yearEnd : now;
     const [
       yearlyVisits, monthlyVisits, weeklyVisits, dailyVisits,
       yearlySales, monthlySales, weeklySales, dailySales,
       yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads,
       yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups
     ] = await Promise.all([
-      countVisitsInPeriod(yearStart, now),
+      countVisitsInPeriod(yearStart, yearlyPeriodEnd),
       countVisitsInPeriod(monthStart, now),
       countVisitsInPeriod(weekStart, now),
       countVisitsInPeriod(dayStart, dayEnd),
-      countSalesInPeriod(yearStart, now),
+      countSalesInPeriod(yearStart, yearlyPeriodEnd),
       countSalesInPeriod(monthStart, now),
       countSalesInPeriod(weekStart, now),
       countSalesInPeriod(dayStart, dayEnd),
-      countLeadsCreated(yearStart, now),
+      countLeadsCreated(yearStart, yearlyPeriodEnd),
       countLeadsCreated(monthStart, now),
       countLeadsCreated(weekStart, now),
       countLeadsCreated(dayStart, dayEnd),
-      countFollowupsInPeriod(yearStart, now),
+      countFollowupsInPeriod(yearStart, yearlyPeriodEnd),
       countFollowupsInPeriod(monthStart, now),
       countFollowupsInPeriod(weekStart, now),
       countFollowupsInPeriod(dayStart, dayEnd),
@@ -20960,7 +20967,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const companyTimezone = getCompanyTimezone(company);
     
     // Define period boundaries using company timezone
-    const yearStart = getStartOfDayInTimezone(new Date(now.getFullYear(), 0, 1), companyTimezone);
+    // For yearly: Use Vision Board start_date to start_date + 1 year (not calendar year)
+    const yearStart = getStartOfDayInTimezone(startDate, companyTimezone);
+    const yearEndDate = new Date(startDate);
+    yearEndDate.setFullYear(yearEndDate.getFullYear() + 1);
+    const yearEnd = getEndOfDayInTimezone(yearEndDate, companyTimezone);
+    
     const monthStart = getStartOfDayInTimezone(new Date(now.getFullYear(), now.getMonth(), 1), companyTimezone);
     const weekStartDate = new Date(now);
     weekStartDate.setDate(weekStartDate.getDate() - weekStartDate.getDay()); // Sunday
@@ -21030,25 +21042,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     };
     
     // Query all metrics in parallel for each period
+    // For yearly: cap at yearEnd if now is beyond Vision Board year, otherwise use now
+    const yearlyPeriodEnd = now > yearEnd ? yearEnd : now;
     const [
       yearlyVisits, monthlyVisits, weeklyVisits, dailyVisits,
       yearlySales, monthlySales, weeklySales, dailySales,
       yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads,
       yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups
     ] = await Promise.all([
-      countVisitsInPeriod(yearStart, now),
+      countVisitsInPeriod(yearStart, yearlyPeriodEnd),
       countVisitsInPeriod(monthStart, now),
       countVisitsInPeriod(weekStart, now),
       countVisitsInPeriod(dayStart, dayEnd),
-      countSalesInPeriod(yearStart, now),
+      countSalesInPeriod(yearStart, yearlyPeriodEnd),
       countSalesInPeriod(monthStart, now),
       countSalesInPeriod(weekStart, now),
       countSalesInPeriod(dayStart, dayEnd),
-      countLeadsAcrossSheets(yearStart, now),
+      countLeadsAcrossSheets(yearStart, yearlyPeriodEnd),
       countLeadsAcrossSheets(monthStart, now),
       countLeadsAcrossSheets(weekStart, now),
       countLeadsAcrossSheets(dayStart, dayEnd),
-      countFollowupsAcrossSheets(yearStart, now),
+      countFollowupsAcrossSheets(yearStart, yearlyPeriodEnd),
       countFollowupsAcrossSheets(monthStart, now),
       countFollowupsAcrossSheets(weekStart, now),
       countFollowupsAcrossSheets(dayStart, dayEnd),

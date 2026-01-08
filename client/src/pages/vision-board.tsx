@@ -48,7 +48,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import type { VisionBoard, VisionBoardEarning } from "@shared/schema";
+import type { VisionBoard, VisionBoardEarning, CompanyHoliday } from "@shared/schema";
+import { getCompanyTimezone } from "@/lib/timezone-utils";
+import { calculateExpectedPercentage, type PeriodType } from "@/lib/vision-board-utils";
 
 interface VisionBoardProgress {
   board: VisionBoard;
@@ -382,6 +384,8 @@ function EffortMetricCard({
   achieved = 0,
   gradient,
   delay = 0,
+  expectedPercent,
+  selectedPeriod,
 }: {
   icon: React.ElementType;
   label: string;
@@ -389,8 +393,18 @@ function EffortMetricCard({
   achieved?: number;
   gradient: string;
   delay?: number;
+  expectedPercent?: number;
+  selectedPeriod?: "daily" | "weekly" | "monthly" | "yearly";
 }) {
   const progress = target > 0 ? Math.min(100, (achieved / target) * 100) : 0;
+  
+  // Format percentage: 1 decimal for yearly, whole number for others
+  const formatPercent = (percent: number) => {
+    if (selectedPeriod === "yearly") {
+      return percent.toFixed(1);  // Show 1 decimal (e.g., "2.1")
+    }
+    return Math.round(percent).toString();  // Whole number (e.g., "26")
+  };
   
   return (
     <motion.div
@@ -419,14 +433,41 @@ function EffortMetricCard({
               </div>
               <span className="text-sm font-medium text-muted-foreground">{label}</span>
             </div>
-            <span className={cn(
-              "text-xs px-2 py-0.5 rounded-full font-medium",
-              progress >= 100 
-                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-            )}>
-              {Math.round(progress)}%
-            </span>
+            {expectedPercent !== undefined ? (
+              <div className="flex flex-col items-end gap-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-medium text-muted-foreground">Expected</span>
+                  <span className={cn(
+                    "text-xs px-2 py-0.5 rounded-full font-medium",
+                    "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
+                  )}>
+                    {formatPercent(expectedPercent)}%
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-medium text-muted-foreground">Actual</span>
+                  <span className={cn(
+                    "text-xs px-2 py-0.5 rounded-full font-medium",
+                    progress >= 100 
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : progress >= expectedPercent
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                      : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                  )}>
+                    {formatPercent(progress)}%
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <span className={cn(
+                "text-xs px-2 py-0.5 rounded-full font-medium",
+                progress >= 100 
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                  : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+              )}>
+                {Math.round(progress)}%
+              </span>
+            )}
           </div>
           
           <div className="flex items-baseline gap-2">
@@ -1722,7 +1763,7 @@ function EditVisionWizard({
 }
 
 export default function VisionBoardPage() {
-  const { user } = useAuth();
+  const { user, company } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("daily");
   
   // Helper to scale yearly targets based on selected period
@@ -1838,6 +1879,20 @@ export default function VisionBoardPage() {
     refetchInterval: 60000,
   });
 
+  // Fetch company settings for weekly_off_days
+  const { data: companySettings } = useQuery<{ settings: { timezone?: string; weekly_off_days?: number[] } }>({
+    queryKey: ["/api/admin/company/settings"],
+    enabled: !!user?.company_id,
+  });
+
+  // Fetch company holidays for expected percentage calculation
+  // Fetch holidays for the current year to cover all periods
+  const currentYear = new Date().getFullYear();
+  const { data: holidays = [] } = useQuery<CompanyHoliday[]>({
+    queryKey: ["/api/holidays"],
+    enabled: !!user?.company_id,
+  });
+
   // Group views by section in the specified order
   const sectionOrder = ['overdue_actions', 'action_today', 'data_mismatch', 'achievement', 'custom_views'] as const;
   const viewsBySection = sectionOrder.reduce((acc, section) => {
@@ -1934,6 +1989,18 @@ export default function VisionBoardPage() {
   const images = displayData.images;
   const currentTargets = displayData.effortTargets;
   const currentAchieved = displayData.effortAchieved;
+  
+  // Calculate expected percentage based on selected period
+  const weeklyOffDays = companySettings?.settings?.weekly_off_days || [];
+  const timezone = getCompanyTimezone(company);
+  const holidayDates = holidays.map(h => h.date); // h.date is ISO string
+  const expectedPercent = calculateExpectedPercentage(
+    selectedPeriod,
+    weeklyOffDays,
+    holidayDates,
+    timezone,
+    displayData.startDate  // Pass Vision Board start date for yearly calculation
+  );
   
   // Labels for team vs personal view
   const labels = isTeamView ? {
@@ -2179,6 +2246,8 @@ export default function VisionBoardPage() {
                     achieved={currentAchieved.leads_attended}
                     gradient="from-purple-400 to-pink-500"
                     delay={0.1}
+                    expectedPercent={expectedPercent}
+                    selectedPeriod={selectedPeriod}
                   />
                   <EffortMetricCard
                     icon={MessageSquare}
@@ -2187,6 +2256,8 @@ export default function VisionBoardPage() {
                     achieved={currentAchieved.followups}
                     gradient="from-orange-400 to-red-500"
                     delay={0.2}
+                    expectedPercent={expectedPercent}
+                    selectedPeriod={selectedPeriod}
                   />
                   <EffortMetricCard
                     icon={MapPin}
@@ -2195,6 +2266,8 @@ export default function VisionBoardPage() {
                     achieved={currentAchieved.visits}
                     gradient="from-blue-400 to-cyan-500"
                     delay={0.3}
+                    expectedPercent={expectedPercent}
+                    selectedPeriod={selectedPeriod}
                   />
                   <EffortMetricCard
                     icon={CheckCircle2}
@@ -2203,6 +2276,8 @@ export default function VisionBoardPage() {
                     achieved={currentAchieved.sales}
                     gradient="from-green-400 to-emerald-500"
                     delay={0.4}
+                    expectedPercent={expectedPercent}
+                    selectedPeriod={selectedPeriod}
                   />
                 </div>
                 
