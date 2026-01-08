@@ -27,7 +27,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, GitMerge, XCircle } from "lucide-react";
+import { Loader2, AlertTriangle, GitMerge, XCircle, Phone, MessageSquare, MapPin, ArrowRightLeft, Calendar, Clock, User } from "lucide-react";
+import { format } from "date-fns";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import type { Lead, CustomColumn, Sheet } from "@shared/schema";
 import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 
@@ -48,6 +50,19 @@ interface DuplicateLeadInfo {
   custom_fields: Record<string, any>;
   created_at: string;
   owner_user_id: string;
+  // Enriched fields
+  lead_name?: string | null;
+  lead_status?: string | null;
+  visit_status?: string | null;
+  last_edit?: string | null;
+  last_update?: {
+    remark: string;
+    update_via: string;
+    created_at: string;
+    update_on: string;
+  } | null;
+  lead_user_name?: string | null;
+  is_eligible_for_auto_transfer?: boolean;
 }
 
 const SYSTEM_COLUMN_KEYS = ["full_name", "mobile_no", "created_at"] as const;
@@ -64,6 +79,7 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
   const { user } = useAuth();
   const { toast } = useToast();
   const { applyAutoFillRules } = useAutoFillRules();
+  const { formatInTimezone } = useCompanyTimezone();
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [selectedSheetId, setSelectedSheetId] = useState<string>(sheetId);
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicateLeadInfo | null>(null);
@@ -170,6 +186,74 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
       });
     },
   });
+
+  // Auto-transfer lead
+  const autoTransferMutation = useMutation({
+    mutationFn: async () => {
+      if (!duplicateInfo) throw new Error("No duplicate lead info");
+      return await apiRequest("POST", "/api/leads/transfer", {
+        leadIds: [duplicateInfo.id],
+        targetSheetId: activeSheetId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", activeSheetId, "leads-infinite"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", duplicateInfo?.sheet_id, "leads-infinite"] });
+      if (isMultiSheetMode) {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
+      }
+      onOpenChange(false);
+      setFormData({});
+      setDuplicateInfo(null);
+      setShowDuplicateDialog(false);
+      toast({
+        title: "Lead transferred",
+        description: "Lead has been transferred to your sheet",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Transfer failed",
+        description: error.message || "Failed to transfer lead",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Request transfer
+  const requestTransferMutation = useMutation({
+    mutationFn: async () => {
+      if (!duplicateInfo) throw new Error("No duplicate lead info");
+      return await apiRequest("POST", "/api/leads/transfer-request", {
+        lead_id: duplicateInfo.id,
+        from_sheet_id: duplicateInfo.sheet_id,
+        to_sheet_id: activeSheetId,
+      });
+    },
+    onSuccess: () => {
+      setShowDuplicateDialog(false);
+      setDuplicateInfo(null);
+      toast({
+        title: "Transfer requested",
+        description: "Your transfer request has been submitted for admin approval",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Request failed",
+        description: error.message || "Failed to create transfer request",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAutoTransfer = () => {
+    autoTransferMutation.mutate();
+  };
+
+  const handleRequestTransfer = () => {
+    requestTransferMutation.mutate();
+  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -562,12 +646,77 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
                   A lead with mobile number <strong>{formData.mobile_no}</strong> already exists in your company.
                 </p>
                 {duplicateInfo && (
-                  <div className="bg-muted p-3 rounded-md text-sm space-y-1">
-                    <p><strong>Existing Lead:</strong></p>
-                    <p>Name: {duplicateInfo.custom_fields?.full_name || "N/A"}</p>
-                    <p>Mobile: {duplicateInfo.custom_fields?.mobile_no || "N/A"}</p>
-                    <p>Sheet: {duplicateInfo.sheet_name}</p>
-                    <p>Created: {new Date(duplicateInfo.created_at).toLocaleDateString()}</p>
+                  <div className="bg-muted p-4 rounded-md space-y-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">Lead Name:</span>
+                        <span>{duplicateInfo.lead_name || duplicateInfo.custom_fields?.full_name || "N/A"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">Lead Status:</span>
+                        <span className="px-2 py-1 rounded bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs">
+                          {duplicateInfo.lead_status || "N/A"}
+                        </span>
+                      </div>
+                      {duplicateInfo.visit_status && (
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">Visit Status:</span>
+                          <span className="px-2 py-1 rounded bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs">
+                            {duplicateInfo.visit_status}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          Last Edit:
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {duplicateInfo.last_edit ? formatInTimezone(duplicateInfo.last_edit, "MMM dd, yyyy HH:mm") : "N/A"}
+                        </span>
+                      </div>
+                      {duplicateInfo.last_update && (
+                        <div className="space-y-1 pt-2 border-t">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Last Lead Update:
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {duplicateInfo.last_update.update_via === "call" ? (
+                                <Phone className="h-3 w-3 text-blue-500" />
+                              ) : duplicateInfo.last_update.update_via === "whatsapp" ? (
+                                <MessageSquare className="h-3 w-3 text-green-500" />
+                              ) : duplicateInfo.last_update.update_via === "visit" ? (
+                                <MapPin className="h-3 w-3 text-purple-500" />
+                              ) : (
+                                <ArrowRightLeft className="h-3 w-3 text-orange-500" />
+                              )}
+                              <span className="text-xs text-muted-foreground capitalize">
+                                {duplicateInfo.last_update.update_via}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-muted-foreground italic line-clamp-2">
+                            "{duplicateInfo.last_update.remark}"
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatInTimezone(duplicateInfo.last_update.created_at, "MMM dd, yyyy HH:mm")}
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <span className="font-semibold flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          Lead User Name:
+                        </span>
+                        <span className="text-xs">{duplicateInfo.lead_user_name || "N/A"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">Sheet:</span>
+                        <span className="text-xs">{duplicateInfo.sheet_name}</span>
+                      </div>
+                    </div>
                   </div>
                 )}
                 <p className="text-muted-foreground">
@@ -585,19 +734,50 @@ export function AddLeadDialog({ sheetId, sheetIds = [], isMultiSheetMode = false
               <XCircle className="h-4 w-4" />
               Don't Add
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleMerge}
-              disabled={mergeMutation.isPending}
-              data-testid="button-merge-duplicate"
-              className="flex items-center gap-2 bg-primary"
-            >
-              {mergeMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <GitMerge className="h-4 w-4" />
-              )}
-              Merge Data
-            </AlertDialogAction>
+            {duplicateInfo?.is_eligible_for_auto_transfer ? (
+              <AlertDialogAction
+                onClick={handleAutoTransfer}
+                disabled={autoTransferMutation.isPending}
+                data-testid="button-auto-transfer"
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+              >
+                {autoTransferMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="h-4 w-4" />
+                )}
+                Transfer to My Sheet
+              </AlertDialogAction>
+            ) : (
+              <>
+                <AlertDialogAction
+                  onClick={handleRequestTransfer}
+                  disabled={requestTransferMutation.isPending}
+                  data-testid="button-request-transfer"
+                  className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700"
+                >
+                  {requestTransferMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-4 w-4" />
+                  )}
+                  Request Transfer
+                </AlertDialogAction>
+                <AlertDialogAction
+                  onClick={handleMerge}
+                  disabled={mergeMutation.isPending}
+                  data-testid="button-merge-duplicate"
+                  className="flex items-center gap-2 bg-primary"
+                >
+                  {mergeMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <GitMerge className="h-4 w-4" />
+                  )}
+                  Merge Data
+                </AlertDialogAction>
+              </>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

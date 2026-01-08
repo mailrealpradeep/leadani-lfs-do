@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { storage } from "./storage";
-import { authMiddleware, adminMiddleware, generateToken, type AuthRequest, requireSuperAdmin, requireCompanyAdmin, requireSheetAccess, hasSheetAccess } from "./middleware/auth";
+import { authMiddleware, adminMiddleware, generateToken, type AuthRequest, requireSuperAdmin, requireCompanyAdmin, requireSheetAccess, hasSheetAccess, requireRole } from "./middleware/auth";
 import rateLimit from "express-rate-limit";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
@@ -6994,6 +6994,83 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (existingLead) {
         // Get the sheet name for context
         const existingSheet = await storage.getSheet(existingLead.sheet_id);
+        const company = await storage.getCompany(companyId);
+        
+        // Get last lead update
+        const leadUpdates = await storage.getLeadUpdates(existingLead.id);
+        const lastUpdate = leadUpdates.length > 0 ? leadUpdates[0] : null;
+        
+        // Get sheet owner (user assigned to the sheet, not admin/multi-sheet users)
+        let leadUserName: string | null = null;
+        if (existingSheet) {
+          const sheetUsers = await storage.getSheetUsers(existingSheet.id);
+          // Find first non-admin user (owner or editor role, not viewer)
+          const assignedUser = sheetUsers.find(su => su.role === "owner" || su.role === "editor");
+          if (assignedUser) {
+            const user = await storage.getUser(assignedUser.user_id);
+            if (user) {
+              leadUserName = user.name;
+            }
+          }
+          // Fallback to sheet owner if no sheet users found
+          if (!leadUserName && existingSheet.owner_id) {
+            const owner = await storage.getUser(existingSheet.owner_id);
+            if (owner) {
+              leadUserName = owner.name;
+            }
+          }
+        }
+        
+        // Get transfer config to check eligibility
+        const transferConfig = company?.settings?.lead_transfer_config;
+        let isEligibleForAutoTransfer = false;
+        
+        if (transferConfig?.auto_transfer_enabled && transferConfig?.auto_transfer_conditions) {
+          const conditions = transferConfig.auto_transfer_conditions;
+          const leadStatus = existingLead.custom_fields?.lead_status;
+          const visitStatusColumn = transferConfig.visit_status_column_key;
+          const visitStatus = visitStatusColumn ? existingLead.custom_fields?.[visitStatusColumn] : null;
+          
+          // Check status condition
+          const statusMatches = conditions.lead_statuses.length > 0 && (
+            (leadStatus && conditions.lead_statuses.includes(leadStatus)) ||
+            (visitStatus && conditions.lead_statuses.includes(visitStatus))
+          );
+          
+          // Check date condition
+          let dateMatches = false;
+          if (conditions.date_field) {
+            let dateToCheck: Date | null = null;
+            if (conditions.date_field === "created_at") {
+              dateToCheck = new Date(existingLead.created_at);
+            } else if (conditions.date_field === "last_edit") {
+              const lastEdit = existingLead.custom_fields?.last_edit;
+              if (lastEdit) dateToCheck = new Date(lastEdit);
+            } else if (conditions.date_field === "last_update_date" && lastUpdate) {
+              dateToCheck = new Date(lastUpdate.created_at);
+            }
+            
+            if (dateToCheck) {
+              const daysDiff = (Date.now() - dateToCheck.getTime()) / (1000 * 60 * 60 * 24);
+              dateMatches = daysDiff >= conditions.days_threshold;
+            }
+          }
+          
+          // Apply logic (OR or AND)
+          if (conditions.condition_logic === "or") {
+            isEligibleForAutoTransfer = statusMatches || dateMatches;
+          } else {
+            isEligibleForAutoTransfer = statusMatches && dateMatches;
+          }
+        }
+        
+        // Get lead status and visit status
+        const leadStatus = existingLead.custom_fields?.lead_status || null;
+        const visitStatusColumn = transferConfig?.visit_status_column_key;
+        const visitStatus = visitStatusColumn ? existingLead.custom_fields?.[visitStatusColumn] : null;
+        
+        // Get last edit (from custom_fields.last_edit or updated_at)
+        const lastEdit = existingLead.custom_fields?.last_edit || existingLead.updated_at;
         
         res.json({
           isDuplicate: true,
@@ -7004,6 +7081,19 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
             custom_fields: existingLead.custom_fields,
             created_at: existingLead.created_at,
             owner_user_id: existingLead.owner_user_id,
+            // Enriched fields
+            lead_name: existingLead.custom_fields?.full_name || null,
+            lead_status: leadStatus,
+            visit_status: visitStatus,
+            last_edit: lastEdit,
+            last_update: lastUpdate ? {
+              remark: lastUpdate.remark,
+              update_via: lastUpdate.update_via,
+              created_at: lastUpdate.created_at,
+              update_on: lastUpdate.update_on,
+            } : null,
+            lead_user_name: leadUserName,
+            is_eligible_for_auto_transfer: isEligibleForAutoTransfer,
           }
         });
       } else {
@@ -7978,6 +8068,38 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
             });
           }
 
+          // Process PowerScore if lead is assigned to a user (similar to new lead assignment)
+          if (updatedLead && updatedLead.owner_user_id) {
+            const targetSheetUser = await storage.getSheetUser(targetSheetId, updatedLead.owner_user_id);
+            if (targetSheetUser) {
+              const customColumns = await storage.getCustomColumns(targetSheetId);
+              const allDropdownKeys = getAllDropdownKeys(customColumns);
+              
+              const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
+              
+              for (const columnKey of allDropdownKeys) {
+                const newVal = updatedLead.custom_fields?.[columnKey];
+                if (newVal !== undefined && newVal !== null && newVal !== "") {
+                  dropdownChanges.push({
+                    columnKey,
+                    oldValue: null, // Transfer - treat as new assignment
+                    newValue: newVal,
+                  });
+                }
+              }
+              
+              if (dropdownChanges.length > 0) {
+                const companyTimezone = getCompanyTimezone(transferCompany);
+                await awardLeadUpdatePoints({
+                  userId: updatedLead.owner_user_id,
+                  companyId: targetSheet.company_id,
+                  companyTimezone,
+                  leadId: updatedLead.id,
+                }, dropdownChanges).catch(err => console.error("PowerScore error on transfer:", err));
+              }
+            }
+          }
+
           results.push({ leadId, success: true });
         } catch (transferError: any) {
           console.error(`Failed to transfer lead ${leadId}:`, transferError);
@@ -8014,6 +8136,244 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       });
     } catch (error: any) {
       console.error("Transfer leads error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create transfer request
+  app.post("/api/leads/transfer-request", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { lead_id, from_sheet_id, to_sheet_id } = req.body;
+
+      if (!lead_id || !from_sheet_id || !to_sheet_id) {
+        return res.status(400).json({ error: "lead_id, from_sheet_id, and to_sheet_id are required" });
+      }
+
+      // Verify user has access to both sheets
+      const hasFromAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, from_sheet_id);
+      const hasToAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, to_sheet_id);
+      
+      if (!hasFromAccess || !hasToAccess) {
+        return res.status(403).json({ error: "Access denied to one or both sheets" });
+      }
+
+      // Verify lead exists and belongs to from_sheet
+      const lead = await storage.getLead(lead_id);
+      if (!lead || lead.sheet_id !== from_sheet_id) {
+        return res.status(404).json({ error: "Lead not found in source sheet" });
+      }
+
+      // Verify both sheets belong to same company
+      const fromSheet = await storage.getSheet(from_sheet_id);
+      const toSheet = await storage.getSheet(to_sheet_id);
+      
+      if (!fromSheet || !toSheet) {
+        return res.status(404).json({ error: "One or both sheets not found" });
+      }
+
+      if (fromSheet.company_id !== toSheet.company_id) {
+        return res.status(400).json({ error: "Cannot transfer leads between different companies" });
+      }
+
+      // Create transfer request
+      const transferRequest = await storage.createLeadTransferRequest({
+        lead_id,
+        from_sheet_id,
+        to_sheet_id,
+        requested_by_user_id: req.userId!,
+        status: "pending",
+      });
+
+      res.json({ success: true, transferRequest });
+    } catch (error: any) {
+      console.error("Create transfer request error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get transfer requests (admin only)
+  app.get("/api/admin/lead-transfer-requests", authMiddleware, requireRole("super_admin", "company_admin"), async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(400).json({ error: "Company context required" });
+      }
+
+      const { status } = req.query;
+      const filters = status ? { status: status as "pending" | "approved" | "rejected" } : undefined;
+      
+      const requests = await storage.getLeadTransferRequests(req.companyId, filters);
+      
+      // Enrich with lead and user details
+      const enrichedRequests = await Promise.all(requests.map(async (req) => {
+        const lead = await storage.getLead(req.lead_id);
+        const fromSheet = await storage.getSheet(req.from_sheet_id);
+        const toSheet = await storage.getSheet(req.to_sheet_id);
+        const requestor = await storage.getUser(req.requested_by_user_id);
+        const approver = req.approved_by_user_id ? await storage.getUser(req.approved_by_user_id) : null;
+        const rejector = req.rejected_by_user_id ? await storage.getUser(req.rejected_by_user_id) : null;
+
+        return {
+          ...req,
+          lead: lead ? {
+            id: lead.id,
+            custom_fields: lead.custom_fields,
+          } : null,
+          from_sheet_name: fromSheet?.name || null,
+          to_sheet_name: toSheet?.name || null,
+          requestor_name: requestor?.name || null,
+          approver_name: approver?.name || null,
+          rejector_name: rejector?.name || null,
+        };
+      }));
+
+      res.json(enrichedRequests);
+    } catch (error: any) {
+      console.error("Get transfer requests error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Approve transfer request (admin only)
+  app.post("/api/admin/lead-transfer-requests/:id/approve", authMiddleware, requireRole("super_admin", "company_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+
+      const transferRequest = await storage.getLeadTransferRequest(id);
+      if (!transferRequest) {
+        return res.status(404).json({ error: "Transfer request not found" });
+      }
+
+      // Verify company access
+      const lead = await storage.getLead(transferRequest.lead_id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      if (req.userRole !== "super_admin" && sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Update request status
+      const approvedRequest = await storage.approveLeadTransferRequest(id, req.userId!);
+      if (!approvedRequest) {
+        return res.status(500).json({ error: "Failed to approve request" });
+      }
+
+      // Perform the actual transfer
+      const targetSheet = await storage.getSheet(transferRequest.to_sheet_id);
+      if (!targetSheet) {
+        return res.status(404).json({ error: "Target sheet not found" });
+      }
+
+      const oldSheetId = lead.sheet_id;
+      await storage.updateLead(transferRequest.lead_id, { sheet_id: transferRequest.to_sheet_id });
+
+      // Create audit log
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: sheet.company_id,
+        action: "transfer",
+        model: "lead",
+        model_id: transferRequest.lead_id,
+        payload: { from_sheet_id: oldSheetId, to_sheet_id: transferRequest.to_sheet_id, via_request: true },
+      });
+
+      // Create lead update record
+      const company = await storage.getCompany(sheet.company_id);
+      const companyTimezone = getCompanyTimezone(company);
+      const today = getTodayDateString(companyTimezone);
+      const approverUser = await storage.getUser(req.userId!);
+      
+      await storage.createLeadUpdate({
+        lead_id: transferRequest.lead_id,
+        update_via: "transfer",
+        update_on: today,
+        remark: `Transfer approved by ${approverUser?.name || "Admin"} - from "${sheet.name}" to "${targetSheet.name}"`,
+        created_by_user_id: req.userId!,
+      });
+
+      // Process PowerScore
+      const updatedLead = await storage.getLead(transferRequest.lead_id);
+      if (updatedLead && updatedLead.owner_user_id) {
+        const targetSheetUser = await storage.getSheetUser(transferRequest.to_sheet_id, updatedLead.owner_user_id);
+        if (targetSheetUser) {
+          const customColumns = await storage.getCustomColumns(transferRequest.to_sheet_id);
+          const allDropdownKeys = getAllDropdownKeys(customColumns);
+          
+          const dropdownChanges: { columnKey: string; oldValue: string | null; newValue: string | null }[] = [];
+          
+          for (const columnKey of allDropdownKeys) {
+            const newVal = updatedLead.custom_fields?.[columnKey];
+            if (newVal !== undefined && newVal !== null && newVal !== "") {
+              dropdownChanges.push({
+                columnKey,
+                oldValue: null,
+                newValue: newVal,
+              });
+            }
+          }
+          
+          if (dropdownChanges.length > 0) {
+            await awardLeadUpdatePoints({
+              userId: updatedLead.owner_user_id,
+              companyId: sheet.company_id,
+              companyTimezone,
+              leadId: updatedLead.id,
+            }, dropdownChanges).catch(err => console.error("PowerScore error on transfer approval:", err));
+          }
+        }
+      }
+
+      // Emit realtime events
+      const io = app.get("io") as SocketIOServer;
+      io.to(`sheet:${oldSheetId}`).emit("lead_deleted", { id: transferRequest.lead_id });
+      if (updatedLead) {
+        io.to(`sheet:${transferRequest.to_sheet_id}`).emit("lead_created", updatedLead);
+      }
+
+      res.json({ success: true, transferRequest: approvedRequest });
+    } catch (error: any) {
+      console.error("Approve transfer request error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Reject transfer request (admin only)
+  app.post("/api/admin/lead-transfer-requests/:id/reject", authMiddleware, requireRole("super_admin", "company_admin"), async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      const transferRequest = await storage.getLeadTransferRequest(id);
+      if (!transferRequest) {
+        return res.status(404).json({ error: "Transfer request not found" });
+      }
+
+      // Verify company access
+      const lead = await storage.getLead(transferRequest.lead_id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      if (req.userRole !== "super_admin" && sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const rejectedRequest = await storage.rejectLeadTransferRequest(id, req.userId!, reason || "Rejected by admin");
+      
+      res.json({ success: true, transferRequest: rejectedRequest });
+    } catch (error: any) {
+      console.error("Reject transfer request error:", error);
       res.status(500).json({ error: error.message });
     }
   });

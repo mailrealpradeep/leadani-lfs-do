@@ -68,6 +68,17 @@ export interface Company {
       final_values: string[]; // array of values that are considered final (e.g., ["Visited", "Converted"])
       enabled: boolean; // whether the rule is active
     }[]; // Final value rules - once a field reaches a final value, only admins can change it
+    lead_transfer_config?: {
+      enabled: boolean;
+      auto_transfer_enabled: boolean;
+      auto_transfer_conditions: {
+        lead_statuses: string[]; // e.g., ["X", "Y", "Z"]
+        date_field: "created_at" | "last_edit" | "last_update_date"; // which date to check
+        days_threshold: number; // e.g., 30 days
+        condition_logic: "or" | "and"; // OR or AND logic
+      };
+      visit_status_column_key?: string; // configurable column for visit status
+    };
   };
   status: "active" | "suspended" | "trial";
   attendance_exit_target_id: string | null; // Links to working_targets for attendance exit condition
@@ -139,6 +150,17 @@ export const insertCompanySchema = z.object({
       final_values: z.array(z.string()),
       enabled: z.boolean(),
     })).optional(),
+    lead_transfer_config: z.object({
+      enabled: z.boolean().optional(),
+      auto_transfer_enabled: z.boolean().optional(),
+      auto_transfer_conditions: z.object({
+        lead_statuses: z.array(z.string()),
+        date_field: z.enum(["created_at", "last_edit", "last_update_date"]),
+        days_threshold: z.number(),
+        condition_logic: z.enum(["or", "and"]),
+      }).optional(),
+      visit_status_column_key: z.string().optional(),
+    }).optional(),
   }).default({}),
   status: z.enum(["active", "suspended", "trial"]).default("active"),
 });
@@ -1083,6 +1105,52 @@ export const lead_updates = pgTable('lead_updates', {
   created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ============================================================================
+// LEAD TRANSFER REQUESTS
+// ============================================================================
+export interface LeadTransferRequest {
+  id: string;
+  lead_id: string;
+  from_sheet_id: string;
+  to_sheet_id: string;
+  requested_by_user_id: string;
+  status: "pending" | "approved" | "rejected";
+  approved_by_user_id: string | null;
+  rejected_by_user_id: string | null;
+  rejection_reason: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const lead_transfer_requests = pgTable('lead_transfer_requests', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  from_sheet_id: varchar('from_sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  to_sheet_id: varchar('to_sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  requested_by_user_id: varchar('requested_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  approved_by_user_id: varchar('approved_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  rejected_by_user_id: varchar('rejected_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  rejection_reason: text('rejection_reason'),
+  approved_at: timestamp('approved_at'),
+  rejected_at: timestamp('rejected_at'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type LeadTransferRequestRecord = typeof lead_transfer_requests.$inferSelect;
+export type InsertLeadTransferRequest = typeof lead_transfer_requests.$inferInsert;
+
+export const insertLeadTransferRequestSchema = createInsertSchema(lead_transfer_requests).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertLeadTransferRequestData = z.infer<typeof insertLeadTransferRequestSchema>;
 
 // Type for tracking weighted round-robin allocation counts per condition group
 // Key format: "conditionGroupKey" -> { sheetId: count }

@@ -26,6 +26,8 @@ import type {
   InsertWebhookLog,
   LeadUpdate,
   InsertLeadUpdate,
+  LeadTransferRequest,
+  InsertLeadTransferRequestData,
   Invite,
   InsertInvite,
   CompanyWebhook,
@@ -429,6 +431,13 @@ export interface IStorage {
   createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate>;
   updateLeadUpdate(id: string, updates: Partial<LeadUpdate>): Promise<LeadUpdate | undefined>;
   deleteLeadUpdate(id: string): Promise<boolean>;
+
+  // Lead Transfer Requests
+  createLeadTransferRequest(request: InsertLeadTransferRequestData): Promise<LeadTransferRequest>;
+  getLeadTransferRequests(companyId: string, filters?: { status?: "pending" | "approved" | "rejected" }): Promise<LeadTransferRequest[]>;
+  getLeadTransferRequest(id: string): Promise<LeadTransferRequest | undefined>;
+  approveLeadTransferRequest(requestId: string, approvedBy: string): Promise<LeadTransferRequest | undefined>;
+  rejectLeadTransferRequest(requestId: string, rejectedBy: string, reason: string): Promise<LeadTransferRequest | undefined>;
 
   // Company Webhooks
   getCompanyWebhook(id: string): Promise<CompanyWebhook | undefined>;
@@ -984,6 +993,7 @@ export class MemStorage implements IStorage {
   private auditLogs: Map<string, Audit>;
   private webhookLogs: Map<string, WebhookLog>;
   private leadUpdates: Map<string, LeadUpdate>;
+  private leadTransferRequests: Map<string, LeadTransferRequest>;
   private invites: Map<string, Invite>;
   private reports: Map<string, Report>;
   private userColumnPreferences: Map<string, UserColumnPreference>;
@@ -1001,6 +1011,7 @@ export class MemStorage implements IStorage {
     this.auditLogs = new Map();
     this.webhookLogs = new Map();
     this.leadUpdates = new Map();
+    this.leadTransferRequests = new Map();
     this.invites = new Map();
     this.reports = new Map();
     this.userColumnPreferences = new Map();
@@ -2095,6 +2106,82 @@ export class MemStorage implements IStorage {
 
   async deleteLeadUpdate(id: string): Promise<boolean> {
     return this.leadUpdates.delete(id);
+  }
+
+  // Lead Transfer Requests
+  async createLeadTransferRequest(request: InsertLeadTransferRequestData): Promise<LeadTransferRequest> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const transferRequest: LeadTransferRequest = {
+      ...request,
+      id,
+      status: request.status || "pending",
+      approved_by_user_id: null,
+      rejected_by_user_id: null,
+      rejection_reason: null,
+      approved_at: null,
+      rejected_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.leadTransferRequests.set(id, transferRequest);
+    return transferRequest;
+  }
+
+  async getLeadTransferRequests(companyId: string, filters?: { status?: "pending" | "approved" | "rejected" }): Promise<LeadTransferRequest[]> {
+    // Get all sheets for the company
+    const companySheets = Array.from(this.sheets.values()).filter(s => s.company_id === companyId);
+    const sheetIds = new Set(companySheets.map(s => s.id));
+    
+    // Get all transfer requests for leads in company sheets
+    let requests = Array.from(this.leadTransferRequests.values())
+      .filter(req => {
+        const lead = this.leads.get(req.lead_id);
+        return lead && sheetIds.has(lead.sheet_id);
+      });
+    
+    if (filters?.status) {
+      requests = requests.filter(req => req.status === filters.status);
+    }
+    
+    return requests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  async getLeadTransferRequest(id: string): Promise<LeadTransferRequest | undefined> {
+    return this.leadTransferRequests.get(id);
+  }
+
+  async approveLeadTransferRequest(requestId: string, approvedBy: string): Promise<LeadTransferRequest | undefined> {
+    const request = this.leadTransferRequests.get(requestId);
+    if (!request) return undefined;
+    
+    const now = new Date().toISOString();
+    const updated: LeadTransferRequest = {
+      ...request,
+      status: "approved",
+      approved_by_user_id: approvedBy,
+      approved_at: now,
+      updated_at: now,
+    };
+    this.leadTransferRequests.set(requestId, updated);
+    return updated;
+  }
+
+  async rejectLeadTransferRequest(requestId: string, rejectedBy: string, reason: string): Promise<LeadTransferRequest | undefined> {
+    const request = this.leadTransferRequests.get(requestId);
+    if (!request) return undefined;
+    
+    const now = new Date().toISOString();
+    const updated: LeadTransferRequest = {
+      ...request,
+      status: "rejected",
+      rejected_by_user_id: rejectedBy,
+      rejection_reason: reason,
+      rejected_at: now,
+      updated_at: now,
+    };
+    this.leadTransferRequests.set(requestId, updated);
+    return updated;
   }
 
   // Company Webhooks (stub implementations for MemStorage)
@@ -5017,6 +5104,165 @@ export class PgStorage implements IStorage {
   async deleteLeadUpdate(id: string): Promise<boolean> {
     await db.delete(dbSchema.lead_updates).where(eq(dbSchema.lead_updates.id, id));
     return true;
+  }
+
+  // Lead Transfer Requests
+  async createLeadTransferRequest(request: InsertLeadTransferRequestData): Promise<LeadTransferRequest> {
+    const [result] = await db.insert(dbSchema.lead_transfer_requests)
+      .values({
+        ...request,
+        status: request.status || "pending",
+      })
+      .returning();
+    
+    return {
+      id: result.id,
+      lead_id: result.lead_id,
+      from_sheet_id: result.from_sheet_id,
+      to_sheet_id: result.to_sheet_id,
+      requested_by_user_id: result.requested_by_user_id,
+      status: result.status as "pending" | "approved" | "rejected",
+      approved_by_user_id: result.approved_by_user_id,
+      rejected_by_user_id: result.rejected_by_user_id,
+      rejection_reason: result.rejection_reason,
+      approved_at: result.approved_at?.toISOString() || null,
+      rejected_at: result.rejected_at?.toISOString() || null,
+      created_at: result.created_at.toISOString(),
+      updated_at: result.updated_at.toISOString(),
+    };
+  }
+
+  async getLeadTransferRequests(companyId: string, filters?: { status?: "pending" | "approved" | "rejected" }): Promise<LeadTransferRequest[]> {
+    // Get all sheets for the company
+    const companySheets = await db.select({ id: dbSchema.sheets.id })
+      .from(dbSchema.sheets)
+      .where(eq(dbSchema.sheets.company_id, companyId));
+    const sheetIds = companySheets.map(s => s.id);
+    
+    if (sheetIds.length === 0) return [];
+    
+    // Get all leads in company sheets
+    const companyLeads = await db.select({ id: dbSchema.leads.id })
+      .from(dbSchema.leads)
+      .where(inArray(dbSchema.leads.sheet_id, sheetIds));
+    const leadIds = companyLeads.map(l => l.id);
+    
+    if (leadIds.length === 0) return [];
+    
+    // Build conditions
+    const conditions = [inArray(dbSchema.lead_transfer_requests.lead_id, leadIds)];
+    if (filters?.status) {
+      conditions.push(eq(dbSchema.lead_transfer_requests.status, filters.status));
+    }
+    
+    const results = await db.select()
+      .from(dbSchema.lead_transfer_requests)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.lead_transfer_requests.created_at));
+    
+    return results.map((row: any) => ({
+      id: row.id,
+      lead_id: row.lead_id,
+      from_sheet_id: row.from_sheet_id,
+      to_sheet_id: row.to_sheet_id,
+      requested_by_user_id: row.requested_by_user_id,
+      status: row.status as "pending" | "approved" | "rejected",
+      approved_by_user_id: row.approved_by_user_id,
+      rejected_by_user_id: row.rejected_by_user_id,
+      rejection_reason: row.rejection_reason,
+      approved_at: row.approved_at?.toISOString() || null,
+      rejected_at: row.rejected_at?.toISOString() || null,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString(),
+    }));
+  }
+
+  async getLeadTransferRequest(id: string): Promise<LeadTransferRequest | undefined> {
+    const [result] = await db.select()
+      .from(dbSchema.lead_transfer_requests)
+      .where(eq(dbSchema.lead_transfer_requests.id, id))
+      .limit(1);
+    
+    if (!result) return undefined;
+    
+    return {
+      id: result.id,
+      lead_id: result.lead_id,
+      from_sheet_id: result.from_sheet_id,
+      to_sheet_id: result.to_sheet_id,
+      requested_by_user_id: result.requested_by_user_id,
+      status: result.status as "pending" | "approved" | "rejected",
+      approved_by_user_id: result.approved_by_user_id,
+      rejected_by_user_id: result.rejected_by_user_id,
+      rejection_reason: result.rejection_reason,
+      approved_at: result.approved_at?.toISOString() || null,
+      rejected_at: result.rejected_at?.toISOString() || null,
+      created_at: result.created_at.toISOString(),
+      updated_at: result.updated_at.toISOString(),
+    };
+  }
+
+  async approveLeadTransferRequest(requestId: string, approvedBy: string): Promise<LeadTransferRequest | undefined> {
+    const now = new Date();
+    const [result] = await db.update(dbSchema.lead_transfer_requests)
+      .set({
+        status: "approved",
+        approved_by_user_id: approvedBy,
+        approved_at: now,
+        updated_at: now,
+      })
+      .where(eq(dbSchema.lead_transfer_requests.id, requestId))
+      .returning();
+    
+    if (!result) return undefined;
+    
+    return {
+      id: result.id,
+      lead_id: result.lead_id,
+      from_sheet_id: result.from_sheet_id,
+      to_sheet_id: result.to_sheet_id,
+      requested_by_user_id: result.requested_by_user_id,
+      status: result.status as "pending" | "approved" | "rejected",
+      approved_by_user_id: result.approved_by_user_id,
+      rejected_by_user_id: result.rejected_by_user_id,
+      rejection_reason: result.rejection_reason,
+      approved_at: result.approved_at?.toISOString() || null,
+      rejected_at: result.rejected_at?.toISOString() || null,
+      created_at: result.created_at.toISOString(),
+      updated_at: result.updated_at.toISOString(),
+    };
+  }
+
+  async rejectLeadTransferRequest(requestId: string, rejectedBy: string, reason: string): Promise<LeadTransferRequest | undefined> {
+    const now = new Date();
+    const [result] = await db.update(dbSchema.lead_transfer_requests)
+      .set({
+        status: "rejected",
+        rejected_by_user_id: rejectedBy,
+        rejection_reason: reason,
+        rejected_at: now,
+        updated_at: now,
+      })
+      .where(eq(dbSchema.lead_transfer_requests.id, requestId))
+      .returning();
+    
+    if (!result) return undefined;
+    
+    return {
+      id: result.id,
+      lead_id: result.lead_id,
+      from_sheet_id: result.from_sheet_id,
+      to_sheet_id: result.to_sheet_id,
+      requested_by_user_id: result.requested_by_user_id,
+      status: result.status as "pending" | "approved" | "rejected",
+      approved_by_user_id: result.approved_by_user_id,
+      rejected_by_user_id: result.rejected_by_user_id,
+      rejection_reason: result.rejection_reason,
+      approved_at: result.approved_at?.toISOString() || null,
+      rejected_at: result.rejected_at?.toISOString() || null,
+      created_at: result.created_at.toISOString(),
+      updated_at: result.updated_at.toISOString(),
+    };
   }
 
   // Helper mapping functions to convert timestamps to ISO strings

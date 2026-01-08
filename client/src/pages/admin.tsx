@@ -16,6 +16,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
@@ -44,7 +45,9 @@ import { QuickUpdateFieldsSettings } from "@/components/quick-update-fields-sett
 import { AddLeadFormSettings } from "@/components/add-lead-form-settings";
 import { AutoFillRulesSettings } from "@/components/auto-fill-rules-settings";
 import { FinalValueSettings } from "@/components/final-value-settings";
-import { Flame, ClipboardCheck, Eye, FormInput, Zap, Sparkles, ThumbsUp, Gift, Trophy, Award, Activity, Lock } from "lucide-react";
+import { LeadTransferConfig } from "@/components/lead-transfer-config";
+import { LeadTransferRequests } from "@/components/lead-transfer-requests";
+import { Flame, ClipboardCheck, Eye, FormInput, Zap, Sparkles, ThumbsUp, Gift, Trophy, Award, Activity, Lock, ArrowRightLeft } from "lucide-react";
 import { PowerScoreSettings } from "@/components/powerscore-settings";
 import { PowerFlowSettings } from "@/components/powerflow-settings";
 import { QualityCheckSettings } from "@/components/quality-check-settings";
@@ -1394,6 +1397,36 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <DataManagement />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="lead-transfer" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-lead-transfer">
+              <div className="flex items-center gap-3">
+                <ArrowRightLeft className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Lead Transfer</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure transfer rules and manage transfer requests
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2 space-y-6">
+                <Tabs defaultValue="config" className="w-full">
+                  <TabsList>
+                    <TabsTrigger value="config">Configuration</TabsTrigger>
+                    <TabsTrigger value="requests">Transfer Requests</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="config" className="mt-4">
+                    <LeadTransferConfig headless />
+                  </TabsContent>
+                  <TabsContent value="requests" className="mt-4">
+                    <LeadTransferRequests headless />
+                  </TabsContent>
+                </Tabs>
               </div>
             </AccordionContent>
           </AccordionItem>

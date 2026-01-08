@@ -179,6 +179,25 @@ export const lead_updates = pgTable('lead_updates', {
 });
 
 // ============================================================================
+// LEAD TRANSFER REQUESTS
+// ============================================================================
+export const lead_transfer_requests = pgTable('lead_transfer_requests', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  from_sheet_id: varchar('from_sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  to_sheet_id: varchar('to_sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  requested_by_user_id: varchar('requested_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  approved_by_user_id: varchar('approved_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  rejected_by_user_id: varchar('rejected_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  rejection_reason: text('rejection_reason'),
+  approved_at: timestamp('approved_at'),
+  rejected_at: timestamp('rejected_at'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ============================================================================
 // FUTURE IMPROVEMENTS
 // ============================================================================
 export const future_improvements = pgTable('future_improvements', {
