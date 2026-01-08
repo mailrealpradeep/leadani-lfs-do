@@ -49,7 +49,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import type { VisionBoard, VisionBoardEarning, CompanyHoliday } from "@shared/schema";
+import type { VisionBoard, VisionBoardEarning, CompanyHoliday, VisionBoardMessage } from "@shared/schema";
 import { getCompanyTimezone } from "@/lib/timezone-utils";
 import { calculateExpectedPercentage, type PeriodType } from "@/lib/vision-board-utils";
 
@@ -487,6 +487,85 @@ function EffortMetricCard({
         </div>
       </div>
     </motion.div>
+  );
+}
+
+function VisionBoardMessageCard({
+  message,
+  delay = 0,
+}: {
+  message: VisionBoardMessage;
+  delay?: number;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay, type: "spring", stiffness: 100 }}
+      whileHover={{ scale: 1.01, y: -2 }}
+      className="relative overflow-hidden"
+    >
+      <div className={cn(
+        "relative rounded-xl p-4 backdrop-blur-xl border",
+        "bg-white/80 dark:bg-slate-800/80",
+        "border-white/20 dark:border-slate-700/50",
+        "shadow-lg shadow-slate-200/50 dark:shadow-slate-900/50"
+      )}>
+        <div className={cn(
+          "absolute top-0 right-0 w-full h-full rounded-xl blur-3xl opacity-20",
+          "bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500"
+        )} />
+        
+        <div className="relative z-10">
+          <div className="flex items-start gap-3">
+            <div className={cn(
+              "p-2 rounded-xl bg-gradient-to-br",
+              "from-purple-500 via-pink-500 to-orange-500",
+              "flex-shrink-0"
+            )}>
+              <MessageSquare className="h-4 w-4 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              {message.title && (
+                <h4 className="text-sm font-semibold mb-1 text-slate-900 dark:text-slate-100">
+                  {message.title}
+                </h4>
+              )}
+              <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">
+                {message.message}
+              </p>
+              {message.expires_at && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Expires: {format(new Date(message.expires_at), "MMM d, yyyy")}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function VisionBoardMessages() {
+  const { user } = useAuth();
+  const { data: messages = [] } = useQuery<VisionBoardMessage[]>({
+    queryKey: ["/api/vision-board/messages"],
+    enabled: !!user?.company_id,
+  });
+  
+  if (!messages || messages.length === 0) {
+    return null;
+  }
+  
+  return (
+    <div className="mt-4 pt-4 border-t border-border/50">
+      <div className="space-y-3">
+        {messages.slice(0, 3).map((msg, idx) => (
+          <VisionBoardMessageCard key={msg.id} message={msg} delay={idx * 0.1} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -2339,6 +2418,8 @@ export default function VisionBoardPage() {
                     </div>
                   )}
                   
+                  {/* Messages Section */}
+                  <VisionBoardMessages />
                 </div>
               </CardContent>
             </Card>

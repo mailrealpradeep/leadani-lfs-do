@@ -63,6 +63,18 @@ export async function apiRequest<T = any>(
   });
 
   await throwIfResNotOk(res);
+  
+  // Check Content-Type before parsing JSON
+  const contentType = res.headers.get("content-type");
+  if (contentType && !contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new ApiError(
+      res.status,
+      `Expected JSON response but received ${contentType}. Response: ${text.substring(0, 200)}`,
+      { contentType, responseText: text }
+    );
+  }
+  
   return await res.json();
 }
 

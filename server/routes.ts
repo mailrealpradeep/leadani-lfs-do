@@ -15,7 +15,7 @@ import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartO
 import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConversionDates } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { validateLeadAgainstRules } from "@shared/validator";
-import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition } from "@shared/schema";
+import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage } from "@shared/schema";
 import { evaluateCondition } from "./target-evaluator";
 import { notifyLeadAssigned, notifyLeadUpdated, notifyWebhookReceived, notifyUserJoined } from "./push-service";
 import { triggerOutgoingWebhooks, getChangedFields, flattenLeadFields } from "./webhook-trigger";
@@ -817,6 +817,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await seedSystemDateColumns();
   } catch (error) {
     console.error("Failed to seed system date columns:", error);
+  }
+
+  // Ensure vision_board_messages table exists
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS vision_board_messages (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        created_by_user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(255),
+        message TEXT NOT NULL,
+        target_user_ids JSONB,
+        expires_at TIMESTAMP,
+        is_archived BOOLEAN DEFAULT false NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    console.log("✓ vision_board_messages table verified/created");
+  } catch (error: any) {
+    // Table might already exist, which is fine
+    if (error.message && !error.message.includes("already exists")) {
+      console.error("Failed to create vision_board_messages table:", error);
+    }
   }
 
   // Backfill conversion_date for existing Converted leads
@@ -17536,6 +17560,191 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       res.json({ success });
     } catch (error: any) {
       console.error("Delete holiday error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // VISION BOARD MESSAGES
+  // ============================================================================
+
+  // Get Vision Board messages for current user
+  app.get("/api/vision-board/messages", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const messages = await storage.getVisionBoardMessages(req.companyId, req.userId, false);
+      res.json(messages);
+    } catch (error: any) {
+      console.error("Get Vision Board messages error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all Vision Board messages (admin only)
+  app.get("/api/admin/vision-board-messages", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { include_archived } = req.query;
+      const includeArchived = include_archived === 'true';
+      
+      const messages = await storage.getAllVisionBoardMessages(req.companyId, includeArchived);
+      res.json(messages);
+    } catch (error: any) {
+      console.error("Get all Vision Board messages error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create Vision Board message (admin only)
+  app.post("/api/admin/vision-board-messages", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { title, message, target_user_ids, expires_at } = req.body;
+      
+      if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        return res.status(400).json({ error: "Message is required" });
+      }
+      
+      // Validate target_user_ids: null or array of strings
+      let validatedTargetUserIds: string[] | null = null;
+      if (target_user_ids !== null && target_user_ids !== undefined) {
+        if (!Array.isArray(target_user_ids)) {
+          return res.status(400).json({ error: "target_user_ids must be null or an array of user IDs" });
+        }
+        if (target_user_ids.length > 0) {
+          validatedTargetUserIds = target_user_ids.filter((id: any) => typeof id === 'string');
+          if (validatedTargetUserIds.length === 0) {
+            validatedTargetUserIds = null; // Empty array means all users
+          }
+        }
+      }
+      
+      const visionBoardMessage = await storage.createVisionBoardMessage({
+        company_id: req.companyId,
+        created_by_user_id: req.userId,
+        title: title || null,
+        message: message.trim(),
+        target_user_ids: validatedTargetUserIds,
+        expires_at: expires_at ? new Date(expires_at) : null,
+        is_archived: false,
+      });
+      
+      res.status(201).json(visionBoardMessage);
+    } catch (error: any) {
+      console.error("Create Vision Board message error:", error);
+      const errorMessage = error.message || "Unknown error";
+      // Provide helpful error message for missing table
+      const isTableMissing = errorMessage.includes("does not exist") || 
+                            errorMessage.includes("relation") ||
+                            errorMessage.includes("vision_board_messages");
+      res.status(500).json({ 
+        error: isTableMissing 
+          ? "Database table not initialized. Please restart the server."
+          : errorMessage
+      });
+    }
+  });
+
+  // Update Vision Board message (admin only)
+  app.patch("/api/admin/vision-board-messages/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { id } = req.params;
+      const { title, message, target_user_ids, expires_at } = req.body;
+      
+      // Verify message belongs to company
+      const existingMessages = await storage.getAllVisionBoardMessages(req.companyId, true);
+      const messageToUpdate = existingMessages.find(m => m.id === id);
+      if (!messageToUpdate) {
+        return res.status(404).json({ error: "Vision Board message not found" });
+      }
+      
+      const updates: Partial<InsertVisionBoardMessage> = {};
+      if (title !== undefined) updates.title = title || null;
+      if (message !== undefined) {
+        if (typeof message !== 'string' || message.trim().length === 0) {
+          return res.status(400).json({ error: "Message cannot be empty" });
+        }
+        updates.message = message.trim();
+      }
+      if (target_user_ids !== undefined) {
+        if (target_user_ids === null) {
+          updates.target_user_ids = null;
+        } else if (Array.isArray(target_user_ids)) {
+          const validated = target_user_ids.filter((id: any) => typeof id === 'string');
+          updates.target_user_ids = validated.length > 0 ? validated : null;
+        } else {
+          return res.status(400).json({ error: "target_user_ids must be null or an array" });
+        }
+      }
+      if (expires_at !== undefined) {
+        updates.expires_at = expires_at ? new Date(expires_at) : null;
+      }
+      
+      const updated = await storage.updateVisionBoardMessage(id, updates);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Update Vision Board message error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete Vision Board message (admin only)
+  app.delete("/api/admin/vision-board-messages/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { id } = req.params;
+      
+      // Verify message belongs to company
+      const existingMessages = await storage.getAllVisionBoardMessages(req.companyId, true);
+      const messageToDelete = existingMessages.find(m => m.id === id);
+      if (!messageToDelete) {
+        return res.status(404).json({ error: "Vision Board message not found" });
+      }
+      
+      const success = await storage.deleteVisionBoardMessage(id);
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Delete Vision Board message error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Archive/Unarchive Vision Board message (admin only)
+  app.patch("/api/admin/vision-board-messages/:id/archive", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Company context required" });
+      }
+      
+      const { id } = req.params;
+      
+      // Verify message belongs to company
+      const existingMessages = await storage.getAllVisionBoardMessages(req.companyId, true);
+      const messageToArchive = existingMessages.find(m => m.id === id);
+      if (!messageToArchive) {
+        return res.status(404).json({ error: "Vision Board message not found" });
+      }
+      
+      const archived = await storage.archiveVisionBoardMessage(id);
+      res.json(archived);
+    } catch (error: any) {
+      console.error("Archive Vision Board message error:", error);
       res.status(500).json({ error: error.message });
     }
   });

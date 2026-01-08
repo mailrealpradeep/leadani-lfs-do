@@ -2386,6 +2386,20 @@ export interface CompanyHoliday {
   created_at: string;
 }
 
+// Vision Board messages
+export interface VisionBoardMessage {
+  id: string;
+  company_id: string;
+  created_by_user_id: string;
+  title: string | null;                    // Optional title/heading
+  message: string;                         // Plain text message content
+  target_user_ids: string[] | null;        // null = all users, array = specific users
+  expires_at: string | null;               // ISO date, null = no expiration
+  is_archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // Target notification
 export interface TargetNotification {
   id: string;
@@ -2509,6 +2523,23 @@ export const insertCompanyHolidaySchema = createInsertSchema(company_holidays).o
 });
 
 export type InsertCompanyHolidayData = z.infer<typeof insertCompanyHolidaySchema>;
+
+// Vision Board messages
+export const vision_board_messages = pgTable('vision_board_messages', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  created_by_user_id: varchar('created_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 255 }),
+  message: text('message').notNull(),
+  target_user_ids: jsonb('target_user_ids').$type<string[] | null>(),
+  expires_at: timestamp('expires_at'),
+  is_archived: boolean('is_archived').default(false).notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type VisionBoardMessageRecord = typeof vision_board_messages.$inferSelect;
+export type InsertVisionBoardMessage = typeof vision_board_messages.$inferInsert;
 
 export const target_notifications = pgTable('target_notifications', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),

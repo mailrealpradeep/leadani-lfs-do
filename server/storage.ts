@@ -89,6 +89,8 @@ import type {
   InsertTargetUserProgress,
   CompanyHolidayRecord,
   InsertCompanyHoliday,
+  VisionBoardMessageRecord,
+  InsertVisionBoardMessage,
   TargetNotificationRecord,
   InsertTargetNotification,
   TargetWithDetails,
@@ -628,6 +630,14 @@ export interface IStorage {
   getCompanyHolidays(companyId: string, startDate?: Date, endDate?: Date): Promise<CompanyHolidayRecord[]>;
   createCompanyHoliday(holiday: InsertCompanyHoliday): Promise<CompanyHolidayRecord>;
   deleteCompanyHoliday(id: string): Promise<boolean>;
+  
+  // Vision Board Messages
+  getVisionBoardMessages(companyId: string, userId: string, includeArchived?: boolean): Promise<VisionBoardMessageRecord[]>;
+  getAllVisionBoardMessages(companyId: string, includeArchived?: boolean): Promise<VisionBoardMessageRecord[]>;
+  createVisionBoardMessage(message: InsertVisionBoardMessage): Promise<VisionBoardMessageRecord>;
+  updateVisionBoardMessage(id: string, updates: Partial<InsertVisionBoardMessage>): Promise<VisionBoardMessageRecord>;
+  deleteVisionBoardMessage(id: string): Promise<boolean>;
+  archiveVisionBoardMessage(id: string): Promise<VisionBoardMessageRecord>;
 
   // Target Notifications
   getTargetNotifications(userId: string, unreadOnly?: boolean): Promise<TargetNotificationRecord[]>;
@@ -3462,7 +3472,7 @@ export class MemStorage implements IStorage {
 // POSTGRESQL STORAGE (Permanent Database)
 // ============================================================================
 import { db } from "./db";
-import { eq, and, or, desc, asc, isNull, isNotNull, inArray, notInArray, gte, lte, sql, ilike } from "drizzle-orm";
+import { eq, and, or, desc, asc, isNull, isNotNull, inArray, notInArray, gte, lte, gt, sql, ilike } from "drizzle-orm";
 import * as dbSchema from "@shared/schema";
 import jwt from "jsonwebtoken";
 
@@ -7333,6 +7343,102 @@ export class PgStorage implements IStorage {
   async deleteCompanyHoliday(id: string): Promise<boolean> {
     const result = await db.delete(dbSchema.company_holidays).where(eq(dbSchema.company_holidays.id, id));
     return (result as any).rowCount > 0;
+  }
+
+  // Vision Board Messages
+  async getVisionBoardMessages(companyId: string, userId: string, includeArchived: boolean = false): Promise<VisionBoardMessageRecord[]> {
+    const now = new Date();
+    const conditions: any[] = [
+      eq(dbSchema.vision_board_messages.company_id, companyId),
+      or(
+        isNull(dbSchema.vision_board_messages.target_user_ids), // All users
+        sql`${dbSchema.vision_board_messages.target_user_ids}::jsonb @> ${sql.raw(`'["${userId}"]'::jsonb`)}` // User in target list (JSONB contains)
+      ),
+      or(
+        isNull(dbSchema.vision_board_messages.expires_at),
+        gt(dbSchema.vision_board_messages.expires_at, now)
+      ),
+    ];
+    
+    if (!includeArchived) {
+      conditions.push(eq(dbSchema.vision_board_messages.is_archived, false));
+    }
+    
+    const messages = await db.select()
+      .from(dbSchema.vision_board_messages)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.vision_board_messages.created_at))
+      .limit(3);
+    
+    return messages;
+  }
+
+  async getAllVisionBoardMessages(companyId: string, includeArchived: boolean = false): Promise<VisionBoardMessageRecord[]> {
+    const conditions: any[] = [eq(dbSchema.vision_board_messages.company_id, companyId)];
+    
+    if (!includeArchived) {
+      conditions.push(eq(dbSchema.vision_board_messages.is_archived, false));
+    }
+    
+    const messages = await db.select()
+      .from(dbSchema.vision_board_messages)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.vision_board_messages.created_at));
+    
+    return messages;
+  }
+
+  async createVisionBoardMessage(message: InsertVisionBoardMessage): Promise<VisionBoardMessageRecord> {
+    const rows = await db.insert(dbSchema.vision_board_messages)
+      .values({
+        ...message,
+        updated_at: new Date(),
+      })
+      .returning();
+    return rows[0];
+  }
+
+  async updateVisionBoardMessage(id: string, updates: Partial<InsertVisionBoardMessage>): Promise<VisionBoardMessageRecord> {
+    const rows = await db.update(dbSchema.vision_board_messages)
+      .set({
+        ...updates,
+        updated_at: new Date(),
+      })
+      .where(eq(dbSchema.vision_board_messages.id, id))
+      .returning();
+    
+    if (rows.length === 0) {
+      throw new Error("Vision Board message not found");
+    }
+    return rows[0];
+  }
+
+  async deleteVisionBoardMessage(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.vision_board_messages)
+      .where(eq(dbSchema.vision_board_messages.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async archiveVisionBoardMessage(id: string): Promise<VisionBoardMessageRecord> {
+    // Toggle archive status
+    const existing = await db.select()
+      .from(dbSchema.vision_board_messages)
+      .where(eq(dbSchema.vision_board_messages.id, id))
+      .limit(1);
+    
+    if (existing.length === 0) {
+      throw new Error("Vision Board message not found");
+    }
+    
+    const rows = await db.update(dbSchema.vision_board_messages)
+      .set({
+        is_archived: !existing[0].is_archived,
+        updated_at: new Date(),
+      })
+      .where(eq(dbSchema.vision_board_messages.id, id))
+      .returning();
+    
+    return rows[0];
   }
 
   async getTargetNotifications(userId: string, unreadOnly?: boolean): Promise<TargetNotificationRecord[]> {

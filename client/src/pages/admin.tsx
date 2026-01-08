@@ -48,6 +48,7 @@ import { Flame, ClipboardCheck, Eye, FormInput, Zap, Sparkles, ThumbsUp, Gift, T
 import { PowerScoreSettings } from "@/components/powerscore-settings";
 import { PowerFlowSettings } from "@/components/powerflow-settings";
 import { QualityCheckSettings } from "@/components/quality-check-settings";
+import { VisionBoardMessagingSettings } from "@/components/vision-board-messaging-settings";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -825,6 +826,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <QualityCheckSettings />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="vision-board-messaging" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-vision-board-messaging">
+              <div className="flex items-center gap-3">
+                <MessageSquareMore className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Vision Board Messaging</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Create and manage messages displayed on users' Vision Board pages
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <VisionBoardMessagingSettings />
               </div>
             </AccordionContent>
           </AccordionItem>
