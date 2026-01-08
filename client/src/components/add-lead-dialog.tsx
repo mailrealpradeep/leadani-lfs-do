@@ -27,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, AlertTriangle, GitMerge, XCircle, Phone, MessageSquare, MapPin, ArrowRightLeft, Calendar, Clock, User } from "lucide-react";
+import { Loader2, AlertTriangle, GitMerge, XCircle, Phone, MessageSquare, MapPin, ArrowRightLeft, ArrowRight, Calendar, Clock, User } from "lucide-react";
 import { format } from "date-fns";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import type { Lead, CustomColumn, Sheet } from "@shared/schema";
