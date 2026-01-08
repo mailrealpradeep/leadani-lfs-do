@@ -692,6 +692,7 @@ export function LeadUpdateDialog({
                     <SelectContent>
                       <SelectItem value="call">Call</SelectItem>
                       <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                      <SelectItem value="visit">Visit</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />

@@ -127,6 +127,7 @@ import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRu
 import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
+import { NextFollowupDateDialog } from "./next-followup-date-dialog";
 import { UpdateHistoryHoverCard } from "./update-history-hover-card";
 import { LeadEditDialog } from "./lead-edit-dialog";
 import { TransitionExplanationDialog } from "./transition-explanation-dialog";
@@ -444,6 +445,8 @@ export function SpreadsheetGrid({
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
+  const [nextFollowupDialogOpen, setNextFollowupDialogOpen] = useState(false);
+  const [selectedLeadForNextFollowup, setSelectedLeadForNextFollowup] = useState<Lead | null>(null);
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -1664,6 +1667,49 @@ export function SpreadsheetGrid({
     },
   });
 
+  // Handler for next followup date dialog save
+  const handleNextFollowupDateSave = async (data: {
+    update_via: "call" | "whatsapp" | "visit";
+    remark: string;
+    next_followup_date: string;
+  }) => {
+    if (!selectedLeadForNextFollowup) return;
+
+    try {
+      // Get today's date in company timezone for update_on
+      const today = getCurrentDate();
+      const updateOn = format(today, "yyyy-MM-dd");
+
+      // Create lead update
+      await apiRequest("POST", `/api/leads/${selectedLeadForNextFollowup.id}/updates`, {
+        update_via: data.update_via,
+        remark: data.remark,
+        update_on: updateOn,
+      });
+
+      // Update next_followup_date
+      const updatedFields = {
+        ...selectedLeadForNextFollowup.custom_fields,
+        next_followup_date: data.next_followup_date,
+      };
+      await updateLeadMutation.mutateAsync({
+        leadId: selectedLeadForNextFollowup.id,
+        customFields: updatedFields,
+      });
+
+      toast({ title: "Next followup date updated successfully" });
+      setNextFollowupDialogOpen(false);
+      setSelectedLeadForNextFollowup(null);
+    } catch (error: any) {
+      toast({
+        title: "Failed to update next followup date",
+        description: error.message || "An error occurred",
+        variant: "destructive",
+      });
+      throw error;
+    }
+  };
+
   // Compute which leads are invalid based on validation rules
   // Store validation results with details for each invalid lead
   const leadValidationResults = useMemo(() => {
@@ -1878,6 +1924,13 @@ export function SpreadsheetGrid({
         description: `The value "${currentValue}" is protected. Only Admins can modify final values.`,
         variant: "destructive",
       });
+      return;
+    }
+    
+    // Special handling for next_followup_date - open dialog instead of date picker
+    if (columnKey === "next_followup_date") {
+      setSelectedLeadForNextFollowup(lead);
+      setNextFollowupDialogOpen(true);
       return;
     }
     
@@ -3106,6 +3159,21 @@ export function SpreadsheetGrid({
             }}
           />
         </>
+      )}
+      {selectedLeadForNextFollowup && (
+        <NextFollowupDateDialog
+          key={`next-followup-dialog-${selectedLeadForNextFollowup.id}`}
+          leadId={selectedLeadForNextFollowup.id}
+          currentDate={selectedLeadForNextFollowup.custom_fields?.next_followup_date || null}
+          open={nextFollowupDialogOpen}
+          onOpenChange={(open) => {
+            setNextFollowupDialogOpen(open);
+            if (!open) {
+              setSelectedLeadForNextFollowup(null);
+            }
+          }}
+          onSave={handleNextFollowupDateSave}
+        />
       )}
 
       {/* Lead Edit Dialog for Mobile */}

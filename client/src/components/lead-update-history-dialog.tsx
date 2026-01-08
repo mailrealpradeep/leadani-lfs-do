@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Trash2, Phone, MessageSquare, ArrowRightLeft } from "lucide-react";
+import { Trash2, Phone, MessageSquare, ArrowRightLeft, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -114,6 +114,8 @@ export function LeadUpdateHistoryDialog({
                           <Phone className="h-4 w-4 text-blue-500 shrink-0" />
                         ) : update.update_via === "whatsapp" ? (
                           <MessageSquare className="h-4 w-4 text-green-500 shrink-0" />
+                        ) : update.update_via === "visit" ? (
+                          <MapPin className="h-4 w-4 text-purple-500 shrink-0" />
                         ) : (
                           <ArrowRightLeft className="h-4 w-4 text-orange-500 shrink-0" />
                         )}

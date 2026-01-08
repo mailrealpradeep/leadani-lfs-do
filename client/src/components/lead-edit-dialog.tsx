@@ -36,6 +36,8 @@ import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 import { format, parse } from "date-fns";
 import type { Lead, CustomColumn, ValidationRule, DropdownOption } from "@shared/schema";
 import { evaluateCondition } from "@shared/validator";
+import { NextFollowupDateDialog } from "./next-followup-date-dialog";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 
 interface RequiredColumn {
   column_key: string;
@@ -98,6 +100,41 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       setEditingField(null);
     }
   }, [lead, open]);
+
+  // Handler for next followup date dialog save
+  const handleNextFollowupDateSave = async (data: {
+    update_via: "call" | "whatsapp" | "visit";
+    remark: string;
+    next_followup_date: string;
+  }) => {
+    if (!leadId) return;
+
+    try {
+      // Get today's date in company timezone for update_on
+      const today = getCurrentDate();
+      const updateOn = format(today, "yyyy-MM-dd");
+
+      // Create lead update
+      await apiRequest("POST", `/api/leads/${leadId}/updates`, {
+        update_via: data.update_via,
+        remark: data.remark,
+        update_on: updateOn,
+      });
+
+      // Update next_followup_date in form values
+      handleFieldChange("next_followup_date", data.next_followup_date);
+      setNextFollowupDialogOpen(false);
+
+      toast({ title: "Next followup date updated successfully" });
+    } catch (error: any) {
+      toast({
+        title: "Failed to update next followup date",
+        description: error.message || "An error occurred",
+        variant: "destructive",
+      });
+      throw error;
+    }
+  };
 
   const updateLeadMutation = useMutation({
     mutationFn: async (customFields: Record<string, any>) => {
@@ -508,6 +545,24 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
         );
 
       case "datetime":
+        // Special handling for next_followup_date - open dialog instead of date picker
+        if (column.column_key === "next_followup_date") {
+          const datetimeValue = normalizeDate(value);
+          return (
+            <Button
+              variant="outline"
+              className="w-full h-10 justify-start text-left font-normal border-primary"
+              onClick={() => {
+                setEditingField(null);
+                setNextFollowupDialogOpen(true);
+              }}
+            >
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {datetimeValue ? format(datetimeValue, "dd/MM/yy HH:mm") : `Select date & time`}
+            </Button>
+          );
+        }
+        // Regular datetime field handling
         const datetimeValue = normalizeDate(value);
         const currentTime = datetimeValue ? format(datetimeValue, "HH:mm") : "09:00";
         return (
@@ -1059,6 +1114,15 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
           </Button>
         </div>
       </SheetContent>
+      {leadId && (
+        <NextFollowupDateDialog
+          leadId={leadId}
+          currentDate={formValues.next_followup_date || null}
+          open={nextFollowupDialogOpen}
+          onOpenChange={setNextFollowupDialogOpen}
+          onSave={handleNextFollowupDateSave}
+        />
+      )}
     </Sheet>
   );
 }
