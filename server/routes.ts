@@ -14,6 +14,7 @@ import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths, sta
 import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartOfDayInTimezone, getEndOfDayInTimezone, getYesterdayRangeInTimezone, getMonthRangeInTimezone } from "./timezone-utils";
 import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConversionDates } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
+import { ensureLeadTransferRequestsTable } from "./migrations";
 import { validateLeadAgainstRules } from "@shared/validator";
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage } from "@shared/schema";
 import { evaluateCondition } from "./target-evaluator";
@@ -810,6 +811,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await seedClosingValueColumn();
   } catch (error) {
     console.error("Failed to seed closing_value column:", error);
+  }
+
+  // Ensure lead_transfer_requests table exists (PostgreSQL only)
+  if (process.env.DATABASE_URL) {
+    try {
+      await ensureLeadTransferRequestsTable();
+    } catch (error) {
+      console.error("Failed to ensure lead_transfer_requests table exists:", error);
+      // Don't fail startup - table might be created manually later
+    }
   }
 
   // Add last_edit and conversion_date system columns to existing companies
@@ -8149,12 +8160,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(400).json({ error: "lead_id, from_sheet_id, and to_sheet_id are required" });
       }
 
-      // Verify user has access to both sheets
-      const hasFromAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, from_sheet_id);
+      // Verify user has access to target sheet (where they want to transfer TO)
+      // Note: User doesn't need access to source sheet for a request - admin will handle the actual transfer
       const hasToAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, to_sheet_id);
       
-      if (!hasFromAccess || !hasToAccess) {
-        return res.status(403).json({ error: "Access denied to one or both sheets" });
+      if (!hasToAccess) {
+        return res.status(403).json({ error: "Access denied to target sheet" });
       }
 
       // Verify lead exists and belongs to from_sheet

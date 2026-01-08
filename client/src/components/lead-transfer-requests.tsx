@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Clock, Loader2, ArrowRightLeft, User, Calendar, Phone, MessageSquare, MapPin } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, Loader2, ArrowRightLeft, User, Calendar, Phone, MessageSquare, MapPin, Eye } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
+import { TransferRequestLeadDetailsDialog } from "./transfer-request-lead-details-dialog";
 
 interface TransferRequest {
   id: string;
@@ -46,6 +47,9 @@ export function LeadTransferRequests({ headless = false }: { headless?: boolean 
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<TransferRequest | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [leadDetailsDialogOpen, setLeadDetailsDialogOpen] = useState(false);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
 
   const { data: requests = [], isLoading } = useQuery<TransferRequest[]>({
     queryKey: ["/api/admin/lead-transfer-requests", statusFilter === "all" ? undefined : statusFilter],
@@ -110,6 +114,12 @@ export function LeadTransferRequests({ headless = false }: { headless?: boolean 
   const handleReject = (request: TransferRequest) => {
     setSelectedRequest(request);
     setRejectDialogOpen(true);
+  };
+
+  const handleViewDetails = (request: TransferRequest) => {
+    setSelectedLeadId(request.lead_id);
+    setSelectedSheetId(request.from_sheet_id);
+    setLeadDetailsDialogOpen(true);
   };
 
   const confirmApprove = () => {
@@ -178,7 +188,7 @@ export function LeadTransferRequests({ headless = false }: { headless?: boolean 
                   <CardContent className="pt-6">
                     <div className="space-y-4">
                       <div className="flex items-start justify-between">
-                        <div className="space-y-1">
+                        <div className="space-y-1 flex-1">
                           <div className="flex items-center gap-2">
                             <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
                             <span className="font-semibold">
@@ -190,25 +200,36 @@ export function LeadTransferRequests({ headless = false }: { headless?: boolean 
                             Mobile: {request.lead?.custom_fields?.mobile_no || "N/A"}
                           </p>
                         </div>
-                        {request.status === "pending" && (
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleReject(request)}
-                            >
-                              <XCircle className="h-4 w-4 mr-1" />
-                              Reject
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => handleApprove(request)}
-                            >
-                              <CheckCircle2 className="h-4 w-4 mr-1" />
-                              Approve
-                            </Button>
-                          </div>
-                        )}
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleViewDetails(request)}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            View Details
+                          </Button>
+                          {request.status === "pending" && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleReject(request)}
+                              >
+                                <XCircle className="h-4 w-4 mr-1" />
+                                Reject
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleApprove(request)}
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-1" />
+                                Approve
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-4 text-sm">
@@ -327,6 +348,21 @@ export function LeadTransferRequests({ headless = false }: { headless?: boolean 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {selectedLeadId && selectedSheetId && (
+        <TransferRequestLeadDetailsDialog
+          leadId={selectedLeadId}
+          sheetId={selectedSheetId}
+          open={leadDetailsDialogOpen}
+          onOpenChange={(open) => {
+            setLeadDetailsDialogOpen(open);
+            if (!open) {
+              setSelectedLeadId(null);
+              setSelectedSheetId(null);
+            }
+          }}
+        />
+      )}
     </div>
   );
 
