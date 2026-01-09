@@ -59,6 +59,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
   const [originalValues, setOriginalValues] = useState<Record<string, any>>({});
   const [editingField, setEditingField] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState<string | null>(null);
+  const [nextFollowupDialogOpen, setNextFollowupDialogOpen] = useState(false);
   
   // Validation state
   const [triggeredRule, setTriggeredRule] = useState<ValidationRule | null>(null);
