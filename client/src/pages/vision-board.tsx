@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -6,6 +6,7 @@ import {
   Sparkles, 
   TrendingUp,
   Calendar,
+  CalendarIcon,
   DollarSign,
   Clock,
   ChevronLeft,
@@ -47,6 +48,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import type { VisionBoard, VisionBoardEarning, CompanyHoliday, VisionBoardMessage } from "@shared/schema";
@@ -1982,6 +1986,9 @@ function EditVisionWizard({
 export default function VisionBoardPage() {
   const { user, company } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("daily");
+  const [conversionDateFilter, setConversionDateFilter] = useState<"all_time" | "this_week" | "last_week" | "this_month" | "last_month" | "last_30_days" | "custom">("last_30_days");
+  const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
+  const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   
   // Helper to scale yearly targets based on selected period
   // Uses same Math.ceil logic as existing yearlyToMonthly/Weekly/Daily helpers
@@ -2107,6 +2114,62 @@ export default function VisionBoardPage() {
   const currentYear = new Date().getFullYear();
   const { data: holidays = [] } = useQuery<CompanyHoliday[]>({
     queryKey: ["/api/holidays"],
+    enabled: !!user?.company_id,
+  });
+
+  // Fetch conversion performance data
+  interface ConversionPerformanceData {
+    company: {
+      user_name: string;
+      stage_i_count: number;
+      stages: Array<{
+        stage_id: string;
+        stage_name: string;
+        stage_number: number;
+        count: number;
+        conversion_percent_from_stage_i: number;
+      }>;
+      overall_percent: number;
+    } | null;
+    sheets: Array<{
+      sheet_id: string;
+      sheet_name: string;
+      stage_i_count: number;
+      stages: Array<{
+        stage_id: string;
+        stage_name: string;
+        stage_number: number;
+        count: number;
+        conversion_percent_from_stage_i: number;
+      }>;
+      overall_percent: number;
+    }>;
+    stages_config: Array<{
+      stage_id: string;
+      stage_number: number;
+      stage_name: string;
+      color: string;
+    }>;
+  }
+
+  const { data: conversionPerformance, isLoading: conversionPerformanceLoading, error: conversionPerformanceError } = useQuery<ConversionPerformanceData>({
+    queryKey: ["/api/vision-board/conversion-performance", conversionDateFilter, customStartDate?.toISOString(), customEndDate?.toISOString()],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.append("dateFilter", conversionDateFilter);
+      if (conversionDateFilter === "custom" && customStartDate && customEndDate) {
+        params.append("startDate", customStartDate.toISOString());
+        params.append("endDate", customEndDate.toISOString());
+      }
+      const res = await fetch(`/api/vision-board/conversion-performance?${params.toString()}`, {
+        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+        },
+      });
+      if (!res.ok) throw new Error("Failed to fetch conversion performance");
+      return res.json();
+    },
     enabled: !!user?.company_id,
   });
 
@@ -2645,6 +2708,220 @@ export default function VisionBoardPage() {
                     );
                   })}
                 </div>
+              </motion.div>
+            )}
+
+            {/* Conversion Performance Table */}
+            {(conversionPerformance || conversionPerformanceLoading || conversionPerformanceError) && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+                className="mt-6"
+              >
+                <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <Activity className="h-5 w-5 text-blue-500" />
+                        Conversion Performance
+                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={conversionDateFilter}
+                          onValueChange={(v) => setConversionDateFilter(v as typeof conversionDateFilter)}
+                        >
+                          <SelectTrigger className="w-[180px] h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all_time">All Time</SelectItem>
+                            <SelectItem value="this_week">This Week</SelectItem>
+                            <SelectItem value="last_week">Last Week</SelectItem>
+                            <SelectItem value="this_month">This Month</SelectItem>
+                            <SelectItem value="last_month">Last Month</SelectItem>
+                            <SelectItem value="last_30_days">Last 30 Days</SelectItem>
+                            <SelectItem value="custom">Custom Range</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {conversionDateFilter === "custom" && (
+                          <div className="flex items-center gap-2">
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-[140px] justify-start text-left font-normal text-xs"
+                                >
+                                  <CalendarIcon className="h-3 w-3 mr-2" />
+                                  {customStartDate ? format(customStartDate, "dd/MM/yyyy") : "Start date"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <CalendarComponent
+                                  mode="single"
+                                  selected={customStartDate}
+                                  onSelect={setCustomStartDate}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                            <span className="text-xs text-muted-foreground">to</span>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-[140px] justify-start text-left font-normal text-xs"
+                                >
+                                  <CalendarIcon className="h-3 w-3 mr-2" />
+                                  {customEndDate ? format(customEndDate, "dd/MM/yyyy") : "End date"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <CalendarComponent
+                                  mode="single"
+                                  selected={customEndDate}
+                                  onSelect={setCustomEndDate}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {conversionPerformanceLoading ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                      </div>
+                    ) : conversionPerformanceError ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-destructive" />
+                        <p>Failed to load conversion performance data</p>
+                        <p className="text-xs mt-1">{conversionPerformanceError.message}</p>
+                      </div>
+                    ) : !conversionPerformance || (!conversionPerformance.company && conversionPerformance.sheets.length === 0) ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>No conversion performance data available</p>
+                        <p className="text-xs mt-1">Conversion settings may not be configured</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="font-semibold sticky left-0 bg-background z-10">Sheet</TableHead>
+                              <TableHead className="font-semibold text-center">
+                                {(() => {
+                                  // Get Stage I name from stages_config
+                                  const stageI = conversionPerformance.stages_config?.find(s => s.stage_number === 1);
+                                  return stageI?.stage_name || "Stage I";
+                                })()}
+                              </TableHead>
+                              {(() => {
+                                // Get stages from company or first sheet to determine headers
+                                const stagesForHeader = conversionPerformance.company?.stages || conversionPerformance.sheets[0]?.stages || [];
+                                // Find the last stage number to determine if current stage is the last
+                                const maxStageNumber = Math.max(...(conversionPerformance.stages_config?.map(s => s.stage_number) || [1]));
+                                
+                                return stagesForHeader.map((stage) => {
+                                  const stageConfig = conversionPerformance.stages_config?.find(s => s.stage_id === stage.stage_id);
+                                  const stageColor = stageConfig?.color || '#3b82f6';
+                                  
+                                  // Find previous stage for conversion path
+                                  const previousStageNumber = stage.stage_number - 1;
+                                  const previousStage = conversionPerformance.stages_config?.find(s => s.stage_number === previousStageNumber);
+                                  // Use "Lead" when previous stage is Stage I, otherwise use the stage name
+                                  const previousStageName = previousStageNumber === 1 ? "Lead" : (previousStage?.stage_name || "Previous");
+                                  
+                                  // Use "Conv." for the last stage, otherwise use full stage name
+                                  const currentStageName = stage.stage_number === maxStageNumber ? "Conv." : stage.stage_name;
+                                  const conversionPath = `${previousStageName} to ${currentStageName}`;
+                                  
+                                  return (
+                                    <React.Fragment key={stage.stage_id}>
+                                      <TableHead className="font-semibold text-center" style={{ color: stageColor, borderColor: `${stageColor}40` }}>
+                                        {stage.stage_name}
+                                      </TableHead>
+                                      <TableHead className="font-semibold text-center" style={{ color: stageColor, borderColor: `${stageColor}40` }}>
+                                        {conversionPath}
+                                      </TableHead>
+                                    </React.Fragment>
+                                  );
+                                });
+                              })()}
+                              <TableHead className="font-semibold text-center">Lead to Conv.</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {/* Company Row - Only for Admins */}
+                            {conversionPerformance.company && (
+                              <TableRow className="bg-muted/50 font-semibold">
+                                <TableCell className="font-bold sticky left-0 bg-muted/50 z-10">
+                                  {conversionPerformance.company.user_name}
+                                </TableCell>
+                                <TableCell className="text-center font-semibold">
+                                  {conversionPerformance.company.stage_i_count.toLocaleString()}
+                                </TableCell>
+                                {conversionPerformance.company.stages.map((stage) => {
+                                  const stageConfig = conversionPerformance.stages_config?.find(s => s.stage_id === stage.stage_id);
+                                  const stageColor = stageConfig?.color || '#3b82f6';
+                                  return (
+                                    <React.Fragment key={stage.stage_id}>
+                                      <TableCell className="text-center" style={{ borderColor: `${stageColor}20` }}>
+                                        {stage.count.toLocaleString()}
+                                      </TableCell>
+                                      <TableCell className="text-center" style={{ borderColor: `${stageColor}20` }}>
+                                        {stage.conversion_percent_from_stage_i.toFixed(1)}%
+                                      </TableCell>
+                                    </React.Fragment>
+                                  );
+                                })}
+                                <TableCell className="text-center font-semibold">
+                                  {conversionPerformance.company.overall_percent.toFixed(1)}%
+                                </TableCell>
+                              </TableRow>
+                            )}
+                            {/* Sheet Rows */}
+                            {conversionPerformance.sheets.map((sheet) => (
+                              <TableRow key={sheet.sheet_id}>
+                                <TableCell className="sticky left-0 bg-background z-10">
+                                  <span className="font-medium">{sheet.sheet_name}</span>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {sheet.stage_i_count.toLocaleString()}
+                                </TableCell>
+                                {sheet.stages.map((stage) => {
+                                  const stageConfig = conversionPerformance.stages_config?.find(s => s.stage_id === stage.stage_id);
+                                  const stageColor = stageConfig?.color || '#3b82f6';
+                                  return (
+                                    <React.Fragment key={stage.stage_id}>
+                                      <TableCell className="text-center" style={{ borderColor: `${stageColor}20` }}>
+                                        {stage.count.toLocaleString()}
+                                      </TableCell>
+                                      <TableCell className="text-center" style={{ borderColor: `${stageColor}20` }}>
+                                        {stage.conversion_percent_from_stage_i.toFixed(1)}%
+                                      </TableCell>
+                                    </React.Fragment>
+                                  );
+                                })}
+                                <TableCell className="text-center">
+                                  {sheet.overall_percent.toFixed(1)}%
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </motion.div>
             )}
             

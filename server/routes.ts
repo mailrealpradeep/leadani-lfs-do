@@ -11,7 +11,7 @@ import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths, startOfWeek, endOfWeek, subWeeks } from "date-fns";
-import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartOfDayInTimezone, getEndOfDayInTimezone, getYesterdayRangeInTimezone, getMonthRangeInTimezone } from "./timezone-utils";
+import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartOfDayInTimezone, getEndOfDayInTimezone, getYesterdayRangeInTimezone, getMonthRangeInTimezone, getWeekRangeInTimezone, getLastWeekRangeInTimezone, getLastMonthRangeInTimezone } from "./timezone-utils";
 import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConversionDates } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
@@ -22109,6 +22109,345 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       });
     } catch (error: any) {
       console.error("Error fetching user pipeline for vision board:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get conversion performance table data for Vision Board
+  app.get("/api/vision-board/conversion-performance", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { dateFilter, startDate, endDate } = req.query;
+      
+      // Get company for timezone
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+      const timezone = getCompanyTimezone(company);
+      
+      // Get conversion settings
+      const settings = await storage.getConversionSettingsComplete(req.companyId);
+      if (!settings || !settings.config || settings.stages.length === 0) {
+        const emptyStagesConfig: any[] = [];
+        return res.json({ company: null, sheets: [], stages_config: emptyStagesConfig });
+      }
+
+      // Define sortedStages at top level - accessible throughout the endpoint
+      const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
+
+      // Calculate date range based on filter
+      let dateRange: { startDate: Date; endDate: Date } | undefined;
+      const today = getStartOfDayInTimezone(new Date(), timezone);
+      const todayEnd = getEndOfDayInTimezone(new Date(), timezone);
+
+      if (dateFilter === 'all_time') {
+        // No date filtering - show all time data
+        dateRange = undefined;
+      } else if (dateFilter === 'custom' && startDate && endDate) {
+        dateRange = {
+          startDate: getStartOfDayInTimezone(new Date(startDate as string), timezone),
+          endDate: getEndOfDayInTimezone(new Date(endDate as string), timezone),
+        };
+      } else if (dateFilter === 'this_week') {
+        const weekRange = getWeekRangeInTimezone(timezone);
+        dateRange = { startDate: weekRange.start, endDate: weekRange.end };
+      } else if (dateFilter === 'last_week') {
+        const lastWeekRange = getLastWeekRangeInTimezone(timezone);
+        dateRange = { startDate: lastWeekRange.start, endDate: lastWeekRange.end };
+      } else if (dateFilter === 'this_month') {
+        const monthRange = getMonthRangeInTimezone(timezone);
+        dateRange = { startDate: monthRange.start, endDate: monthRange.end };
+      } else if (dateFilter === 'last_month') {
+        const lastMonthRange = getLastMonthRangeInTimezone(timezone);
+        dateRange = { startDate: lastMonthRange.start, endDate: lastMonthRange.end };
+      } else if (dateFilter === 'last_30_days' || !dateFilter) {
+        // Default to last 30 days
+        const last30Start = new Date(today);
+        last30Start.setDate(last30Start.getDate() - 29);
+        dateRange = {
+          startDate: getStartOfDayInTimezone(last30Start, timezone),
+          endDate: todayEnd,
+        };
+      }
+
+      // Get current user's sheets
+      const currentUserSheets = await storage.getSheetsByUserId(req.userId!);
+      const nonPersonalSheets = currentUserSheets.filter(s => !s.is_personal && !s.deleted_at);
+
+      // Check if user is admin (for company aggregate calculation)
+      const isAdmin = req.userRole === 'super_admin' || req.userRole === 'company_admin';
+
+      // Get eligible users for company aggregate (only needed for admins)
+      let eligibleUsers: any[] = [];
+      if (isAdmin) {
+        const allUsers = await storage.getUsersByCompanyId(req.companyId);
+        for (const user of allUsers) {
+          // Skip admin users
+          if (user.role === 'super_admin' || user.role === 'company_admin') {
+            continue;
+          }
+          
+          // Check for multi-sheet users
+          const isMultiSheet = await storage.isMultiSheetUser(user.id);
+          if (isMultiSheet) {
+            continue;
+          }
+          
+          // Only include single-sheet, non-admin users
+          const userSheets = await storage.getSheetsByUserId(user.id);
+          const nonPersonalUserSheets = userSheets.filter(s => !s.is_personal);
+          if (nonPersonalUserSheets.length > 0) {
+            eligibleUsers.push(user);
+          }
+        }
+      }
+
+      // Helper function to calculate conversion performance for a sheet
+      const calculateSheetPerformance = async (sheetId: string, sheetName: string): Promise<any> => {
+        const metrics = await getUserPipelineMetricsForSheet(req.companyId, req.userId!, sheetId, dateRange);
+        if (!metrics || !metrics.stages || !Array.isArray(metrics.stages)) {
+          return null;
+        }
+        
+        // Use top-level sortedStages - validate it's not empty
+        if (sortedStages.length === 0) {
+          return null;
+        }
+        
+        const firstStage = sortedStages[0];
+        const lastStage = sortedStages[sortedStages.length - 1];
+        
+        if (!firstStage || !lastStage) {
+          return null;
+        }
+        
+        const firstStageMetric = metrics.stages.find(s => s.stage_id === firstStage.id);
+        const stageICount = firstStageMetric?.count || 0;
+        
+        const sheetStages: any[] = [];
+        let previousStageCount = stageICount; // Start with Stage I count
+        
+        for (const stage of sortedStages) {
+          if (stage.stage_number === 1) continue; // Skip Stage I in stages array
+          
+          const stageMetric = metrics.stages.find(s => s.stage_id === stage.id);
+          const stageCount = stageMetric?.count || 0;
+          
+          // Calculate from previous stage (Stage 2 from Stage I, Stage 3 from Stage 2, etc.)
+          const conversionPercent = previousStageCount > 0 
+            ? (stageCount / previousStageCount) * 100 
+            : 0;
+          
+          sheetStages.push({
+            stage_id: stage.id,
+            stage_name: stage.stage_name,
+            stage_number: stage.stage_number,
+            count: stageCount,
+            conversion_percent_from_stage_i: parseFloat(conversionPercent.toFixed(1)),
+          });
+          
+          // Update previous stage count for next iteration
+          previousStageCount = stageCount;
+        }
+        
+        const lastStageMetric = metrics.stages.find(s => s.stage_id === lastStage.id);
+        const lastStageCount = lastStageMetric?.count || 0;
+        const overallPercent = stageICount > 0
+          ? parseFloat(((lastStageCount / stageICount) * 100).toFixed(1))
+          : 0;
+        
+        return {
+          sheet_id: sheetId,
+          sheet_name: sheetName,
+          stage_i_count: stageICount,
+          stages: sheetStages,
+          overall_percent: overallPercent,
+        };
+      };
+
+      // Helper function to calculate conversion performance for a user (for company aggregate)
+      const calculateUserPerformance = async (userId: string | null): Promise<any> => {
+        if (!userId) {
+          // Company aggregate - sum across all eligible users
+          // First, get all user metrics in parallel
+          const userMetricsPromises = eligibleUsers.map(user => getUserPipelineMetrics(req.companyId, user.id, dateRange));
+          const userMetricsResults = await Promise.all(userMetricsPromises);
+          
+          // Use top-level sortedStages
+          const companyStages: any[] = [];
+          let companyStageICount = 0;
+          
+          // Aggregate counts for each stage
+          for (const stage of sortedStages) {
+            let stageCount = 0;
+            
+            for (const metrics of userMetricsResults) {
+              if (!metrics || !metrics.stages || !Array.isArray(metrics.stages)) continue;
+              const stageMetric = metrics.stages.find(s => s.stage_id === stage.id);
+              if (stageMetric) {
+                stageCount += stageMetric.count;
+                if (stage.stage_number === 1) {
+                  companyStageICount += stageMetric.count;
+                }
+              }
+            }
+            
+            companyStages.push({
+              stage_id: stage.id,
+              stage_name: stage.stage_name,
+              stage_number: stage.stage_number,
+              count: stageCount,
+            });
+          }
+          
+          // Calculate conversion percentages from previous stage
+          // Stage 2 uses Stage I, Stage 3 uses Stage 2, etc.
+          const companyStagesWithPercent = companyStages.map((stage, index) => {
+            let denominator = 0;
+            if (index === 0) {
+              // First stage after Stage I - use Stage I count
+              denominator = companyStageICount;
+            } else {
+              // Use previous stage's count
+              denominator = companyStages[index - 1].count;
+            }
+            
+            const conversionPercent = denominator > 0 
+              ? (stage.count / denominator) * 100 
+              : 0;
+            
+            return {
+              ...stage,
+              conversion_percent_from_stage_i: parseFloat(conversionPercent.toFixed(1)),
+            };
+          });
+          
+          // Handle empty stages array
+          if (companyStagesWithPercent.length === 0) {
+            return {
+              user_name: "Company",
+              stage_i_count: 0,
+              stages: [],
+              overall_percent: 0,
+            };
+          }
+          
+          const lastStage = companyStagesWithPercent[companyStagesWithPercent.length - 1];
+          // Overall is Last Stage / First Stage (Stage I), not Last Stage / Stage 2
+          const overallPercent = (lastStage && companyStageICount > 0)
+            ? parseFloat(((lastStage.count / companyStageICount) * 100).toFixed(1))
+            : 0;
+          
+          return {
+            user_name: "Company",
+            stage_i_count: companyStageICount,
+            stages: companyStagesWithPercent.filter(s => s.stage_number > 1), // Exclude Stage I from stages array
+            overall_percent: overallPercent,
+          };
+        } else {
+          // Individual user
+          const metrics = await getUserPipelineMetrics(req.companyId, userId, dateRange);
+          if (!metrics || !metrics.stages || !Array.isArray(metrics.stages)) {
+            return null;
+          }
+          
+          const user = eligibleUsers.find(u => u.id === userId);
+          if (!user) return null;
+          
+          // Use top-level sortedStages - validate it's not empty
+          if (sortedStages.length === 0) {
+            return null;
+          }
+          
+          const firstStage = sortedStages[0];
+          const lastStage = sortedStages[sortedStages.length - 1];
+          
+          if (!firstStage || !lastStage) {
+            return null;
+          }
+          
+          const firstStageMetric = metrics.stages.find(s => s.stage_id === firstStage.id);
+          const stageICount = firstStageMetric?.count || 0;
+          
+          const userStages: any[] = [];
+          let previousStageCount = stageICount; // Start with Stage I count
+          
+          for (const stage of sortedStages) {
+            if (stage.stage_number === 1) continue; // Skip Stage I in stages array
+            
+            const stageMetric = metrics.stages.find(s => s.stage_id === stage.id);
+            const stageCount = stageMetric?.count || 0;
+            
+            // Calculate from previous stage (Stage 2 from Stage I, Stage 3 from Stage 2, etc.)
+            const conversionPercent = previousStageCount > 0 
+              ? (stageCount / previousStageCount) * 100 
+              : 0;
+            
+            userStages.push({
+              stage_id: stage.id,
+              stage_name: stage.stage_name,
+              stage_number: stage.stage_number,
+              count: stageCount,
+              conversion_percent_from_stage_i: parseFloat(conversionPercent.toFixed(1)),
+            });
+            
+            // Update previous stage count for next iteration
+            previousStageCount = stageCount;
+          }
+          
+          const lastStageMetric = metrics.stages.find(s => s.stage_id === lastStage.id);
+          const lastStageCount = lastStageMetric?.count || 0;
+          const overallPercent = stageICount > 0
+            ? parseFloat(((lastStageCount / stageICount) * 100).toFixed(1))
+            : 0;
+          
+          return {
+            user_id: user.id,
+            user_name: user.name,
+            user_email: user.email,
+            stage_i_count: stageICount,
+            stages: userStages,
+            overall_percent: overallPercent,
+          };
+        }
+      };
+
+      // Calculate company aggregate (only for admins)
+      let companyData = null;
+      if (isAdmin) {
+        companyData = await calculateUserPerformance(null);
+      }
+      
+      // Calculate sheet performance for current user's sheets
+      const sheetDataPromises = nonPersonalSheets.map(sheet => 
+        calculateSheetPerformance(sheet.id, sheet.name)
+      );
+      const sheetDataResults = await Promise.all(sheetDataPromises);
+      const sheetData = sheetDataResults.filter(s => s !== null);
+
+      // Get stage colors from settings - validate sortedStages is not empty
+      if (!sortedStages || sortedStages.length === 0) {
+        return res.json({ company: null, sheets: [], stages_config: [] });
+      }
+      
+      const stagesConfig = sortedStages.map(s => ({
+        stage_id: s.id,
+        stage_number: s.stage_number,
+        stage_name: s.stage_name,
+        color: s.color,
+      }));
+
+      res.json({
+        company: companyData,
+        sheets: sheetData,
+        stages_config: stagesConfig,
+      });
+    } catch (error: any) {
+      console.error("Error fetching conversion performance:", error);
       res.status(500).json({ error: error.message });
     }
   });
