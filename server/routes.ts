@@ -22706,9 +22706,21 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // Get all users for this company (including admins and multi-sheet users)
       const allUsers = await storage.getUsersByCompanyId(req.companyId);
       
-      // Filter to users with at least one non-personal sheet assignment
+      // Filter to single-sheet, non-admin users with at least one non-personal sheet assignment
       const eligibleUsers: typeof allUsers = [];
       for (const user of allUsers) {
+        // Skip admin users
+        if (user.role === 'super_admin' || user.role === 'company_admin') {
+          continue;
+        }
+        
+        // Check for multi-sheet users
+        const isMultiSheet = await storage.isMultiSheetUser(user.id);
+        if (isMultiSheet) {
+          continue;
+        }
+        
+        // Only include single-sheet, non-admin users
         const userSheets = await storage.getSheetsByUserId(user.id);
         const nonPersonalSheets = userSheets.filter(s => !s.is_personal);
         if (nonPersonalSheets.length > 0) {
