@@ -1,4 +1,4 @@
-// LeadAni LFS Service Worker for Push Notifications
+// Leadani LFS Service Worker for Push Notifications
 
 const CACHE_NAME = 'leadani-v1';
 const urlsToCache = [
@@ -44,7 +44,7 @@ self.addEventListener('push', (event) => {
     ]
   };
 
-  let notificationData = { title: 'LeadAni', body: 'You have a new notification' };
+  let notificationData = { title: 'Leadani', body: 'You have a new notification' };
   
   if (event.data) {
     try {
