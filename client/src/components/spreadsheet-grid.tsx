@@ -1671,6 +1671,7 @@ export function SpreadsheetGrid({
   const handleNextFollowupDateSave = async (data: {
     update_via: "call" | "whatsapp" | "visit";
     remark: string;
+    lead_status?: string | null;
     next_followup_date?: string | null;
   }) => {
     if (!selectedLeadForNextFollowup) return;
@@ -1687,11 +1688,17 @@ export function SpreadsheetGrid({
         update_on: updateOn,
       });
 
-      // Update next_followup_date (always update, even if empty to clear the field)
+      // Update next_followup_date and lead_status (always update, even if empty to clear the field)
       const updatedFields = {
         ...selectedLeadForNextFollowup.custom_fields,
         next_followup_date: data.next_followup_date || null,
       };
+      
+      // Update lead_status if provided
+      if (data.lead_status !== undefined) {
+        updatedFields.lead_status = data.lead_status || null;
+      }
+      
       await updateLeadMutation.mutateAsync({
         leadId: selectedLeadForNextFollowup.id,
         customFields: updatedFields,
@@ -3164,6 +3171,8 @@ export function SpreadsheetGrid({
         <NextFollowupDateDialog
           key={`next-followup-dialog-${selectedLeadForNextFollowup.id}`}
           leadId={selectedLeadForNextFollowup.id}
+          lead={selectedLeadForNextFollowup}
+          sheetId={activeSheetId || undefined}
           currentDate={selectedLeadForNextFollowup.custom_fields?.next_followup_date || null}
           open={nextFollowupDialogOpen}
           onOpenChange={(open) => {

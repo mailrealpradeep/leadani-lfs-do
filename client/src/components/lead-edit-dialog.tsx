@@ -106,6 +106,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
   const handleNextFollowupDateSave = async (data: {
     update_via: "call" | "whatsapp" | "visit";
     remark: string;
+    lead_status?: string | null;
     next_followup_date?: string | null;
   }) => {
     if (!leadId) return;
@@ -124,6 +125,11 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
 
       // Update next_followup_date in form values (always update, even if empty to clear the field)
       handleFieldChange("next_followup_date", data.next_followup_date || null);
+      
+      // Update lead_status if provided
+      if (data.lead_status !== undefined) {
+        handleFieldChange("lead_status", data.lead_status || null);
+      }
 
       setNextFollowupDialogOpen(false);
 
@@ -1116,9 +1122,11 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
           </Button>
         </div>
       </SheetContent>
-      {leadId && (
+      {leadId && lead && (
         <NextFollowupDateDialog
           leadId={leadId}
+          lead={lead}
+          sheetId={sheetId}
           currentDate={formValues.next_followup_date || null}
           open={nextFollowupDialogOpen}
           onOpenChange={setNextFollowupDialogOpen}

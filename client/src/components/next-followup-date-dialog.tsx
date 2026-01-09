@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
+import type { Lead, CustomColumn } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -33,24 +35,43 @@ import { Input } from "@/components/ui/input";
 import { Calendar as CalendarIcon, Clock } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 
-const nextFollowupDateSchema = z.object({
-  remark: z.string().min(1, "Discussion details are required"),
-  update_via: z.enum(["call", "whatsapp", "visit"], {
-    required_error: "Please select how it was discussed",
-  }),
-  next_followup_date: z.string().optional(),
-});
+const createNextFollowupDateSchema = () => {
+  return z.object({
+    remark: z.string().min(1, "Discussion details are required"),
+    update_via: z.enum(["call", "whatsapp", "visit"], {
+      required_error: "Please select how it was discussed",
+    }),
+    lead_status: z.string().optional(),
+    next_followup_date: z.string().optional(),
+  }).superRefine((data, ctx) => {
+    // Conditional validation: next_followup_date is required unless lead_status is one of the optional statuses
+    const optionalStatuses = ["Not Interested", "Invalid Data", "Lost"];
+    const leadStatus = data.lead_status || "";
+    
+    if (!optionalStatuses.includes(leadStatus) && !data.next_followup_date) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Next Followup Date is required",
+        path: ["next_followup_date"],
+      });
+    }
+  });
+};
 
-type NextFollowupDateFormData = z.infer<typeof nextFollowupDateSchema>;
+const baseNextFollowupDateSchema = createNextFollowupDateSchema();
+type NextFollowupDateFormData = z.infer<typeof baseNextFollowupDateSchema>;
 
 interface NextFollowupDateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   leadId: string;
+  lead?: Lead | null; // Lead object with custom_fields
+  sheetId?: string; // Sheet ID to fetch columns
   currentDate?: string | null; // ISO datetime string or null
   onSave: (data: {
     update_via: "call" | "whatsapp" | "visit";
     remark: string;
+    lead_status?: string | null;
     next_followup_date?: string | null; // ISO datetime string, optional
   }) => Promise<void>;
 }
@@ -59,12 +80,44 @@ export function NextFollowupDateDialog({
   open,
   onOpenChange,
   leadId,
+  lead,
+  sheetId,
   currentDate,
   onSave,
 }: NextFollowupDateDialogProps) {
   const { getCurrentDate } = useCompanyTimezone();
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Fetch columns to get lead_status column and its dropdown options
+  // Use lead's sheet_id if sheetId prop is not provided
+  const effectiveSheetId = sheetId || lead?.sheet_id;
+  const { data: columns = [] } = useQuery<CustomColumn[]>({
+    queryKey: effectiveSheetId ? ["/api/sheets", effectiveSheetId, "columns"] : ["/api/company/columns"],
+    enabled: open,
+  });
+
+  // Find lead_status column
+  const leadStatusColumn = useMemo(() => {
+    return columns.find((col) => col.column_key === "lead_status");
+  }, [columns]);
+
+  // Get dropdown options for lead_status
+  const leadStatusOptions = useMemo(() => {
+    if (!leadStatusColumn?.config?.dropdown_options) return [];
+    return leadStatusColumn.config.dropdown_options;
+  }, [leadStatusColumn]);
+
+  // Get current lead status from lead object
+  const currentLeadStatus = useMemo(() => {
+    return lead?.custom_fields?.lead_status || "";
+  }, [lead]);
+
+  // Create schema for validation
+  const nextFollowupDateSchema = useMemo(
+    () => createNextFollowupDateSchema(),
+    []
+  );
 
   const normalizeDate = (value: any): Date | undefined => {
     if (!value) return undefined;
@@ -85,22 +138,25 @@ export function NextFollowupDateDialog({
     defaultValues: {
       remark: "",
       update_via: "call",
+      lead_status: currentLeadStatus || "",
       next_followup_date: currentDate || "",
     },
   });
 
-  // Reset form when dialog opens/closes or currentDate changes
+  // Reset form when dialog opens/closes or currentDate/lead changes
   useEffect(() => {
     if (open) {
       const dateValue = currentDate || "";
+      const statusValue = currentLeadStatus || "";
       form.reset({
         remark: "",
         update_via: "call",
+        lead_status: statusValue,
         next_followup_date: dateValue,
       });
       setDatePickerOpen(false);
     }
-  }, [open, currentDate, form]);
+  }, [open, currentDate, currentLeadStatus, form]);
 
   const datetimeValue = normalizeDate(form.watch("next_followup_date"));
   const currentTime = datetimeValue ? format(datetimeValue, "HH:mm") : "09:00";
@@ -132,6 +188,7 @@ export function NextFollowupDateDialog({
       await onSave({
         update_via: data.update_via,
         remark: data.remark,
+        lead_status: data.lead_status || null,
         next_followup_date: data.next_followup_date || undefined,
       });
       onOpenChange(false);
@@ -141,6 +198,16 @@ export function NextFollowupDateDialog({
       setIsSaving(false);
     }
   };
+
+  // Watch lead_status to trigger validation when it changes
+  const watchedLeadStatus = form.watch("lead_status");
+  
+  // Trigger validation when lead_status changes
+  useEffect(() => {
+    if (watchedLeadStatus !== undefined) {
+      form.trigger("next_followup_date");
+    }
+  }, [watchedLeadStatus, form]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -193,12 +260,47 @@ export function NextFollowupDateDialog({
               )}
             />
 
+            {leadStatusColumn && (
+              <FormField
+                control={form.control}
+                name="lead_status"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Lead Status</FormLabel>
+                    <Select value={field.value || ""} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-lead-status">
+                          <SelectValue placeholder="Select lead status" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {leadStatusOptions.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
             <FormField
               control={form.control}
               name="next_followup_date"
-              render={({ field }) => (
+              render={({ field }) => {
+                const currentStatus = form.watch("lead_status");
+                const optionalStatuses = ["Not Interested", "Invalid Data", "Lost"];
+                const isOptional = currentStatus && optionalStatuses.includes(currentStatus);
+                
+                return (
                 <FormItem>
-                  <FormLabel>Next Followup Date</FormLabel>
+                  <FormLabel>
+                    Next Followup Date
+                    {isOptional && <span className="text-muted-foreground font-normal ml-1">(Optional)</span>}
+                  </FormLabel>
                   <FormControl>
                     <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                       <PopoverTrigger asChild>
@@ -265,7 +367,8 @@ export function NextFollowupDateDialog({
                   </FormControl>
                   <FormMessage />
                 </FormItem>
-              )}
+              );
+              }}
             />
 
             <DialogFooter>
