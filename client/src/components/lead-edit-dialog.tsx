@@ -106,7 +106,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
   const handleNextFollowupDateSave = async (data: {
     update_via: "call" | "whatsapp" | "visit";
     remark: string;
-    next_followup_date: string;
+    next_followup_date?: string | null;
   }) => {
     if (!leadId) return;
 
@@ -122,8 +122,9 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
         update_on: updateOn,
       });
 
-      // Update next_followup_date in form values
-      handleFieldChange("next_followup_date", data.next_followup_date);
+      // Update next_followup_date in form values (always update, even if empty to clear the field)
+      handleFieldChange("next_followup_date", data.next_followup_date || null);
+
       setNextFollowupDialogOpen(false);
 
       toast({ title: "Next followup date updated successfully" });

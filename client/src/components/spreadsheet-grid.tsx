@@ -1671,7 +1671,7 @@ export function SpreadsheetGrid({
   const handleNextFollowupDateSave = async (data: {
     update_via: "call" | "whatsapp" | "visit";
     remark: string;
-    next_followup_date: string;
+    next_followup_date?: string | null;
   }) => {
     if (!selectedLeadForNextFollowup) return;
 
@@ -1687,10 +1687,10 @@ export function SpreadsheetGrid({
         update_on: updateOn,
       });
 
-      // Update next_followup_date
+      // Update next_followup_date (always update, even if empty to clear the field)
       const updatedFields = {
         ...selectedLeadForNextFollowup.custom_fields,
-        next_followup_date: data.next_followup_date,
+        next_followup_date: data.next_followup_date || null,
       };
       await updateLeadMutation.mutateAsync({
         leadId: selectedLeadForNextFollowup.id,

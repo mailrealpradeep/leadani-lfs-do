@@ -38,7 +38,7 @@ const nextFollowupDateSchema = z.object({
   update_via: z.enum(["call", "whatsapp", "visit"], {
     required_error: "Please select how it was discussed",
   }),
-  next_followup_date: z.string().min(1, "Next followup date is required"),
+  next_followup_date: z.string().optional(),
 });
 
 type NextFollowupDateFormData = z.infer<typeof nextFollowupDateSchema>;
@@ -51,7 +51,7 @@ interface NextFollowupDateDialogProps {
   onSave: (data: {
     update_via: "call" | "whatsapp" | "visit";
     remark: string;
-    next_followup_date: string; // ISO datetime string
+    next_followup_date?: string | null; // ISO datetime string, optional
   }) => Promise<void>;
 }
 
@@ -132,7 +132,7 @@ export function NextFollowupDateDialog({
       await onSave({
         update_via: data.update_via,
         remark: data.remark,
-        next_followup_date: data.next_followup_date,
+        next_followup_date: data.next_followup_date || undefined,
       });
       onOpenChange(false);
     } catch (error) {
