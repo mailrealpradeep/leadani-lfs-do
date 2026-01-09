@@ -1197,6 +1197,51 @@ export default function ConversionSettings() {
                             return sum;
                           }, 0);
                           
+                          // Calculate conversion percentage: (Last Stage Count / First Stage Count) × 100%
+                          const firstStageCount = user.stages[0]?.count || 0;
+                          const lastStageCount = user.stages[user.stages.length - 1]?.count || 0;
+                          const conversionPercent = firstStageCount > 0 
+                            ? (lastStageCount / firstStageCount) * 100 
+                            : 0;
+                          const conversionDisplay = firstStageCount > 0 
+                            ? `${conversionPercent.toFixed(1)}%` 
+                            : "N/A";
+                          
+                          // Determine dynamic color based on conversion rate
+                          const getConversionColor = (percent: number) => {
+                            if (percent >= 15) {
+                              // Excellent: Bright green gradient
+                              return {
+                                gradient: "from-emerald-500/10 to-green-500/10",
+                                text: "text-emerald-600 dark:text-emerald-400",
+                                border: "border-emerald-200 dark:border-emerald-800"
+                              };
+                            } else if (percent >= 10) {
+                              // Good: Green gradient
+                              return {
+                                gradient: "from-green-500/10 to-emerald-500/10",
+                                text: "text-green-600 dark:text-green-400",
+                                border: "border-green-200 dark:border-green-800"
+                              };
+                            } else if (percent >= 5) {
+                              // Fair: Yellow/Amber gradient
+                              return {
+                                gradient: "from-amber-500/10 to-yellow-500/10",
+                                text: "text-amber-600 dark:text-amber-400",
+                                border: "border-amber-200 dark:border-amber-800"
+                              };
+                            } else {
+                              // Low: Red/Orange gradient
+                              return {
+                                gradient: "from-red-500/10 to-orange-500/10",
+                                text: "text-red-600 dark:text-red-400",
+                                border: "border-red-200 dark:border-red-800"
+                              };
+                            }
+                          };
+                          
+                          const conversionColor = getConversionColor(conversionPercent);
+                          
                           return (
                             <div 
                               key={user.user_id}
@@ -1220,9 +1265,15 @@ export default function ConversionSettings() {
                                   </div>
                                   <p className="text-xs text-muted-foreground truncate">{user.user_email}</p>
                                 </div>
-                                <Badge variant="secondary" className="text-xs px-2">
-                                  {user.total_leads} leads
-                                </Badge>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="text-xs px-2">
+                                    {user.total_leads} leads
+                                  </Badge>
+                                  <span className={`inline-flex items-center gap-1 text-xs bg-gradient-to-r ${conversionColor.gradient} ${conversionColor.text} px-2 py-0.5 rounded-full border ${conversionColor.border}`}>
+                                    <Percent className="w-3 h-3" />
+                                    Conversion: {conversionDisplay}
+                                  </span>
+                                </div>
                               </div>
                               {/* Stage cards - matching Pipeline Overview layout */}
                               <div className="flex items-stretch gap-2 overflow-x-auto pb-2">
