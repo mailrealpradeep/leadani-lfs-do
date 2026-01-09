@@ -1983,6 +1983,232 @@ function EditVisionWizard({
   );
 }
 
+function VisionBoardPreloader() {
+  const [messageIndex, setMessageIndex] = useState(0);
+  const messages = [
+    "Loading your vision...",
+    "Preparing your goals...",
+    "Calculating progress...",
+    "Almost there...",
+  ];
+
+  // Rotate messages every 2 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMessageIndex((prev) => (prev + 1) % messages.length);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [messages.length]);
+
+  // Generate random particles
+  const particles = Array.from({ length: 12 }, (_, i) => ({
+    id: i,
+    x: Math.random() * 100,
+    y: Math.random() * 100,
+    delay: Math.random() * 2,
+    duration: 3 + Math.random() * 2,
+  }));
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900"
+    >
+      {/* Animated gradient background overlay */}
+      <motion.div
+        className="absolute inset-0 bg-gradient-to-br from-purple-800/50 via-indigo-800/50 to-blue-800/50"
+        animate={{
+          backgroundPosition: ["0% 0%", "100% 100%", "0% 0%"],
+        }}
+        transition={{
+          duration: 10,
+          repeat: Infinity,
+          ease: "linear",
+        }}
+        style={{
+          backgroundSize: "200% 200%",
+        }}
+      />
+
+      {/* Floating particles */}
+      {particles.map((particle) => (
+        <motion.div
+          key={particle.id}
+          className="absolute"
+          style={{
+            left: `${particle.x}%`,
+            top: `${particle.y}%`,
+          }}
+          initial={{ opacity: 0, y: 0, scale: 0 }}
+          animate={{
+            opacity: [0, 1, 0],
+            y: -100,
+            scale: [0, 1, 0],
+            rotate: [0, 360],
+          }}
+          transition={{
+            duration: particle.duration,
+            delay: particle.delay,
+            repeat: Infinity,
+            ease: "easeOut",
+          }}
+        >
+          <Sparkles className="w-4 h-4 text-yellow-300/60" />
+        </motion.div>
+      ))}
+
+      {/* Main content container */}
+      <div className="relative flex flex-col items-center justify-center">
+        {/* Rotating gradient rings */}
+        <div className="relative w-[200px] h-[200px] flex items-center justify-center">
+          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 200 200">
+            <defs>
+              <linearGradient id="ringGradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#8B5CF6" />
+                <stop offset="50%" stopColor="#3B82F6" />
+                <stop offset="100%" stopColor="#10B981" />
+              </linearGradient>
+              <linearGradient id="ringGradient2" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#3B82F6" />
+                <stop offset="50%" stopColor="#10B981" />
+                <stop offset="100%" stopColor="#F59E0B" />
+              </linearGradient>
+              <linearGradient id="ringGradient3" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#10B981" />
+                <stop offset="100%" stopColor="#8B5CF6" />
+              </linearGradient>
+            </defs>
+            
+            {/* Outer ring */}
+            <motion.circle
+              cx="100"
+              cy="100"
+              r="96"
+              fill="none"
+              stroke="url(#ringGradient1)"
+              strokeWidth="4"
+              transformOrigin="100 100"
+              animate={{ rotate: 360 }}
+              transition={{
+                duration: 8,
+                repeat: Infinity,
+                ease: "linear",
+              }}
+            />
+            
+            {/* Middle ring */}
+            <motion.circle
+              cx="100"
+              cy="100"
+              r="71"
+              fill="none"
+              stroke="url(#ringGradient2)"
+              strokeWidth="3"
+              transformOrigin="100 100"
+              animate={{ rotate: -360 }}
+              transition={{
+                duration: 6,
+                repeat: Infinity,
+                ease: "linear",
+              }}
+            />
+            
+            {/* Inner ring */}
+            <motion.circle
+              cx="100"
+              cy="100"
+              r="48"
+              fill="none"
+              stroke="url(#ringGradient3)"
+              strokeWidth="2"
+              transformOrigin="100 100"
+              animate={{ rotate: 360 }}
+              transition={{
+                duration: 4,
+                repeat: Infinity,
+                ease: "linear",
+              }}
+            />
+          </svg>
+
+          {/* Pulsing center icon */}
+          <motion.div
+            className="absolute flex items-center justify-center"
+            animate={{
+              scale: [1, 1.1, 1],
+              rotate: [0, 360],
+            }}
+            transition={{
+              scale: {
+                duration: 2,
+                repeat: Infinity,
+                ease: "easeInOut",
+              },
+              rotate: {
+                duration: 10,
+                repeat: Infinity,
+                ease: "linear",
+              },
+            }}
+          >
+            <div className="relative">
+              <Target className="w-16 h-16 text-white drop-shadow-lg" />
+              <motion.div
+                className="absolute inset-0 rounded-full bg-white/20 blur-xl"
+                animate={{
+                  scale: [1, 1.5, 1],
+                  opacity: [0.5, 0.8, 0.5],
+                }}
+                transition={{
+                  duration: 2,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
+              />
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Loading text */}
+        <motion.div
+          key={messageIndex}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.5 }}
+          className="mt-8 text-center"
+        >
+          <p className="text-xl font-semibold text-white drop-shadow-lg">
+            {messages[messageIndex]}
+          </p>
+        </motion.div>
+
+        {/* Progress dots */}
+        <div className="flex gap-2 mt-6">
+          {[0, 1, 2].map((i) => (
+            <motion.div
+              key={i}
+              className="w-2 h-2 rounded-full bg-white/60"
+              animate={{
+                scale: [1, 1.5, 1],
+                opacity: [0.5, 1, 0.5],
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                delay: i * 0.2,
+                ease: "easeInOut",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function VisionBoardPage() {
   const { user, company } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("daily");
@@ -2185,13 +2411,9 @@ export default function VisionBoardPage() {
 
   if (boardLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Skeleton className="h-40 w-40 rounded-full mx-auto" />
-          <Skeleton className="h-8 w-48 mx-auto" />
-          <Skeleton className="h-4 w-32 mx-auto" />
-        </div>
-      </div>
+      <AnimatePresence>
+        <VisionBoardPreloader />
+      </AnimatePresence>
     );
   }
 
