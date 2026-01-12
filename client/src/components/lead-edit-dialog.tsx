@@ -110,7 +110,7 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
     lead_status?: string | null;
     next_followup_date?: string | null;
   }) => {
-    if (!leadId) return;
+    if (!leadId || !lead) return;
 
     try {
       // Get today's date in company timezone for update_on
@@ -124,17 +124,21 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
         update_on: updateOn,
       });
 
-      // Update next_followup_date in form values (always update, even if empty to clear the field)
-      handleFieldChange("next_followup_date", data.next_followup_date || null);
+      // Build payload with ONLY the NFDT-related fields
+      // Server will merge these with existing custom_fields (see routes.ts line 7491)
+      const nfdtFields: Record<string, any> = {
+        next_followup_date: data.next_followup_date || null,
+      };
       
       // Update lead_status if provided
       if (data.lead_status !== undefined) {
-        handleFieldChange("lead_status", data.lead_status || null);
+        nfdtFields.lead_status = data.lead_status || null;
       }
 
-      setNextFollowupDialogOpen(false);
+      // Save to database - only sending NFDT fields, server merges with existing data
+      await nfdtUpdateMutation.mutateAsync(nfdtFields);
 
-      toast({ title: "Next followup date updated successfully" });
+      setNextFollowupDialogOpen(false);
     } catch (error: any) {
       toast({
         title: "Failed to update next followup date",
@@ -144,6 +148,31 @@ export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validation
       throw error;
     }
   };
+
+  // Separate mutation for NFDT updates - only updates NFDT fields without affecting other staged edits
+  const nfdtUpdateMutation = useMutation({
+    mutationFn: async (nfdtFields: Record<string, any>) => {
+      // Send only the NFDT fields - server merges them with existing custom_fields
+      return await apiRequest("PATCH", `/api/leads/${leadId}`, { custom_fields: nfdtFields });
+    },
+    onSuccess: (_data, variables) => {
+      // Only invalidate the list view - NOT the lead detail query
+      // This prevents the useEffect from resetting formValues and losing staged edits
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
+      // Update local form state and originalValues with ONLY the NFDT-related changes
+      // This preserves any other staged edits the user has made
+      setFormValues(prev => ({ ...prev, ...variables }));
+      setOriginalValues(prev => ({ ...prev, ...variables }));
+      toast({ title: "Next followup date updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update next followup date",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const updateLeadMutation = useMutation({
     mutationFn: async (customFields: Record<string, any>) => {
