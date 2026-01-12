@@ -5028,10 +5028,7 @@ export class PgStorage implements IStorage {
       and(
         inArray(dbSchema.webhook_logs.id, ids),
         eq(dbSchema.webhook_logs.webhook_id, webhookId),
-        or(
-          eq(dbSchema.webhook_logs.status, 'pending_allocation'),
-          eq(dbSchema.webhook_logs.status, 'pending_configuration')
-        )
+        inArray(dbSchema.webhook_logs.status, ['pending_allocation', 'pending_configuration'])
       )
     );
     return result.rowCount || 0;
