@@ -55,6 +55,7 @@ interface LeadEditDialogProps {
 export function LeadEditDialog({ leadId, sheetId, open, onOpenChange, validationRules = [] }: LeadEditDialogProps) {
   const { toast } = useToast();
   const { applyAutoFillRules } = useAutoFillRules();
+  const { getCurrentDate } = useCompanyTimezone();
   const [formValues, setFormValues] = useState<Record<string, any>>({});
   const [originalValues, setOriginalValues] = useState<Record<string, any>>({});
   const [editingField, setEditingField] = useState<string | null>(null);
