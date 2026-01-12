@@ -423,6 +423,7 @@ export interface IStorage {
   getWebhookLogs(): Promise<WebhookLog[]>;
   getWebhookLogsByCompany(companyId: string): Promise<WebhookLog[]>;
   createWebhookLog(log: InsertWebhookLog): Promise<WebhookLog>;
+  deleteWebhookLogs(ids: string[], webhookId: string): Promise<number>;
 
   // Lead Updates
   getLeadUpdates(leadId: string): Promise<LeadUpdate[]>;
@@ -2048,6 +2049,20 @@ export class MemStorage implements IStorage {
     };
     this.webhookLogs.set(id, log);
     return log;
+  }
+
+  async deleteWebhookLogs(ids: string[], webhookId: string): Promise<number> {
+    let count = 0;
+    for (const id of ids) {
+      const log = this.webhookLogs.get(id);
+      // Only delete if it belongs to the webhook and is pending
+      if (log && log.webhook_id === webhookId && 
+          (log.status === 'pending_allocation' || log.status === 'pending_configuration')) {
+        this.webhookLogs.delete(id);
+        count++;
+      }
+    }
+    return count;
   }
 
   // Lead Updates
@@ -5004,6 +5019,22 @@ export class PgStorage implements IStorage {
     };
     await db.insert(dbSchema.webhook_logs).values(newLog);
     return this.mapWebhookLog(newLog as any);
+  }
+
+  async deleteWebhookLogs(ids: string[], webhookId: string): Promise<number> {
+    if (ids.length === 0) return 0;
+    // Only delete logs that belong to the specified webhook and are in pending status
+    const result = await db.delete(dbSchema.webhook_logs).where(
+      and(
+        inArray(dbSchema.webhook_logs.id, ids),
+        eq(dbSchema.webhook_logs.webhook_id, webhookId),
+        or(
+          eq(dbSchema.webhook_logs.status, 'pending_allocation'),
+          eq(dbSchema.webhook_logs.status, 'pending_configuration')
+        )
+      )
+    );
+    return result.rowCount || 0;
   }
 
   // Lead Updates

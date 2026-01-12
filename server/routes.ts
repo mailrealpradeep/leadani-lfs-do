@@ -5555,6 +5555,46 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Delete/discard pending webhook requests (for unwanted data)
+  app.delete("/api/admin/company/webhooks/:webhookId/requests", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { webhookId } = req.params;
+      const { request_ids } = req.body;
+
+      if (!request_ids || !Array.isArray(request_ids) || request_ids.length === 0) {
+        return res.status(400).json({ error: "Request IDs are required" });
+      }
+
+      // Get the webhook to verify company access
+      const webhook = await storage.getCompanyWebhook(webhookId);
+      if (!webhook || webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access webhooks from other companies" });
+      }
+
+      // Delete the webhook logs (only pending ones belonging to this webhook)
+      const deletedCount = await storage.deleteWebhookLogs(request_ids, webhookId);
+
+      // Create audit log
+      await storage.createAuditLog({
+        company_id: req.companyId,
+        user_id: req.userId,
+        action: "delete_webhook_requests",
+        model: "WebhookRequest",
+        model_id: webhookId,
+        payload: { request_ids, deleted_count: deletedCount },
+      });
+
+      res.json({ 
+        success: true, 
+        message: `${deletedCount} webhook request(s) deleted successfully`,
+        deleted_count: deletedCount
+      });
+    } catch (error: any) {
+      console.error("Delete webhook requests error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // OUTGOING WEBHOOKS (Send data out when events happen)
   // ============================================================================

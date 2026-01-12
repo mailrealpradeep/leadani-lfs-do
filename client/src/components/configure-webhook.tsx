@@ -530,6 +530,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
 
   // Pending allocations state
   const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [allocateToSheetId, setAllocateToSheetId] = useState<string>("");
   const [expandedPendingId, setExpandedPendingId] = useState<string | null>(null);
 
@@ -724,10 +725,10 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       });
   }, [webhookRequests]);
 
-  // Get pending allocation requests
+  // Get pending allocation and configuration requests
   const pendingRequests = useMemo(() => {
     return webhookRequests
-      .filter(r => r.status === 'pending_allocation')
+      .filter(r => r.status === 'pending_allocation' || r.status === 'pending_configuration')
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [webhookRequests]);
 
@@ -997,6 +998,33 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       toast({
         title: "Re-process Failed",
         description: error.message || "Failed to re-process pending leads",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete/discard pending webhook requests
+  const discardPendingMutation = useMutation({
+    mutationFn: async (requestIds: string[]) => {
+      return await apiRequest<{ success: boolean; message: string; deleted_count: number }>(
+        "DELETE",
+        `/api/admin/company/webhooks/${webhook.id}/requests`,
+        { request_ids: requestIds }
+      );
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/webhooks", webhook.id, "requests"] });
+      setSelectedPendingIds(new Set());
+      setDiscardConfirmOpen(false);
+      toast({
+        title: "Requests Discarded",
+        description: data.message || `${data.deleted_count} request(s) have been discarded`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Discard Failed",
+        description: error.message || "Failed to discard pending requests",
         variant: "destructive",
       });
     },
@@ -2923,9 +2951,50 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                     ) : null}
                     Re-process with Rules
                   </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={discardPendingMutation.isPending}
+                    onClick={() => setDiscardConfirmOpen(true)}
+                    data-testid="button-discard-pending"
+                    className="shrink-0"
+                  >
+                    {discardPendingMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4 mr-2" />
+                    )}
+                    Discard Selected
+                  </Button>
                 </div>
               )}
             </div>
+
+            {/* Discard Confirmation Dialog */}
+            <AlertDialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Discard Pending Requests?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to discard {selectedPendingIds.size} pending request(s)? 
+                    This will permanently delete the webhook data and cannot be undone. 
+                    These leads will not be imported into your system.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-cancel-discard">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => {
+                      discardPendingMutation.mutate(Array.from(selectedPendingIds));
+                    }}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    data-testid="button-confirm-discard"
+                  >
+                    {discardPendingMutation.isPending ? "Discarding..." : "Discard"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
             {/* Pending Requests List */}
             <ScrollArea className="h-[350px] border rounded-lg">
