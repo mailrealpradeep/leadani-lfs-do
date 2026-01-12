@@ -5571,8 +5571,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Cannot access webhooks from other companies" });
       }
 
-      // Delete the webhook logs (only pending ones belonging to this webhook)
-      const deletedCount = await storage.deleteWebhookLogs(request_ids, webhookId);
+      // Delete the webhook requests (only pending ones belonging to this webhook)
+      const deletedCount = await storage.deleteWebhookRequests(request_ids, webhookId);
 
       // Create audit log
       await storage.createAuditLog({

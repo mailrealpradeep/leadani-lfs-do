@@ -464,6 +464,7 @@ export interface IStorage {
   getWebhookRequest(id: string): Promise<WebhookRequest | undefined>;
   createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest>;
   updateWebhookRequest(id: string, updates: Partial<WebhookRequest>): Promise<WebhookRequest | undefined>;
+  deleteWebhookRequests(ids: string[], webhookId: string): Promise<number>;
 
   // Outgoing Webhooks
   getOutgoingWebhook(id: string): Promise<OutgoingWebhook | undefined>;
@@ -2269,6 +2270,10 @@ export class MemStorage implements IStorage {
 
   async updateWebhookRequest(id: string, updates: Partial<WebhookRequest>): Promise<WebhookRequest | undefined> {
     throw new Error("Webhook management not supported in MemStorage");
+  }
+
+  async deleteWebhookRequests(ids: string[], webhookId: string): Promise<number> {
+    return 0;
   }
 
   // Outgoing Webhooks (stub implementations)
@@ -5542,6 +5547,19 @@ export class PgStorage implements IStorage {
     const result = await db.select().from(dbSchema.webhook_requests).where(eq(dbSchema.webhook_requests.id, id));
     if (result.length === 0) return undefined;
     return this.mapWebhookRequest(result[0]);
+  }
+
+  async deleteWebhookRequests(ids: string[], webhookId: string): Promise<number> {
+    if (ids.length === 0) return 0;
+    // Only delete requests that belong to the specified webhook and are in pending status
+    const result = await db.delete(dbSchema.webhook_requests).where(
+      and(
+        inArray(dbSchema.webhook_requests.id, ids),
+        eq(dbSchema.webhook_requests.webhook_id, webhookId),
+        inArray(dbSchema.webhook_requests.status, ['pending_allocation', 'pending_configuration'])
+      )
+    );
+    return result.rowCount || 0;
   }
 
   // Outgoing Webhooks
