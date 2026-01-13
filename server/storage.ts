@@ -5482,7 +5482,9 @@ export class PgStorage implements IStorage {
 
   // Webhook Allocation Rules
   async getWebhookAllocationRules(webhookId: string): Promise<WebhookAllocationRule[]> {
-    const result = await db.select().from(dbSchema.webhook_allocation_rules).where(eq(dbSchema.webhook_allocation_rules.webhook_id, webhookId));
+    const result = await db.select().from(dbSchema.webhook_allocation_rules)
+      .where(eq(dbSchema.webhook_allocation_rules.webhook_id, webhookId))
+      .orderBy(dbSchema.webhook_allocation_rules.created_at);
     return result.map(this.mapWebhookAllocationRule.bind(this));
   }
 

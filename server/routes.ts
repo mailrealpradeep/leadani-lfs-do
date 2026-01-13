@@ -58,7 +58,7 @@ import { setSocketIO } from "./socket-manager";
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
 import * as dbSchema from "@shared/schema";
-import { eq, and, gte, lte, inArray, isNotNull, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, lt, inArray, isNotNull, isNull, desc, sql } from "drizzle-orm";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -1631,29 +1631,90 @@ ${questionsList}`;
           return migratedCounts;
         };
         
-        // Run migration and use the consolidated counts
+        // Run migration (for cleanup purposes only - we now use daily lead counts)
         allocationCounts = await migrateAllocationCounts();
-        const groupCounts = allocationCounts[conditionGroupKey] || {};
         
-        // Calculate total allocated for this group (for tracking/reporting purposes)
-        const totalAllocated = Object.values(groupCounts).reduce((sum, count) => sum + count, 0);
+        // DAILY LEAD-COUNT BASED WEIGHTED ROUND-ROBIN
+        // Query actual leads created TODAY per sheet to ensure fair daily distribution
+        // Each day resets naturally - 19% means 19% of TODAY's leads
+        const webhookCompanyForAlloc = await storage.getCompany(webhook.company_id);
+        const allocTimezone = getCompanyTimezone(webhookCompanyForAlloc);
         
-        // Weighted random selection: each lead has probability equal to configured percentage
-        // This ensures fair distribution without "catch-up" behavior when counts are uneven
-        // For example: if Priyanka is 10%, she gets ~10% of leads regardless of current count
-        const random = Math.random() * 100;
-        let cumulativePercentage = 0;
-        let selectedSheetId = applicableRules[0].sheet_id;
+        // Calculate today's date window in company timezone, converted to UTC for database query
+        // 1. Get current time in company timezone
+        const nowUtc = new Date();
+        const nowInCompanyTz = toZonedTime(nowUtc, allocTimezone);
+        // 2. Get start of day in company timezone
+        const startOfTodayInCompanyTz = startOfDay(nowInCompanyTz);
+        // 3. Get start of tomorrow in company timezone
+        const startOfTomorrowInCompanyTz = new Date(startOfTodayInCompanyTz);
+        startOfTomorrowInCompanyTz.setDate(startOfTomorrowInCompanyTz.getDate() + 1);
+        // 4. Convert both to UTC for database query
+        const todayStartUtc = fromZonedTime(startOfTodayInCompanyTz, allocTimezone);
+        const tomorrowStartUtc = fromZonedTime(startOfTomorrowInCompanyTz, allocTimezone);
         
-        for (const rule of applicableRules) {
-          cumulativePercentage += rule.percentage;
-          if (random <= cumulativePercentage) {
-            selectedSheetId = rule.sheet_id;
-            break;
-          }
+        // Get lead counts for today for each sheet in applicable rules
+        const sheetIds = applicableRules.map(r => r.sheet_id);
+        const todayLeadCounts: Record<string, number> = {};
+        
+        // Query leads created today per sheet (between start of today and before start of tomorrow)
+        const leadCountResults = await db
+          .select({ 
+            sheet_id: dbSchema.leads.sheet_id, 
+            count: sql<number>`count(*)::int` 
+          })
+          .from(dbSchema.leads)
+          .where(
+            and(
+              inArray(dbSchema.leads.sheet_id, sheetIds),
+              gte(dbSchema.leads.created_at, todayStartUtc),
+              lt(dbSchema.leads.created_at, tomorrowStartUtc),
+              isNull(dbSchema.leads.deleted_at)
+            )
+          )
+          .groupBy(dbSchema.leads.sheet_id);
+        
+        // Build count map
+        for (const row of leadCountResults) {
+          todayLeadCounts[row.sheet_id] = row.count;
         }
         
-        targetSheetId = selectedSheetId;
+        // Calculate which sheet is most behind its daily percentage target
+        const totalPercentage = applicableRules.reduce((sum, r) => sum + r.percentage, 0);
+        const totalTodayLeads = sheetIds.reduce((sum, id) => sum + (todayLeadCounts[id] || 0), 0);
+        
+        let selectedSheetId = applicableRules[0].sheet_id;
+        
+        // Error: if totalPercentage is invalid, log error and use first rule's sheet as fallback
+        if (totalPercentage <= 0) {
+          console.error(`[Webhook Allocation] Configuration error: totalPercentage is ${totalPercentage}. Check allocation rule percentages for webhook ${webhook.id}`);
+          targetSheetId = selectedSheetId;
+        } else {
+          let bestGap = -Infinity;
+          
+          for (const rule of applicableRules) {
+            const targetPercentage = rule.percentage / totalPercentage;
+            const currentCount = todayLeadCounts[rule.sheet_id] || 0;
+            let gap: number;
+            
+            if (totalTodayLeads === 0) {
+              // First lead of the day - prioritize by target percentage
+              gap = targetPercentage;
+            } else {
+              const actualShare = currentCount / totalTodayLeads;
+              // Select sheet most behind its daily target
+              gap = targetPercentage - actualShare;
+            }
+            
+            if (gap > bestGap) {
+              bestGap = gap;
+              selectedSheetId = rule.sheet_id;
+            }
+          }
+          
+          targetSheetId = selectedSheetId;
+        }
+        console.log(`[Webhook Allocation] Daily allocation: Today's leads per sheet: ${JSON.stringify(todayLeadCounts)}, Total: ${totalTodayLeads}, Selected: ${selectedSheetId}`);
 
         // Verify target sheet exists and belongs to the company
         const targetSheet = await storage.getSheet(targetSheetId);
