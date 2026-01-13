@@ -1905,6 +1905,9 @@ function ReportCard({
 
       // Simple table (no column pivot)
       if (data.type === "simple") {
+        // Calculate grand total for simple tables
+        const grandTotal = data.rows.reduce((sum: number, row: any) => sum + (row.value || 0), 0);
+        
         return (
           <div className="overflow-auto -mx-2 md:mx-0">
             <table className="text-xs md:text-sm" style={{ width: "auto", minWidth: "100%" }}>
@@ -1945,6 +1948,21 @@ function ReportCard({
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="bg-muted font-medium border-t-2">
+                <tr>
+                  {data.rowFields.map((_: string, i: number) => (
+                    <td 
+                      key={i} 
+                      className="px-2 md:px-3 py-2 whitespace-nowrap"
+                    >
+                      {i === 0 ? "Total" : ""}
+                    </td>
+                  ))}
+                  <td className="px-2 md:px-3 py-2 text-right font-bold whitespace-nowrap">
+                    {grandTotal}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         );
