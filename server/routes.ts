@@ -1329,11 +1329,27 @@ ${questionsList}`;
   // Used by services like Facebook/Meta/WhatsApp to verify webhook ownership
   app.get("/api/public/webhooks/:token", async (req, res) => {
     try {
-      // Log full request details for debugging
-      console.log("[Webhook Challenge] GET request received:");
+      // EXTENSIVE LOGGING - Capture everything Wauper sends
+      console.log("=".repeat(80));
+      console.log("[Webhook Challenge] ========== GET REQUEST RECEIVED ==========");
+      console.log("[Webhook Challenge] Timestamp:", new Date().toISOString());
       console.log("[Webhook Challenge] Token:", req.params.token);
-      console.log("[Webhook Challenge] Query params:", JSON.stringify(req.query));
-      console.log("[Webhook Challenge] Headers:", JSON.stringify(req.headers));
+      console.log("[Webhook Challenge] Full URL:", req.originalUrl);
+      console.log("[Webhook Challenge] Path:", req.path);
+      console.log("[Webhook Challenge] Protocol:", req.protocol);
+      console.log("[Webhook Challenge] Host:", req.get("host"));
+      console.log("[Webhook Challenge] Method:", req.method);
+      console.log("[Webhook Challenge] IP:", req.ip);
+      console.log("[Webhook Challenge] Query string:", req.url.split("?")[1] || "(none)");
+      console.log("[Webhook Challenge] All query params:");
+      Object.entries(req.query).forEach(([key, value]) => {
+        console.log(`  - ${key}: ${JSON.stringify(value)}`);
+      });
+      console.log("[Webhook Challenge] All headers:");
+      Object.entries(req.headers).forEach(([key, value]) => {
+        console.log(`  - ${key}: ${value}`);
+      });
+      console.log("=".repeat(80));
       
       // Support Meta/WhatsApp format: hub.mode, hub.verify_token, hub.challenge
       const mode = req.query["hub.mode"];
@@ -1343,10 +1359,15 @@ ${questionsList}`;
       // Support generic format: challenge parameter
       const genericChallenge = req.query.challenge;
       
+      // Support other possible formats that Wauper might use
+      const verifyChallenge = req.query.verify_challenge;
+      const token = req.query.token;
+      const verify = req.query.verify;
+      const code = req.query.code;
+      
       // Meta/WhatsApp verification flow
       if (mode === "subscribe" && hubChallenge) {
         console.log("[Webhook Challenge] Meta/WhatsApp format detected, returning challenge:", hubChallenge);
-        // Return challenge as plain text (required by Meta)
         res.setHeader("Content-Type", "text/plain");
         return res.status(200).send(hubChallenge);
       }
@@ -1364,9 +1385,28 @@ ${questionsList}`;
         return res.status(200).send(genericChallenge);
       }
       
-      // No challenge provided - return simple acknowledgment
-      console.log("[Webhook Challenge] No challenge found, returning ok status");
-      return res.status(200).json({ status: "ok" });
+      if (verifyChallenge) {
+        console.log("[Webhook Challenge] Verify challenge format, returning:", verifyChallenge);
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(verifyChallenge);
+      }
+      
+      if (verify) {
+        console.log("[Webhook Challenge] Verify format, returning:", verify);
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(verify);
+      }
+      
+      if (code) {
+        console.log("[Webhook Challenge] Code format, returning:", code);
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(code);
+      }
+      
+      // No challenge parameter found - return simple acknowledgment
+      // Some services just check for 200 OK response
+      console.log("[Webhook Challenge] No challenge parameter found, returning 200 OK with status");
+      return res.status(200).json({ status: "ok", message: "Webhook endpoint active" });
     } catch (error: any) {
       console.error("[Webhook Challenge] Error:", error);
       res.status(500).json({ error: "Internal server error" });
