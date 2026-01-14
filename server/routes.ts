@@ -1326,21 +1326,49 @@ ${questionsList}`;
   });
 
   // Public Webhook GET Challenge Verification Endpoint
-  // Used by services like Facebook/Meta to verify webhook ownership
+  // Used by services like Facebook/Meta/WhatsApp to verify webhook ownership
   app.get("/api/public/webhooks/:token", async (req, res) => {
     try {
-      // Support common challenge parameter names
-      const challenge = req.query["hub.challenge"] || req.query.challenge;
+      // Log full request details for debugging
+      console.log("[Webhook Challenge] GET request received:");
+      console.log("[Webhook Challenge] Token:", req.params.token);
+      console.log("[Webhook Challenge] Query params:", JSON.stringify(req.query));
+      console.log("[Webhook Challenge] Headers:", JSON.stringify(req.headers));
       
-      if (challenge) {
-        // Echo back the challenge to verify webhook ownership
-        return res.status(200).send(challenge);
+      // Support Meta/WhatsApp format: hub.mode, hub.verify_token, hub.challenge
+      const mode = req.query["hub.mode"];
+      const verifyToken = req.query["hub.verify_token"];
+      const hubChallenge = req.query["hub.challenge"];
+      
+      // Support generic format: challenge parameter
+      const genericChallenge = req.query.challenge;
+      
+      // Meta/WhatsApp verification flow
+      if (mode === "subscribe" && hubChallenge) {
+        console.log("[Webhook Challenge] Meta/WhatsApp format detected, returning challenge:", hubChallenge);
+        // Return challenge as plain text (required by Meta)
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(hubChallenge);
+      }
+      
+      // Generic challenge format
+      if (hubChallenge) {
+        console.log("[Webhook Challenge] Hub challenge format, returning:", hubChallenge);
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(hubChallenge);
+      }
+      
+      if (genericChallenge) {
+        console.log("[Webhook Challenge] Generic challenge format, returning:", genericChallenge);
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(genericChallenge);
       }
       
       // No challenge provided - return simple acknowledgment
+      console.log("[Webhook Challenge] No challenge found, returning ok status");
       return res.status(200).json({ status: "ok" });
     } catch (error: any) {
-      console.error("Webhook GET challenge error:", error);
+      console.error("[Webhook Challenge] Error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
