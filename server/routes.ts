@@ -3934,21 +3934,21 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       const eligibleLeads = await db
         .select({
-          leadId: leads.id,
-          sheetId: leads.sheet_id,
+          leadId: dbSchema.leads.id,
+          sheetId: dbSchema.leads.sheet_id,
         })
-        .from(leads)
-        .innerJoin(sheets, eq(leads.sheet_id, sheets.id))
+        .from(dbSchema.leads)
+        .innerJoin(dbSchema.sheets, eq(dbSchema.leads.sheet_id, dbSchema.sheets.id))
         .where(
           and(
-            eq(sheets.company_id, req.companyId),
-            isNull(leads.deleted_at),
-            isNull(sheets.deleted_at),
+            eq(dbSchema.sheets.company_id, req.companyId),
+            isNull(dbSchema.leads.deleted_at),
+            isNull(dbSchema.sheets.deleted_at),
             or(
-              isNull(leads.ai_rating),
-              eq(leads.ai_rating, 'New'),
-              isNull(leads.ai_rating_updated_at),
-              lt(leads.ai_rating_updated_at, stalenessThreshold)
+              isNull(dbSchema.leads.ai_rating),
+              eq(dbSchema.leads.ai_rating, 'New'),
+              isNull(dbSchema.leads.ai_rating_updated_at),
+              lt(dbSchema.leads.ai_rating_updated_at, stalenessThreshold)
             )
           )
         )
