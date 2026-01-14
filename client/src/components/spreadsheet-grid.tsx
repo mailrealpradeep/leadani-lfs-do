@@ -52,6 +52,7 @@ import {
   EyeOff,
   Lock,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -769,7 +770,29 @@ export function SpreadsheetGrid({
     // Apply column filters
     for (const [key, value] of Object.entries(columnFilters)) {
       if (!value) continue;
-      if (typeof value === 'string' && value.trim()) {
+      
+      // Handle date range filters (DateFilterValue objects)
+      if (typeof value === 'object' && 'from' in value && 'to' in value) {
+        const dateFilter = value as DateFilterValue;
+        if (dateFilter && dateFilter.from && dateFilter.to) {
+          filtered = filtered.filter(lead => {
+            const fieldValue = lead.custom_fields?.[key];
+            if (!fieldValue) return false;
+            
+            const dateValue = new Date(fieldValue);
+            if (isNaN(dateValue.getTime())) return false;
+            
+            const fromDate = new Date(dateFilter.from!);
+            const toDate = new Date(dateFilter.to!);
+            fromDate.setHours(0, 0, 0, 0);
+            toDate.setHours(23, 59, 59, 999);
+            
+            return dateValue >= fromDate && dateValue <= toDate;
+          });
+        }
+      }
+      // Handle string filters
+      else if (typeof value === 'string' && value.trim()) {
         const filterLower = value.toLowerCase().trim();
         filtered = filtered.filter(lead => {
           // Special handling for sheet name filter in hot leads mode (text input -> substring match)
@@ -860,7 +883,29 @@ export function SpreadsheetGrid({
     // Apply column filters
     for (const [key, value] of Object.entries(columnFilters)) {
       if (!value) continue;
-      if (typeof value === 'string' && value.trim()) {
+      
+      // Handle date range filters (DateFilterValue objects)
+      if (typeof value === 'object' && 'from' in value && 'to' in value) {
+        const dateFilter = value as DateFilterValue;
+        if (dateFilter && dateFilter.from && dateFilter.to) {
+          filtered = filtered.filter(lead => {
+            const fieldValue = lead.custom_fields?.[key];
+            if (!fieldValue) return false;
+            
+            const dateValue = new Date(fieldValue);
+            if (isNaN(dateValue.getTime())) return false;
+            
+            const fromDate = new Date(dateFilter.from!);
+            const toDate = new Date(dateFilter.to!);
+            fromDate.setHours(0, 0, 0, 0);
+            toDate.setHours(23, 59, 59, 999);
+            
+            return dateValue >= fromDate && dateValue <= toDate;
+          });
+        }
+      }
+      // Handle string filters
+      else if (typeof value === 'string' && value.trim()) {
         const filterLower = value.toLowerCase().trim();
         filtered = filtered.filter(lead => {
           if (key === "__sheet_name__") {
@@ -987,7 +1032,33 @@ export function SpreadsheetGrid({
     // Apply column filters
     for (const [key, value] of Object.entries(columnFilters)) {
       if (!value) continue;
-      if (typeof value === 'string' && value.trim()) {
+      
+      // Handle date range filters (DateFilterValue objects)
+      if (typeof value === 'object' && 'from' in value && 'to' in value) {
+        const dateFilter = value as DateFilterValue;
+        if (dateFilter && dateFilter.from && dateFilter.to) {
+          filtered = filtered.filter(lead => {
+            const fieldValue = lead.custom_fields?.[key];
+            if (!fieldValue) return false;
+            
+            // Parse the date value from the lead
+            const dateValue = new Date(fieldValue);
+            if (isNaN(dateValue.getTime())) return false;
+            
+            // Compare dates (using start of day for from, end of day for to)
+            const fromDate = new Date(dateFilter.from!);
+            const toDate = new Date(dateFilter.to!);
+            
+            // Set from to start of day and to to end of day for inclusive comparison
+            fromDate.setHours(0, 0, 0, 0);
+            toDate.setHours(23, 59, 59, 999);
+            
+            return dateValue >= fromDate && dateValue <= toDate;
+          });
+        }
+      }
+      // Handle string filters
+      else if (typeof value === 'string' && value.trim()) {
         const filterLower = value.toLowerCase().trim();
         filtered = filtered.filter(lead => {
           // Special handling for sheet name filter in custom view mode (exact match)
