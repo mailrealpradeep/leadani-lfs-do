@@ -21,6 +21,32 @@ export interface PointsCelebrationEvent {
   timestamp: number;
 }
 
+export interface AIRatingUpdateEvent {
+  leadId: string;
+  sheetId: string;
+  companyId: string;
+  rating: string;
+  score: number | null;
+  summary: string | null;
+  details: any;
+  updatedAt: Date | null;
+}
+
+export function emitAIRatingUpdate(event: AIRatingUpdateEvent) {
+  const io = getSocketIO();
+  if (!io) return;
+
+  // Emit to all users viewing this sheet
+  io.to(`sheet:${event.sheetId}`).emit("ai_rating_updated", {
+    leadId: event.leadId,
+    rating: event.rating,
+    score: event.score,
+    summary: event.summary,
+    details: event.details,
+    updatedAt: event.updatedAt,
+  });
+}
+
 export function emitPointsCelebration(event: PointsCelebrationEvent) {
   const io = getSocketIO();
   if (!io || event.showAnimationTo === "none") return;

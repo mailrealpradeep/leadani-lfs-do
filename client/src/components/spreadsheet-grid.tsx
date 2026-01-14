@@ -127,6 +127,7 @@ import type { Lead, DropdownOption, CustomColumn, ValidationRule, HighlightingRu
 import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
+import { AIRatingCell } from "./ai-rating-badge";
 import { NextFollowupDateDialog } from "./next-followup-date-dialog";
 import { UpdateHistoryHoverCard } from "./update-history-hover-card";
 import { LeadEditDialog } from "./lead-edit-dialog";
@@ -1887,15 +1888,24 @@ export function SpreadsheetGrid({
       }
     };
 
+    const handleAIRatingUpdated = (data: { leadId: string }) => {
+      // Invalidate leads to refresh AI rating display
+      queryClient.invalidateQueries({ queryKey: ["/api/sheets", sheetId, "leads-infinite"] });
+      // Also invalidate specific lead query for the drawer
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", data.leadId] });
+    };
+
     socket.on("lead_created", handleLeadCreated);
     socket.on("lead_updated", handleLeadUpdated);
     socket.on("highlighting_rules.updated", handleHighlightingRulesUpdated);
+    socket.on("ai_rating_updated", handleAIRatingUpdated);
 
     return () => {
       socket.emit("leave_sheet", sheetId);
       socket.off("lead_created", handleLeadCreated);
       socket.off("lead_updated", handleLeadUpdated);
       socket.off("highlighting_rules.updated", handleHighlightingRulesUpdated);
+      socket.off("ai_rating_updated", handleAIRatingUpdated);
     };
   }, [sheetId]);
 
@@ -2037,6 +2047,10 @@ export function SpreadsheetGrid({
     }
     if (columnKey === "attended_at") {
       return lead.attended_at;
+    }
+    // Handle AI rating column - returns the rating category for filtering
+    if (columnKey === "ai_rating") {
+      return lead.ai_rating || "New";
     }
     return lead.custom_fields[columnKey];
   };
@@ -2180,6 +2194,22 @@ export function SpreadsheetGrid({
         dropdown: false,
         type: "datetime" as const,
         config: {},
+      });
+    }
+    
+    // Add AI Insights as a system column for AI-powered lead quality rating
+    if (!existingKeys.has("ai_rating")) {
+      systemColumnsToAdd.push({
+        key: "ai_rating",
+        label: "AI Insights",
+        width: "100px",
+        sortable: true,
+        dropdown: true,
+        type: "dropdown" as const, // Use dropdown for filtering support
+        config: {
+          dropdown_options: ["New", "Hot", "Warm", "Neutral", "Cold", "Poor"],
+          is_ai_rating: true, // Mark as AI rating column for special rendering
+        },
       });
     }
     
@@ -3730,6 +3760,24 @@ export function SpreadsheetGrid({
 
                         {/* Compact Action Row - All icon buttons */}
                         <div className="flex items-center gap-1.5 pt-1.5 border-t" onClick={(e) => e.stopPropagation()}>
+                          {/* AI Rating Badge */}
+                          {lead.ai_rating && lead.ai_rating !== "New" && (
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs h-6 px-1.5 flex-shrink-0 ${
+                                lead.ai_rating === "Hot" ? "text-red-500 border-red-500/30" :
+                                lead.ai_rating === "Warm" ? "text-orange-500 border-orange-500/30" :
+                                lead.ai_rating === "Neutral" ? "text-yellow-500 border-yellow-500/30" :
+                                lead.ai_rating === "Cold" ? "text-blue-500 border-blue-500/30" :
+                                "text-gray-500 border-gray-500/30"
+                              }`}
+                              title={`AI Rating: ${lead.ai_rating}${lead.ai_rating_score ? ` (${lead.ai_rating_score.toFixed(1)}/5)` : ""}`}
+                              data-testid={`badge-ai-rating-${lead.id}`}
+                            >
+                              <Sparkles className="w-3 h-3 mr-0.5" />
+                              {lead.ai_rating}
+                            </Badge>
+                          )}
                           <Button
                             variant="default"
                             size="sm"
@@ -4600,6 +4648,15 @@ export function SpreadsheetGrid({
                               data-testid={`input-edit-${col.key}`}
                             />
                           )
+                        ) : col.key === "ai_rating" ? (
+                          <AIRatingCell
+                            leadId={lead.id}
+                            rating={lead.ai_rating as any}
+                            score={lead.ai_rating_score}
+                            summary={lead.ai_rating_summary}
+                            details={lead.ai_rating_details as any}
+                            updatedAt={lead.ai_rating_updated_at as any}
+                          />
                         ) : (
                           <div className="flex items-center gap-1.5 w-full">
                             {/* Lock icon for final values (non-admin users) */}

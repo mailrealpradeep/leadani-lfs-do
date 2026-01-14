@@ -308,6 +308,19 @@ export interface Lead {
   deleted_by_user_id: string | null;
   attended_at: string | null; // First user action timestamp (null until attended)
   attended_by_user_id: string | null; // User ID who first attended (null until attended)
+  // AI Lead Quality Rating fields
+  ai_rating?: string | null; // New, Hot, Warm, Neutral, Cold, Poor
+  ai_rating_score?: number | null; // 1-5 numeric score
+  ai_rating_summary?: string | null; // Brief AI-generated summary
+  ai_rating_details?: {
+    engagement_score: number;
+    sentiment_score: number;
+    progression_score: number;
+    followup_count: number;
+    key_signals: string[];
+    last_remarks: string[];
+  } | null;
+  ai_rating_updated_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -984,6 +997,19 @@ export const leads = pgTable('leads', {
   deleted_by_user_id: varchar('deleted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   attended_at: timestamp('attended_at'), // First user action timestamp (nullable until attended)
   attended_by_user_id: varchar('attended_by_user_id').references(() => users.id, { onDelete: 'set null' }), // User who first attended (nullable)
+  // AI Lead Quality Rating fields
+  ai_rating: varchar('ai_rating', { length: 20 }), // New, Hot, Warm, Neutral, Cold, Poor
+  ai_rating_score: integer('ai_rating_score'), // 1-5 numeric score
+  ai_rating_summary: text('ai_rating_summary'), // Brief AI-generated summary
+  ai_rating_details: json('ai_rating_details').$type<{
+    engagement_score: number;
+    sentiment_score: number;
+    progression_score: number;
+    followup_count: number;
+    key_signals: string[];
+    last_remarks: string[];
+  }>(),
+  ai_rating_updated_at: timestamp('ai_rating_updated_at'),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

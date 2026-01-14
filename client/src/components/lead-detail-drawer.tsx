@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Phone, 
   MessageCircle, 
@@ -10,8 +10,14 @@ import {
   RefreshCw,
   ExternalLink,
   ChevronRight,
-  Clock
+  Clock,
+  Sparkles,
+  Star,
+  Activity,
+  TrendingUp,
+  Loader2
 } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Sheet,
   SheetContent,
@@ -299,6 +305,11 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
               {/* Scrollable Content */}
               <ScrollArea className="flex-1">
                 <div className="p-4 space-y-4">
+                  {/* AI Insights Section */}
+                  <AIInsightsSection leadId={leadId!} lead={lead} />
+
+                  <Separator />
+
                   {/* Lead Information - All Fields */}
                   <div>
                     <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
@@ -450,5 +461,160 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
         />
       )}
     </>
+  );
+}
+
+// AI Insights Section Component
+function AIInsightsSection({ leadId, lead }: { leadId: string; lead: Lead }) {
+  const ratingMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/leads/${leadId}/ai-rating`);
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId] });
+    },
+  });
+
+  const getRatingColor = (rating: string | null | undefined) => {
+    switch (rating) {
+      case "Hot": return "text-red-500";
+      case "Warm": return "text-orange-500";
+      case "Neutral": return "text-yellow-500";
+      case "Cold": return "text-blue-500";
+      case "Poor": return "text-gray-500";
+      default: return "text-muted-foreground";
+    }
+  };
+
+  const getRatingBg = (rating: string | null | undefined) => {
+    switch (rating) {
+      case "Hot": return "bg-red-500/10 border-red-500/30";
+      case "Warm": return "bg-orange-500/10 border-orange-500/30";
+      case "Neutral": return "bg-yellow-500/10 border-yellow-500/30";
+      case "Cold": return "bg-blue-500/10 border-blue-500/30";
+      case "Poor": return "bg-gray-500/10 border-gray-500/30";
+      default: return "bg-muted/30 border-muted";
+    }
+  };
+
+  const renderStars = (score: number | null | undefined) => {
+    const rating = score || 0;
+    const fullStars = Math.floor(rating);
+    const hasHalf = rating - fullStars >= 0.5;
+    const stars = [];
+    
+    for (let i = 0; i < 5; i++) {
+      if (i < fullStars) {
+        stars.push(<Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />);
+      } else if (i === fullStars && hasHalf) {
+        stars.push(<Star key={i} className="w-4 h-4 fill-yellow-400/50 text-yellow-400" />);
+      } else {
+        stars.push(<Star key={i} className="w-4 h-4 text-muted-foreground/30" />);
+      }
+    }
+    return stars;
+  };
+
+  const details = lead.ai_rating_details as { engagement?: number; sentiment?: number; progression?: number } | null;
+  const hasRating = lead.ai_rating && lead.ai_rating !== "New";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5" />
+          AI Insights
+        </h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => ratingMutation.mutate()}
+          disabled={ratingMutation.isPending}
+          data-testid="button-refresh-ai-rating"
+        >
+          {ratingMutation.isPending ? (
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3 mr-1" />
+          )}
+          Analyze
+        </Button>
+      </div>
+
+      <div className={`rounded-lg border p-3 ${getRatingBg(lead.ai_rating)}`}>
+        {!lead.ai_rating || lead.ai_rating === "New" ? (
+          <div className="text-center py-2">
+            <Sparkles className="h-6 w-6 mx-auto mb-2 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">
+              {lead.ai_rating === "New" 
+                ? "New lead - AI analysis requires 3+ follow-ups"
+                : "Click Analyze to get AI insights"}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Rating Badge and Score */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Badge 
+                  variant="outline" 
+                  className={`font-semibold ${getRatingColor(lead.ai_rating)} ${getRatingBg(lead.ai_rating)}`}
+                >
+                  {lead.ai_rating}
+                </Badge>
+                <div className="flex items-center gap-0.5">
+                  {renderStars(lead.ai_rating_score)}
+                </div>
+              </div>
+              {lead.ai_rating_score && (
+                <span className="text-sm font-medium">{lead.ai_rating_score.toFixed(1)}/5</span>
+              )}
+            </div>
+
+            {/* Summary */}
+            {lead.ai_rating_summary && (
+              <p className="text-sm text-muted-foreground">
+                {lead.ai_rating_summary}
+              </p>
+            )}
+
+            {/* Detail Scores */}
+            {details && (
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-muted/50">
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground mb-1">
+                    <Activity className="w-3 h-3" />
+                    Engagement
+                  </div>
+                  <div className="text-sm font-semibold">
+                    {details.engagement?.toFixed(1) || "-"}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground mb-1">
+                    <Star className="w-3 h-3" />
+                    Sentiment
+                  </div>
+                  <div className="text-sm font-semibold">
+                    {details.sentiment?.toFixed(1) || "-"}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground mb-1">
+                    <TrendingUp className="w-3 h-3" />
+                    Progress
+                  </div>
+                  <div className="text-sm font-semibold">
+                    {details.progression?.toFixed(1) || "-"}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

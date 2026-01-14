@@ -3709,6 +3709,185 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // AI LEAD RATING - Analyze lead quality using Sarvam AI
+  // ============================================================================
+  
+  // Calculate AI rating for a single lead
+  app.post("/api/leads/:leadId/ai-rating", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      const { leadId } = req.params;
+
+      // Get company to check for API key
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      // Get API key from environment or company settings
+      const apiKey = process.env.SARVAM_API_KEY || company.settings?.quality_check_settings?.sarvam_api_key;
+      if (!apiKey) {
+        return res.status(400).json({ error: "Sarvam API key not configured" });
+      }
+
+      // Import and call the AI rating service
+      const { calculateAndUpdateLeadRating } = await import('./ai-lead-rating-service');
+      const { emitAIRatingUpdate } = await import('./socket-manager');
+      
+      const result = await calculateAndUpdateLeadRating(leadId, apiKey);
+
+      if (result === null) {
+        return res.json({ 
+          rating: 'New', 
+          score: 0,
+          summary: 'Less than 3 follow-ups recorded',
+          insufficient_data: true 
+        });
+      }
+
+      // Get lead to find sheet_id for socket emit
+      const lead = await storage.getLead(leadId);
+      if (lead && result) {
+        emitAIRatingUpdate({
+          leadId,
+          sheetId: lead.sheet_id,
+          companyId: req.companyId,
+          rating: result.rating,
+          score: result.score,
+          summary: result.summary,
+          details: result.details,
+          updatedAt: result.updatedAt
+        });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("AI rating error:", error);
+      res.status(500).json({ error: "Failed to calculate AI rating", details: error.message });
+    }
+  });
+
+  // Get AI rating for a lead (without recalculating)
+  app.get("/api/leads/:leadId/ai-rating", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      const { leadId } = req.params;
+      const lead = await storage.getLead(leadId);
+      
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      if (!lead.ai_rating) {
+        // Check followup count
+        const { getLeadFollowupCount } = await import('./ai-lead-rating-service');
+        const count = await getLeadFollowupCount(leadId);
+        
+        return res.json({
+          rating: count < 3 ? 'New' : null,
+          score: 0,
+          summary: count < 3 ? `${count}/3 follow-ups recorded` : 'Not yet analyzed',
+          insufficient_data: count < 3,
+          needs_analysis: count >= 3,
+          followup_count: count
+        });
+      }
+
+      res.json({
+        rating: lead.ai_rating,
+        score: lead.ai_rating_score,
+        summary: lead.ai_rating_summary,
+        details: lead.ai_rating_details,
+        updated_at: lead.ai_rating_updated_at
+      });
+    } catch (error: any) {
+      console.error("Get AI rating error:", error);
+      res.status(500).json({ error: "Failed to get AI rating", details: error.message });
+    }
+  });
+
+  // Batch calculate ratings for multiple leads (admin only)
+  app.post("/api/sheets/:sheetId/ai-ratings/batch", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const { sheetId } = req.params;
+      const { limit = 50 } = req.body;
+
+      // Get company for API key
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      const apiKey = process.env.SARVAM_API_KEY || company.settings?.quality_check_settings?.sarvam_api_key;
+      if (!apiKey) {
+        return res.status(400).json({ error: "Sarvam API key not configured" });
+      }
+
+      // Get leads from sheet that need rating (no ai_rating or stale)
+      const leads = await storage.getLeadsBySheet(sheetId);
+      
+      // Filter to leads that need rating and have enough followups
+      const { getLeadFollowupCount, calculateAndUpdateLeadRating } = await import('./ai-lead-rating-service');
+      
+      const leadsToRate: string[] = [];
+      for (const lead of leads.slice(0, limit * 2)) {
+        if (lead.deleted_at) continue;
+        if (lead.ai_rating && lead.ai_rating_updated_at) {
+          // Skip if rated within last 24 hours
+          const age = Date.now() - new Date(lead.ai_rating_updated_at).getTime();
+          if (age < 24 * 60 * 60 * 1000) continue;
+        }
+        const count = await getLeadFollowupCount(lead.id);
+        if (count >= 3) {
+          leadsToRate.push(lead.id);
+          if (leadsToRate.length >= limit) break;
+        }
+      }
+
+      // Process ratings (with delay to avoid rate limiting)
+      const results: Array<{ leadId: string; success: boolean; rating?: string }> = [];
+      
+      for (const leadId of leadsToRate) {
+        try {
+          const result = await calculateAndUpdateLeadRating(leadId, apiKey);
+          results.push({ 
+            leadId, 
+            success: true, 
+            rating: result?.rating 
+          });
+          // Small delay between API calls
+          await new Promise(r => setTimeout(r, 300));
+        } catch (err) {
+          results.push({ leadId, success: false });
+        }
+      }
+
+      res.json({
+        processed: results.length,
+        successful: results.filter(r => r.success).length,
+        results
+      });
+    } catch (error: any) {
+      console.error("Batch AI rating error:", error);
+      res.status(500).json({ error: "Failed to batch calculate ratings", details: error.message });
+    }
+  });
+
+  // ============================================================================
   // VISIT SCHEDULES - Fetch leads that are scheduled for site visits
   // ============================================================================
   app.get("/api/visits", authMiddleware, async (req: AuthRequest, res) => {
