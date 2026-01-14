@@ -54,7 +54,8 @@ import {
 import { extractGoogleSheetId } from "@shared/schema";
 import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals, checkPointsToReverse, reverseLeadUpdatePoints, getScoreDate } from "./powerscore-service";
 import { recordFollowupAndAwardPoints, detectFollowupEventTypes } from "./followup-service";
-import { setSocketIO } from "./socket-manager";
+import { setSocketIO, emitAIRatingUpdate } from "./socket-manager";
+import { getLeadFollowupCount, calculateAndUpdateLeadRating } from "./ai-lead-rating-service";
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
 import * as dbSchema from "@shared/schema";
@@ -3733,10 +3734,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(400).json({ error: "Sarvam API key not configured" });
       }
 
-      // Import and call the AI rating service
-      const { calculateAndUpdateLeadRating } = await import('./ai-lead-rating-service');
-      const { emitAIRatingUpdate } = await import('./socket-manager');
-      
       const result = await calculateAndUpdateLeadRating(leadId, apiKey);
 
       if (result === null) {
@@ -3786,7 +3783,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       if (!lead.ai_rating) {
         // Check followup count
-        const { getLeadFollowupCount } = await import('./ai-lead-rating-service');
         const count = await getLeadFollowupCount(leadId);
         
         return res.json({
@@ -3841,8 +3837,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const leads = await storage.getLeadsBySheet(sheetId);
       
       // Filter to leads that need rating and have enough followups
-      const { getLeadFollowupCount, calculateAndUpdateLeadRating } = await import('./ai-lead-rating-service');
-      
       const leadsToRate: string[] = [];
       for (const lead of leads.slice(0, limit * 2)) {
         if (lead.deleted_at) continue;
@@ -8789,6 +8783,45 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         userId: req.userId,
         updateText: update.remark || "",
       });
+
+      // Trigger automatic AI rating calculation if lead has 3+ followups
+      // Run in background to not block the response
+      // Capture values needed for the async task (lead and sheet are guaranteed valid at this point)
+      const leadIdForRating = req.params.id;
+      const sheetIdForRating = lead.sheet_id;
+      const companyIdForRating = sheet.company_id;
+      
+      // Only trigger if we have valid IDs
+      if (leadIdForRating && sheetIdForRating && companyIdForRating) {
+        (async () => {
+          try {
+            const followupCount = await getLeadFollowupCount(leadIdForRating);
+            if (followupCount >= 3) {
+              // Get company to check for API key
+              const ratingCompany = await storage.getCompany(companyIdForRating);
+              // Get API key from environment or company settings
+              const apiKey = process.env.SARVAM_API_KEY || ratingCompany?.settings?.quality_check_settings?.sarvam_api_key;
+              if (apiKey) {
+                const ratingResult = await calculateAndUpdateLeadRating(leadIdForRating, apiKey);
+                if (ratingResult) {
+                  emitAIRatingUpdate({
+                    leadId: leadIdForRating,
+                    sheetId: sheetIdForRating,
+                    companyId: companyIdForRating,
+                    rating: ratingResult.rating,
+                    score: ratingResult.score,
+                    summary: ratingResult.summary,
+                    details: ratingResult.details,
+                    updatedAt: ratingResult.updatedAt
+                  });
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Background AI rating calculation error:", err);
+          }
+        })();
+      }
 
       res.status(201).json(update);
     } catch (error: any) {
