@@ -3928,41 +3928,29 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       // Bulk query: Get leads with 3+ followups that need rating across all sheets
-      // This is much more efficient than iterating sheet by sheet
+      // Uses subquery to filter by followup count directly in SQL for efficiency
       const STALENESS_HOURS = 24;
       const stalenessThreshold = new Date(Date.now() - (STALENESS_HOURS * 60 * 60 * 1000));
       
-      const eligibleLeads = await db
-        .select({
-          leadId: dbSchema.leads.id,
-          sheetId: dbSchema.leads.sheet_id,
-        })
-        .from(dbSchema.leads)
-        .innerJoin(dbSchema.sheets, eq(dbSchema.leads.sheet_id, dbSchema.sheets.id))
-        .where(
-          and(
-            eq(dbSchema.sheets.company_id, req.companyId),
-            isNull(dbSchema.leads.deleted_at),
-            isNull(dbSchema.sheets.deleted_at),
-            or(
-              isNull(dbSchema.leads.ai_rating),
-              eq(dbSchema.leads.ai_rating, 'New'),
-              isNull(dbSchema.leads.ai_rating_updated_at),
-              lt(dbSchema.leads.ai_rating_updated_at, stalenessThreshold)
-            )
+      // Use raw SQL query to include followup count filter directly
+      const eligibleLeadsResult = await db.execute(sql`
+        SELECT l.id as "leadId", l.sheet_id as "sheetId"
+        FROM leads l
+        INNER JOIN sheets s ON l.sheet_id = s.id
+        WHERE s.company_id = ${req.companyId}
+          AND l.deleted_at IS NULL
+          AND s.deleted_at IS NULL
+          AND (
+            l.ai_rating IS NULL
+            OR l.ai_rating = 'New'
+            OR l.ai_rating_updated_at IS NULL
+            OR l.ai_rating_updated_at < ${stalenessThreshold}
           )
-        )
-        .limit(requestedLimit * 2); // Fetch extra since some may not have 3+ followups
-
-      // Filter to only leads with 3+ followups (need to check this per-lead)
-      const leadsToRate: Array<{ leadId: string; sheetId: string }> = [];
-      for (const lead of eligibleLeads) {
-        if (leadsToRate.length >= requestedLimit) break;
-        const count = await getLeadFollowupCount(lead.leadId);
-        if (count >= 3) {
-          leadsToRate.push(lead);
-        }
-      }
+          AND (SELECT COUNT(*) FROM lead_updates WHERE lead_id = l.id) >= 3
+        LIMIT ${requestedLimit}
+      `);
+      
+      const leadsToRate = (eligibleLeadsResult.rows || []) as Array<{ leadId: string; sheetId: string }>;
 
       // Process ratings and emit socket updates with time guard
       const results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }> = [];
@@ -4008,14 +3996,32 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const successful = results.filter(r => r.success).length;
-      const remaining = leadsToRate.length - results.length;
+      
+      // Get total count of leads still needing rating (for progress info)
+      const totalRemainingResult = await db.execute(sql`
+        SELECT COUNT(*) as count
+        FROM leads l
+        INNER JOIN sheets s ON l.sheet_id = s.id
+        WHERE s.company_id = ${req.companyId}
+          AND l.deleted_at IS NULL
+          AND s.deleted_at IS NULL
+          AND (
+            l.ai_rating IS NULL
+            OR l.ai_rating = 'New'
+            OR l.ai_rating_updated_at IS NULL
+            OR l.ai_rating_updated_at < ${stalenessThreshold}
+          )
+          AND (SELECT COUNT(*) FROM lead_updates WHERE lead_id = l.id) >= 3
+      `);
+      const totalRemaining = Number((totalRemainingResult.rows?.[0] as any)?.count || 0);
+      
       res.json({
-        message: timedOut 
-          ? `Processed ${results.length} leads (${successful} successful). ${remaining} remaining - run again to continue.`
-          : `Processed ${results.length} leads, ${successful} successfully rated`,
+        message: totalRemaining > 0
+          ? `Processed ${results.length} leads (${successful} successful). ${totalRemaining} leads remaining - run again to continue.`
+          : `Processed ${results.length} leads, ${successful} successfully rated. All eligible leads have been rated!`,
         processed: results.length,
         successful,
-        remaining: timedOut ? remaining : 0,
+        remaining: totalRemaining,
         timedOut,
         results
       });
