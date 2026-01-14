@@ -1325,6 +1325,26 @@ ${questionsList}`;
     }
   });
 
+  // Public Webhook GET Challenge Verification Endpoint
+  // Used by services like Facebook/Meta to verify webhook ownership
+  app.get("/api/public/webhooks/:token", async (req, res) => {
+    try {
+      // Support common challenge parameter names
+      const challenge = req.query["hub.challenge"] || req.query.challenge;
+      
+      if (challenge) {
+        // Echo back the challenge to verify webhook ownership
+        return res.status(200).send(challenge);
+      }
+      
+      // No challenge provided - return simple acknowledgment
+      return res.status(200).json({ status: "ok" });
+    } catch (error: any) {
+      console.error("Webhook GET challenge error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Public Webhook Ingestion Endpoint
   app.post("/api/public/webhooks/:token", webhookLimiter, async (req, res) => {
     let webhook;
