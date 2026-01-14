@@ -59,7 +59,7 @@ import { getLeadFollowupCount, calculateAndUpdateLeadRating } from "./ai-lead-ra
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
 import * as dbSchema from "@shared/schema";
-import { eq, and, gte, lte, lt, inArray, isNotNull, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, lt, inArray, isNotNull, isNull, desc, sql, or } from "drizzle-orm";
 
 const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
 
@@ -3881,6 +3881,26 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Check if AI rating API key is configured
+  app.get("/api/ai-ratings/status", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      const company = await storage.getCompany(req.companyId);
+      const hasEnvKey = !!process.env.SARVAM_API_KEY;
+      const hasSettingsKey = !!company?.settings?.quality_check_settings?.sarvam_api_key;
+      
+      res.json({
+        apiKeyConfigured: hasEnvKey || hasSettingsKey,
+        source: hasEnvKey ? 'environment' : (hasSettingsKey ? 'settings' : 'none')
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to check AI rating status" });
+    }
+  });
+
   // Company-wide batch AI rating - processes all leads with 3+ followups that haven't been rated
   app.post("/api/ai-ratings/batch-all", authMiddleware, async (req: AuthRequest, res) => {
     try {
@@ -3892,7 +3912,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Admin access required" });
       }
 
-      const { limit = 100 } = req.body;
+      const requestedLimit = Math.min(Math.max(1, Number(req.body.limit) || 100), 100);
+      const startTime = Date.now();
+      const MAX_PROCESSING_TIME_MS = 25000; // 25 seconds max to leave buffer before timeout
 
       // Get company for API key
       const company = await storage.getCompany(req.companyId);
@@ -3905,46 +3927,66 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(400).json({ error: "Sarvam API key not configured. Please add it in Quality Check Settings or as SARVAM_API_KEY environment variable." });
       }
 
-      // Get all sheets for this company
-      const sheets = await storage.getSheetsByCompanyId(req.companyId);
-      const activeSheets = sheets.filter(s => !s.deleted_at);
-
-      // Collect leads that need rating from all sheets
-      const leadsToRate: Array<{ leadId: string; sheetId: string }> = [];
+      // Bulk query: Get leads with 3+ followups that need rating across all sheets
+      // This is much more efficient than iterating sheet by sheet
+      const STALENESS_HOURS = 24;
+      const stalenessThreshold = new Date(Date.now() - (STALENESS_HOURS * 60 * 60 * 1000));
       
-      for (const sheet of activeSheets) {
-        const leads = await storage.getLeadsBySheet(sheet.id);
-        
-        for (const lead of leads) {
-          if (lead.deleted_at) continue;
-          // Skip if already rated (has ai_rating set)
-          if (lead.ai_rating && lead.ai_rating !== 'New') continue;
-          
-          const count = await getLeadFollowupCount(lead.id);
-          if (count >= 3) {
-            leadsToRate.push({ leadId: lead.id, sheetId: sheet.id });
-            if (leadsToRate.length >= limit) break;
-          }
+      const eligibleLeads = await db
+        .select({
+          leadId: leads.id,
+          sheetId: leads.sheet_id,
+        })
+        .from(leads)
+        .innerJoin(sheets, eq(leads.sheet_id, sheets.id))
+        .where(
+          and(
+            eq(sheets.company_id, req.companyId),
+            isNull(leads.deleted_at),
+            isNull(sheets.deleted_at),
+            or(
+              isNull(leads.ai_rating),
+              eq(leads.ai_rating, 'New'),
+              isNull(leads.ai_rating_updated_at),
+              lt(leads.ai_rating_updated_at, stalenessThreshold)
+            )
+          )
+        )
+        .limit(requestedLimit * 2); // Fetch extra since some may not have 3+ followups
+
+      // Filter to only leads with 3+ followups (need to check this per-lead)
+      const leadsToRate: Array<{ leadId: string; sheetId: string }> = [];
+      for (const lead of eligibleLeads) {
+        if (leadsToRate.length >= requestedLimit) break;
+        const count = await getLeadFollowupCount(lead.leadId);
+        if (count >= 3) {
+          leadsToRate.push(lead);
         }
-        if (leadsToRate.length >= limit) break;
       }
 
-      // Process ratings and emit socket updates
+      // Process ratings and emit socket updates with time guard
       const results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }> = [];
+      let timedOut = false;
       
       for (const { leadId, sheetId } of leadsToRate) {
+        // Check elapsed time before processing each lead
+        if (Date.now() - startTime > MAX_PROCESSING_TIME_MS) {
+          timedOut = true;
+          break;
+        }
+        
         try {
           const result = await calculateAndUpdateLeadRating(leadId, apiKey);
-          if (result) {
-            // Emit socket update for real-time UI refresh
+          if (result && result.rating && result.score !== undefined) {
+            // Emit socket update for real-time UI refresh only with valid payload
             emitAIRatingUpdate({
               leadId,
               sheetId,
               companyId: req.companyId,
               rating: result.rating,
               score: result.score,
-              summary: result.summary,
-              details: result.details,
+              summary: result.summary || '',
+              details: result.details || {},
               updatedAt: new Date().toISOString()
             });
             results.push({ 
@@ -3966,10 +4008,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const successful = results.filter(r => r.success).length;
+      const remaining = leadsToRate.length - results.length;
       res.json({
-        message: `Processed ${results.length} leads, ${successful} successfully rated`,
+        message: timedOut 
+          ? `Processed ${results.length} leads (${successful} successful). ${remaining} remaining - run again to continue.`
+          : `Processed ${results.length} leads, ${successful} successfully rated`,
         processed: results.length,
         successful,
+        remaining: timedOut ? remaining : 0,
+        timedOut,
         results
       });
     } catch (error: any) {

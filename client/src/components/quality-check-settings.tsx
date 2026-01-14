@@ -336,7 +336,7 @@ export function QualityCheckSettings() {
 
       <Separator className="my-6" />
 
-      <BatchAIRatingSection apiKeyConfigured={!!localSettings.sarvam_api_key || !!localSettings.enabled} />
+      <BatchAIRatingSection apiKeyConfigured={!!localSettings.sarvam_api_key} />
     </div>
   );
 }
@@ -347,8 +347,17 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
   const [result, setResult] = useState<{
     processed: number;
     successful: number;
+    remaining?: number;
+    timedOut?: boolean;
     results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }>;
   } | null>(null);
+
+  // Check if API key is configured (either via settings or environment)
+  const { data: statusData } = useQuery<{ apiKeyConfigured: boolean; source: string }>({
+    queryKey: ["/api/ai-ratings/status"],
+  });
+
+  const isKeyAvailable = apiKeyConfigured || statusData?.apiKeyConfigured;
 
   const batchMutation = useMutation({
     mutationFn: async () => {
@@ -357,6 +366,8 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
         message: string;
         processed: number;
         successful: number;
+        remaining?: number;
+        timedOut?: boolean;
         results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }>;
       }>("POST", "/api/ai-ratings/batch-all", { limit: 100 });
     },
@@ -364,8 +375,8 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
       setResult(data);
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       toast({
-        title: "Batch Analysis Complete",
-        description: `Processed ${data.processed} leads, ${data.successful} successfully rated.`,
+        title: data.timedOut ? "Partial Analysis Complete" : "Batch Analysis Complete",
+        description: data.message,
       });
     },
     onError: (error: any) => {
@@ -407,7 +418,7 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
       <div className="flex items-center gap-4">
         <Button
           onClick={() => batchMutation.mutate()}
-          disabled={isProcessing || !apiKeyConfigured}
+          disabled={isProcessing || !isKeyAvailable}
           data-testid="button-batch-ai-rating"
         >
           {isProcessing ? (
@@ -423,9 +434,15 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
           )}
         </Button>
 
-        {!apiKeyConfigured && (
+        {!isKeyAvailable && (
           <p className="text-sm text-yellow-600">
-            Please configure and save your Sarvam API key above first.
+            Please configure and save your Sarvam API key above first (or set SARVAM_API_KEY environment variable).
+          </p>
+        )}
+        
+        {statusData?.source === 'environment' && !apiKeyConfigured && (
+          <p className="text-sm text-green-600">
+            Using environment API key
           </p>
         )}
       </div>
@@ -436,8 +453,15 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
             <span className="font-medium">Results</span>
             <span className="text-sm text-muted-foreground">
               {result.successful}/{result.processed} successfully rated
+              {result.remaining ? ` (${result.remaining} remaining)` : ''}
             </span>
           </div>
+          
+          {result.timedOut && result.remaining && result.remaining > 0 && (
+            <p className="text-sm text-yellow-600">
+              Time limit reached. Click the button again to process remaining leads.
+            </p>
+          )}
 
           {result.results.length > 0 && (
             <div className="max-h-48 overflow-y-auto space-y-1">
