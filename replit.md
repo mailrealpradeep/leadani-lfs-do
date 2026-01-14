@@ -59,6 +59,7 @@ The system features a customizable grid interface with dynamic column management
 *   **Final Value Settings**: Company-wide rules to prevent status reversals of critical values, with backend enforcement, frontend protection, and admin override capabilities.
 *   **Vision Board**: Personal goal tracking system for executives with money-based goals, dream images carousel, animated circular progress ring, earnings tracking (closings + incentives), and effort metrics breakdown (Sales, Visits, New Leads, Follow-ups) auto-calculated across yearly/monthly/weekly/daily periods. Supports multiple currencies (INR, USD, EUR, GBP, AED) and includes a 4-step setup wizard with Apple-level stunning UI featuring glass-morphism cards and motivational messages.
 *   **Conversion Settings**: Centralized Admin Panel hub for managing sales pipeline configuration. Features include: visual pipeline overview with stage metrics and expected vs actual conversion rate tracking, up to 8 configurable stages with trigger mapping (lead_status/visit_status/combined), conversion value configuration (fixed/from lead field/manual), incentive structures (percentage/fixed/manual/tiered), approval workflow settings, and date-range filtering with quick filters (Today, This Week, Last Week, This Month, Last Month, This Quarter, This Year).
+*   **AI Lead Rating**: AI-powered lead quality analysis using Sarvam AI. Analyzes followup remarks (Odia/Hindi/English) to calculate engagement, sentiment, and progression scores. Requires 3+ followups before analysis (shows "New" otherwise to minimize API costs). Rating categories: Hot (4.5-5), Warm (3.5-4.5), Neutral (2.5-3.5), Cold (1.5-2.5), Poor (1-1.5). Features AI Insights column in spreadsheet grid with dropdown filtering, star-based rating display, detailed breakdown in lead detail drawer, mobile card badge, and real-time Socket.io updates. Includes fallback pattern-based rating when AI API unavailable.
 
 ### Security
 
@@ -80,4 +81,4 @@ JWT-based authentication with role and sheet-level permissions, HMAC signature v
 *   **Authentication & Onboarding**: Public APIs for signup, invites, and invite acceptance.
 *   **Webhook API**: Public endpoint for external lead creation.
 *   **Data Operations**: Export and Import functionalities for lead data.
-*   **AI Services**: Sarvam AI for Quality Check and Insta Support.
+*   **AI Services**: Sarvam AI for Quality Check, Insta Support, and AI Lead Rating.
