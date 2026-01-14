@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Eye, EyeOff, Save, ShieldCheck, Sparkles, ListX } from "lucide-react";
+import { Loader2, Eye, EyeOff, Save, ShieldCheck, Sparkles, ListX, Brain, Zap } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
 
 interface QualityCheckSettings {
   // Standard check (instant, no API)
@@ -330,6 +331,143 @@ export function QualityCheckSettings() {
               </>
             )}
           </Button>
+        </div>
+      )}
+
+      <Separator className="my-6" />
+
+      <BatchAIRatingSection apiKeyConfigured={!!localSettings.sarvam_api_key || !!localSettings.enabled} />
+    </div>
+  );
+}
+
+function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean }) {
+  const { toast } = useToast();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [result, setResult] = useState<{
+    processed: number;
+    successful: number;
+    results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }>;
+  } | null>(null);
+
+  const batchMutation = useMutation({
+    mutationFn: async () => {
+      setIsProcessing(true);
+      return await apiRequest<{
+        message: string;
+        processed: number;
+        successful: number;
+        results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }>;
+      }>("POST", "/api/ai-ratings/batch-all", { limit: 100 });
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Batch Analysis Complete",
+        description: `Processed ${data.processed} leads, ${data.successful} successfully rated.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to run batch analysis.",
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsProcessing(false);
+    },
+  });
+
+  const getRatingBadgeColor = (rating: string) => {
+    switch (rating) {
+      case 'Hot': return 'bg-red-500/20 text-red-600';
+      case 'Warm': return 'bg-orange-500/20 text-orange-600';
+      case 'Neutral': return 'bg-blue-500/20 text-blue-600';
+      case 'Cold': return 'bg-cyan-500/20 text-cyan-600';
+      case 'Poor': return 'bg-gray-500/20 text-gray-600';
+      default: return 'bg-muted text-muted-foreground';
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Brain className="h-5 w-5 text-purple-500" />
+        <h3 className="text-lg font-medium">AI Lead Rating - Batch Analysis</h3>
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        Analyze all existing leads with 3+ follow-ups that haven't been rated yet. 
+        This uses the Sarvam AI API to analyze followup remarks and assign quality ratings.
+        Ratings will update in real-time as they're processed.
+      </p>
+
+      <div className="flex items-center gap-4">
+        <Button
+          onClick={() => batchMutation.mutate()}
+          disabled={isProcessing || !apiKeyConfigured}
+          data-testid="button-batch-ai-rating"
+        >
+          {isProcessing ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            <>
+              <Zap className="h-4 w-4 mr-2" />
+              Analyze All Unrated Leads
+            </>
+          )}
+        </Button>
+
+        {!apiKeyConfigured && (
+          <p className="text-sm text-yellow-600">
+            Please configure and save your Sarvam API key above first.
+          </p>
+        )}
+      </div>
+
+      {result && (
+        <div className="mt-4 p-4 bg-muted/50 rounded-lg space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">Results</span>
+            <span className="text-sm text-muted-foreground">
+              {result.successful}/{result.processed} successfully rated
+            </span>
+          </div>
+
+          {result.results.length > 0 && (
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {result.results.slice(0, 20).map((r, i) => (
+                <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {r.leadId.slice(0, 8)}...
+                  </span>
+                  {r.success ? (
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${getRatingBadgeColor(r.rating || '')}`}>
+                      {r.rating} ({r.score}/5)
+                    </span>
+                  ) : (
+                    <span className="text-xs text-red-500">Failed</span>
+                  )}
+                </div>
+              ))}
+              {result.results.length > 20 && (
+                <p className="text-xs text-muted-foreground text-center pt-2">
+                  And {result.results.length - 20} more...
+                </p>
+              )}
+            </div>
+          )}
+
+          {result.processed === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No unrated leads with 3+ follow-ups found. All leads are already rated.
+            </p>
+          )}
         </div>
       )}
     </div>

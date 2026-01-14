@@ -3881,6 +3881,103 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Company-wide batch AI rating - processes all leads with 3+ followups that haven't been rated
+  app.post("/api/ai-ratings/batch-all", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      if (req.userRole !== 'super_admin' && req.userRole !== 'company_admin') {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const { limit = 100 } = req.body;
+
+      // Get company for API key
+      const company = await storage.getCompany(req.companyId);
+      if (!company) {
+        return res.status(404).json({ error: "Company not found" });
+      }
+
+      const apiKey = process.env.SARVAM_API_KEY || company.settings?.quality_check_settings?.sarvam_api_key;
+      if (!apiKey) {
+        return res.status(400).json({ error: "Sarvam API key not configured. Please add it in Quality Check Settings or as SARVAM_API_KEY environment variable." });
+      }
+
+      // Get all sheets for this company
+      const sheets = await storage.getSheetsByCompanyId(req.companyId);
+      const activeSheets = sheets.filter(s => !s.deleted_at);
+
+      // Collect leads that need rating from all sheets
+      const leadsToRate: Array<{ leadId: string; sheetId: string }> = [];
+      
+      for (const sheet of activeSheets) {
+        const leads = await storage.getLeadsBySheet(sheet.id);
+        
+        for (const lead of leads) {
+          if (lead.deleted_at) continue;
+          // Skip if already rated (has ai_rating set)
+          if (lead.ai_rating && lead.ai_rating !== 'New') continue;
+          
+          const count = await getLeadFollowupCount(lead.id);
+          if (count >= 3) {
+            leadsToRate.push({ leadId: lead.id, sheetId: sheet.id });
+            if (leadsToRate.length >= limit) break;
+          }
+        }
+        if (leadsToRate.length >= limit) break;
+      }
+
+      // Process ratings and emit socket updates
+      const results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }> = [];
+      
+      for (const { leadId, sheetId } of leadsToRate) {
+        try {
+          const result = await calculateAndUpdateLeadRating(leadId, apiKey);
+          if (result) {
+            // Emit socket update for real-time UI refresh
+            emitAIRatingUpdate({
+              leadId,
+              sheetId,
+              companyId: req.companyId,
+              rating: result.rating,
+              score: result.score,
+              summary: result.summary,
+              details: result.details,
+              updatedAt: new Date().toISOString()
+            });
+            results.push({ 
+              leadId, 
+              sheetId,
+              success: true, 
+              rating: result.rating,
+              score: result.score
+            });
+          } else {
+            results.push({ leadId, sheetId, success: false });
+          }
+          // Small delay between API calls to avoid rate limiting
+          await new Promise(r => setTimeout(r, 300));
+        } catch (err) {
+          console.error(`Batch rating error for lead ${leadId}:`, err);
+          results.push({ leadId, sheetId, success: false });
+        }
+      }
+
+      const successful = results.filter(r => r.success).length;
+      res.json({
+        message: `Processed ${results.length} leads, ${successful} successfully rated`,
+        processed: results.length,
+        successful,
+        results
+      });
+    } catch (error: any) {
+      console.error("Company batch AI rating error:", error);
+      res.status(500).json({ error: "Failed to batch calculate ratings", details: error.message });
+    }
+  });
+
   // ============================================================================
   // VISIT SCHEDULES - Fetch leads that are scheduled for site visits
   // ============================================================================
