@@ -4032,6 +4032,149 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // AI RATING BACKGROUND JOBS - Automated batch processing
+  // ============================================================================
+
+  // Start a background job to rate all eligible leads
+  app.post("/api/ai-ratings/jobs", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const company = await storage.getCompany(req.companyId);
+      const apiKey = process.env.SARVAM_API_KEY || company?.settings?.quality_check_settings?.sarvam_api_key;
+      if (!apiKey) {
+        return res.status(400).json({ error: "Sarvam API key not configured. Please add it in Quality Check Settings or as SARVAM_API_KEY environment variable." });
+      }
+
+      const { createJob, getActiveJobForCompany, getJobProgress } = await import("./ai-rating-job-registry");
+      const { runAIRatingJob } = await import("./ai-rating-job-runner");
+
+      const existingJob = getActiveJobForCompany(req.companyId);
+      if (existingJob) {
+        return res.status(409).json({
+          error: "A job is already running",
+          job: getJobProgress(existingJob)
+        });
+      }
+
+      const STALENESS_HOURS = 24;
+      const stalenessThreshold = new Date(Date.now() - (STALENESS_HOURS * 60 * 60 * 1000));
+      const countResult = await db.execute(sql`
+        SELECT COUNT(*) as count
+        FROM leads l
+        INNER JOIN sheets s ON l.sheet_id = s.id
+        WHERE s.company_id = ${req.companyId}
+          AND l.deleted_at IS NULL
+          AND s.deleted_at IS NULL
+          AND (
+            l.ai_rating IS NULL
+            OR l.ai_rating = 'New'
+            OR l.ai_rating_updated_at IS NULL
+            OR l.ai_rating_updated_at < ${stalenessThreshold}
+          )
+          AND (SELECT COUNT(*) FROM lead_updates WHERE lead_id = l.id) >= 3
+      `);
+      const totalLeads = Number((countResult.rows?.[0] as any)?.count || 0);
+
+      if (totalLeads === 0) {
+        return res.json({
+          message: "All eligible leads are already rated!",
+          totalLeads: 0
+        });
+      }
+
+      const job = createJob(req.companyId, totalLeads);
+
+      runAIRatingJob(job.id, apiKey).catch(err => {
+        console.error(`Background job ${job.id} failed:`, err);
+      });
+
+      res.json({
+        message: `Started rating job for ${totalLeads} leads`,
+        job: getJobProgress(job)
+      });
+    } catch (error: any) {
+      console.error("Start AI rating job error:", error);
+      res.status(500).json({ error: "Failed to start rating job", details: error.message });
+    }
+  });
+
+  // Get job status
+  app.get("/api/ai-ratings/jobs/:jobId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { getJob, getJobProgress } = await import("./ai-rating-job-registry");
+      const job = getJob(req.params.jobId);
+      
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      if (job.companyId !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json({ job: getJobProgress(job) });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to get job status" });
+    }
+  });
+
+  // Get active job for current company
+  app.get("/api/ai-ratings/jobs", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
+      const { getActiveJobForCompany, getJobProgress } = await import("./ai-rating-job-registry");
+      const job = getActiveJobForCompany(req.companyId);
+      
+      if (!job) {
+        return res.json({ job: null });
+      }
+
+      res.json({ job: getJobProgress(job) });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to get active job" });
+    }
+  });
+
+  // Cancel a running job
+  app.delete("/api/ai-ratings/jobs/:jobId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const { getJob, requestCancelJob, getJobProgress } = await import("./ai-rating-job-registry");
+      const job = getJob(req.params.jobId);
+      
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      if (job.companyId !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const cancelled = requestCancelJob(req.params.jobId);
+      if (!cancelled) {
+        return res.status(400).json({ error: "Job cannot be cancelled (already completed or failed)" });
+      }
+
+      res.json({
+        message: "Cancellation requested",
+        job: getJobProgress(job)
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to cancel job" });
+    }
+  });
+
+  // ============================================================================
   // VISIT SCHEDULES - Fetch leads that are scheduled for site visits
   // ============================================================================
   app.get("/api/visits", authMiddleware, async (req: AuthRequest, res) => {

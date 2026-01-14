@@ -83,3 +83,23 @@ export function emitPointsCelebration(event: PointsCelebrationEvent) {
       break;
   }
 }
+
+export interface AIRatingJobProgressEvent {
+  jobId: string;
+  companyId: string;
+  status: string;
+  totalLeads: number;
+  processedLeads: number;
+  successfulRatings: number;
+  failedRatings: number;
+  currentBatch: number;
+  message: string;
+  percentComplete: number;
+}
+
+export function emitAIRatingJobProgress(event: AIRatingJobProgressEvent) {
+  const io = getSocketIO();
+  if (!io) return;
+
+  io.to(`company:${event.companyId}`).emit("ai_rating_job_progress", event);
+}

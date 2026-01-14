@@ -341,66 +341,105 @@ export function QualityCheckSettings() {
   );
 }
 
+interface JobProgress {
+  jobId: string;
+  companyId: string;
+  status: string;
+  totalLeads: number;
+  processedLeads: number;
+  successfulRatings: number;
+  failedRatings: number;
+  currentBatch: number;
+  message: string;
+  percentComplete: number;
+}
+
 function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean }) {
   const { toast } = useToast();
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [result, setResult] = useState<{
-    processed: number;
-    successful: number;
-    remaining?: number;
-    timedOut?: boolean;
-    results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }>;
-  } | null>(null);
+  const [jobProgress, setJobProgress] = useState<JobProgress | null>(null);
 
-  // Check if API key is configured (either via settings or environment)
   const { data: statusData } = useQuery<{ apiKeyConfigured: boolean; source: string }>({
     queryKey: ["/api/ai-ratings/status"],
   });
 
+  const { data: activeJobData, refetch: refetchActiveJob } = useQuery<{ job: JobProgress | null }>({
+    queryKey: ["/api/ai-ratings/jobs"],
+    refetchInterval: jobProgress?.status === 'running' || jobProgress?.status === 'pending' ? 3000 : false,
+  });
+
   const isKeyAvailable = apiKeyConfigured || statusData?.apiKeyConfigured;
 
-  const batchMutation = useMutation({
+  useEffect(() => {
+    if (activeJobData?.job) {
+      setJobProgress(activeJobData.job);
+    }
+  }, [activeJobData]);
+
+  useEffect(() => {
+    const handleJobProgress = (progress: JobProgress) => {
+      setJobProgress(progress);
+      if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'cancelled') {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      }
+    };
+
+    const socket = (window as any).__socket;
+    if (socket) {
+      socket.on('ai_rating_job_progress', handleJobProgress);
+      return () => {
+        socket.off('ai_rating_job_progress', handleJobProgress);
+      };
+    }
+  }, []);
+
+  const startJobMutation = useMutation({
     mutationFn: async () => {
-      setIsProcessing(true);
-      return await apiRequest<{
-        message: string;
-        processed: number;
-        successful: number;
-        remaining?: number;
-        timedOut?: boolean;
-        results: Array<{ leadId: string; sheetId: string; success: boolean; rating?: string; score?: number }>;
-      }>("POST", "/api/ai-ratings/batch-all", { limit: 100 });
+      return await apiRequest<{ message: string; job: JobProgress; totalLeads?: number }>("POST", "/api/ai-ratings/jobs");
     },
     onSuccess: (data) => {
-      setResult(data);
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      if (data.job) {
+        setJobProgress(data.job);
+      } else if (data.totalLeads === 0) {
+        toast({
+          title: "All Done!",
+          description: data.message,
+        });
+      }
+      refetchActiveJob();
+    },
+    onError: (error: any) => {
       toast({
-        title: data.timedOut ? "Partial Analysis Complete" : "Batch Analysis Complete",
-        description: data.message,
+        title: "Error",
+        description: error.message || "Failed to start rating job.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const cancelJobMutation = useMutation({
+    mutationFn: async () => {
+      if (!jobProgress?.jobId) return;
+      return await apiRequest("DELETE", `/api/ai-ratings/jobs/${jobProgress.jobId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Cancellation Requested",
+        description: "The job will stop after completing the current lead.",
       });
     },
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to run batch analysis.",
+        description: error.message || "Failed to cancel job.",
         variant: "destructive",
       });
     },
-    onSettled: () => {
-      setIsProcessing(false);
-    },
   });
 
-  const getRatingBadgeColor = (rating: string) => {
-    switch (rating) {
-      case 'Hot': return 'bg-red-500/20 text-red-600';
-      case 'Warm': return 'bg-orange-500/20 text-orange-600';
-      case 'Neutral': return 'bg-blue-500/20 text-blue-600';
-      case 'Cold': return 'bg-cyan-500/20 text-cyan-600';
-      case 'Poor': return 'bg-gray-500/20 text-gray-600';
-      default: return 'bg-muted text-muted-foreground';
-    }
-  };
+  const isJobActive = jobProgress?.status === 'running' || jobProgress?.status === 'pending';
+  const isJobComplete = jobProgress?.status === 'completed';
+  const isJobFailed = jobProgress?.status === 'failed';
+  const isJobCancelled = jobProgress?.status === 'cancelled';
 
   return (
     <div className="space-y-4">
@@ -411,20 +450,25 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
 
       <p className="text-sm text-muted-foreground">
         Analyze all existing leads with 3+ follow-ups that haven't been rated yet. 
-        This uses the Sarvam AI API to analyze followup remarks and assign quality ratings.
+        Click once and the system will automatically process all leads in the background.
         Ratings will update in real-time as they're processed.
       </p>
 
       <div className="flex items-center gap-4">
         <Button
-          onClick={() => batchMutation.mutate()}
-          disabled={isProcessing || !isKeyAvailable}
+          onClick={() => startJobMutation.mutate()}
+          disabled={startJobMutation.isPending || isJobActive || !isKeyAvailable}
           data-testid="button-batch-ai-rating"
         >
-          {isProcessing ? (
+          {startJobMutation.isPending ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Processing...
+              Starting...
+            </>
+          ) : isJobActive ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Running...
             </>
           ) : (
             <>
@@ -433,6 +477,22 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
             </>
           )}
         </Button>
+
+        {isJobActive && (
+          <Button
+            variant="outline"
+            onClick={() => cancelJobMutation.mutate()}
+            disabled={cancelJobMutation.isPending}
+            data-testid="button-cancel-ai-rating"
+          >
+            {cancelJobMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <ListX className="h-4 w-4 mr-2" />
+            )}
+            Cancel
+          </Button>
+        )}
 
         {!isKeyAvailable && (
           <p className="text-sm text-yellow-600">
@@ -447,49 +507,49 @@ function BatchAIRatingSection({ apiKeyConfigured }: { apiKeyConfigured: boolean 
         )}
       </div>
 
-      {result && (
+      {jobProgress && (
         <div className="mt-4 p-4 bg-muted/50 rounded-lg space-y-3">
           <div className="flex items-center justify-between">
-            <span className="font-medium">Results</span>
+            <span className="font-medium flex items-center gap-2">
+              {isJobActive && <Loader2 className="h-4 w-4 animate-spin text-purple-500" />}
+              {isJobComplete && <Sparkles className="h-4 w-4 text-green-500" />}
+              {isJobFailed && <ListX className="h-4 w-4 text-red-500" />}
+              {isJobCancelled && <ListX className="h-4 w-4 text-yellow-500" />}
+              {isJobActive ? 'Processing...' : isJobComplete ? 'Completed!' : isJobFailed ? 'Failed' : isJobCancelled ? 'Cancelled' : 'Status'}
+            </span>
             <span className="text-sm text-muted-foreground">
-              {result.successful}/{result.processed} successfully rated
-              {result.remaining ? ` (${result.remaining} remaining)` : ''}
+              {jobProgress.successfulRatings}/{jobProgress.processedLeads} rated
+              {jobProgress.totalLeads > 0 && ` of ${jobProgress.totalLeads} total`}
             </span>
           </div>
-          
-          {result.timedOut && result.remaining && result.remaining > 0 && (
-            <p className="text-sm text-yellow-600">
-              Time limit reached. Click the button again to process remaining leads.
+
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>{jobProgress.message}</span>
+              <span>{jobProgress.percentComplete}%</span>
+            </div>
+            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+              <div 
+                className={`h-full transition-all duration-300 rounded-full ${
+                  isJobComplete ? 'bg-green-500' : 
+                  isJobFailed ? 'bg-red-500' : 
+                  isJobCancelled ? 'bg-yellow-500' : 
+                  'bg-purple-500'
+                }`}
+                style={{ width: `${jobProgress.percentComplete}%` }}
+              />
+            </div>
+          </div>
+
+          {jobProgress.failedRatings > 0 && (
+            <p className="text-xs text-yellow-600">
+              {jobProgress.failedRatings} leads failed to rate (API errors or no valid remarks)
             </p>
           )}
 
-          {result.results.length > 0 && (
-            <div className="max-h-48 overflow-y-auto space-y-1">
-              {result.results.slice(0, 20).map((r, i) => (
-                <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {r.leadId.slice(0, 8)}...
-                  </span>
-                  {r.success ? (
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${getRatingBadgeColor(r.rating || '')}`}>
-                      {r.rating} ({r.score}/5)
-                    </span>
-                  ) : (
-                    <span className="text-xs text-red-500">Failed</span>
-                  )}
-                </div>
-              ))}
-              {result.results.length > 20 && (
-                <p className="text-xs text-muted-foreground text-center pt-2">
-                  And {result.results.length - 20} more...
-                </p>
-              )}
-            </div>
-          )}
-
-          {result.processed === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No unrated leads with 3+ follow-ups found. All leads are already rated.
+          {isJobComplete && (
+            <p className="text-sm text-green-600">
+              All eligible leads have been rated! New leads with 3+ followups will be rated automatically.
             </p>
           )}
         </div>
