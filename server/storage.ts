@@ -4066,6 +4066,26 @@ export class PgStorage implements IStorage {
         continue;
       }
       
+      // Handle ai_rating filter (native column on leads table, not custom_fields)
+      if (key === 'ai_rating') {
+        if (typeof value === 'object' && value !== null && 'exactMatch' in value) {
+          const exactFilter = value as { value: string; exactMatch: boolean };
+          // Handle "New" specially - it means NULL or "New" in the database
+          if (exactFilter.value === 'New') {
+            conditions.push(sql`(${dbSchema.leads.ai_rating} IS NULL OR ${dbSchema.leads.ai_rating} = 'New')`);
+          } else {
+            conditions.push(sql`${dbSchema.leads.ai_rating} = ${exactFilter.value}`);
+          }
+        } else if (typeof value === 'string') {
+          if (value === 'New') {
+            conditions.push(sql`(${dbSchema.leads.ai_rating} IS NULL OR ${dbSchema.leads.ai_rating} = 'New')`);
+          } else {
+            conditions.push(sql`${dbSchema.leads.ai_rating} = ${value}`);
+          }
+        }
+        continue;
+      }
+      
       // Handle search filter (search across all custom_fields)
       if (key === 'search' && typeof value === 'string') {
         const searchTerm = '%' + value + '%';
@@ -4190,59 +4210,105 @@ export class PgStorage implements IStorage {
         
         let sqlExpr: any = null;
         
-        switch (operator) {
-          case 'is_empty':
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} = '')`;
-            break;
-            
-          case 'is_not_empty':
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '')`;
-            break;
-            
-          case 'date_before':
-          case 'before':
-            // Check that the custom field value is not NULL and not an empty string before casting to date
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date)`;
-            break;
-            
-          case 'date_after':
-          case 'after':
-            // Check that the custom field value is not NULL and not an empty string before casting to date
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date)`;
-            break;
-            
-          case 'date_equals':
-          case 'equals':
-            if (relative_date || (value && typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
+        // Special handling for ai_rating (native column, not custom_fields)
+        if (column_key === 'ai_rating') {
+          switch (operator) {
+            case 'is_empty':
+              sqlExpr = sql`(${dbSchema.leads.ai_rating} IS NULL OR ${dbSchema.leads.ai_rating} = '')`;
+              break;
+            case 'is_not_empty':
+              sqlExpr = sql`(${dbSchema.leads.ai_rating} IS NOT NULL AND ${dbSchema.leads.ai_rating} != '')`;
+              break;
+            case 'equals':
+              if (value === 'New') {
+                sqlExpr = sql`(${dbSchema.leads.ai_rating} IS NULL OR ${dbSchema.leads.ai_rating} = 'New')`;
+              } else {
+                sqlExpr = sql`${dbSchema.leads.ai_rating} = ${value}`;
+              }
+              break;
+            case 'not_equals':
+              if (value === 'New') {
+                sqlExpr = sql`(${dbSchema.leads.ai_rating} IS NOT NULL AND ${dbSchema.leads.ai_rating} != 'New')`;
+              } else {
+                sqlExpr = sql`(${dbSchema.leads.ai_rating} IS NULL OR ${dbSchema.leads.ai_rating} != ${value})`;
+              }
+              break;
+            case 'in':
+              if (Array.isArray(value) && value.length > 0) {
+                // Handle "New" specially in the array
+                if (value.includes('New')) {
+                  const otherValues = value.filter((v: string) => v !== 'New');
+                  if (otherValues.length > 0) {
+                    sqlExpr = sql`(${dbSchema.leads.ai_rating} IS NULL OR ${dbSchema.leads.ai_rating} = ANY(${value}))`;
+                  } else {
+                    sqlExpr = sql`(${dbSchema.leads.ai_rating} IS NULL OR ${dbSchema.leads.ai_rating} = 'New')`;
+                  }
+                } else {
+                  sqlExpr = sql`${dbSchema.leads.ai_rating} = ANY(${value})`;
+                }
+              }
+              break;
+            default:
+              if (value !== undefined && value !== null) {
+                sqlExpr = sql`${dbSchema.leads.ai_rating} = ${String(value)}`;
+              }
+          }
+        } else {
+          // Standard custom_fields handling
+          switch (operator) {
+            case 'is_empty':
+              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} = '')`;
+              break;
+              
+            case 'is_not_empty':
+              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '')`;
+              break;
+              
+            case 'date_before':
+            case 'before':
               // Check that the custom field value is not NULL and not an empty string before casting to date
-              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date)`;
-            } else {
-              sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ${value}`;
-            }
-            break;
-          
-          case 'not_equals':
-            sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} != ${value})`;
-            break;
+              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date < ${targetDate}::date)`;
+              break;
+              
+            case 'date_after':
+            case 'after':
+              // Check that the custom field value is not NULL and not an empty string before casting to date
+              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date > ${targetDate}::date)`;
+              break;
+              
+            case 'date_equals':
+            case 'equals':
+              if (relative_date || (value && typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
+                // Check that the custom field value is not NULL and not an empty string before casting to date
+                sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NOT NULL AND ${dbSchema.leads.custom_fields}->>${column_key} != '' AND (${dbSchema.leads.custom_fields}->>${column_key})::date = ${targetDate}::date)`;
+              } else {
+                sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ${value}`;
+              }
+              break;
             
-          case 'contains':
-            sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} ILIKE ${'%' + value + '%'}`;
-            break;
-            
-          case 'not_contains':
-            sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} NOT ILIKE ${'%' + value + '%'}`;
-            break;
-            
-          case 'in':
-            if (Array.isArray(value) && value.length > 0) {
-              sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ANY(${value})`;
-            }
-            break;
-            
-          default:
-            if (value !== undefined && value !== null) {
-              sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ${String(value)}`;
-            }
+            case 'not_equals':
+              sqlExpr = sql`(${dbSchema.leads.custom_fields}->>${column_key} IS NULL OR ${dbSchema.leads.custom_fields}->>${column_key} != ${value})`;
+              break;
+              
+            case 'contains':
+              sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} ILIKE ${'%' + value + '%'}`;
+              break;
+              
+            case 'not_contains':
+              sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} NOT ILIKE ${'%' + value + '%'}`;
+              break;
+              
+            case 'in':
+              if (Array.isArray(value) && value.length > 0) {
+                sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ANY(${value})`;
+              }
+              break;
+              
+            default:
+              if (value !== undefined && value !== null) {
+                sqlExpr = sql`${dbSchema.leads.custom_fields}->>${column_key} = ${String(value)}`;
+              }
+          }
         }
         
         // Only add to tuples if SQL was generated

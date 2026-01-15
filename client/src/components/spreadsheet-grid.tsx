@@ -800,6 +800,11 @@ export function SpreadsheetGrid({
             const sheetName = (lead.sheet_name || "").toLowerCase().trim();
             return sheetName.includes(filterLower);
           }
+          // Special handling for ai_rating (native column, not custom_fields)
+          if (key === "ai_rating") {
+            const aiRating = (lead.ai_rating || "New").toLowerCase().trim();
+            return aiRating === filterLower;
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -825,6 +830,10 @@ export function SpreadsheetGrid({
         } else if (sortColumn === "created_at") {
           aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
           bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+        } else if (sortColumn === "ai_rating") {
+          // Sort by ai_rating native column
+          aVal = a.ai_rating || "New";
+          bVal = b.ai_rating || "New";
         } else {
           aVal = a.custom_fields?.[sortColumn] || "";
           bVal = b.custom_fields?.[sortColumn] || "";
@@ -912,6 +921,11 @@ export function SpreadsheetGrid({
             const sheetName = (lead.sheet_name || "").toLowerCase().trim();
             return sheetName.includes(filterLower);
           }
+          // Special handling for ai_rating (native column, not custom_fields)
+          if (key === "ai_rating") {
+            const aiRating = (lead.ai_rating || "New").toLowerCase().trim();
+            return aiRating === filterLower;
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -974,6 +988,10 @@ export function SpreadsheetGrid({
         } else if (sortColumn === "created_at") {
           aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
           bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+        } else if (sortColumn === "ai_rating") {
+          // Sort by ai_rating native column
+          aVal = a.ai_rating || "New";
+          bVal = b.ai_rating || "New";
         } else {
           aVal = a.custom_fields?.[sortColumn] || "";
           bVal = b.custom_fields?.[sortColumn] || "";
@@ -1066,6 +1084,11 @@ export function SpreadsheetGrid({
             const sheetName = (lead.sheet_name || "").toLowerCase().trim();
             return sheetName === filterLower;
           }
+          // Special handling for ai_rating (native column, not custom_fields)
+          if (key === "ai_rating") {
+            const aiRating = (lead.ai_rating || "New").toLowerCase().trim();
+            return aiRating === filterLower;
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -1091,6 +1114,10 @@ export function SpreadsheetGrid({
         } else if (sortColumn === "created_at") {
           aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
           bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+        } else if (sortColumn === "ai_rating") {
+          // Sort by ai_rating native column
+          aVal = a.ai_rating || "New";
+          bVal = b.ai_rating || "New";
         } else {
           aVal = a.custom_fields?.[sortColumn] || "";
           bVal = b.custom_fields?.[sortColumn] || "";

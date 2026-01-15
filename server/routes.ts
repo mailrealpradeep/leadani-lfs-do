@@ -9459,6 +9459,28 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         columns = await storage.getCompanyColumns(companyId);
       }
       
+      // Add AI Rating as a virtual system column (it's a native lead column, not stored in custom_columns table)
+      const aiRatingColumn = {
+        id: "system_ai_rating",
+        company_id: companyId,
+        sheet_id: null,
+        name: "AI Insights",
+        column_key: "ai_rating",
+        type: "dropdown" as const,
+        config: { 
+          is_system_column: true, 
+          is_ai_rating: true,
+          dropdown_options: ["Hot", "Warm", "Neutral", "Cold", "Poor", "New"]
+        },
+        order_index: columns.length, // Add at the end
+        created_at: new Date().toISOString(),
+      };
+      
+      // Add AI Rating column if not already present
+      if (!columns.some(c => c.column_key === "ai_rating")) {
+        columns = [...columns, aiRatingColumn];
+      }
+      
       // Filter by types if specified (e.g., ?types=dropdown,number)
       const typesParam = req.query.types as string | undefined;
       if (typesParam) {
