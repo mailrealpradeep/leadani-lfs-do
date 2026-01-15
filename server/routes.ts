@@ -10161,6 +10161,30 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       // Return merged result sorted by order_index
       const mergedColumns = Array.from(columnMap.values()).sort((a, b) => a.order_index - b.order_index);
+      
+      // Add AI Rating as a virtual system column (it's a native lead column, not stored in custom_columns table)
+      // Same logic as /api/company/columns endpoint
+      const aiRatingColumn = {
+        id: "system_ai_rating",
+        company_id: sheet.company_id,
+        sheet_id: null,
+        name: "AI Insights",
+        column_key: "ai_rating",
+        type: "dropdown" as const,
+        config: { 
+          is_system_column: true, 
+          is_ai_rating: true,
+          options: ["New", "Hot", "Warm", "Neutral", "Cold", "Poor"]
+        },
+        order_index: 9999,
+        created_at: new Date(),
+      };
+      
+      // Add ai_rating column if not already present
+      if (!mergedColumns.some(c => c.column_key === "ai_rating")) {
+        mergedColumns.push(aiRatingColumn);
+      }
+      
       res.json(mergedColumns);
     } catch (error: any) {
       console.error("Get sheet columns error:", error);
