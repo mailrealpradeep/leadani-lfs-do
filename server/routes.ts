@@ -10174,7 +10174,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         config: { 
           is_system_column: true, 
           is_ai_rating: true,
-          options: ["New", "Hot", "Warm", "Neutral", "Cold", "Poor"]
+          dropdown_options: ["New", "Hot", "Warm", "Neutral", "Cold", "Poor"]
         },
         order_index: 9999,
         created_at: new Date(),
