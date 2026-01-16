@@ -1359,6 +1359,9 @@ ${questionsList}`;
       // Support generic format: challenge parameter
       const genericChallenge = req.query.challenge;
       
+      // Support misspelled 'challange' (one 'l') - used by some WhatsApp API providers
+      const challangeTypo = req.query.challange;
+      
       // Support other possible formats that Wauper might use
       const verifyChallenge = req.query.verify_challenge;
       const token = req.query.token;
@@ -1383,6 +1386,13 @@ ${questionsList}`;
         console.log("[Webhook Challenge] Generic challenge format, returning:", genericChallenge);
         res.setHeader("Content-Type", "text/plain");
         return res.status(200).send(genericChallenge);
+      }
+      
+      // Handle misspelled 'challange' used by some WhatsApp API providers
+      if (challangeTypo) {
+        console.log("[Webhook Challenge] Challange (misspelled) format, returning:", challangeTypo);
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(challangeTypo);
       }
       
       if (verifyChallenge) {
