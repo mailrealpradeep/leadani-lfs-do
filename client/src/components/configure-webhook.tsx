@@ -3058,11 +3058,11 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                           
                           {isExpanded && (
                             <div className="mt-2 p-2 bg-muted rounded text-xs">
-                              <ScrollArea className="max-h-[150px]">
+                              <div className="max-h-[200px] overflow-auto">
                                 <pre className="font-mono whitespace-pre-wrap break-all">
                                   {JSON.stringify(request.payload, null, 2)}
                                 </pre>
-                              </ScrollArea>
+                              </div>
                             </div>
                           )}
                         </div>
