@@ -6201,6 +6201,171 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Cannot access webhooks from other companies" });
       }
 
+      // Check if this is a WhatsApp webhook
+      const companySettings = await storage.getCompanySettings(webhook.company_id);
+      const isWhatsAppWebhook = companySettings?.whatsapp_webhook_id === webhook.id;
+
+      // For WhatsApp webhooks, use WhatsApp-specific processing
+      if (isWhatsAppWebhook) {
+        // Check for WhatsApp allocations instead of standard webhook allocation rules
+        const whatsappAllocations = await storage.getWhatsAppAllocations(webhook.company_id);
+        if (whatsappAllocations.filter(a => a.enabled).length === 0) {
+          return res.status(400).json({ error: "No WhatsApp phone allocations configured. Please set up Phone Allocations in WhatsApp Lead Settings first." });
+        }
+
+        const { processWhatsAppMessage } = await import("./whatsapp-processor");
+        const results: { request_id: string; success: boolean; lead_id?: string; sheet_id?: string; error?: string }[] = [];
+
+        for (const requestId of request_ids) {
+          try {
+            const webhookRequest = await storage.getWebhookRequest(requestId);
+            if (!webhookRequest || webhookRequest.webhook_id !== webhookId) {
+              results.push({ request_id: requestId, success: false, error: "Request not found" });
+              continue;
+            }
+
+            if (webhookRequest.status === 'success' && webhookRequest.lead_id) {
+              results.push({ request_id: requestId, success: false, error: "Already processed" });
+              continue;
+            }
+
+            const payload = webhookRequest.payload as any;
+            
+            // Check if this is a WhatsApp Cloud API payload
+            const isWhatsAppPayload = !!(
+              payload?.object === "whatsapp_business_account" &&
+              Array.isArray(payload?.entry) &&
+              payload?.entry?.length > 0
+            );
+
+            if (!isWhatsAppPayload) {
+              results.push({ request_id: requestId, success: false, error: "Not a valid WhatsApp payload" });
+              continue;
+            }
+
+            let leadCreatedOrFollowup = false;
+            let lastLeadId: string | undefined;
+            let lastOutcome: string | undefined;
+
+            // Process each message in the payload
+            for (const entry of payload.entry) {
+              const changes = entry.changes || [];
+              for (const change of changes) {
+                if (change.field === "messages" && change.value) {
+                  const value = change.value;
+                  const messages = value.messages || [];
+                  const contacts = value.contacts || [];
+                  const metadata = value.metadata || {};
+
+                  for (let i = 0; i < messages.length; i++) {
+                    const msg = messages[i];
+                    const contact = contacts[i] || {};
+
+                    // Extract message text
+                    let messageText = "";
+                    if (msg.type === "text" && msg.text?.body) {
+                      messageText = msg.text.body;
+                    } else if (msg.type === "button" && msg.button?.text) {
+                      messageText = msg.button.text;
+                    } else if (msg.type === "interactive" && msg.interactive?.button_reply?.title) {
+                      messageText = msg.interactive.button_reply.title;
+                    }
+
+                    const senderPhone = msg.from || "";
+                    const normalizedPhone = senderPhone.replace(/\D/g, "").slice(-10);
+
+                    // Check if message log already exists for this message
+                    const existingLog = await storage.getWhatsAppMessageLogByMessageId(webhook.company_id, msg.id || "");
+                    
+                    let whatsappLog;
+                    if (existingLog) {
+                      // Use existing log and reprocess
+                      whatsappLog = existingLog;
+                    } else {
+                      // Create new WhatsApp message log
+                      whatsappLog = await storage.createWhatsAppMessageLog({
+                        company_id: webhook.company_id,
+                        webhook_request_id: webhookRequest.id,
+                        sender_phone: normalizedPhone,
+                        sender_name: contact.profile?.name || null,
+                        sender_wa_id: contact.wa_id || senderPhone,
+                        display_phone_number: metadata.display_phone_number || "",
+                        message_id: msg.id || "",
+                        message_text: messageText,
+                        message_type: msg.type || "unknown",
+                        outcome: "pending",
+                        trigger_matched: false,
+                        matched_rule_id: null,
+                        outcome_details: {},
+                        processed_at: null
+                      });
+                    }
+
+                    // Only reprocess if not already successfully processed with a lead action
+                    const alreadyProcessedWithLead = ["new_lead_created", "followup_added", "transfer_request_created"].includes(whatsappLog.outcome || "");
+                    if (!alreadyProcessedWithLead) {
+                      const result = await processWhatsAppMessage(whatsappLog);
+                      lastOutcome = result.outcome;
+                      // Only count as success if a lead was created, followup added, or transfer created
+                      if (result.leadId && ["new_lead_created", "followup_added", "transfer_request_created"].includes(result.outcome)) {
+                        lastLeadId = result.leadId;
+                        leadCreatedOrFollowup = true;
+                      }
+                    } else {
+                      // Already processed with a lead action
+                      leadCreatedOrFollowup = true;
+                    }
+                  }
+                }
+              }
+            }
+
+            // Update webhook request status based on actual outcomes
+            if (leadCreatedOrFollowup) {
+              await storage.updateWebhookRequest(requestId, {
+                status: 'success',
+                lead_id: lastLeadId || null,
+                error_message: null,
+              });
+              results.push({ request_id: requestId, success: true, lead_id: lastLeadId });
+            } else {
+              // Messages were processed but no leads created - provide more specific error
+              let errorMsg = "No messages matched - ";
+              if (lastOutcome === "ignored_no_trigger") {
+                errorMsg += "no trigger rules matched. Configure Trigger Rules to identify new leads.";
+              } else if (lastOutcome === "ignored_no_match") {
+                errorMsg += "no phone allocation found. Configure Phone Allocations for the WhatsApp business number.";
+              } else if (lastOutcome === "error") {
+                errorMsg += "processing error occurred.";
+              } else {
+                errorMsg += "check trigger rules and phone allocations.";
+              }
+              results.push({ request_id: requestId, success: false, error: errorMsg });
+            }
+          } catch (err: any) {
+            results.push({ request_id: requestId, success: false, error: err.message });
+          }
+        }
+
+        await storage.createAuditLog({
+          company_id: req.companyId,
+          user_id: req.userId,
+          action: "reprocess_whatsapp_webhook_requests",
+          model: "WebhookRequest",
+          model_id: webhookId,
+          payload: { request_ids, results_count: results.filter(r => r.success).length },
+        });
+
+        const successCount = results.filter(r => r.success).length;
+        res.json({
+          success: true,
+          message: `${successCount} of ${request_ids.length} WhatsApp messages processed successfully`,
+          results
+        });
+        return;
+      }
+
+      // Standard webhook processing (non-WhatsApp)
       // Get allocation rules
       const allocationRules = await storage.getWebhookAllocationRules(webhookId);
       if (allocationRules.length === 0) {
