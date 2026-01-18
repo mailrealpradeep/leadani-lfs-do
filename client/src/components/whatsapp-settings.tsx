@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -413,9 +413,11 @@ export function WhatsAppSettings() {
     return column?.name || columnKey;
   };
 
-  const webhookUrl = companyId 
-    ? `${window.location.origin}/api/public/whatsapp/${companyId}`
-    : "";
+  const webhookUrl = useMemo(() => {
+    if (!companyId) return "";
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return origin ? `${origin}/api/public/whatsapp/${companyId}` : "";
+  }, [companyId]);
     
   const copyWebhookUrl = () => {
     if (webhookUrl) {
