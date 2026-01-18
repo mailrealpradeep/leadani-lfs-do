@@ -104,6 +104,28 @@ interface WhatsAppMessageLog {
   created_at: string;
 }
 
+interface CompanyWebhook {
+  id: string;
+  company_id: string;
+  name: string;
+  token: string;
+  secret: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface WebhookRequest {
+  id: string;
+  webhook_id: string;
+  payload: Record<string, any>;
+  headers: Record<string, any>;
+  status: string;
+  error_message: string | null;
+  lead_id: string | null;
+  allocated_sheet_id: string | null;
+  created_at: string;
+}
+
 const WHATSAPP_FIELDS = [
   { value: "sender_name", label: "Sender Name" },
   { value: "sender_phone", label: "Sender Phone (Last 10 Digits)" },
@@ -130,14 +152,43 @@ export function WhatsAppSettings() {
   const [activeTab, setActiveTab] = useState("allocations");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ type: string; id: string } | null>(null);
+  const [selectedWebhookId, setSelectedWebhookId] = useState<string>("");
 
-  // Fetch company settings to get company ID
-  const { data: companySettings } = useQuery<{ settings: CompanySettings; company_id?: string }>({
+  // Fetch company settings to get company ID and selected webhook
+  const { data: companySettings } = useQuery<{ settings: CompanySettings & { whatsapp_webhook_id?: string }; company_id?: string }>({
     queryKey: ["/api/admin/company/settings"],
   });
   
   // Get company ID from settings response
   const companyId = companySettings?.company_id || companySettings?.settings?.company_id || "";
+  
+  // Set selected webhook from company settings on load
+  useEffect(() => {
+    if (companySettings?.settings?.whatsapp_webhook_id && !selectedWebhookId) {
+      setSelectedWebhookId(companySettings.settings.whatsapp_webhook_id);
+    }
+  }, [companySettings?.settings?.whatsapp_webhook_id, selectedWebhookId]);
+
+  // Fetch company webhooks for selection
+  const { data: companyWebhooks = [], isLoading: webhooksLoading } = useQuery<CompanyWebhook[]>({
+    queryKey: ["/api/admin/company/webhooks"],
+  });
+
+  // Fetch webhook requests for selected webhook (pending ones)
+  const { data: webhookRequests = [], isLoading: webhookRequestsLoading, refetch: refetchWebhookRequests } = useQuery<WebhookRequest[]>({
+    queryKey: ["/api/admin/company/webhooks", selectedWebhookId, "logs"],
+    enabled: !!selectedWebhookId,
+  });
+
+  // Get selected webhook details
+  const selectedWebhook = companyWebhooks.find(w => w.id === selectedWebhookId);
+  
+  // Calculate webhook URL
+  const webhookUrl = useMemo(() => {
+    if (!selectedWebhook?.token) return "";
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return origin ? `${origin}/api/public/webhooks/${selectedWebhook.token}` : "";
+  }, [selectedWebhook?.token]);
 
   // Fetch sheets and users for selection
   const { data: sheets = [] } = useQuery<Sheet[]>({
@@ -413,12 +464,44 @@ export function WhatsAppSettings() {
     return column?.name || columnKey;
   };
 
-  const webhookUrl = useMemo(() => {
-    if (!companyId) return "";
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return origin ? `${origin}/api/public/whatsapp/${companyId}` : "";
-  }, [companyId]);
-    
+  // Save selected webhook mutation
+  const saveWebhookMutation = useMutation({
+    mutationFn: async (webhookId: string) => {
+      return await apiRequest("PATCH", "/api/admin/company/settings", {
+        settings: { whatsapp_webhook_id: webhookId }
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/settings"] });
+      toast({ title: "Saved", description: "Webhook selection has been saved." });
+    },
+    onError: (error: Error) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  // Process pending webhook requests mutation  
+  const processWebhookRequestsMutation = useMutation({
+    mutationFn: async (requestIds: string[]) => {
+      return await apiRequest("POST", `/api/admin/company/webhooks/${selectedWebhookId}/requests/reprocess`, {
+        request_ids: requestIds
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/webhooks", selectedWebhookId, "logs"] });
+      refetchWebhookRequests();
+      toast({ title: "Processing Complete", description: "Pending webhook requests have been processed." });
+    },
+    onError: (error: Error) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  const handleWebhookChange = (webhookId: string) => {
+    setSelectedWebhookId(webhookId);
+    saveWebhookMutation.mutate(webhookId);
+  };
+
   const copyWebhookUrl = () => {
     if (webhookUrl) {
       navigator.clipboard.writeText(webhookUrl);
@@ -437,38 +520,149 @@ export function WhatsAppSettings() {
         </div>
       </div>
 
-      {/* Webhook URL Section */}
+      {/* Webhook Selection Section */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             <Zap className="h-5 w-5" />
-            WhatsApp Webhook URL
+            Webhook Configuration
           </CardTitle>
           <CardDescription>
-            Configure your WhatsApp Business provider (Meta, Wauper, etc.) to send messages to this URL.
+            Select an existing webhook to receive WhatsApp messages. Configure your WhatsApp provider to send messages to the webhook URL.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2">
-            <Input 
-              value={webhookUrl || "Loading..."} 
-              readOnly 
-              className="font-mono text-sm flex-1"
-              data-testid="input-webhook-url"
-            />
-            <Button 
-              variant="outline" 
-              size="icon" 
-              onClick={copyWebhookUrl}
-              disabled={!webhookUrl}
-              data-testid="button-copy-webhook-url"
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Select Webhook</Label>
+              <Select 
+                value={selectedWebhookId} 
+                onValueChange={handleWebhookChange}
+                data-testid="select-webhook"
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a webhook..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {companyWebhooks.map((webhook) => (
+                    <SelectItem key={webhook.id} value={webhook.id}>
+                      {webhook.name} {webhook.is_active ? "" : "(Inactive)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {companyWebhooks.length === 0 && !webhooksLoading && (
+                <p className="text-xs text-muted-foreground">
+                  No webhooks found. Create a webhook in the Webhooks page first.
+                </p>
+              )}
+            </div>
+            
+            {selectedWebhook && (
+              <div className="space-y-2">
+                <Label>Webhook URL</Label>
+                <div className="flex items-center gap-2">
+                  <Input 
+                    value={webhookUrl || "Loading..."} 
+                    readOnly 
+                    className="font-mono text-sm flex-1"
+                    data-testid="input-webhook-url"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={copyWebhookUrl}
+                    disabled={!webhookUrl}
+                    data-testid="button-copy-webhook-url"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Configure your WhatsApp provider (Meta, Wauper) to send messages to this URL.
+                </p>
+              </div>
+            )}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            This endpoint accepts both GET (verification) and POST (message) requests from WhatsApp webhooks.
-          </p>
+
+          {/* Pending Webhook Requests Section */}
+          {selectedWebhookId && (
+            <div className="space-y-3 pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Pending Webhook Requests
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    {webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration").length} pending requests from selected webhook
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => refetchWebhookRequests()}
+                    data-testid="button-refresh-webhook-requests"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                    Refresh
+                  </Button>
+                  <Button 
+                    size="sm"
+                    onClick={() => {
+                      const pendingIds = webhookRequests
+                        .filter(r => r.status === "pending" || r.status === "pending_configuration")
+                        .map(r => r.id);
+                      if (pendingIds.length > 0) {
+                        processWebhookRequestsMutation.mutate(pendingIds);
+                      }
+                    }}
+                    disabled={processWebhookRequestsMutation.isPending || webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration").length === 0}
+                    data-testid="button-process-pending-requests"
+                  >
+                    {processWebhookRequestsMutation.isPending ? "Processing..." : "Process Pending"}
+                  </Button>
+                </div>
+              </div>
+              
+              {webhookRequestsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading webhook requests...</p>
+              ) : webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration").length === 0 ? (
+                <p className="text-sm text-muted-foreground">No pending webhook requests.</p>
+              ) : (
+                <ScrollArea className="h-[200px] border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Payload Preview</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {webhookRequests
+                        .filter(r => r.status === "pending" || r.status === "pending_configuration")
+                        .slice(0, 20)
+                        .map((request) => (
+                          <TableRow key={request.id}>
+                            <TableCell className="text-xs">
+                              {format(new Date(request.created_at), "MMM d, HH:mm")}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{request.status}</Badge>
+                            </TableCell>
+                            <TableCell className="text-xs font-mono max-w-[300px] truncate">
+                              {JSON.stringify(request.payload).substring(0, 100)}...
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

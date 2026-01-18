@@ -5386,6 +5386,25 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get webhook logs (requests) for a specific webhook
+  app.get("/api/admin/company/webhooks/:webhookId/logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { webhookId } = req.params;
+      
+      // Get the webhook to verify company access
+      const webhook = await storage.getCompanyWebhook(webhookId);
+      if (!webhook || webhook.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot access webhooks from other companies" });
+      }
+
+      const logs = await storage.getWebhookRequests(webhookId);
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Get webhook logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Create a new webhook
   app.post("/api/admin/company/webhooks", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
