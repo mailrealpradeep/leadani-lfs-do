@@ -1424,6 +1424,156 @@ ${questionsList}`;
     }
   });
 
+  // ============================================================================
+  // WHATSAPP WEBHOOK - Dedicated endpoint for WhatsApp Business API messages
+  // ============================================================================
+  
+  // WhatsApp Webhook GET - Challenge verification  
+  app.get("/api/public/whatsapp/:companyId", async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      console.log("[WhatsApp Webhook] GET verification request for company:", companyId);
+      
+      // Support Meta/WhatsApp format: hub.mode, hub.verify_token, hub.challenge
+      const mode = req.query["hub.mode"];
+      const hubChallenge = req.query["hub.challenge"];
+      
+      if (mode === "subscribe" && hubChallenge) {
+        console.log("[WhatsApp Webhook] Verification successful, returning challenge:", hubChallenge);
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(hubChallenge);
+      }
+      
+      // Generic challenge response
+      const challenge = req.query.challenge || req.query.challange;
+      if (challenge) {
+        res.setHeader("Content-Type", "text/plain");
+        return res.status(200).send(challenge);
+      }
+      
+      return res.status(200).json({ status: "ok", message: "WhatsApp webhook endpoint active" });
+    } catch (error: any) {
+      console.error("[WhatsApp Webhook] GET error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+  
+  // WhatsApp Webhook POST - Receive and store incoming messages
+  app.post("/api/public/whatsapp/:companyId", async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const payload = req.body;
+      
+      console.log("[WhatsApp Webhook] POST received for company:", companyId);
+      console.log("[WhatsApp Webhook] Payload:", JSON.stringify(payload).substring(0, 500));
+      
+      // Respond immediately (WhatsApp requires response within 10 seconds)
+      res.status(200).json({ status: "received" });
+      
+      // Process asynchronously
+      try {
+        // Parse Meta/WhatsApp webhook payload
+        if (payload.object === "whatsapp_business_account" && payload.entry) {
+          for (const entry of payload.entry) {
+            for (const change of entry.changes || []) {
+              if (change.field === "messages" && change.value) {
+                const metadata = change.value.metadata || {};
+                const contacts = change.value.contacts || [];
+                const messages = change.value.messages || [];
+                
+                const displayPhoneNumber = metadata.display_phone_number || "";
+                
+                for (const message of messages) {
+                  const contact = contacts.find((c: any) => c.wa_id === message.from) || contacts[0] || {};
+                  
+                  // Extract message text based on type
+                  let messageText = "";
+                  if (message.type === "text" && message.text) {
+                    messageText = message.text.body || "";
+                  } else if (message.type === "interactive") {
+                    if (message.interactive?.button_reply) {
+                      messageText = message.interactive.button_reply.title || "";
+                    } else if (message.interactive?.list_reply) {
+                      messageText = message.interactive.list_reply.title || "";
+                    }
+                  }
+                  
+                  // Store in whatsapp_message_logs
+                  await storage.createWhatsAppMessageLog({
+                    company_id: companyId,
+                    webhook_request_id: entry.id || "",
+                    sender_phone: message.from || "",
+                    sender_name: contact.profile?.name || null,
+                    sender_wa_id: message.from || contact.wa_id || "",
+                    display_phone_number: displayPhoneNumber,
+                    message_id: message.id || "",
+                    message_text: messageText || null,
+                    message_type: message.type || "unknown",
+                    outcome: "pending",
+                    trigger_matched: false,
+                    matched_rule_id: null,
+                    outcome_details: null,
+                    processed_at: null
+                  });
+                  
+                  console.log("[WhatsApp Webhook] Message stored from:", message.from, "type:", message.type);
+                }
+              }
+            }
+          }
+        } else if (payload.messages || payload.from || payload.text) {
+          // Alternative simpler format (used by some providers like Wauper)
+          const messages = payload.messages || [payload];
+          
+          for (const msg of messages) {
+            await storage.createWhatsAppMessageLog({
+              company_id: companyId,
+              webhook_request_id: payload.id || payload.webhook_id || "",
+              sender_phone: msg.from || payload.from || "",
+              sender_name: msg.sender_name || payload.sender_name || null,
+              sender_wa_id: msg.wa_id || msg.from || payload.from || "",
+              display_phone_number: msg.display_phone_number || payload.display_phone_number || "",
+              message_id: msg.id || msg.message_id || "",
+              message_text: msg.text?.body || msg.body || msg.text || null,
+              message_type: msg.type || "text",
+              outcome: "pending",
+              trigger_matched: false,
+              matched_rule_id: null,
+              outcome_details: null,
+              processed_at: null
+            });
+            
+            console.log("[WhatsApp Webhook] Alternative format message stored");
+          }
+        } else {
+          console.log("[WhatsApp Webhook] Unknown payload format, storing raw");
+          // Store raw payload for debugging
+          await storage.createWhatsAppMessageLog({
+            company_id: companyId,
+            webhook_request_id: "",
+            sender_phone: "",
+            sender_name: null,
+            sender_wa_id: "",
+            display_phone_number: "",
+            message_id: "",
+            message_text: JSON.stringify(payload).substring(0, 1000),
+            message_type: "raw",
+            outcome: "pending",
+            trigger_matched: false,
+            matched_rule_id: null,
+            outcome_details: { raw_payload: true },
+            processed_at: null
+          });
+        }
+      } catch (processError: any) {
+        console.error("[WhatsApp Webhook] Processing error:", processError);
+      }
+    } catch (error: any) {
+      console.error("[WhatsApp Webhook] POST error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Public Webhook Ingestion Endpoint
   app.post("/api/public/webhooks/:token", webhookLimiter, async (req, res) => {
     let webhook;
@@ -3493,7 +3643,7 @@ ${questionsList}`;
       if (!company) {
         return res.status(404).json({ error: "Company not found" });
       }
-      res.json({ settings: company.settings || {} });
+      res.json({ settings: company.settings || {}, company_id: req.companyId });
     } catch (error: any) {
       console.error("Get company settings error:", error);
       res.status(500).json({ error: error.message });
@@ -6589,6 +6739,20 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       });
     } catch (error: any) {
       console.error("Test outgoing webhook error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all custom columns for the company (for WhatsApp field mapping and default values)
+  app.get("/api/admin/company/columns", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const columns = await storage.getCustomColumnsByCompany(req.companyId);
+      res.json(columns);
+    } catch (error: any) {
+      console.error("Get company columns error:", error);
       res.status(500).json({ error: error.message });
     }
   });

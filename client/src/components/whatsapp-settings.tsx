@@ -40,6 +40,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Sheet, User, CustomColumn } from "@shared/schema";
 import { format } from "date-fns";
+import { Copy } from "lucide-react";
 
 interface WhatsAppAllocation {
   id: string;
@@ -119,11 +120,24 @@ const TRIGGER_OPERATORS = [
   { value: "ends_with", label: "Ends With" },
 ];
 
+interface CompanySettings {
+  id?: string;
+  company_id?: string;
+}
+
 export function WhatsAppSettings() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("allocations");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ type: string; id: string } | null>(null);
+
+  // Fetch company settings to get company ID
+  const { data: companySettings } = useQuery<{ settings: CompanySettings; company_id?: string }>({
+    queryKey: ["/api/admin/company/settings"],
+  });
+  
+  // Get company ID from settings response
+  const companyId = companySettings?.company_id || companySettings?.settings?.company_id || "";
 
   // Fetch sheets and users for selection
   const { data: sheets = [] } = useQuery<Sheet[]>({
@@ -399,6 +413,17 @@ export function WhatsAppSettings() {
     return column?.name || columnKey;
   };
 
+  const webhookUrl = companyId 
+    ? `${window.location.origin}/api/public/whatsapp/${companyId}`
+    : "";
+    
+  const copyWebhookUrl = () => {
+    if (webhookUrl) {
+      navigator.clipboard.writeText(webhookUrl);
+      toast({ title: "Copied!", description: "Webhook URL copied to clipboard" });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -409,6 +434,41 @@ export function WhatsAppSettings() {
           </p>
         </div>
       </div>
+
+      {/* Webhook URL Section */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Zap className="h-5 w-5" />
+            WhatsApp Webhook URL
+          </CardTitle>
+          <CardDescription>
+            Configure your WhatsApp Business provider (Meta, Wauper, etc.) to send messages to this URL.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <Input 
+              value={webhookUrl || "Loading..."} 
+              readOnly 
+              className="font-mono text-sm flex-1"
+              data-testid="input-webhook-url"
+            />
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={copyWebhookUrl}
+              disabled={!webhookUrl}
+              data-testid="button-copy-webhook-url"
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            This endpoint accepts both GET (verification) and POST (message) requests from WhatsApp webhooks.
+          </p>
+        </CardContent>
+      </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-5">
