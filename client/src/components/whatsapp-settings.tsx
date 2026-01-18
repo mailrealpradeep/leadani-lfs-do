@@ -191,6 +191,36 @@ export function WhatsAppSettings() {
   
   // State for selected webhook requests (for processing)
   const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
+  
+  // State for referral filter on pending requests
+  const [pendingReferralFilter, setPendingReferralFilter] = useState<"all" | "ad" | "organic">("all");
+  
+  // Helper function to check if a webhook payload contains ad referral data
+  const hasAdReferral = (payload: any): boolean => {
+    try {
+      // Check WhatsApp webhook format: entry[].changes[].value.messages[].referral.source_type
+      if (payload?.entry) {
+        for (const entry of payload.entry) {
+          for (const change of entry.changes || []) {
+            if (change.value?.messages) {
+              for (const msg of change.value.messages) {
+                if (msg.referral?.source_type === 'ad') {
+                  return true;
+                }
+              }
+            }
+          }
+        }
+      }
+      // Also check top-level referral for simplified formats
+      if (payload?.referral?.source_type === 'ad') {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
 
   // Fetch sheets and users for selection
   const { data: sheets = [] } = useQuery<Sheet[]>({
@@ -560,7 +590,21 @@ export function WhatsAppSettings() {
 
           {/* Pending Webhook Requests Section */}
           {selectedWebhookId && (() => {
-            const pendingRequests = webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration");
+            // Get all pending requests (unfiltered)
+            const allPendingRequests = webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration");
+            
+            // Apply referral filter
+            let pendingRequests = allPendingRequests;
+            if (pendingReferralFilter === 'ad') {
+              pendingRequests = allPendingRequests.filter(r => hasAdReferral(r.payload));
+            } else if (pendingReferralFilter === 'organic') {
+              pendingRequests = allPendingRequests.filter(r => !hasAdReferral(r.payload));
+            }
+            
+            // Count for filter labels
+            const adCount = allPendingRequests.filter(r => hasAdReferral(r.payload)).length;
+            const organicCount = allPendingRequests.length - adCount;
+            
             const allPendingIds = pendingRequests.map(r => r.id);
             const allSelected = pendingRequests.length > 0 && pendingRequests.every(r => selectedRequestIds.has(r.id));
             const someSelected = pendingRequests.some(r => selectedRequestIds.has(r.id));
@@ -596,11 +640,24 @@ export function WhatsAppSettings() {
                       Pending Webhook Requests
                     </h4>
                     <p className="text-xs text-muted-foreground">
-                      {pendingRequests.length} pending requests
+                      {pendingReferralFilter === 'all' 
+                        ? `${allPendingRequests.length} pending requests`
+                        : `${pendingRequests.length} of ${allPendingRequests.length} pending requests`
+                      }
                       {selectedRequestIds.size > 0 && ` (${idsToProcess.length} selected)`}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
+                    <Select value={pendingReferralFilter} onValueChange={(v) => setPendingReferralFilter(v as "all" | "ad" | "organic")}>
+                      <SelectTrigger className="w-[160px]" data-testid="select-referral-filter">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All ({allPendingRequests.length})</SelectItem>
+                        <SelectItem value="ad">From Ads ({adCount})</SelectItem>
+                        <SelectItem value="organic">Organic ({organicCount})</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Button 
                       variant="outline" 
                       size="sm"
@@ -633,7 +690,11 @@ export function WhatsAppSettings() {
                 {webhookRequestsLoading ? (
                   <p className="text-sm text-muted-foreground">Loading webhook requests...</p>
                 ) : pendingRequests.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No pending webhook requests.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {pendingReferralFilter !== 'all' && allPendingRequests.length > 0
+                      ? `No ${pendingReferralFilter === 'ad' ? 'ad' : 'organic'} requests. Try a different filter.`
+                      : 'No pending webhook requests.'}
+                  </p>
                 ) : (
                   <ScrollArea className="h-[250px] border rounded-md">
                     <Table>
