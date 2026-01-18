@@ -57,6 +57,8 @@ interface WhatsAppAllocation {
 interface WhatsAppTriggerRule {
   id: string;
   company_id: string;
+  match_type: string; // 'text' or 'field'
+  field_path?: string | null; // For field matching: 'referral.source_type'
   operator: string;
   match_text: string;
   logic: string;
@@ -271,7 +273,7 @@ export function WhatsAppSettings() {
 
   // Create trigger rule mutation
   const createRuleMutation = useMutation({
-    mutationFn: async (data: { operator: string; match_text: string; logic: string }) => {
+    mutationFn: async (data: { match_type: string; field_path?: string; operator: string; match_text: string; logic: string }) => {
       return await apiRequest("POST", "/api/admin/company/whatsapp/trigger-rules", data);
     },
     onSuccess: () => {
@@ -822,8 +824,9 @@ export function WhatsAppSettings() {
                     <TableRow>
                       <TableHead className="w-[50px]">Order</TableHead>
                       <TableHead>Logic</TableHead>
+                      <TableHead>Match Type</TableHead>
                       <TableHead>Operator</TableHead>
-                      <TableHead>Match Text</TableHead>
+                      <TableHead>Match Value</TableHead>
                       <TableHead>Enabled</TableHead>
                       <TableHead className="w-[50px]">Actions</TableHead>
                     </TableRow>
@@ -831,13 +834,13 @@ export function WhatsAppSettings() {
                   <TableBody>
                     {rulesLoading ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           Loading trigger rules...
                         </TableCell>
                       </TableRow>
                     ) : triggerRules.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           No trigger rules configured. Without rules, no new leads will be created from WhatsApp messages.
                         </TableCell>
                       </TableRow>
@@ -849,6 +852,18 @@ export function WhatsAppSettings() {
                             <Badge variant={rule.logic === "and" ? "default" : "secondary"}>
                               {rule.logic.toUpperCase()}
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {rule.match_type === "field" ? (
+                              <div className="flex flex-col">
+                                <Badge variant="outline" className="w-fit">Field</Badge>
+                                <span className="text-xs text-muted-foreground mt-1 font-mono">
+                                  {rule.field_path || "N/A"}
+                                </span>
+                              </div>
+                            ) : (
+                              <Badge variant="secondary" className="w-fit">Text</Badge>
+                            )}
                           </TableCell>
                           <TableCell>
                             {TRIGGER_OPERATORS.find((op) => op.value === rule.operator)?.label || rule.operator}
@@ -1273,74 +1288,134 @@ function AllocationForm({
   );
 }
 
+// Field path options for webhook field matching
+const FIELD_PATH_OPTIONS = [
+  { value: "referral.source_type", label: "Referral Source Type", description: "e.g., ad, organic, direct" },
+  { value: "referral.source_id", label: "Referral Source ID", description: "Ad campaign ID" },
+  { value: "referral.source_url", label: "Referral Source URL", description: "Ad URL" },
+  { value: "referral.headline", label: "Referral Headline", description: "Ad headline text" },
+  { value: "referral.body", label: "Referral Body", description: "Ad body text" },
+];
+
 // Trigger Rule Form Component
 function TriggerRuleForm({ 
   onSubmit, 
   isPending 
 }: { 
-  onSubmit: (data: { operator: string; match_text: string; logic: string }) => void;
+  onSubmit: (data: { match_type: string; field_path?: string; operator: string; match_text: string; logic: string }) => void;
   isPending: boolean;
 }) {
+  const [matchType, setMatchType] = useState("text");
+  const [fieldPath, setFieldPath] = useState("");
   const [operator, setOperator] = useState("contains");
   const [matchText, setMatchText] = useState("");
   const [logic, setLogic] = useState("or");
 
   const handleSubmit = () => {
     if (!matchText) return;
-    onSubmit({ operator, match_text: matchText, logic });
+    if (matchType === "field" && !fieldPath) return;
+    
+    onSubmit({ 
+      match_type: matchType,
+      field_path: matchType === "field" ? fieldPath : undefined,
+      operator, 
+      match_text: matchText, 
+      logic 
+    });
     setMatchText("");
+    setFieldPath("");
   };
 
   return (
-    <div className="flex flex-col sm:flex-row gap-3 p-4 border rounded-md bg-muted/30">
-      <div className="w-24">
-        <Label htmlFor="logic-select" className="text-xs">Logic</Label>
-        <Select value={logic} onValueChange={setLogic}>
-          <SelectTrigger className="mt-1" id="logic-select" data-testid="select-logic">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="or">OR</SelectItem>
-            <SelectItem value="and">AND</SelectItem>
-          </SelectContent>
-        </Select>
+    <div className="flex flex-col gap-3 p-4 border rounded-md bg-muted/30">
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="w-32">
+          <Label htmlFor="match-type-select" className="text-xs">Match Type</Label>
+          <Select value={matchType} onValueChange={setMatchType}>
+            <SelectTrigger className="mt-1" id="match-type-select" data-testid="select-match-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="text">Message Text</SelectItem>
+              <SelectItem value="field">Webhook Field</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-24">
+          <Label htmlFor="logic-select" className="text-xs">Logic</Label>
+          <Select value={logic} onValueChange={setLogic}>
+            <SelectTrigger className="mt-1" id="logic-select" data-testid="select-logic">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="or">OR</SelectItem>
+              <SelectItem value="and">AND</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {matchType === "field" && (
+          <div className="flex-1">
+            <Label htmlFor="field-path-select" className="text-xs">Field Path</Label>
+            <Select value={fieldPath} onValueChange={setFieldPath}>
+              <SelectTrigger className="mt-1" id="field-path-select" data-testid="select-field-path">
+                <SelectValue placeholder="Select field" />
+              </SelectTrigger>
+              <SelectContent>
+                {FIELD_PATH_OPTIONS.map((field) => (
+                  <SelectItem key={field.value} value={field.value}>
+                    {field.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        <div className="flex-1">
+          <Label htmlFor="operator-select" className="text-xs">Operator</Label>
+          <Select value={operator} onValueChange={setOperator}>
+            <SelectTrigger className="mt-1" id="operator-select" data-testid="select-operator">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TRIGGER_OPERATORS.map((op) => (
+                <SelectItem key={op.value} value={op.value}>
+                  {op.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex-[2]">
+          <Label htmlFor="match-text" className="text-xs">
+            {matchType === "text" ? "Match Text" : "Match Value"}
+          </Label>
+          <Input
+            id="match-text"
+            placeholder={matchType === "text" ? "e.g., Property Enquiry, New Lead" : "e.g., ad, ctwa"}
+            value={matchText}
+            onChange={(e) => setMatchText(e.target.value)}
+            className="mt-1"
+            data-testid="input-match-text"
+          />
+        </div>
+        <div className="flex items-end">
+          <Button 
+            onClick={handleSubmit} 
+            disabled={!matchText || (matchType === "field" && !fieldPath) || isPending}
+            data-testid="button-add-rule"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Rule
+          </Button>
+        </div>
       </div>
-      <div className="flex-1">
-        <Label htmlFor="operator-select" className="text-xs">Operator</Label>
-        <Select value={operator} onValueChange={setOperator}>
-          <SelectTrigger className="mt-1" id="operator-select" data-testid="select-operator">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TRIGGER_OPERATORS.map((op) => (
-              <SelectItem key={op.value} value={op.value}>
-                {op.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex-[2]">
-        <Label htmlFor="match-text" className="text-xs">Match Text</Label>
-        <Input
-          id="match-text"
-          placeholder="e.g., Property Enquiry, New Lead"
-          value={matchText}
-          onChange={(e) => setMatchText(e.target.value)}
-          className="mt-1"
-          data-testid="input-match-text"
-        />
-      </div>
-      <div className="flex items-end">
-        <Button 
-          onClick={handleSubmit} 
-          disabled={!matchText || isPending}
-          data-testid="button-add-rule"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Rule
-        </Button>
-      </div>
+      {matchType === "field" && (
+        <p className="text-xs text-muted-foreground">
+          <strong>Ad Source Filtering:</strong> Match messages based on their referral data from Facebook/Instagram ads. 
+          Use "Referral Source Type equals ad" to only trigger for leads coming from paid advertisements (Click-to-WhatsApp ads).
+          Messages without referral data will not match field-based rules.
+        </p>
+      )}
     </div>
   );
 }

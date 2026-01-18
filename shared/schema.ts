@@ -4750,6 +4750,8 @@ export type InsertWhatsAppAllocationData = z.infer<typeof insertWhatsAppAllocati
 export interface WhatsAppTriggerRule {
   id: string;
   company_id: string;
+  match_type: "text" | "field"; // "text" = match message text, "field" = match webhook payload field
+  field_path?: string; // For field matching: path like "referral.source_type"
   operator: "contains" | "equals" | "not_equals" | "not_contains" | "starts_with" | "ends_with";
   match_text: string;
   logic: "and" | "or"; // How this rule combines with previous rules
@@ -4762,6 +4764,8 @@ export interface WhatsAppTriggerRule {
 export const whatsapp_trigger_rules = pgTable('whatsapp_trigger_rules', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  match_type: varchar('match_type', { length: 20 }).notNull().default('text'), // 'text' or 'field'
+  field_path: varchar('field_path', { length: 200 }), // For field matching: 'referral.source_type'
   operator: varchar('operator', { length: 20 }).notNull(),
   match_text: varchar('match_text', { length: 500 }).notNull(),
   logic: varchar('logic', { length: 10 }).notNull().default('or'),
@@ -4885,6 +4889,7 @@ export const whatsapp_message_logs = pgTable('whatsapp_message_logs', {
   message_id: varchar('message_id', { length: 100 }).notNull(),
   message_text: text('message_text'),
   message_type: varchar('message_type', { length: 30 }).notNull().default('text'),
+  referral_data: json('referral_data').$type<Record<string, any>>(), // For Facebook/Instagram ad referral data
   outcome: varchar('outcome', { length: 50 }).notNull(),
   outcome_details: json('outcome_details').$type<Record<string, any>>(),
   trigger_matched: boolean('trigger_matched').notNull().default(false),

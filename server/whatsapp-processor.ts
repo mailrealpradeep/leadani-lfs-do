@@ -53,9 +53,39 @@ function evaluateCondition(
   }
 }
 
+// Helper to extract value from nested object using dot notation path
+function getNestedValue(obj: any, path: string): any {
+  if (!obj || !path) return undefined;
+  const keys = path.split('.');
+  let current = obj;
+  for (const key of keys) {
+    if (current && typeof current === 'object' && key in current) {
+      current = current[key];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+export interface TriggerContext {
+  messageText: string;
+  referral?: {
+    source_type?: string;
+    source_id?: string;
+    source_url?: string;
+    headline?: string;
+    body?: string;
+    media_type?: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
 export function evaluateTriggerRules(
   rules: WhatsAppTriggerRuleRecord[],
-  messageText: string
+  messageText: string,
+  context?: TriggerContext
 ): WhatsAppTriggerRuleRecord | null {
   if (!rules || rules.length === 0) {
     return null;
@@ -67,7 +97,29 @@ export function evaluateTriggerRules(
   }
 
   for (const rule of activeRules) {
-    if (evaluateCondition(rule.operator, messageText, rule.match_text)) {
+    const matchType = (rule as any).match_type || 'text';
+    const fieldPath = (rule as any).field_path;
+    
+    let valueToMatch: string;
+    
+    if (matchType === 'field' && fieldPath && context) {
+      // Field-based matching: extract value from webhook payload context
+      const fieldValue = getNestedValue(context, fieldPath);
+      
+      // If field doesn't exist or is null/undefined, skip this rule (no match)
+      // This ensures field-based rules only match when the field actually exists
+      if (fieldValue === undefined || fieldValue === null) {
+        continue;
+      }
+      
+      // Convert to string, preserving falsy values like 0 and false
+      valueToMatch = String(fieldValue);
+    } else {
+      // Text-based matching: use message text
+      valueToMatch = messageText;
+    }
+    
+    if (evaluateCondition(rule.operator, valueToMatch, rule.match_text)) {
       return rule;
     }
   }
@@ -137,7 +189,14 @@ export async function processWhatsAppMessage(
     }
 
     const triggerRules = await storage.getWhatsAppTriggerRules(companyId);
-    const matchedRule = evaluateTriggerRules(triggerRules, messageText);
+    
+    // Build context with referral data for field-based trigger matching
+    const triggerContext: TriggerContext = {
+      messageText,
+      referral: (log as any).referral_data || undefined,
+    };
+    
+    const matchedRule = evaluateTriggerRules(triggerRules, messageText, triggerContext);
     
     if (!matchedRule) {
       await storage.updateWhatsAppMessageLog(log.id, {
