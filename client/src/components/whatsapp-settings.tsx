@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -185,6 +186,9 @@ export function WhatsAppSettings() {
   
   // State for viewing payload in dialog
   const [viewingPayload, setViewingPayload] = useState<Record<string, any> | null>(null);
+  
+  // State for selected webhook requests (for processing)
+  const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
 
   // Fetch sheets and users for selection
   const { data: sheets = [] } = useQuery<Sheet[]>({
@@ -495,6 +499,7 @@ export function WhatsAppSettings() {
 
   const handleWebhookChange = (webhookId: string) => {
     setSelectedWebhookId(webhookId);
+    setSelectedRequestIds(new Set()); // Clear selection when webhook changes
     saveWebhookMutation.mutate(webhookId);
   };
 
@@ -552,91 +557,138 @@ export function WhatsAppSettings() {
           </div>
 
           {/* Pending Webhook Requests Section */}
-          {selectedWebhookId && (
-            <div className="space-y-3 pt-4 border-t">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    Pending Webhook Requests
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    {webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration").length} pending requests from selected webhook
-                  </p>
+          {selectedWebhookId && (() => {
+            const pendingRequests = webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration");
+            const allPendingIds = pendingRequests.map(r => r.id);
+            const allSelected = pendingRequests.length > 0 && pendingRequests.every(r => selectedRequestIds.has(r.id));
+            const someSelected = pendingRequests.some(r => selectedRequestIds.has(r.id));
+            
+            const toggleSelectAll = () => {
+              if (allSelected) {
+                setSelectedRequestIds(new Set());
+              } else {
+                setSelectedRequestIds(new Set(allPendingIds));
+              }
+            };
+            
+            const toggleSelectOne = (id: string) => {
+              const newSet = new Set(selectedRequestIds);
+              if (newSet.has(id)) {
+                newSet.delete(id);
+              } else {
+                newSet.add(id);
+              }
+              setSelectedRequestIds(newSet);
+            };
+            
+            const idsToProcess = selectedRequestIds.size > 0 
+              ? Array.from(selectedRequestIds).filter(id => allPendingIds.includes(id))
+              : [];
+            
+            return (
+              <div className="space-y-3 pt-4 border-t">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      Pending Webhook Requests
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      {pendingRequests.length} pending requests
+                      {selectedRequestIds.size > 0 && ` (${idsToProcess.length} selected)`}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => refetchWebhookRequests()}
+                      data-testid="button-refresh-webhook-requests"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-1" />
+                      Refresh
+                    </Button>
+                    <Button 
+                      size="sm"
+                      onClick={() => {
+                        if (idsToProcess.length > 0) {
+                          processWebhookRequestsMutation.mutate(idsToProcess);
+                          setSelectedRequestIds(new Set());
+                        }
+                      }}
+                      disabled={processWebhookRequestsMutation.isPending || idsToProcess.length === 0}
+                      data-testid="button-process-pending-requests"
+                    >
+                      {processWebhookRequestsMutation.isPending 
+                        ? "Processing..." 
+                        : idsToProcess.length > 0 
+                          ? `Process Selected (${idsToProcess.length})`
+                          : "Select to Process"}
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => refetchWebhookRequests()}
-                    data-testid="button-refresh-webhook-requests"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    Refresh
-                  </Button>
-                  <Button 
-                    size="sm"
-                    onClick={() => {
-                      const pendingIds = webhookRequests
-                        .filter(r => r.status === "pending" || r.status === "pending_configuration")
-                        .map(r => r.id);
-                      if (pendingIds.length > 0) {
-                        processWebhookRequestsMutation.mutate(pendingIds);
-                      }
-                    }}
-                    disabled={processWebhookRequestsMutation.isPending || webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration").length === 0}
-                    data-testid="button-process-pending-requests"
-                  >
-                    {processWebhookRequestsMutation.isPending ? "Processing..." : "Process Pending"}
-                  </Button>
-                </div>
+                
+                {webhookRequestsLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading webhook requests...</p>
+                ) : pendingRequests.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No pending webhook requests.</p>
+                ) : (
+                  <ScrollArea className="h-[250px] border rounded-md">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[40px]">
+                            <Checkbox
+                              checked={allSelected}
+                              onCheckedChange={toggleSelectAll}
+                              aria-label="Select all"
+                              data-testid="checkbox-select-all"
+                            />
+                          </TableHead>
+                          <TableHead>Time</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pendingRequests
+                          .slice(0, 20)
+                          .map((request) => (
+                            <TableRow key={request.id}>
+                              <TableCell>
+                                <Checkbox
+                                  checked={selectedRequestIds.has(request.id)}
+                                  onCheckedChange={() => toggleSelectOne(request.id)}
+                                  aria-label={`Select request ${request.id}`}
+                                  data-testid={`checkbox-select-${request.id}`}
+                                />
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {format(new Date(request.created_at), "MMM d, HH:mm")}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{request.status}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={() => setViewingPayload(request.payload)}
+                                  data-testid={`button-view-payload-${request.id}`}
+                                >
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View Payload
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                )}
               </div>
-              
-              {webhookRequestsLoading ? (
-                <p className="text-sm text-muted-foreground">Loading webhook requests...</p>
-              ) : webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration").length === 0 ? (
-                <p className="text-sm text-muted-foreground">No pending webhook requests.</p>
-              ) : (
-                <ScrollArea className="h-[250px] border rounded-md">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {webhookRequests
-                        .filter(r => r.status === "pending" || r.status === "pending_configuration")
-                        .slice(0, 20)
-                        .map((request) => (
-                          <TableRow key={request.id}>
-                            <TableCell className="text-xs">
-                              {format(new Date(request.created_at), "MMM d, HH:mm")}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{request.status}</Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Button 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => setViewingPayload(request.payload)}
-                                data-testid={`button-view-payload-${request.id}`}
-                              >
-                                <Eye className="h-3 w-3 mr-1" />
-                                View Payload
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                </ScrollArea>
-              )}
-            </div>
-          )}
+            );
+          })()}
         </CardContent>
       </Card>
 
