@@ -1599,8 +1599,9 @@ ${questionsList}`;
       }
 
       // Check if this is a WhatsApp payload and if this webhook is linked as the company's WhatsApp webhook
-      const companySettings = await storage.getCompanySettings(webhook.company_id);
-      const isWhatsAppWebhook = companySettings?.whatsapp_webhook_id === webhook.id;
+      const whCompany = await storage.getCompany(webhook.company_id);
+      const whCompanySettings = whCompany?.settings as Record<string, any> | undefined;
+      const isWhatsAppWebhook = whCompanySettings?.whatsapp_webhook_id === webhook.id;
       
       // Detect WhatsApp Cloud API payload structure
       const payload = req.body;
@@ -6202,8 +6203,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       // Check if this is a WhatsApp webhook
-      const companySettings = await storage.getCompanySettings(webhook.company_id);
-      const isWhatsAppWebhook = companySettings?.whatsapp_webhook_id === webhook.id;
+      const whReprocessCompany = await storage.getCompany(webhook.company_id);
+      const whReprocessSettings = whReprocessCompany?.settings as Record<string, any> | undefined;
+      const isWhatsAppWebhook = whReprocessSettings?.whatsapp_webhook_id === webhook.id;
 
       // For WhatsApp webhooks, use WhatsApp-specific processing
       if (isWhatsAppWebhook) {
