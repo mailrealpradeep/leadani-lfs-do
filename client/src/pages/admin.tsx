@@ -47,7 +47,8 @@ import { AutoFillRulesSettings } from "@/components/auto-fill-rules-settings";
 import { FinalValueSettings } from "@/components/final-value-settings";
 import { LeadTransferConfig } from "@/components/lead-transfer-config";
 import { LeadTransferRequests } from "@/components/lead-transfer-requests";
-import { Flame, ClipboardCheck, Eye, FormInput, Zap, Sparkles, ThumbsUp, Gift, Trophy, Award, Activity, Lock, ArrowRightLeft } from "lucide-react";
+import { WhatsAppSettings } from "@/components/whatsapp-settings";
+import { Flame, ClipboardCheck, Eye, FormInput, Zap, Sparkles, ThumbsUp, Gift, Trophy, Award, Activity, Lock, ArrowRightLeft, Phone } from "lucide-react";
 import { PowerScoreSettings } from "@/components/powerscore-settings";
 import { PowerFlowSettings } from "@/components/powerflow-settings";
 import { QualityCheckSettings } from "@/components/quality-check-settings";
@@ -1427,6 +1428,25 @@ function CompanyAdminView() {
                     <LeadTransferRequests headless />
                   </TabsContent>
                 </Tabs>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="whatsapp" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-whatsapp">
+              <div className="flex items-center gap-3">
+                <Phone className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">WhatsApp Lead Settings</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Configure WhatsApp message processing and lead creation
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <WhatsAppSettings />
               </div>
             </AccordionContent>
           </AccordionItem>

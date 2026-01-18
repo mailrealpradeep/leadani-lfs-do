@@ -6593,6 +6593,303 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // WHATSAPP LEAD MANAGEMENT CONFIGURATION
+  // ============================================================================
+
+  // Get all WhatsApp allocations for the company
+  app.get("/api/admin/company/whatsapp/allocations", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const allocations = await storage.getWhatsAppAllocations(req.companyId);
+      res.json(allocations);
+    } catch (error: any) {
+      console.error("Get WhatsApp allocations error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a WhatsApp allocation
+  app.post("/api/admin/company/whatsapp/allocations", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const { display_phone_number, user_id, sheet_id, enabled } = req.body;
+      
+      if (!display_phone_number || !user_id || !sheet_id) {
+        return res.status(400).json({ error: "display_phone_number, user_id, and sheet_id are required" });
+      }
+
+      const allocation = await storage.createWhatsAppAllocation({
+        company_id: req.companyId,
+        display_phone_number,
+        user_id,
+        sheet_id,
+        enabled: enabled !== false,
+      });
+      res.json(allocation);
+    } catch (error: any) {
+      console.error("Create WhatsApp allocation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a WhatsApp allocation
+  app.put("/api/admin/company/whatsapp/allocations/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const allocation = await storage.updateWhatsAppAllocation(req.params.id, req.body);
+      if (!allocation) {
+        return res.status(404).json({ error: "Allocation not found" });
+      }
+      res.json(allocation);
+    } catch (error: any) {
+      console.error("Update WhatsApp allocation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a WhatsApp allocation
+  app.delete("/api/admin/company/whatsapp/allocations/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteWhatsAppAllocation(req.params.id);
+      res.json({ message: "Allocation deleted" });
+    } catch (error: any) {
+      console.error("Delete WhatsApp allocation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all WhatsApp trigger rules for the company
+  app.get("/api/admin/company/whatsapp/trigger-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const rules = await storage.getWhatsAppTriggerRules(req.companyId);
+      res.json(rules);
+    } catch (error: any) {
+      console.error("Get WhatsApp trigger rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a WhatsApp trigger rule
+  app.post("/api/admin/company/whatsapp/trigger-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const { operator, match_text, logic, order_index, enabled } = req.body;
+      
+      if (!operator || !match_text) {
+        return res.status(400).json({ error: "operator and match_text are required" });
+      }
+
+      const rule = await storage.createWhatsAppTriggerRule({
+        company_id: req.companyId,
+        operator,
+        match_text,
+        logic: logic || 'or',
+        order_index: order_index || 0,
+        enabled: enabled !== false,
+      });
+      res.json(rule);
+    } catch (error: any) {
+      console.error("Create WhatsApp trigger rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a WhatsApp trigger rule
+  app.put("/api/admin/company/whatsapp/trigger-rules/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.updateWhatsAppTriggerRule(req.params.id, req.body);
+      if (!rule) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+      res.json(rule);
+    } catch (error: any) {
+      console.error("Update WhatsApp trigger rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a WhatsApp trigger rule
+  app.delete("/api/admin/company/whatsapp/trigger-rules/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteWhatsAppTriggerRule(req.params.id);
+      res.json({ message: "Rule deleted" });
+    } catch (error: any) {
+      console.error("Delete WhatsApp trigger rule error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Reorder WhatsApp trigger rules
+  app.post("/api/admin/company/whatsapp/trigger-rules/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const { rule_ids } = req.body;
+      if (!Array.isArray(rule_ids)) {
+        return res.status(400).json({ error: "rule_ids must be an array" });
+      }
+      await storage.reorderWhatsAppTriggerRules(req.companyId, rule_ids);
+      res.json({ message: "Rules reordered" });
+    } catch (error: any) {
+      console.error("Reorder WhatsApp trigger rules error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all WhatsApp field mappings for the company
+  app.get("/api/admin/company/whatsapp/field-mappings", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const mappings = await storage.getWhatsAppFieldMappings(req.companyId);
+      res.json(mappings);
+    } catch (error: any) {
+      console.error("Get WhatsApp field mappings error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a WhatsApp field mapping
+  app.post("/api/admin/company/whatsapp/field-mappings", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const { whatsapp_field, column_key, enabled } = req.body;
+      
+      if (!whatsapp_field || !column_key) {
+        return res.status(400).json({ error: "whatsapp_field and column_key are required" });
+      }
+
+      const mapping = await storage.createWhatsAppFieldMapping({
+        company_id: req.companyId,
+        whatsapp_field,
+        column_key,
+        enabled: enabled !== false,
+      });
+      res.json(mapping);
+    } catch (error: any) {
+      console.error("Create WhatsApp field mapping error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a WhatsApp field mapping
+  app.put("/api/admin/company/whatsapp/field-mappings/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const mapping = await storage.updateWhatsAppFieldMapping(req.params.id, req.body);
+      if (!mapping) {
+        return res.status(404).json({ error: "Mapping not found" });
+      }
+      res.json(mapping);
+    } catch (error: any) {
+      console.error("Update WhatsApp field mapping error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a WhatsApp field mapping
+  app.delete("/api/admin/company/whatsapp/field-mappings/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteWhatsAppFieldMapping(req.params.id);
+      res.json({ message: "Mapping deleted" });
+    } catch (error: any) {
+      console.error("Delete WhatsApp field mapping error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all WhatsApp default values for the company
+  app.get("/api/admin/company/whatsapp/default-values", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const values = await storage.getWhatsAppDefaultValues(req.companyId);
+      res.json(values);
+    } catch (error: any) {
+      console.error("Get WhatsApp default values error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a WhatsApp default value
+  app.post("/api/admin/company/whatsapp/default-values", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const { column_key, default_value, enabled } = req.body;
+      
+      if (!column_key || default_value === undefined) {
+        return res.status(400).json({ error: "column_key and default_value are required" });
+      }
+
+      const value = await storage.createWhatsAppDefaultValue({
+        company_id: req.companyId,
+        column_key,
+        default_value,
+        enabled: enabled !== false,
+      });
+      res.json(value);
+    } catch (error: any) {
+      console.error("Create WhatsApp default value error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update a WhatsApp default value
+  app.put("/api/admin/company/whatsapp/default-values/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const value = await storage.updateWhatsAppDefaultValue(req.params.id, req.body);
+      if (!value) {
+        return res.status(404).json({ error: "Default value not found" });
+      }
+      res.json(value);
+    } catch (error: any) {
+      console.error("Update WhatsApp default value error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a WhatsApp default value
+  app.delete("/api/admin/company/whatsapp/default-values/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteWhatsAppDefaultValue(req.params.id);
+      res.json({ message: "Default value deleted" });
+    } catch (error: any) {
+      console.error("Delete WhatsApp default value error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get WhatsApp message logs for the company
+  app.get("/api/admin/company/whatsapp/message-logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const limit = parseInt(req.query.limit as string) || 100;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const logs = await storage.getWhatsAppMessageLogs(req.companyId, { limit, offset });
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Get WhatsApp message logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // SHEETS
   // ============================================================================
   app.get("/api/sheets", authMiddleware, async (req: AuthRequest, res) => {

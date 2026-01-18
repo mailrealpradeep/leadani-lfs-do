@@ -248,6 +248,22 @@ import type {
   ConversionSummaryStats,
   ConversionIncentiveTier,
   ConversionTransitionApproval,
+  // WhatsApp Lead Management System
+  WhatsAppAllocationRecord,
+  InsertWhatsAppAllocationData,
+  whatsapp_allocations,
+  WhatsAppTriggerRuleRecord,
+  InsertWhatsAppTriggerRuleData,
+  whatsapp_trigger_rules,
+  WhatsAppFieldMappingRecord,
+  InsertWhatsAppFieldMappingData,
+  whatsapp_field_mappings,
+  WhatsAppDefaultValueRecord,
+  InsertWhatsAppDefaultValueData,
+  whatsapp_default_values,
+  WhatsAppMessageLogRecord,
+  InsertWhatsAppMessageLogData,
+  whatsapp_message_logs,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -980,6 +996,38 @@ export interface IStorage {
   
   // Conversion Settings Complete (aggregate fetch)
   getConversionSettingsComplete(companyId: string): Promise<ConversionSettingsComplete | null>;
+
+  // WhatsApp Allocations (Phone number to user mapping)
+  getWhatsAppAllocations(companyId: string): Promise<WhatsAppAllocationRecord[]>;
+  getWhatsAppAllocationByPhone(companyId: string, displayPhoneNumber: string): Promise<WhatsAppAllocationRecord | undefined>;
+  createWhatsAppAllocation(allocation: InsertWhatsAppAllocationData): Promise<WhatsAppAllocationRecord>;
+  updateWhatsAppAllocation(id: string, updates: Partial<WhatsAppAllocationRecord>): Promise<WhatsAppAllocationRecord | undefined>;
+  deleteWhatsAppAllocation(id: string): Promise<boolean>;
+
+  // WhatsApp Trigger Rules (New lead detection rules)
+  getWhatsAppTriggerRules(companyId: string): Promise<WhatsAppTriggerRuleRecord[]>;
+  getWhatsAppTriggerRule(id: string): Promise<WhatsAppTriggerRuleRecord | undefined>;
+  createWhatsAppTriggerRule(rule: InsertWhatsAppTriggerRuleData): Promise<WhatsAppTriggerRuleRecord>;
+  updateWhatsAppTriggerRule(id: string, updates: Partial<WhatsAppTriggerRuleRecord>): Promise<WhatsAppTriggerRuleRecord | undefined>;
+  deleteWhatsAppTriggerRule(id: string): Promise<boolean>;
+  reorderWhatsAppTriggerRules(companyId: string, ruleIds: string[]): Promise<boolean>;
+
+  // WhatsApp Field Mappings (Map WhatsApp fields to LFS columns)
+  getWhatsAppFieldMappings(companyId: string): Promise<WhatsAppFieldMappingRecord[]>;
+  createWhatsAppFieldMapping(mapping: InsertWhatsAppFieldMappingData): Promise<WhatsAppFieldMappingRecord>;
+  updateWhatsAppFieldMapping(id: string, updates: Partial<WhatsAppFieldMappingRecord>): Promise<WhatsAppFieldMappingRecord | undefined>;
+  deleteWhatsAppFieldMapping(id: string): Promise<boolean>;
+
+  // WhatsApp Default Values (Fixed values for new leads)
+  getWhatsAppDefaultValues(companyId: string): Promise<WhatsAppDefaultValueRecord[]>;
+  createWhatsAppDefaultValue(value: InsertWhatsAppDefaultValueData): Promise<WhatsAppDefaultValueRecord>;
+  updateWhatsAppDefaultValue(id: string, updates: Partial<WhatsAppDefaultValueRecord>): Promise<WhatsAppDefaultValueRecord | undefined>;
+  deleteWhatsAppDefaultValue(id: string): Promise<boolean>;
+
+  // WhatsApp Message Logs (Track processed messages)
+  getWhatsAppMessageLogs(companyId: string, options?: { limit?: number; offset?: number }): Promise<WhatsAppMessageLogRecord[]>;
+  getWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined>;
+  createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord>;
 }
 
 export class MemStorage implements IStorage {
@@ -3573,6 +3621,30 @@ export class MemStorage implements IStorage {
   async getConversionHistory(_configId: string, _startDate?: Date, _endDate?: Date): Promise<ConversionHistory[]> { return []; }
   async createConversionHistory(_history: Omit<InsertConversionHistory, 'id' | 'created_at'>): Promise<ConversionHistory> { throw new Error("Conversion Settings not implemented in MemStorage"); }
   async getConversionSettingsComplete(_companyId: string): Promise<ConversionSettingsComplete | null> { return null; }
+
+  // WhatsApp Lead Management - stubs
+  async getWhatsAppAllocations(_companyId: string): Promise<WhatsAppAllocationRecord[]> { return []; }
+  async getWhatsAppAllocationByPhone(_companyId: string, _displayPhoneNumber: string): Promise<WhatsAppAllocationRecord | undefined> { return undefined; }
+  async createWhatsAppAllocation(_allocation: InsertWhatsAppAllocationData): Promise<WhatsAppAllocationRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
+  async updateWhatsAppAllocation(_id: string, _updates: Partial<WhatsAppAllocationRecord>): Promise<WhatsAppAllocationRecord | undefined> { return undefined; }
+  async deleteWhatsAppAllocation(_id: string): Promise<boolean> { return false; }
+  async getWhatsAppTriggerRules(_companyId: string): Promise<WhatsAppTriggerRuleRecord[]> { return []; }
+  async getWhatsAppTriggerRule(_id: string): Promise<WhatsAppTriggerRuleRecord | undefined> { return undefined; }
+  async createWhatsAppTriggerRule(_rule: InsertWhatsAppTriggerRuleData): Promise<WhatsAppTriggerRuleRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
+  async updateWhatsAppTriggerRule(_id: string, _updates: Partial<WhatsAppTriggerRuleRecord>): Promise<WhatsAppTriggerRuleRecord | undefined> { return undefined; }
+  async deleteWhatsAppTriggerRule(_id: string): Promise<boolean> { return false; }
+  async reorderWhatsAppTriggerRules(_companyId: string, _ruleIds: string[]): Promise<boolean> { return false; }
+  async getWhatsAppFieldMappings(_companyId: string): Promise<WhatsAppFieldMappingRecord[]> { return []; }
+  async createWhatsAppFieldMapping(_mapping: InsertWhatsAppFieldMappingData): Promise<WhatsAppFieldMappingRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
+  async updateWhatsAppFieldMapping(_id: string, _updates: Partial<WhatsAppFieldMappingRecord>): Promise<WhatsAppFieldMappingRecord | undefined> { return undefined; }
+  async deleteWhatsAppFieldMapping(_id: string): Promise<boolean> { return false; }
+  async getWhatsAppDefaultValues(_companyId: string): Promise<WhatsAppDefaultValueRecord[]> { return []; }
+  async createWhatsAppDefaultValue(_value: InsertWhatsAppDefaultValueData): Promise<WhatsAppDefaultValueRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
+  async updateWhatsAppDefaultValue(_id: string, _updates: Partial<WhatsAppDefaultValueRecord>): Promise<WhatsAppDefaultValueRecord | undefined> { return undefined; }
+  async deleteWhatsAppDefaultValue(_id: string): Promise<boolean> { return false; }
+  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number }): Promise<WhatsAppMessageLogRecord[]> { return []; }
+  async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
+  async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
 }
 
 // ============================================================================
@@ -11167,6 +11239,226 @@ export class PgStorage implements IStorage {
       incentive,
       approval,
     };
+  }
+
+  // ============================================================================
+  // WHATSAPP LEAD MANAGEMENT STORAGE
+  // ============================================================================
+
+  // WhatsApp Allocations
+  async getWhatsAppAllocations(companyId: string): Promise<WhatsAppAllocationRecord[]> {
+    return await db.select()
+      .from(whatsapp_allocations)
+      .where(eq(whatsapp_allocations.company_id, companyId))
+      .orderBy(desc(whatsapp_allocations.created_at));
+  }
+
+  async getWhatsAppAllocationByPhone(companyId: string, displayPhoneNumber: string): Promise<WhatsAppAllocationRecord | undefined> {
+    const result = await db.select()
+      .from(whatsapp_allocations)
+      .where(and(
+        eq(whatsapp_allocations.company_id, companyId),
+        eq(whatsapp_allocations.display_phone_number, displayPhoneNumber),
+        eq(whatsapp_allocations.enabled, true)
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async createWhatsAppAllocation(allocation: InsertWhatsAppAllocationData): Promise<WhatsAppAllocationRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newAllocation = {
+      id,
+      ...allocation,
+      created_at: now,
+      updated_at: now,
+    };
+    const result = await db.insert(whatsapp_allocations).values(newAllocation).returning();
+    return result[0];
+  }
+
+  async updateWhatsAppAllocation(id: string, updates: Partial<WhatsAppAllocationRecord>): Promise<WhatsAppAllocationRecord | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    const result = await db.update(whatsapp_allocations)
+      .set(convertedUpdates)
+      .where(eq(whatsapp_allocations.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteWhatsAppAllocation(id: string): Promise<boolean> {
+    await db.delete(whatsapp_allocations).where(eq(whatsapp_allocations.id, id));
+    return true;
+  }
+
+  // WhatsApp Trigger Rules
+  async getWhatsAppTriggerRules(companyId: string): Promise<WhatsAppTriggerRuleRecord[]> {
+    return await db.select()
+      .from(whatsapp_trigger_rules)
+      .where(eq(whatsapp_trigger_rules.company_id, companyId))
+      .orderBy(asc(whatsapp_trigger_rules.order_index));
+  }
+
+  async getWhatsAppTriggerRule(id: string): Promise<WhatsAppTriggerRuleRecord | undefined> {
+    const result = await db.select()
+      .from(whatsapp_trigger_rules)
+      .where(eq(whatsapp_trigger_rules.id, id))
+      .limit(1);
+    return result[0];
+  }
+
+  async createWhatsAppTriggerRule(rule: InsertWhatsAppTriggerRuleData): Promise<WhatsAppTriggerRuleRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newRule = {
+      id,
+      ...rule,
+      created_at: now,
+      updated_at: now,
+    };
+    const result = await db.insert(whatsapp_trigger_rules).values(newRule).returning();
+    return result[0];
+  }
+
+  async updateWhatsAppTriggerRule(id: string, updates: Partial<WhatsAppTriggerRuleRecord>): Promise<WhatsAppTriggerRuleRecord | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    const result = await db.update(whatsapp_trigger_rules)
+      .set(convertedUpdates)
+      .where(eq(whatsapp_trigger_rules.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteWhatsAppTriggerRule(id: string): Promise<boolean> {
+    await db.delete(whatsapp_trigger_rules).where(eq(whatsapp_trigger_rules.id, id));
+    return true;
+  }
+
+  async reorderWhatsAppTriggerRules(companyId: string, ruleIds: string[]): Promise<boolean> {
+    for (let i = 0; i < ruleIds.length; i++) {
+      await db.update(whatsapp_trigger_rules)
+        .set({ order_index: i, updated_at: new Date() })
+        .where(and(
+          eq(whatsapp_trigger_rules.id, ruleIds[i]),
+          eq(whatsapp_trigger_rules.company_id, companyId)
+        ));
+    }
+    return true;
+  }
+
+  // WhatsApp Field Mappings
+  async getWhatsAppFieldMappings(companyId: string): Promise<WhatsAppFieldMappingRecord[]> {
+    return await db.select()
+      .from(whatsapp_field_mappings)
+      .where(eq(whatsapp_field_mappings.company_id, companyId))
+      .orderBy(desc(whatsapp_field_mappings.created_at));
+  }
+
+  async createWhatsAppFieldMapping(mapping: InsertWhatsAppFieldMappingData): Promise<WhatsAppFieldMappingRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newMapping = {
+      id,
+      ...mapping,
+      created_at: now,
+      updated_at: now,
+    };
+    const result = await db.insert(whatsapp_field_mappings).values(newMapping).returning();
+    return result[0];
+  }
+
+  async updateWhatsAppFieldMapping(id: string, updates: Partial<WhatsAppFieldMappingRecord>): Promise<WhatsAppFieldMappingRecord | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    const result = await db.update(whatsapp_field_mappings)
+      .set(convertedUpdates)
+      .where(eq(whatsapp_field_mappings.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteWhatsAppFieldMapping(id: string): Promise<boolean> {
+    await db.delete(whatsapp_field_mappings).where(eq(whatsapp_field_mappings.id, id));
+    return true;
+  }
+
+  // WhatsApp Default Values
+  async getWhatsAppDefaultValues(companyId: string): Promise<WhatsAppDefaultValueRecord[]> {
+    return await db.select()
+      .from(whatsapp_default_values)
+      .where(eq(whatsapp_default_values.company_id, companyId))
+      .orderBy(desc(whatsapp_default_values.created_at));
+  }
+
+  async createWhatsAppDefaultValue(value: InsertWhatsAppDefaultValueData): Promise<WhatsAppDefaultValueRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newValue = {
+      id,
+      ...value,
+      created_at: now,
+      updated_at: now,
+    };
+    const result = await db.insert(whatsapp_default_values).values(newValue).returning();
+    return result[0];
+  }
+
+  async updateWhatsAppDefaultValue(id: string, updates: Partial<WhatsAppDefaultValueRecord>): Promise<WhatsAppDefaultValueRecord | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    const result = await db.update(whatsapp_default_values)
+      .set(convertedUpdates)
+      .where(eq(whatsapp_default_values.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteWhatsAppDefaultValue(id: string): Promise<boolean> {
+    await db.delete(whatsapp_default_values).where(eq(whatsapp_default_values.id, id));
+    return true;
+  }
+
+  // WhatsApp Message Logs
+  async getWhatsAppMessageLogs(companyId: string, options?: { limit?: number; offset?: number }): Promise<WhatsAppMessageLogRecord[]> {
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    return await db.select()
+      .from(whatsapp_message_logs)
+      .where(eq(whatsapp_message_logs.company_id, companyId))
+      .orderBy(desc(whatsapp_message_logs.processed_at))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async getWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined> {
+    const result = await db.select()
+      .from(whatsapp_message_logs)
+      .where(and(
+        eq(whatsapp_message_logs.company_id, companyId),
+        eq(whatsapp_message_logs.message_id, messageId)
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> {
+    const id = randomUUID();
+    const now = new Date();
+    const newLog = {
+      id,
+      ...log,
+      processed_at: log.processed_at ? new Date(log.processed_at as any) : now,
+      created_at: now,
+    };
+    const result = await db.insert(whatsapp_message_logs).values(newLog).returning();
+    return result[0];
   }
 }
 

@@ -4707,3 +4707,198 @@ export interface ConversionSummaryStats {
   average_value: number;
   working_days: number;
 }
+
+// ============================================================================
+// WHATSAPP LEAD MANAGEMENT SYSTEM
+// ============================================================================
+
+// WhatsApp Phone Allocation - Maps display_phone_number to user for lead allocation
+export interface WhatsAppAllocation {
+  id: string;
+  company_id: string;
+  display_phone_number: string; // WhatsApp business number (e.g., "918249344757")
+  user_id: string; // User who receives leads from this number
+  sheet_id: string; // Sheet where leads are created
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const whatsapp_allocations = pgTable('whatsapp_allocations', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  display_phone_number: varchar('display_phone_number', { length: 20 }).notNull(),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WhatsAppAllocationRecord = typeof whatsapp_allocations.$inferSelect;
+export type InsertWhatsAppAllocation = typeof whatsapp_allocations.$inferInsert;
+
+export const insertWhatsAppAllocationSchema = createInsertSchema(whatsapp_allocations).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWhatsAppAllocationData = z.infer<typeof insertWhatsAppAllocationSchema>;
+
+// WhatsApp Trigger Rules - Conditions to identify new leads vs follow-ups
+export interface WhatsAppTriggerRule {
+  id: string;
+  company_id: string;
+  operator: "contains" | "equals" | "not_equals" | "not_contains" | "starts_with" | "ends_with";
+  match_text: string;
+  logic: "and" | "or"; // How this rule combines with previous rules
+  order_index: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const whatsapp_trigger_rules = pgTable('whatsapp_trigger_rules', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  operator: varchar('operator', { length: 20 }).notNull(),
+  match_text: varchar('match_text', { length: 500 }).notNull(),
+  logic: varchar('logic', { length: 10 }).notNull().default('or'),
+  order_index: integer('order_index').notNull().default(0),
+  enabled: boolean('enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WhatsAppTriggerRuleRecord = typeof whatsapp_trigger_rules.$inferSelect;
+export type InsertWhatsAppTriggerRule = typeof whatsapp_trigger_rules.$inferInsert;
+
+export const insertWhatsAppTriggerRuleSchema = createInsertSchema(whatsapp_trigger_rules).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWhatsAppTriggerRuleData = z.infer<typeof insertWhatsAppTriggerRuleSchema>;
+
+// WhatsApp Field Mappings - Map WhatsApp fields to LFS columns
+export interface WhatsAppFieldMapping {
+  id: string;
+  company_id: string;
+  whatsapp_field: "sender_name" | "sender_phone" | "message_text" | "display_phone_number";
+  column_key: string; // LFS column key to map to
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const whatsapp_field_mappings = pgTable('whatsapp_field_mappings', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  whatsapp_field: varchar('whatsapp_field', { length: 50 }).notNull(),
+  column_key: varchar('column_key', { length: 100 }).notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WhatsAppFieldMappingRecord = typeof whatsapp_field_mappings.$inferSelect;
+export type InsertWhatsAppFieldMapping = typeof whatsapp_field_mappings.$inferInsert;
+
+export const insertWhatsAppFieldMappingSchema = createInsertSchema(whatsapp_field_mappings).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWhatsAppFieldMappingData = z.infer<typeof insertWhatsAppFieldMappingSchema>;
+
+// WhatsApp Default Values - Fixed values to set on new leads
+export interface WhatsAppDefaultValue {
+  id: string;
+  company_id: string;
+  column_key: string; // LFS column key
+  default_value: string; // Fixed value to set
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const whatsapp_default_values = pgTable('whatsapp_default_values', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  column_key: varchar('column_key', { length: 100 }).notNull(),
+  default_value: varchar('default_value', { length: 500 }).notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WhatsAppDefaultValueRecord = typeof whatsapp_default_values.$inferSelect;
+export type InsertWhatsAppDefaultValue = typeof whatsapp_default_values.$inferInsert;
+
+export const insertWhatsAppDefaultValueSchema = createInsertSchema(whatsapp_default_values).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWhatsAppDefaultValueData = z.infer<typeof insertWhatsAppDefaultValueSchema>;
+
+// WhatsApp Message Log - Track all processed WhatsApp messages
+export type WhatsAppMessageOutcome = 
+  | "new_lead_created"
+  | "transfer_request_created"
+  | "followup_added"
+  | "ignored_no_match"
+  | "ignored_no_trigger"
+  | "error";
+
+export interface WhatsAppMessageLog {
+  id: string;
+  company_id: string;
+  webhook_request_id: string; // Reference to original webhook_requests record
+  sender_phone: string; // Last 10 digits of sender's phone
+  sender_name: string | null;
+  sender_wa_id: string; // Full WhatsApp ID
+  display_phone_number: string; // Business number that received the message
+  message_id: string; // WhatsApp message ID (for deduplication)
+  message_text: string | null;
+  message_type: string; // text, image, etc.
+  outcome: WhatsAppMessageOutcome;
+  outcome_details: Record<string, any> | null; // Additional info like lead_id, transfer_request_id
+  trigger_matched: boolean;
+  matched_rule_id: string | null;
+  processed_at: string;
+  created_at: string;
+}
+
+export const whatsapp_message_logs = pgTable('whatsapp_message_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  webhook_request_id: varchar('webhook_request_id').notNull().references(() => webhook_requests.id, { onDelete: 'cascade' }),
+  sender_phone: varchar('sender_phone', { length: 20 }).notNull(),
+  sender_name: varchar('sender_name', { length: 255 }),
+  sender_wa_id: varchar('sender_wa_id', { length: 30 }).notNull(),
+  display_phone_number: varchar('display_phone_number', { length: 20 }).notNull(),
+  message_id: varchar('message_id', { length: 100 }).notNull(),
+  message_text: text('message_text'),
+  message_type: varchar('message_type', { length: 30 }).notNull().default('text'),
+  outcome: varchar('outcome', { length: 50 }).notNull(),
+  outcome_details: json('outcome_details').$type<Record<string, any>>(),
+  trigger_matched: boolean('trigger_matched').notNull().default(false),
+  matched_rule_id: varchar('matched_rule_id').references(() => whatsapp_trigger_rules.id, { onDelete: 'set null' }),
+  processed_at: timestamp('processed_at').defaultNow().notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type WhatsAppMessageLogRecord = typeof whatsapp_message_logs.$inferSelect;
+export type InsertWhatsAppMessageLog = typeof whatsapp_message_logs.$inferInsert;
+
+export const insertWhatsAppMessageLogSchema = createInsertSchema(whatsapp_message_logs).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertWhatsAppMessageLogData = z.infer<typeof insertWhatsAppMessageLogSchema>;
