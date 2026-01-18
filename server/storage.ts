@@ -1028,6 +1028,10 @@ export interface IStorage {
   getWhatsAppMessageLogs(companyId: string, options?: { limit?: number; offset?: number }): Promise<WhatsAppMessageLogRecord[]>;
   getWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined>;
   createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord>;
+  updateWhatsAppMessageLog(id: string, updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined>;
+  
+  // Helper methods for WhatsApp processing
+  getLeadsForSheet(sheetId: string): Promise<Lead[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -3645,6 +3649,10 @@ export class MemStorage implements IStorage {
   async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number }): Promise<WhatsAppMessageLogRecord[]> { return []; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
+  async updateWhatsAppMessageLog(_id: string, _updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
+  async getLeadsForSheet(sheetId: string): Promise<Lead[]> {
+    return Array.from(this.leads.values()).filter(lead => lead.sheet_id === sheetId && !lead.is_deleted);
+  }
 }
 
 // ============================================================================
@@ -11459,6 +11467,23 @@ export class PgStorage implements IStorage {
     };
     const result = await db.insert(whatsapp_message_logs).values(newLog).returning();
     return result[0];
+  }
+
+  async updateWhatsAppMessageLog(id: string, updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> {
+    const result = await db.update(whatsapp_message_logs)
+      .set(updates)
+      .where(eq(whatsapp_message_logs.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async getLeadsForSheet(sheetId: string): Promise<Lead[]> {
+    const result = await db.select().from(dbSchema.leads)
+      .where(and(
+        eq(dbSchema.leads.sheet_id, sheetId),
+        eq(dbSchema.leads.is_deleted, false)
+      ));
+    return result.map(this.mapLead);
   }
 }
 

@@ -56,6 +56,7 @@ import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAn
 import { recordFollowupAndAwardPoints, detectFollowupEventTypes } from "./followup-service";
 import { setSocketIO, emitAIRatingUpdate } from "./socket-manager";
 import { getLeadFollowupCount, calculateAndUpdateLeadRating } from "./ai-lead-rating-service";
+import { processPendingWhatsAppMessages } from "./whatsapp-processor";
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
 import * as dbSchema from "@shared/schema";
@@ -6885,6 +6886,32 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       res.json(logs);
     } catch (error: any) {
       console.error("Get WhatsApp message logs error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Process pending WhatsApp messages
+  app.post("/api/admin/company/whatsapp/process-pending", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const result = await processPendingWhatsAppMessages(req.companyId);
+      
+      const summary = {
+        processed: result.processed,
+        new_leads: result.results.filter(r => r.outcome === "new_lead_created").length,
+        followups: result.results.filter(r => r.outcome === "followup_added").length,
+        transfers: result.results.filter(r => r.outcome === "transfer_request_created").length,
+        ignored: result.results.filter(r => r.outcome === "ignored_no_trigger" || r.outcome === "ignored_no_match").length,
+        errors: result.results.filter(r => r.outcome === "error").length,
+        details: result.results
+      };
+      
+      res.json(summary);
+    } catch (error: any) {
+      console.error("Process pending WhatsApp messages error:", error);
       res.status(500).json({ error: error.message });
     }
   });

@@ -327,6 +327,23 @@ export function WhatsAppSettings() {
     },
   });
 
+  // Process pending messages mutation
+  const processPendingMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/admin/company/whatsapp/process-pending");
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/message-logs"] });
+      toast({ 
+        title: "Processing Complete", 
+        description: `Processed ${data.processed} messages: ${data.new_leads} new leads, ${data.followups} followups, ${data.transfers} transfers.` 
+      });
+    },
+    onError: (error: Error) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
   const handleDelete = () => {
     if (!itemToDelete) return;
 
@@ -773,10 +790,31 @@ export function WhatsAppSettings() {
                     View all processed WhatsApp messages and their outcomes.
                   </CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => refetchLogs()} data-testid="refresh-logs">
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    onClick={() => processPendingMutation.mutate()} 
+                    disabled={processPendingMutation.isPending}
+                    data-testid="process-pending"
+                  >
+                    {processPendingMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="h-4 w-4 mr-2" />
+                        Process Pending
+                      </>
+                    )}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => refetchLogs()} data-testid="refresh-logs">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
