@@ -87,8 +87,20 @@ export async function findExistingLeadByPhone(
     for (const lead of leads) {
       if (lead.deleted_at) continue;
       
-      const leadPhone = lead.custom_fields?.mobile_no || lead.custom_fields?.phone || "";
-      const normalizedLeadPhone = normalizePhoneNumber(String(leadPhone));
+      // Check multiple common phone field keys
+      const phoneFields = ['mobile_no', 'phone', 'mobile', 'contact_number', 'phone_number'];
+      let leadPhone = "";
+      
+      if (lead.custom_fields) {
+        for (const field of phoneFields) {
+          if (lead.custom_fields[field]) {
+            leadPhone = String(lead.custom_fields[field]);
+            break;
+          }
+        }
+      }
+      
+      const normalizedLeadPhone = normalizePhoneNumber(leadPhone);
       
       if (normalizedLeadPhone === normalizedPhone) {
         return { lead, sheetId: sheet.id };
@@ -114,7 +126,8 @@ export async function processWhatsAppMessage(
     if (!normalizedPhone || normalizedPhone.length < 10) {
       await storage.updateWhatsAppMessageLog(log.id, {
         outcome: "error",
-        outcome_details: { error: "Invalid or missing phone number" }
+        outcome_details: { error: "Invalid or missing phone number" },
+        processed_at: new Date()
       });
       return {
         success: false,
@@ -130,7 +143,8 @@ export async function processWhatsAppMessage(
       await storage.updateWhatsAppMessageLog(log.id, {
         outcome: "ignored_no_trigger",
         trigger_matched: false,
-        outcome_details: { reason: "No trigger rules matched" }
+        outcome_details: { reason: "No trigger rules matched" },
+        processed_at: new Date()
       });
       return {
         success: true,
@@ -164,10 +178,11 @@ export async function processWhatsAppMessage(
           outcome: "ignored_no_match",
           trigger_matched: true,
           matched_rule_id: matchedRule.id,
-          outcome_details: { reason: "No phone allocation found for this WhatsApp number" }
+          outcome_details: { reason: "No phone allocation found for this WhatsApp number" },
+          processed_at: new Date()
         });
         return {
-          success: false,
+          success: true,
           outcome: "ignored_no_match",
           message: "No phone allocation found for this WhatsApp number"
         };
@@ -180,7 +195,8 @@ export async function processWhatsAppMessage(
     console.error("[WhatsApp Processor] Error processing message:", error);
     await storage.updateWhatsAppMessageLog(log.id, {
       outcome: "error",
-      outcome_details: { error: error.message || "Unknown error" }
+      outcome_details: { error: error.message || "Unknown error" },
+      processed_at: new Date()
     });
     return {
       success: false,
@@ -231,7 +247,8 @@ async function addFollowupToLead(
     outcome: "followup_added",
     trigger_matched: true,
     matched_rule_id: matchedRuleId,
-    outcome_details: { lead_id: lead.id, action: "followup_added" }
+    outcome_details: { lead_id: lead.id, action: "followup_added" },
+    processed_at: new Date()
   });
   
   return {
@@ -270,7 +287,8 @@ async function createTransferRequest(
       transfer_request_id: transferRequest.id,
       from_user: fromUser?.name,
       to_user: toUser?.name
-    }
+    },
+    processed_at: new Date()
   });
   
   return {
@@ -357,7 +375,8 @@ async function createNewLead(
     outcome: "new_lead_created",
     trigger_matched: true,
     matched_rule_id: matchedRuleId,
-    outcome_details: { lead_id: lead.id, action: "new_lead_created" }
+    outcome_details: { lead_id: lead.id, action: "new_lead_created" },
+    processed_at: new Date()
   });
   
   return {
