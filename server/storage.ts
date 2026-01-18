@@ -11476,7 +11476,7 @@ export class PgStorage implements IStorage {
     const result = await db.select().from(dbSchema.leads)
       .where(and(
         eq(dbSchema.leads.sheet_id, sheetId),
-        eq(dbSchema.leads.is_deleted, false)
+        isNull(dbSchema.leads.deleted_at)
       ));
     return result.map(this.mapLead);
   }
