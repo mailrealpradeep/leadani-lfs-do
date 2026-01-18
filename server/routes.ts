@@ -1598,6 +1598,118 @@ ${questionsList}`;
         return res.status(403).json({ error: errorMessage });
       }
 
+      // Check if this is a WhatsApp payload and if this webhook is linked as the company's WhatsApp webhook
+      const companySettings = await storage.getCompanySettings(webhook.company_id);
+      const isWhatsAppWebhook = companySettings?.whatsapp_webhook_id === webhook.id;
+      
+      // Detect WhatsApp Cloud API payload structure
+      const payload = req.body;
+      const isWhatsAppPayload = !!(
+        payload?.object === "whatsapp_business_account" &&
+        Array.isArray(payload?.entry) &&
+        payload?.entry?.length > 0
+      );
+      
+      // If this is a WhatsApp webhook and payload, process via WhatsApp flow
+      if (isWhatsAppWebhook && isWhatsAppPayload) {
+        let webhookRequestId: string | null = null;
+        try {
+          // Log the webhook request first
+          const webhookRequest = await storage.createWebhookRequest({
+            webhook_id: webhook.id,
+            status: "pending",
+            payload: req.body,
+            headers: req.headers as any,
+            error_message: null,
+            lead_id: null,
+            allocated_sheet_id: null,
+          });
+          webhookRequestId = webhookRequest.id;
+          alreadyLogged = true;
+          
+          // Process WhatsApp messages
+          for (const entry of payload.entry) {
+            const changes = entry.changes || [];
+            for (const change of changes) {
+              if (change.field === "messages" && change.value) {
+                const value = change.value;
+                const messages = value.messages || [];
+                const contacts = value.contacts || [];
+                const metadata = value.metadata || {};
+                
+                for (let i = 0; i < messages.length; i++) {
+                  const msg = messages[i];
+                  const contact = contacts[i] || {};
+                  
+                  // Extract message text
+                  let messageText = "";
+                  if (msg.type === "text" && msg.text?.body) {
+                    messageText = msg.text.body;
+                  } else if (msg.type === "button" && msg.button?.text) {
+                    messageText = msg.button.text;
+                  } else if (msg.type === "interactive" && msg.interactive?.button_reply?.title) {
+                    messageText = msg.interactive.button_reply.title;
+                  }
+                  
+                  const senderPhone = msg.from || "";
+                  const normalizedPhone = senderPhone.replace(/\D/g, "").slice(-10);
+                  
+                  // Create WhatsApp message log
+                  const whatsappLog = await storage.createWhatsAppMessageLog({
+                    company_id: webhook.company_id,
+                    webhook_request_id: webhookRequest.id,
+                    sender_phone: normalizedPhone,
+                    sender_name: contact.profile?.name || null,
+                    sender_wa_id: contact.wa_id || senderPhone,
+                    display_phone_number: metadata.display_phone_number || "",
+                    message_id: msg.id || "",
+                    message_text: messageText,
+                    message_type: msg.type || "unknown",
+                    outcome: "pending",
+                    trigger_matched: false,
+                    matched_rule_id: null,
+                    outcome_details: {},
+                    processed_at: null
+                  });
+                  
+                  // Process through WhatsApp processor
+                  const { processWhatsAppMessage } = await import("./whatsapp-processor");
+                  const result = await processWhatsAppMessage(whatsappLog);
+                  
+                  // Update webhook request status based on result - any successful outcome counts as success
+                  if (result.success) {
+                    requestStatus = "success";
+                    if (result.leadId) {
+                      createdLeadId = result.leadId;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          // Update webhook request status with proper statuses matching existing system
+          await storage.updateWebhookRequestStatus(webhookRequest.id, requestStatus, null, createdLeadId, null);
+          
+          return res.status(200).json({ success: true, message: "WhatsApp message processed" });
+        } catch (whatsAppError: any) {
+          console.error("[Webhook] WhatsApp processing error:", whatsAppError);
+          errorMessage = whatsAppError.message;
+          requestStatus = "failed";
+          
+          // Update webhook request status to failed in error case
+          if (webhookRequestId) {
+            try {
+              await storage.updateWebhookRequestStatus(webhookRequestId, "failed", errorMessage, null, null);
+            } catch (updateError) {
+              console.error("[Webhook] Failed to update request status:", updateError);
+            }
+          }
+          
+          return res.status(200).json({ success: true, message: "Webhook received" });
+        }
+      }
+
       // Get field mappings and allocation rules
       const fieldMappings = await storage.getWebhookFieldMappings(webhook.id);
       const allocationRules = await storage.getWebhookAllocationRules(webhook.id);
