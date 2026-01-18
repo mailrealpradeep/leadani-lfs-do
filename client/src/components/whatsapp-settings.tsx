@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +41,6 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Sheet, User, CustomColumn } from "@shared/schema";
 import { format } from "date-fns";
-import { Copy } from "lucide-react";
 
 interface WhatsAppAllocation {
   id: string;
@@ -183,12 +183,8 @@ export function WhatsAppSettings() {
   // Get selected webhook details
   const selectedWebhook = companyWebhooks.find(w => w.id === selectedWebhookId);
   
-  // Calculate webhook URL
-  const webhookUrl = useMemo(() => {
-    if (!selectedWebhook?.token) return "";
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return origin ? `${origin}/api/public/webhooks/${selectedWebhook.token}` : "";
-  }, [selectedWebhook?.token]);
+  // State for viewing payload in dialog
+  const [viewingPayload, setViewingPayload] = useState<Record<string, any> | null>(null);
 
   // Fetch sheets and users for selection
   const { data: sheets = [] } = useQuery<Sheet[]>({
@@ -502,13 +498,6 @@ export function WhatsAppSettings() {
     saveWebhookMutation.mutate(webhookId);
   };
 
-  const copyWebhookUrl = () => {
-    if (webhookUrl) {
-      navigator.clipboard.writeText(webhookUrl);
-      toast({ title: "Copied!", description: "Webhook URL copied to clipboard" });
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -532,56 +521,33 @@ export function WhatsAppSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Select Webhook</Label>
-              <Select 
-                value={selectedWebhookId} 
-                onValueChange={handleWebhookChange}
-                data-testid="select-webhook"
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a webhook..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {companyWebhooks.map((webhook) => (
-                    <SelectItem key={webhook.id} value={webhook.id}>
-                      {webhook.name} {webhook.is_active ? "" : "(Inactive)"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {companyWebhooks.length === 0 && !webhooksLoading && (
-                <p className="text-xs text-muted-foreground">
-                  No webhooks found. Create a webhook in the Webhooks page first.
-                </p>
-              )}
-            </div>
-            
+          <div className="space-y-2">
+            <Label>Select Webhook</Label>
+            <Select 
+              value={selectedWebhookId} 
+              onValueChange={handleWebhookChange}
+              data-testid="select-webhook"
+            >
+              <SelectTrigger className="max-w-md">
+                <SelectValue placeholder="Select a webhook..." />
+              </SelectTrigger>
+              <SelectContent>
+                {companyWebhooks.map((webhook) => (
+                  <SelectItem key={webhook.id} value={webhook.id}>
+                    {webhook.name} {webhook.is_active ? "" : "(Inactive)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {companyWebhooks.length === 0 && !webhooksLoading && (
+              <p className="text-xs text-muted-foreground">
+                No webhooks found. Create a webhook in the Webhooks page first.
+              </p>
+            )}
             {selectedWebhook && (
-              <div className="space-y-2">
-                <Label>Webhook URL</Label>
-                <div className="flex items-center gap-2">
-                  <Input 
-                    value={webhookUrl || "Loading..."} 
-                    readOnly 
-                    className="font-mono text-sm flex-1"
-                    data-testid="input-webhook-url"
-                  />
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={copyWebhookUrl}
-                    disabled={!webhookUrl}
-                    data-testid="button-copy-webhook-url"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Configure your WhatsApp provider (Meta, Wauper) to send messages to this URL.
-                </p>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Webhook URL is available on the Webhooks page. Configure your WhatsApp provider to send messages to that URL.
+              </p>
             )}
           </div>
 
@@ -631,13 +597,13 @@ export function WhatsAppSettings() {
               ) : webhookRequests.filter(r => r.status === "pending" || r.status === "pending_configuration").length === 0 ? (
                 <p className="text-sm text-muted-foreground">No pending webhook requests.</p>
               ) : (
-                <ScrollArea className="h-[200px] border rounded-md">
+                <ScrollArea className="h-[250px] border rounded-md">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Time</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Payload Preview</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -652,8 +618,16 @@ export function WhatsAppSettings() {
                             <TableCell>
                               <Badge variant="outline">{request.status}</Badge>
                             </TableCell>
-                            <TableCell className="text-xs font-mono max-w-[300px] truncate">
-                              {JSON.stringify(request.payload).substring(0, 100)}...
+                            <TableCell>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => setViewingPayload(request.payload)}
+                                data-testid={`button-view-payload-${request.id}`}
+                              >
+                                <Eye className="h-3 w-3 mr-1" />
+                                View Payload
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1142,6 +1116,26 @@ export function WhatsAppSettings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Payload Viewer Dialog */}
+      <Dialog open={viewingPayload !== null} onOpenChange={(open) => !open && setViewingPayload(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" />
+              Webhook Payload
+            </DialogTitle>
+            <DialogDescription>
+              Full JSON payload received from the webhook
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="h-[400px] w-full rounded-md border p-4">
+            <pre className="text-xs font-mono whitespace-pre-wrap break-all">
+              {viewingPayload ? JSON.stringify(viewingPayload, null, 2) : ""}
+            </pre>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
