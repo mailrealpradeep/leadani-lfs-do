@@ -533,6 +533,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [allocateToSheetId, setAllocateToSheetId] = useState<string>("");
   const [expandedPendingId, setExpandedPendingId] = useState<string | null>(null);
+  const [pendingReferralFilter, setPendingReferralFilter] = useState<"all" | "ad" | "organic">("all");
 
   // Fetch sheets for allocation
   const { data: sheets = [] } = useQuery<Sheet[]>({
@@ -725,12 +726,52 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       });
   }, [webhookRequests]);
 
-  // Get pending allocation and configuration requests
-  const pendingRequests = useMemo(() => {
+  // Helper function to check if a webhook payload contains ad referral data
+  const hasAdReferral = (payload: any): boolean => {
+    try {
+      // Check WhatsApp webhook format: entry[].changes[].value.messages[].referral.source_type
+      if (payload?.entry) {
+        for (const entry of payload.entry) {
+          for (const change of entry.changes || []) {
+            if (change.value?.messages) {
+              for (const msg of change.value.messages) {
+                if (msg.referral?.source_type === 'ad') {
+                  return true;
+                }
+              }
+            }
+          }
+        }
+      }
+      // Also check top-level referral for simplified formats
+      if (payload?.referral?.source_type === 'ad') {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  // Get all pending allocation and configuration requests (unfiltered count)
+  const allPendingRequests = useMemo(() => {
     return webhookRequests
-      .filter(r => r.status === 'pending_allocation' || r.status === 'pending_configuration')
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      .filter(r => r.status === 'pending_allocation' || r.status === 'pending_configuration');
   }, [webhookRequests]);
+
+  // Get filtered pending requests
+  const pendingRequests = useMemo(() => {
+    let filtered = allPendingRequests;
+    
+    // Apply referral filter
+    if (pendingReferralFilter === 'ad') {
+      filtered = filtered.filter(r => hasAdReferral(r.payload));
+    } else if (pendingReferralFilter === 'organic') {
+      filtered = filtered.filter(r => !hasAdReferral(r.payload));
+    }
+    
+    return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [allPendingRequests, pendingReferralFilter]);
 
   // Helper function to format time ago
   function formatTimeAgo(date: Date): string {
@@ -2862,7 +2903,7 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
 
       {/* Pending Allocations Tab */}
       <TabsContent value="pending" className="space-y-4 py-2">
-        {pendingRequests.length === 0 ? (
+        {allPendingRequests.length === 0 ? (
           <Alert className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
             <Check className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800 dark:text-green-200">
@@ -2874,10 +2915,40 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
             <Alert className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
               <AlertCircle className="h-4 w-4 text-amber-600" />
               <AlertDescription className="text-amber-800 dark:text-amber-200">
-                {pendingRequests.length} lead{pendingRequests.length !== 1 ? 's' : ''} waiting to be allocated. 
-                These came in when no allocation rules matched.
+                {pendingReferralFilter === 'all' 
+                  ? `${allPendingRequests.length} lead${allPendingRequests.length !== 1 ? 's' : ''} waiting to be allocated.`
+                  : `${pendingRequests.length} of ${allPendingRequests.length} lead${allPendingRequests.length !== 1 ? 's' : ''} shown (filtered: ${pendingReferralFilter === 'ad' ? 'From Ads' : 'Organic'}).`
+                }
+                {' '}These came in when no allocation rules matched.
               </AlertDescription>
             </Alert>
+
+            {/* Referral Source Filter */}
+            <div className="flex items-center gap-3 p-3 border rounded-lg bg-muted/30">
+              <Label className="text-sm font-medium whitespace-nowrap">Filter by Source:</Label>
+              <Select value={pendingReferralFilter} onValueChange={(v) => setPendingReferralFilter(v as "all" | "ad" | "organic")}>
+                <SelectTrigger className="w-[180px]" data-testid="select-referral-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Messages ({allPendingRequests.length})</SelectItem>
+                  <SelectItem value="ad">From Ads Only ({allPendingRequests.filter(r => hasAdReferral(r.payload)).length})</SelectItem>
+                  <SelectItem value="organic">Organic Only ({allPendingRequests.filter(r => !hasAdReferral(r.payload)).length})</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">
+                Filter by referral.source_type
+              </span>
+            </div>
+
+            {pendingRequests.length === 0 && pendingReferralFilter !== 'all' && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No messages match the current filter. Try selecting a different filter option.
+                </AlertDescription>
+              </Alert>
+            )}
 
             {/* Bulk Actions */}
             <div className="p-3 border rounded-lg bg-muted/30 space-y-3">
