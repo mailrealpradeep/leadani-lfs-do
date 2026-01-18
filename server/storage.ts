@@ -251,19 +251,14 @@ import type {
   // WhatsApp Lead Management System
   WhatsAppAllocationRecord,
   InsertWhatsAppAllocationData,
-  whatsapp_allocations,
   WhatsAppTriggerRuleRecord,
   InsertWhatsAppTriggerRuleData,
-  whatsapp_trigger_rules,
   WhatsAppFieldMappingRecord,
   InsertWhatsAppFieldMappingData,
-  whatsapp_field_mappings,
   WhatsAppDefaultValueRecord,
   InsertWhatsAppDefaultValueData,
-  whatsapp_default_values,
   WhatsAppMessageLogRecord,
   InsertWhatsAppMessageLogData,
-  whatsapp_message_logs,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -11256,18 +11251,18 @@ export class PgStorage implements IStorage {
   // WhatsApp Allocations
   async getWhatsAppAllocations(companyId: string): Promise<WhatsAppAllocationRecord[]> {
     return await db.select()
-      .from(whatsapp_allocations)
-      .where(eq(whatsapp_allocations.company_id, companyId))
-      .orderBy(desc(whatsapp_allocations.created_at));
+      .from(dbSchema.whatsapp_allocations)
+      .where(eq(dbSchema.whatsapp_allocations.company_id, companyId))
+      .orderBy(desc(dbSchema.whatsapp_allocations.created_at));
   }
 
   async getWhatsAppAllocationByPhone(companyId: string, displayPhoneNumber: string): Promise<WhatsAppAllocationRecord | undefined> {
     const result = await db.select()
-      .from(whatsapp_allocations)
+      .from(dbSchema.whatsapp_allocations)
       .where(and(
-        eq(whatsapp_allocations.company_id, companyId),
-        eq(whatsapp_allocations.display_phone_number, displayPhoneNumber),
-        eq(whatsapp_allocations.enabled, true)
+        eq(dbSchema.whatsapp_allocations.company_id, companyId),
+        eq(dbSchema.whatsapp_allocations.display_phone_number, displayPhoneNumber),
+        eq(dbSchema.whatsapp_allocations.enabled, true)
       ))
       .limit(1);
     return result[0];
@@ -11282,7 +11277,7 @@ export class PgStorage implements IStorage {
       created_at: now,
       updated_at: now,
     };
-    const result = await db.insert(whatsapp_allocations).values(newAllocation).returning();
+    const result = await db.insert(dbSchema.whatsapp_allocations).values(newAllocation).returning();
     return result[0];
   }
 
@@ -11290,30 +11285,30 @@ export class PgStorage implements IStorage {
     const convertedUpdates: any = { ...updates, updated_at: new Date() };
     delete convertedUpdates.id;
     delete convertedUpdates.created_at;
-    const result = await db.update(whatsapp_allocations)
+    const result = await db.update(dbSchema.whatsapp_allocations)
       .set(convertedUpdates)
-      .where(eq(whatsapp_allocations.id, id))
+      .where(eq(dbSchema.whatsapp_allocations.id, id))
       .returning();
     return result[0];
   }
 
   async deleteWhatsAppAllocation(id: string): Promise<boolean> {
-    await db.delete(whatsapp_allocations).where(eq(whatsapp_allocations.id, id));
+    await db.delete(dbSchema.whatsapp_allocations).where(eq(dbSchema.whatsapp_allocations.id, id));
     return true;
   }
 
   // WhatsApp Trigger Rules
   async getWhatsAppTriggerRules(companyId: string): Promise<WhatsAppTriggerRuleRecord[]> {
     return await db.select()
-      .from(whatsapp_trigger_rules)
-      .where(eq(whatsapp_trigger_rules.company_id, companyId))
-      .orderBy(asc(whatsapp_trigger_rules.order_index));
+      .from(dbSchema.whatsapp_trigger_rules)
+      .where(eq(dbSchema.whatsapp_trigger_rules.company_id, companyId))
+      .orderBy(asc(dbSchema.whatsapp_trigger_rules.order_index));
   }
 
   async getWhatsAppTriggerRule(id: string): Promise<WhatsAppTriggerRuleRecord | undefined> {
     const result = await db.select()
-      .from(whatsapp_trigger_rules)
-      .where(eq(whatsapp_trigger_rules.id, id))
+      .from(dbSchema.whatsapp_trigger_rules)
+      .where(eq(dbSchema.whatsapp_trigger_rules.id, id))
       .limit(1);
     return result[0];
   }
@@ -11327,7 +11322,7 @@ export class PgStorage implements IStorage {
       created_at: now,
       updated_at: now,
     };
-    const result = await db.insert(whatsapp_trigger_rules).values(newRule).returning();
+    const result = await db.insert(dbSchema.whatsapp_trigger_rules).values(newRule).returning();
     return result[0];
   }
 
@@ -11335,25 +11330,25 @@ export class PgStorage implements IStorage {
     const convertedUpdates: any = { ...updates, updated_at: new Date() };
     delete convertedUpdates.id;
     delete convertedUpdates.created_at;
-    const result = await db.update(whatsapp_trigger_rules)
+    const result = await db.update(dbSchema.whatsapp_trigger_rules)
       .set(convertedUpdates)
-      .where(eq(whatsapp_trigger_rules.id, id))
+      .where(eq(dbSchema.whatsapp_trigger_rules.id, id))
       .returning();
     return result[0];
   }
 
   async deleteWhatsAppTriggerRule(id: string): Promise<boolean> {
-    await db.delete(whatsapp_trigger_rules).where(eq(whatsapp_trigger_rules.id, id));
+    await db.delete(dbSchema.whatsapp_trigger_rules).where(eq(dbSchema.whatsapp_trigger_rules.id, id));
     return true;
   }
 
   async reorderWhatsAppTriggerRules(companyId: string, ruleIds: string[]): Promise<boolean> {
     for (let i = 0; i < ruleIds.length; i++) {
-      await db.update(whatsapp_trigger_rules)
+      await db.update(dbSchema.whatsapp_trigger_rules)
         .set({ order_index: i, updated_at: new Date() })
         .where(and(
-          eq(whatsapp_trigger_rules.id, ruleIds[i]),
-          eq(whatsapp_trigger_rules.company_id, companyId)
+          eq(dbSchema.whatsapp_trigger_rules.id, ruleIds[i]),
+          eq(dbSchema.whatsapp_trigger_rules.company_id, companyId)
         ));
     }
     return true;
@@ -11362,9 +11357,9 @@ export class PgStorage implements IStorage {
   // WhatsApp Field Mappings
   async getWhatsAppFieldMappings(companyId: string): Promise<WhatsAppFieldMappingRecord[]> {
     return await db.select()
-      .from(whatsapp_field_mappings)
-      .where(eq(whatsapp_field_mappings.company_id, companyId))
-      .orderBy(desc(whatsapp_field_mappings.created_at));
+      .from(dbSchema.whatsapp_field_mappings)
+      .where(eq(dbSchema.whatsapp_field_mappings.company_id, companyId))
+      .orderBy(desc(dbSchema.whatsapp_field_mappings.created_at));
   }
 
   async createWhatsAppFieldMapping(mapping: InsertWhatsAppFieldMappingData): Promise<WhatsAppFieldMappingRecord> {
@@ -11376,7 +11371,7 @@ export class PgStorage implements IStorage {
       created_at: now,
       updated_at: now,
     };
-    const result = await db.insert(whatsapp_field_mappings).values(newMapping).returning();
+    const result = await db.insert(dbSchema.whatsapp_field_mappings).values(newMapping).returning();
     return result[0];
   }
 
@@ -11384,24 +11379,24 @@ export class PgStorage implements IStorage {
     const convertedUpdates: any = { ...updates, updated_at: new Date() };
     delete convertedUpdates.id;
     delete convertedUpdates.created_at;
-    const result = await db.update(whatsapp_field_mappings)
+    const result = await db.update(dbSchema.whatsapp_field_mappings)
       .set(convertedUpdates)
-      .where(eq(whatsapp_field_mappings.id, id))
+      .where(eq(dbSchema.whatsapp_field_mappings.id, id))
       .returning();
     return result[0];
   }
 
   async deleteWhatsAppFieldMapping(id: string): Promise<boolean> {
-    await db.delete(whatsapp_field_mappings).where(eq(whatsapp_field_mappings.id, id));
+    await db.delete(dbSchema.whatsapp_field_mappings).where(eq(dbSchema.whatsapp_field_mappings.id, id));
     return true;
   }
 
   // WhatsApp Default Values
   async getWhatsAppDefaultValues(companyId: string): Promise<WhatsAppDefaultValueRecord[]> {
     return await db.select()
-      .from(whatsapp_default_values)
-      .where(eq(whatsapp_default_values.company_id, companyId))
-      .orderBy(desc(whatsapp_default_values.created_at));
+      .from(dbSchema.whatsapp_default_values)
+      .where(eq(dbSchema.whatsapp_default_values.company_id, companyId))
+      .orderBy(desc(dbSchema.whatsapp_default_values.created_at));
   }
 
   async createWhatsAppDefaultValue(value: InsertWhatsAppDefaultValueData): Promise<WhatsAppDefaultValueRecord> {
@@ -11413,7 +11408,7 @@ export class PgStorage implements IStorage {
       created_at: now,
       updated_at: now,
     };
-    const result = await db.insert(whatsapp_default_values).values(newValue).returning();
+    const result = await db.insert(dbSchema.whatsapp_default_values).values(newValue).returning();
     return result[0];
   }
 
@@ -11421,36 +11416,36 @@ export class PgStorage implements IStorage {
     const convertedUpdates: any = { ...updates, updated_at: new Date() };
     delete convertedUpdates.id;
     delete convertedUpdates.created_at;
-    const result = await db.update(whatsapp_default_values)
+    const result = await db.update(dbSchema.whatsapp_default_values)
       .set(convertedUpdates)
-      .where(eq(whatsapp_default_values.id, id))
+      .where(eq(dbSchema.whatsapp_default_values.id, id))
       .returning();
     return result[0];
   }
 
   async deleteWhatsAppDefaultValue(id: string): Promise<boolean> {
-    await db.delete(whatsapp_default_values).where(eq(whatsapp_default_values.id, id));
+    await db.delete(dbSchema.whatsapp_default_values).where(eq(dbSchema.whatsapp_default_values.id, id));
     return true;
   }
 
   // WhatsApp Message Logs
   async getWhatsAppMessageLogs(companyId: string, options?: { limit?: number; offset?: number }): Promise<WhatsAppMessageLogRecord[]> {
-    const limit = options?.limit ?? 100;
+    const limitVal = options?.limit ?? 100;
     const offset = options?.offset ?? 0;
     return await db.select()
-      .from(whatsapp_message_logs)
-      .where(eq(whatsapp_message_logs.company_id, companyId))
-      .orderBy(desc(whatsapp_message_logs.processed_at))
-      .limit(limit)
+      .from(dbSchema.whatsapp_message_logs)
+      .where(eq(dbSchema.whatsapp_message_logs.company_id, companyId))
+      .orderBy(desc(dbSchema.whatsapp_message_logs.processed_at))
+      .limit(limitVal)
       .offset(offset);
   }
 
   async getWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined> {
     const result = await db.select()
-      .from(whatsapp_message_logs)
+      .from(dbSchema.whatsapp_message_logs)
       .where(and(
-        eq(whatsapp_message_logs.company_id, companyId),
-        eq(whatsapp_message_logs.message_id, messageId)
+        eq(dbSchema.whatsapp_message_logs.company_id, companyId),
+        eq(dbSchema.whatsapp_message_logs.message_id, messageId)
       ))
       .limit(1);
     return result[0];
@@ -11465,14 +11460,14 @@ export class PgStorage implements IStorage {
       processed_at: log.processed_at ? new Date(log.processed_at as any) : now,
       created_at: now,
     };
-    const result = await db.insert(whatsapp_message_logs).values(newLog).returning();
+    const result = await db.insert(dbSchema.whatsapp_message_logs).values(newLog).returning();
     return result[0];
   }
 
   async updateWhatsAppMessageLog(id: string, updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> {
-    const result = await db.update(whatsapp_message_logs)
+    const result = await db.update(dbSchema.whatsapp_message_logs)
       .set(updates)
-      .where(eq(whatsapp_message_logs.id, id))
+      .where(eq(dbSchema.whatsapp_message_logs.id, id))
       .returning();
     return result[0];
   }
