@@ -190,10 +190,22 @@ export async function processWhatsAppMessage(
 
     const triggerRules = await storage.getWhatsAppTriggerRules(companyId);
     
+    // Parse referral_data - it may come as a JSON string from the database
+    let referralData: Record<string, any> | undefined;
+    try {
+      const rawReferral = (log as any).referral_data;
+      if (rawReferral) {
+        referralData = typeof rawReferral === 'string' ? JSON.parse(rawReferral) : rawReferral;
+      }
+    } catch (e) {
+      console.error("[WhatsApp Processor] Failed to parse referral_data:", e);
+      referralData = undefined;
+    }
+    
     // Build context with referral data for field-based trigger matching
     const triggerContext: TriggerContext = {
       messageText,
-      referral: (log as any).referral_data || undefined,
+      referral: referralData,
     };
     
     const matchedRule = evaluateTriggerRules(triggerRules, messageText, triggerContext);
