@@ -1025,6 +1025,7 @@ export interface IStorage {
     offset?: number;
     businessNumber?: string;
     outcome?: string;
+    status?: string;
     search?: string;
     fromDate?: Date;
     toDate?: Date;
@@ -3649,7 +3650,7 @@ export class MemStorage implements IStorage {
   async createWhatsAppDefaultValue(_value: InsertWhatsAppDefaultValueData): Promise<WhatsAppDefaultValueRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppDefaultValue(_id: string, _updates: Partial<WhatsAppDefaultValueRecord>): Promise<WhatsAppDefaultValueRecord | undefined> { return undefined; }
   async deleteWhatsAppDefaultValue(_id: string): Promise<boolean> { return false; }
-  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; search?: string; fromDate?: Date; toDate?: Date; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
+  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; status?: string; search?: string; fromDate?: Date; toDate?: Date; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppMessageLog(_id: string, _updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
@@ -11442,6 +11443,7 @@ export class PgStorage implements IStorage {
     offset?: number;
     businessNumber?: string;
     outcome?: string;
+    status?: string;
     search?: string;
     fromDate?: Date;
     toDate?: Date;
@@ -11458,6 +11460,10 @@ export class PgStorage implements IStorage {
     
     if (options?.outcome) {
       conditions.push(eq(dbSchema.whatsapp_message_logs.outcome, options.outcome));
+    }
+    
+    if (options?.status) {
+      conditions.push(eq(dbSchema.whatsapp_message_logs.status, options.status));
     }
     
     if (options?.search) {
