@@ -1601,11 +1601,6 @@ ${questionsList}`;
         return res.status(403).json({ error: errorMessage });
       }
 
-      // Check if this is a WhatsApp payload and if this webhook is linked as the company's WhatsApp webhook
-      const whCompany = await storage.getCompany(webhook.company_id);
-      const whCompanySettings = whCompany?.settings as Record<string, any> | undefined;
-      const isWhatsAppWebhook = whCompanySettings?.whatsapp_webhook_id === webhook.id;
-      
       // Detect WhatsApp Cloud API payload structure
       const payload = req.body;
       const isWhatsAppPayload = !!(
@@ -1614,8 +1609,35 @@ ${questionsList}`;
         payload?.entry?.length > 0
       );
       
-      // If this is a WhatsApp webhook and payload, process via WhatsApp flow
-      if (isWhatsAppWebhook && isWhatsAppPayload) {
+      // For WhatsApp payloads, check if there's a matching phone allocation for this company
+      // This supports multiple WhatsApp business numbers per company, each with their own webhook
+      let shouldProcessAsWhatsApp = false;
+      if (isWhatsAppPayload) {
+        // Fetch allocations once, outside the loop for efficiency
+        const allocations = await storage.getWhatsAppAllocations(webhook.company_id);
+        
+        // Extract the display_phone_number from the payload to check for allocations
+        for (const entry of payload.entry) {
+          const changes = entry.changes || [];
+          for (const change of changes) {
+            if (change.field === "messages" && change.value?.metadata?.display_phone_number) {
+              const displayPhone = change.value.metadata.display_phone_number;
+              // Check if there's a phone allocation for this WhatsApp business number
+              const matchingAllocation = allocations.find(
+                a => a.enabled && a.display_phone_number === displayPhone
+              );
+              if (matchingAllocation) {
+                shouldProcessAsWhatsApp = true;
+                break;
+              }
+            }
+          }
+          if (shouldProcessAsWhatsApp) break;
+        }
+      }
+      
+      // If this is a WhatsApp payload with matching allocation, process via WhatsApp flow
+      if (shouldProcessAsWhatsApp) {
         let webhookRequestId: string | null = null;
         try {
           // Log the webhook request first
@@ -1694,7 +1716,10 @@ ${questionsList}`;
           }
           
           // Update webhook request status with proper statuses matching existing system
-          await storage.updateWebhookRequestStatus(webhookRequest.id, requestStatus, null, createdLeadId, null);
+          await storage.updateWebhookRequest(webhookRequest.id, { 
+            status: requestStatus, 
+            lead_id: createdLeadId 
+          });
           
           return res.status(200).json({ success: true, message: "WhatsApp message processed" });
         } catch (whatsAppError: any) {
@@ -1705,7 +1730,10 @@ ${questionsList}`;
           // Update webhook request status to failed in error case
           if (webhookRequestId) {
             try {
-              await storage.updateWebhookRequestStatus(webhookRequestId, "failed", errorMessage, null, null);
+              await storage.updateWebhookRequest(webhookRequestId, { 
+                status: "failed", 
+                error_message: errorMessage 
+              });
             } catch (updateError) {
               console.error("[Webhook] Failed to update request status:", updateError);
             }
