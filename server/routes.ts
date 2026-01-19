@@ -10457,10 +10457,17 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       // Validate all columns belong to the company
+      // Skip virtual columns (those with IDs starting with "system_") as they don't exist in the database
       const validColumns = [];
       for (const item of columnOrders) {
         if (!item.id || typeof item.order_index !== 'number') {
           console.warn("[Reorder] Invalid item format:", item);
+          continue;
+        }
+
+        // Skip virtual/synthetic columns (like "system_ai_rating") - they don't exist in DB
+        if (typeof item.id === 'string' && item.id.startsWith('system_')) {
+          console.log("[Reorder] Skipping virtual column:", item.id);
           continue;
         }
 
