@@ -7347,10 +7347,24 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!req.companyId) {
         return res.status(403).json({ error: "Must belong to a company" });
       }
-      const limit = parseInt(req.query.limit as string) || 100;
+      const limit = parseInt(req.query.limit as string) || 25;
       const offset = parseInt(req.query.offset as string) || 0;
-      const logs = await storage.getWhatsAppMessageLogs(req.companyId, { limit, offset });
-      res.json(logs);
+      const businessNumber = req.query.businessNumber as string | undefined;
+      const outcome = req.query.outcome as string | undefined;
+      const search = req.query.search as string | undefined;
+      const fromDate = req.query.fromDate ? new Date(req.query.fromDate as string) : undefined;
+      const toDate = req.query.toDate ? new Date(req.query.toDate as string) : undefined;
+      
+      const result = await storage.getWhatsAppMessageLogs(req.companyId, { 
+        limit, 
+        offset,
+        businessNumber,
+        outcome,
+        search,
+        fromDate,
+        toDate
+      });
+      res.json(result);
     } catch (error: any) {
       console.error("Get WhatsApp message logs error:", error);
       res.status(500).json({ error: error.message });

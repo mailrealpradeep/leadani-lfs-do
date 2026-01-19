@@ -462,8 +462,8 @@ export async function processPendingWhatsAppMessages(companyId: string): Promise
   processed: number;
   results: ProcessedMessageResult[];
 }> {
-  const logs = await storage.getWhatsAppMessageLogs(companyId);
-  const pendingLogs = logs.filter((log: WhatsAppMessageLogRecord) => log.outcome === "pending");
+  const { logs } = await storage.getWhatsAppMessageLogs(companyId, { limit: 1000, outcome: 'pending' });
+  const pendingLogs = logs;
   
   const results: ProcessedMessageResult[] = [];
   

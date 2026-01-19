@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock, Search, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +37,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -195,6 +205,15 @@ export function WhatsAppSettings() {
   // State for referral filter on pending requests
   const [pendingReferralFilter, setPendingReferralFilter] = useState<"all" | "ad" | "organic">("all");
   
+  // Message logs filter state
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsPageSize, setLogsPageSize] = useState(25);
+  const [logsBusinessFilter, setLogsBusinessFilter] = useState<string>("");
+  const [logsOutcomeFilter, setLogsOutcomeFilter] = useState<string>("");
+  const [logsSearchText, setLogsSearchText] = useState("");
+  const [logsFromDate, setLogsFromDate] = useState<string>("");
+  const [logsToDate, setLogsToDate] = useState<string>("");
+  
   // Helper function to check if a webhook payload contains ad referral data
   const hasAdReferral = (payload: any): boolean => {
     try {
@@ -255,10 +274,32 @@ export function WhatsAppSettings() {
     queryKey: ["/api/admin/company/whatsapp/default-values"],
   });
 
-  // Fetch WhatsApp message logs
-  const { data: messageLogs = [], isLoading: logsLoading, refetch: refetchLogs } = useQuery<WhatsAppMessageLog[]>({
-    queryKey: ["/api/admin/company/whatsapp/message-logs"],
+  // Fetch WhatsApp message logs with filters
+  const logsQueryParams = new URLSearchParams();
+  logsQueryParams.set("limit", logsPageSize.toString());
+  logsQueryParams.set("offset", ((logsPage - 1) * logsPageSize).toString());
+  if (logsBusinessFilter) logsQueryParams.set("businessNumber", logsBusinessFilter);
+  if (logsOutcomeFilter) logsQueryParams.set("outcome", logsOutcomeFilter);
+  if (logsSearchText) logsQueryParams.set("search", logsSearchText);
+  if (logsFromDate) logsQueryParams.set("fromDate", logsFromDate);
+  if (logsToDate) logsQueryParams.set("toDate", logsToDate);
+  
+  const { data: messageLogsData, isLoading: logsLoading, refetch: refetchLogs } = useQuery<{ logs: WhatsAppMessageLog[]; total: number }>({
+    queryKey: ["/api/admin/company/whatsapp/message-logs", logsPage, logsPageSize, logsBusinessFilter, logsOutcomeFilter, logsSearchText, logsFromDate, logsToDate],
+    queryFn: () => fetch(`/api/admin/company/whatsapp/message-logs?${logsQueryParams.toString()}`, { credentials: "include" }).then(r => r.json()),
   });
+  
+  const messageLogs = messageLogsData?.logs ?? [];
+  const totalLogs = messageLogsData?.total ?? 0;
+  const totalPages = Math.ceil(totalLogs / logsPageSize);
+  
+  // Get unique business numbers from allocations for the filter dropdown
+  const uniqueBusinessNumbers = Array.from(new Set(allocations.map(a => a.display_phone_number)));
+  
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setLogsPage(1);
+  }, [logsBusinessFilter, logsOutcomeFilter, logsSearchText, logsFromDate, logsToDate, logsPageSize]);
 
   // Create allocation mutation
   const createAllocationMutation = useMutation({
@@ -1138,90 +1179,237 @@ export function WhatsAppSettings() {
         <TabsContent value="logs" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <MessageSquare className="h-5 w-5" />
-                    Message Logs
-                  </CardTitle>
-                  <CardDescription>
-                    View all processed WhatsApp messages and their outcomes.
-                  </CardDescription>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <MessageSquare className="h-5 w-5" />
+                      Message Logs
+                      {totalLogs > 0 && (
+                        <Badge variant="secondary" className="ml-2">{totalLogs} total</Badge>
+                      )}
+                    </CardTitle>
+                    <CardDescription>
+                      View all processed WhatsApp messages and their outcomes.
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="default" 
+                      size="sm" 
+                      onClick={() => processPendingMutation.mutate()} 
+                      disabled={processPendingMutation.isPending}
+                      data-testid="process-pending"
+                    >
+                      {processPendingMutation.isPending ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="h-4 w-4 mr-2" />
+                          Process Pending
+                        </>
+                      )}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => refetchLogs()} data-testid="refresh-logs">
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Refresh
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button 
-                    variant="default" 
-                    size="sm" 
-                    onClick={() => processPendingMutation.mutate()} 
-                    disabled={processPendingMutation.isPending}
-                    data-testid="process-pending"
-                  >
-                    {processPendingMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="h-4 w-4 mr-2" />
-                        Process Pending
-                      </>
-                    )}
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => refetchLogs()} data-testid="refresh-logs">
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Refresh
-                  </Button>
+                
+                {/* Filters Row */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Search */}
+                  <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search sender or message..."
+                      value={logsSearchText}
+                      onChange={(e) => setLogsSearchText(e.target.value)}
+                      className="pl-8"
+                      data-testid="logs-search"
+                    />
+                  </div>
+                  
+                  {/* Business Number Filter */}
+                  <Select value={logsBusinessFilter} onValueChange={setLogsBusinessFilter}>
+                    <SelectTrigger className="w-[180px]" data-testid="logs-business-filter">
+                      <SelectValue placeholder="All Numbers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">All Numbers</SelectItem>
+                      {uniqueBusinessNumbers.map((num) => (
+                        <SelectItem key={num} value={num}>{num}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  
+                  {/* Outcome Filter */}
+                  <Select value={logsOutcomeFilter} onValueChange={setLogsOutcomeFilter}>
+                    <SelectTrigger className="w-[180px]" data-testid="logs-outcome-filter">
+                      <SelectValue placeholder="All Outcomes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">All Outcomes</SelectItem>
+                      <SelectItem value="new_lead_created">Lead Created</SelectItem>
+                      <SelectItem value="followup_added">Followup Added</SelectItem>
+                      <SelectItem value="transfer_request_created">Transfer Request</SelectItem>
+                      <SelectItem value="ignored_no_trigger">No Trigger Match</SelectItem>
+                      <SelectItem value="ignored_no_match">No Allocation</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="error">Error</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  
+                  {/* Date Filters */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="date"
+                        value={logsFromDate}
+                        onChange={(e) => setLogsFromDate(e.target.value)}
+                        className="w-[140px]"
+                        placeholder="From"
+                        data-testid="logs-from-date"
+                      />
+                    </div>
+                    <span className="text-muted-foreground">to</span>
+                    <Input
+                      type="date"
+                      value={logsToDate}
+                      onChange={(e) => setLogsToDate(e.target.value)}
+                      className="w-[140px]"
+                      placeholder="To"
+                      data-testid="logs-to-date"
+                    />
+                  </div>
+                  
+                  {/* Clear Filters */}
+                  {(logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsFromDate || logsToDate) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setLogsSearchText("");
+                        setLogsBusinessFilter("");
+                        setLogsOutcomeFilter("");
+                        setLogsFromDate("");
+                        setLogsToDate("");
+                      }}
+                      data-testid="clear-logs-filters"
+                    >
+                      Clear filters
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[500px]">
-                <div className="border rounded-md">
-                  <Table>
-                    <TableHeader>
+              <div className="border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Time</TableHead>
+                      <TableHead>Sender</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Business Number</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Outcome</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {logsLoading ? (
                       <TableRow>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Sender</TableHead>
-                        <TableHead>Phone</TableHead>
-                        <TableHead>Business Number</TableHead>
-                        <TableHead>Message</TableHead>
-                        <TableHead>Outcome</TableHead>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          Loading message logs...
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {logsLoading ? (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                            Loading message logs...
+                    ) : messageLogs.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          {logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsFromDate || logsToDate
+                            ? "No messages match your filters."
+                            : "No messages have been processed yet."}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      messageLogs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {format(new Date(log.processed_at), "MMM d, h:mm a")}
                           </TableCell>
-                        </TableRow>
-                      ) : messageLogs.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                            No messages have been processed yet.
+                          <TableCell>{log.sender_name || "-"}</TableCell>
+                          <TableCell className="font-mono text-sm">{log.sender_phone}</TableCell>
+                          <TableCell className="font-mono text-sm">{log.display_phone_number}</TableCell>
+                          <TableCell className="max-w-[200px]">
+                            {log.message_text ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="block truncate cursor-help">{log.message_text}</span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-[400px] whitespace-pre-wrap">
+                                  {log.message_text}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span className="text-muted-foreground italic">[{log.message_type}]</span>
+                            )}
                           </TableCell>
+                          <TableCell>{getOutcomeBadge(log.outcome)}</TableCell>
                         </TableRow>
-                      ) : (
-                        messageLogs.map((log) => (
-                          <TableRow key={log.id}>
-                            <TableCell className="text-sm text-muted-foreground">
-                              {format(new Date(log.processed_at), "MMM d, h:mm a")}
-                            </TableCell>
-                            <TableCell>{log.sender_name || "-"}</TableCell>
-                            <TableCell className="font-mono text-sm">{log.sender_phone}</TableCell>
-                            <TableCell className="font-mono text-sm">{log.display_phone_number}</TableCell>
-                            <TableCell className="max-w-[200px] truncate">
-                              {log.message_text || <span className="text-muted-foreground italic">[{log.message_type}]</span>}
-                            </TableCell>
-                            <TableCell>{getOutcomeBadge(log.outcome)}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              
+              {/* Pagination */}
+              {totalLogs > 0 && (
+                <div className="flex items-center justify-between mt-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>Showing {Math.min((logsPage - 1) * logsPageSize + 1, totalLogs)}-{Math.min(logsPage * logsPageSize, totalLogs)} of {totalLogs}</span>
+                    <Select value={logsPageSize.toString()} onValueChange={(v) => setLogsPageSize(parseInt(v))}>
+                      <SelectTrigger className="w-[100px]" data-testid="logs-page-size">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="25">25 / page</SelectItem>
+                        <SelectItem value="50">50 / page</SelectItem>
+                        <SelectItem value="100">100 / page</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLogsPage(p => Math.max(1, p - 1))}
+                      disabled={logsPage === 1}
+                      data-testid="logs-prev-page"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      Page {logsPage} of {totalPages || 1}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLogsPage(p => Math.min(totalPages, p + 1))}
+                      disabled={logsPage >= totalPages}
+                      data-testid="logs-next-page"
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-              </ScrollArea>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
