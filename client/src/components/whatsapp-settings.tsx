@@ -1235,12 +1235,12 @@ export function WhatsAppSettings() {
                   </div>
                   
                   {/* Business Number Filter */}
-                  <Select value={logsBusinessFilter} onValueChange={setLogsBusinessFilter}>
+                  <Select value={logsBusinessFilter || "all"} onValueChange={(v) => setLogsBusinessFilter(v === "all" ? "" : v)}>
                     <SelectTrigger className="w-[180px]" data-testid="logs-business-filter">
                       <SelectValue placeholder="All Numbers" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Numbers</SelectItem>
+                      <SelectItem value="all">All Numbers</SelectItem>
                       {uniqueBusinessNumbers.map((num) => (
                         <SelectItem key={num} value={num}>{num}</SelectItem>
                       ))}
@@ -1248,12 +1248,12 @@ export function WhatsAppSettings() {
                   </Select>
                   
                   {/* Outcome Filter */}
-                  <Select value={logsOutcomeFilter} onValueChange={setLogsOutcomeFilter}>
+                  <Select value={logsOutcomeFilter || "all"} onValueChange={(v) => setLogsOutcomeFilter(v === "all" ? "" : v)}>
                     <SelectTrigger className="w-[180px]" data-testid="logs-outcome-filter">
                       <SelectValue placeholder="All Outcomes" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Outcomes</SelectItem>
+                      <SelectItem value="all">All Outcomes</SelectItem>
                       <SelectItem value="new_lead_created">Lead Created</SelectItem>
                       <SelectItem value="followup_added">Followup Added</SelectItem>
                       <SelectItem value="transfer_request_created">Transfer Request</SelectItem>
