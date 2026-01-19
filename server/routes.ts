@@ -6336,7 +6336,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
               });
               results.push({ request_id: requestId, success: true, lead_id: lastLeadId });
             } else {
-              // Messages were processed but no leads created - provide more specific error
+              // Messages were processed but no leads created - still mark as processed so they don't stay pending
               let errorMsg = "No messages matched - ";
               if (lastOutcome === "ignored_no_trigger") {
                 errorMsg += "no trigger rules matched. Configure Trigger Rules to identify new leads.";
@@ -6347,6 +6347,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
               } else {
                 errorMsg += "check trigger rules and phone allocations.";
               }
+              // Mark as 'ignored' status so it's no longer pending but user can see it wasn't successful
+              await storage.updateWebhookRequest(requestId, {
+                status: 'ignored',
+                error_message: errorMsg,
+              });
               results.push({ request_id: requestId, success: false, error: errorMsg });
             }
           } catch (err: any) {
