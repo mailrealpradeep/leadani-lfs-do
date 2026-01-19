@@ -286,7 +286,7 @@ export function WhatsAppSettings() {
   
   const { data: messageLogsData, isLoading: logsLoading, refetch: refetchLogs } = useQuery<{ logs: WhatsAppMessageLog[]; total: number }>({
     queryKey: ["/api/admin/company/whatsapp/message-logs", logsPage, logsPageSize, logsBusinessFilter, logsOutcomeFilter, logsSearchText, logsFromDate, logsToDate],
-    queryFn: () => fetch(`/api/admin/company/whatsapp/message-logs?${logsQueryParams.toString()}`, { credentials: "include" }).then(r => r.json()),
+    queryFn: () => apiRequest<{ logs: WhatsAppMessageLog[]; total: number }>("GET", `/api/admin/company/whatsapp/message-logs?${logsQueryParams.toString()}`),
   });
   
   const messageLogs = messageLogsData?.logs ?? [];
