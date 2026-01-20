@@ -1703,6 +1703,13 @@ ${questionsList}`;
                   const { processWhatsAppMessage } = await import("./whatsapp-processor");
                   const result = await processWhatsAppMessage(whatsappLog);
                   
+                  console.log("[Webhook] WhatsApp processor result:", { 
+                    success: result.success, 
+                    outcome: result.outcome,
+                    leadId: result.leadId,
+                    message: result.message 
+                  });
+                  
                   // Update webhook request status based on result - any successful outcome counts as success
                   if (result.success) {
                     requestStatus = "success";
@@ -1716,10 +1723,22 @@ ${questionsList}`;
           }
           
           // Update webhook request status with proper statuses matching existing system
-          await storage.updateWebhookRequest(webhookRequest.id, { 
-            status: requestStatus, 
-            lead_id: createdLeadId 
+          console.log("[Webhook] Updating webhook request status:", { 
+            webhookRequestId: webhookRequest.id, 
+            requestStatus, 
+            createdLeadId 
           });
+          
+          try {
+            await storage.updateWebhookRequest(webhookRequest.id, { 
+              status: requestStatus, 
+              lead_id: createdLeadId 
+            });
+            console.log("[Webhook] Successfully updated webhook request status to:", requestStatus);
+          } catch (statusUpdateError: any) {
+            console.error("[Webhook] Failed to update webhook request status:", statusUpdateError);
+            // Don't throw - the message was processed successfully, just log the status update failure
+          }
           
           return res.status(200).json({ success: true, message: "WhatsApp message processed" });
         } catch (whatsAppError: any) {
@@ -1734,6 +1753,7 @@ ${questionsList}`;
                 status: "failed", 
                 error_message: errorMessage 
               });
+              console.log("[Webhook] Updated webhook request status to failed");
             } catch (updateError) {
               console.error("[Webhook] Failed to update request status:", updateError);
             }
