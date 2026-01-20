@@ -217,7 +217,7 @@ export async function processWhatsAppMessage(
       // No trigger match, but if there's an existing lead, still add follow-up
       if (existingLead) {
         console.log("[WhatsApp Processor] No trigger match, but existing lead found - adding follow-up");
-        const remarkText = `[WhatsApp from ${senderName}]: ${messageText}`;
+        const remarkText = `WA Update: ${messageText}`;
         const today = new Date().toISOString().split('T')[0];
         
         await storage.createLeadUpdate({
@@ -341,7 +341,7 @@ async function addFollowupToLead(
   senderName: string,
   matchedRuleId: string
 ): Promise<ProcessedMessageResult> {
-  const remarkText = `[WhatsApp from ${senderName}]: ${messageText}`;
+  const remarkText = `WA Update: ${messageText}`;
   const today = new Date().toISOString().split('T')[0];
   
   await storage.createLeadUpdate({
@@ -471,7 +471,7 @@ async function createNewLead(
   });
   
   const today = new Date().toISOString().split('T')[0];
-  const remarkText = `[WhatsApp - First Message from ${senderName}]: ${messageText}`;
+  const remarkText = `WA Update: ${messageText}`;
   await storage.createLeadUpdate({
     lead_id: lead.id,
     update_via: "whatsapp",
