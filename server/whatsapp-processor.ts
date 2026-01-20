@@ -210,11 +210,49 @@ export async function processWhatsAppMessage(
     
     const matchedRule = evaluateTriggerRules(triggerRules, messageText, triggerContext);
     
+    // Check for existing lead first - we need this whether trigger matches or not
+    const existingLead = await findExistingLeadByPhone(companyId, normalizedPhone);
+    
     if (!matchedRule) {
+      // No trigger match, but if there's an existing lead, still add follow-up
+      if (existingLead) {
+        console.log("[WhatsApp Processor] No trigger match, but existing lead found - adding follow-up");
+        const remarkText = `[WhatsApp from ${senderName}]: ${messageText}`;
+        const today = new Date().toISOString().split('T')[0];
+        
+        await storage.createLeadUpdate({
+          lead_id: existingLead.lead.id,
+          update_via: "whatsapp",
+          update_on: today,
+          remark: remarkText,
+          created_by_user_id: existingLead.lead.owner_user_id
+        });
+        
+        await storage.updateWhatsAppMessageLog(log.id, {
+          outcome: "followup_added",
+          trigger_matched: false,
+          matched_rule_id: null,
+          outcome_details: { 
+            lead_id: existingLead.lead.id, 
+            action: "followup_added",
+            reason: "No trigger match but existing lead found" 
+          },
+          processed_at: new Date()
+        });
+        
+        return {
+          success: true,
+          outcome: "followup_added",
+          message: "Follow-up added to existing lead (no trigger match)",
+          leadId: existingLead.lead.id
+        };
+      }
+      
+      // No trigger match and no existing lead - truly ignore
       await storage.updateWhatsAppMessageLog(log.id, {
         outcome: "ignored_no_trigger",
         trigger_matched: false,
-        outcome_details: { reason: "No trigger rules matched" },
+        outcome_details: { reason: "No trigger rules matched and no existing lead" },
         processed_at: new Date()
       });
       return {
@@ -224,7 +262,7 @@ export async function processWhatsAppMessage(
       };
     }
 
-    const existingLead = await findExistingLeadByPhone(companyId, normalizedPhone);
+    // Trigger matched - use existing lead variable (already fetched above)
 
     if (existingLead) {
       const allocation = await findAllocationByPhone(companyId, displayPhoneNumber);
