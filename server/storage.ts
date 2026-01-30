@@ -220,6 +220,22 @@ import type {
   VisionBoardImage,
   VisionBoardEffortTargets,
   VisionBoardEffortOverrides,
+  // Vision Board Admin Management
+  CompanyVisionBoard,
+  InsertCompanyVisionBoard,
+  company_vision_boards,
+  CompanyVisionMonthlyTarget,
+  InsertCompanyVisionMonthlyTarget,
+  company_vision_monthly_targets,
+  UserVisionAdminTarget,
+  InsertUserVisionAdminTarget,
+  user_vision_admin_targets,
+  UserVisionMonthlyTarget,
+  InsertUserVisionMonthlyTarget,
+  user_vision_monthly_targets,
+  AdminActualIncentive,
+  InsertAdminActualIncentive,
+  admin_actual_incentives,
   // Conversion Settings (Pipeline Stage Management)
   ConversionConfig,
   InsertConversionConfig,
@@ -954,6 +970,39 @@ export interface IStorage {
   createVisionBoardEarning(earning: InsertVisionBoardEarning): Promise<VisionBoardEarning>;
   updateVisionBoardEarning(id: string, updates: Partial<VisionBoardEarning>): Promise<VisionBoardEarning | undefined>;
   deleteVisionBoardEarning(id: string): Promise<boolean>;
+
+  // Vision Board Admin Management - Company Vision
+  getCompanyVisionBoard(companyId: string, year: number): Promise<CompanyVisionBoard | null>;
+  createCompanyVisionBoard(board: InsertCompanyVisionBoard): Promise<CompanyVisionBoard>;
+  updateCompanyVisionBoard(id: string, updates: Partial<CompanyVisionBoard>): Promise<CompanyVisionBoard | undefined>;
+  deleteCompanyVisionBoard(id: string): Promise<boolean>;
+  
+  // Company Vision Monthly Targets
+  getCompanyVisionMonthlyTargets(companyVisionId: string): Promise<CompanyVisionMonthlyTarget[]>;
+  upsertCompanyVisionMonthlyTarget(target: InsertCompanyVisionMonthlyTarget): Promise<CompanyVisionMonthlyTarget>;
+  updateCompanyVisionMonthlyTarget(id: string, updates: Partial<CompanyVisionMonthlyTarget>): Promise<CompanyVisionMonthlyTarget | undefined>;
+  deleteCompanyVisionMonthlyTargets(companyVisionId: string): Promise<boolean>;
+  
+  // User Vision Admin Targets
+  getUserVisionAdminTarget(userId: string, year: number): Promise<UserVisionAdminTarget | null>;
+  getUserVisionAdminTargetsByCompany(companyId: string, year: number): Promise<UserVisionAdminTarget[]>;
+  createUserVisionAdminTarget(target: InsertUserVisionAdminTarget): Promise<UserVisionAdminTarget>;
+  updateUserVisionAdminTarget(id: string, updates: Partial<UserVisionAdminTarget>): Promise<UserVisionAdminTarget | undefined>;
+  deleteUserVisionAdminTarget(id: string): Promise<boolean>;
+  
+  // User Vision Monthly Targets
+  getUserVisionMonthlyTargets(userVisionId: string): Promise<UserVisionMonthlyTarget[]>;
+  getUserVisionMonthlyTargetsByUser(userId: string, year: number): Promise<UserVisionMonthlyTarget[]>;
+  upsertUserVisionMonthlyTarget(target: InsertUserVisionMonthlyTarget): Promise<UserVisionMonthlyTarget>;
+  updateUserVisionMonthlyTarget(id: string, updates: Partial<UserVisionMonthlyTarget>): Promise<UserVisionMonthlyTarget | undefined>;
+  deleteUserVisionMonthlyTargets(userVisionId: string): Promise<boolean>;
+  
+  // Admin Actual Incentives
+  getAdminActualIncentives(companyId: string, year: number, userId?: string): Promise<AdminActualIncentive[]>;
+  getAdminActualIncentivesByUser(userId: string, year: number): Promise<AdminActualIncentive[]>;
+  createAdminActualIncentive(incentive: InsertAdminActualIncentive): Promise<AdminActualIncentive>;
+  updateAdminActualIncentive(id: string, updates: Partial<AdminActualIncentive>): Promise<AdminActualIncentive | undefined>;
+  deleteAdminActualIncentive(id: string): Promise<boolean>;
 
   // Conversion Settings (Pipeline Stage Management)
   getConversionConfig(companyId: string): Promise<ConversionConfig | null>;
@@ -3606,6 +3655,31 @@ export class MemStorage implements IStorage {
   async createVisionBoardEarning(_earning: InsertVisionBoardEarning): Promise<VisionBoardEarning> { throw new Error("Vision Board not implemented in MemStorage"); }
   async updateVisionBoardEarning(_id: string, _updates: Partial<VisionBoardEarning>): Promise<VisionBoardEarning | undefined> { return undefined; }
   async deleteVisionBoardEarning(_id: string): Promise<boolean> { return false; }
+  
+  // Vision Board Admin Management - stubs
+  async getCompanyVisionBoard(_companyId: string, _year: number): Promise<CompanyVisionBoard | null> { return null; }
+  async createCompanyVisionBoard(_board: InsertCompanyVisionBoard): Promise<CompanyVisionBoard> { throw new Error("Vision Board Admin not implemented in MemStorage"); }
+  async updateCompanyVisionBoard(_id: string, _updates: Partial<CompanyVisionBoard>): Promise<CompanyVisionBoard | undefined> { return undefined; }
+  async deleteCompanyVisionBoard(_id: string): Promise<boolean> { return false; }
+  async getCompanyVisionMonthlyTargets(_companyVisionId: string): Promise<CompanyVisionMonthlyTarget[]> { return []; }
+  async upsertCompanyVisionMonthlyTarget(_target: InsertCompanyVisionMonthlyTarget): Promise<CompanyVisionMonthlyTarget> { throw new Error("Vision Board Admin not implemented in MemStorage"); }
+  async updateCompanyVisionMonthlyTarget(_id: string, _updates: Partial<CompanyVisionMonthlyTarget>): Promise<CompanyVisionMonthlyTarget | undefined> { return undefined; }
+  async deleteCompanyVisionMonthlyTargets(_companyVisionId: string): Promise<boolean> { return false; }
+  async getUserVisionAdminTarget(_userId: string, _year: number): Promise<UserVisionAdminTarget | null> { return null; }
+  async getUserVisionAdminTargetsByCompany(_companyId: string, _year: number): Promise<UserVisionAdminTarget[]> { return []; }
+  async createUserVisionAdminTarget(_target: InsertUserVisionAdminTarget): Promise<UserVisionAdminTarget> { throw new Error("Vision Board Admin not implemented in MemStorage"); }
+  async updateUserVisionAdminTarget(_id: string, _updates: Partial<UserVisionAdminTarget>): Promise<UserVisionAdminTarget | undefined> { return undefined; }
+  async deleteUserVisionAdminTarget(_id: string): Promise<boolean> { return false; }
+  async getUserVisionMonthlyTargets(_userVisionId: string): Promise<UserVisionMonthlyTarget[]> { return []; }
+  async getUserVisionMonthlyTargetsByUser(_userId: string, _year: number): Promise<UserVisionMonthlyTarget[]> { return []; }
+  async upsertUserVisionMonthlyTarget(_target: InsertUserVisionMonthlyTarget): Promise<UserVisionMonthlyTarget> { throw new Error("Vision Board Admin not implemented in MemStorage"); }
+  async updateUserVisionMonthlyTarget(_id: string, _updates: Partial<UserVisionMonthlyTarget>): Promise<UserVisionMonthlyTarget | undefined> { return undefined; }
+  async deleteUserVisionMonthlyTargets(_userVisionId: string): Promise<boolean> { return false; }
+  async getAdminActualIncentives(_companyId: string, _year: number, _userId?: string): Promise<AdminActualIncentive[]> { return []; }
+  async getAdminActualIncentivesByUser(_userId: string, _year: number): Promise<AdminActualIncentive[]> { return []; }
+  async createAdminActualIncentive(_incentive: InsertAdminActualIncentive): Promise<AdminActualIncentive> { throw new Error("Vision Board Admin not implemented in MemStorage"); }
+  async updateAdminActualIncentive(_id: string, _updates: Partial<AdminActualIncentive>): Promise<AdminActualIncentive | undefined> { return undefined; }
+  async deleteAdminActualIncentive(_id: string): Promise<boolean> { return false; }
 
   // Conversion Settings (Pipeline Stage Management) - stubs
   async getConversionConfig(_companyId: string): Promise<ConversionConfig | null> { return null; }
@@ -10848,6 +10922,413 @@ export class PgStorage implements IStorage {
 
   async deleteVisionBoardEarning(id: string): Promise<boolean> {
     await db.delete(dbSchema.vision_board_earnings).where(eq(dbSchema.vision_board_earnings.id, id));
+    return true;
+  }
+
+  // ============================================================================
+  // VISION BOARD ADMIN MANAGEMENT
+  // ============================================================================
+
+  private mapCompanyVisionBoard(row: any): CompanyVisionBoard {
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      year: row.year,
+      goal_amount: row.goal_amount,
+      currency: row.currency,
+      goal_description: row.goal_description,
+      images: row.images || [],
+      annual_targets: row.annual_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      is_active: row.is_active,
+      created_by: row.created_by,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapCompanyVisionMonthlyTarget(row: any): CompanyVisionMonthlyTarget {
+    return {
+      id: row.id,
+      company_vision_id: row.company_vision_id,
+      company_id: row.company_id,
+      year: row.year,
+      month: row.month,
+      targets: row.targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      is_auto_calculated: row.is_auto_calculated,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapUserVisionAdminTarget(row: any): UserVisionAdminTarget {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      year: row.year,
+      goal_amount: row.goal_amount,
+      currency: row.currency,
+      goal_description: row.goal_description,
+      images: row.images || [],
+      annual_targets: row.annual_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      is_active: row.is_active,
+      created_by: row.created_by,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapUserVisionMonthlyTarget(row: any): UserVisionMonthlyTarget {
+    return {
+      id: row.id,
+      user_vision_id: row.user_vision_id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      year: row.year,
+      month: row.month,
+      targets: row.targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      is_auto_calculated: row.is_auto_calculated,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  private mapAdminActualIncentive(row: any): AdminActualIncentive {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      company_id: row.company_id,
+      year: row.year,
+      month: row.month,
+      amount: row.amount,
+      currency: row.currency,
+      description: row.description,
+      payment_date: row.payment_date instanceof Date ? row.payment_date : (row.payment_date ? new Date(row.payment_date) : null),
+      added_by: row.added_by,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
+  }
+
+  async getCompanyVisionBoard(companyId: string, year: number): Promise<CompanyVisionBoard | null> {
+    const result = await db.select()
+      .from(dbSchema.company_vision_boards)
+      .where(and(
+        eq(dbSchema.company_vision_boards.company_id, companyId),
+        eq(dbSchema.company_vision_boards.year, year),
+        eq(dbSchema.company_vision_boards.is_active, true)
+      ))
+      .limit(1);
+    if (result.length === 0) return null;
+    return this.mapCompanyVisionBoard(result[0]);
+  }
+
+  async createCompanyVisionBoard(board: InsertCompanyVisionBoard): Promise<CompanyVisionBoard> {
+    const id = randomUUID();
+    const now = new Date();
+    const newBoard = {
+      id,
+      company_id: board.company_id,
+      year: board.year,
+      goal_amount: board.goal_amount || 0,
+      currency: board.currency || 'INR',
+      goal_description: board.goal_description || null,
+      images: board.images || [],
+      annual_targets: board.annual_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      is_active: board.is_active ?? true,
+      created_by: board.created_by || null,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.company_vision_boards).values(newBoard);
+    return this.mapCompanyVisionBoard(newBoard);
+  }
+
+  async updateCompanyVisionBoard(id: string, updates: Partial<CompanyVisionBoard>): Promise<CompanyVisionBoard | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    await db.update(dbSchema.company_vision_boards)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.company_vision_boards.id, id));
+    const result = await db.select()
+      .from(dbSchema.company_vision_boards)
+      .where(eq(dbSchema.company_vision_boards.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapCompanyVisionBoard(result[0]);
+  }
+
+  async deleteCompanyVisionBoard(id: string): Promise<boolean> {
+    await db.delete(dbSchema.company_vision_boards).where(eq(dbSchema.company_vision_boards.id, id));
+    return true;
+  }
+
+  async getCompanyVisionMonthlyTargets(companyVisionId: string): Promise<CompanyVisionMonthlyTarget[]> {
+    const result = await db.select()
+      .from(dbSchema.company_vision_monthly_targets)
+      .where(eq(dbSchema.company_vision_monthly_targets.company_vision_id, companyVisionId))
+      .orderBy(dbSchema.company_vision_monthly_targets.month);
+    return result.map(r => this.mapCompanyVisionMonthlyTarget(r));
+  }
+
+  async upsertCompanyVisionMonthlyTarget(target: InsertCompanyVisionMonthlyTarget): Promise<CompanyVisionMonthlyTarget> {
+    const existing = await db.select()
+      .from(dbSchema.company_vision_monthly_targets)
+      .where(and(
+        eq(dbSchema.company_vision_monthly_targets.company_vision_id, target.company_vision_id),
+        eq(dbSchema.company_vision_monthly_targets.year, target.year),
+        eq(dbSchema.company_vision_monthly_targets.month, target.month)
+      ))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      return this.updateCompanyVisionMonthlyTarget(existing[0].id, target) as Promise<CompanyVisionMonthlyTarget>;
+    }
+    
+    const id = randomUUID();
+    const now = new Date();
+    const newTarget = {
+      id,
+      company_vision_id: target.company_vision_id,
+      company_id: target.company_id,
+      year: target.year,
+      month: target.month,
+      targets: target.targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      is_auto_calculated: target.is_auto_calculated ?? true,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.company_vision_monthly_targets).values(newTarget);
+    return this.mapCompanyVisionMonthlyTarget(newTarget);
+  }
+
+  async updateCompanyVisionMonthlyTarget(id: string, updates: Partial<CompanyVisionMonthlyTarget>): Promise<CompanyVisionMonthlyTarget | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    await db.update(dbSchema.company_vision_monthly_targets)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.company_vision_monthly_targets.id, id));
+    const result = await db.select()
+      .from(dbSchema.company_vision_monthly_targets)
+      .where(eq(dbSchema.company_vision_monthly_targets.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapCompanyVisionMonthlyTarget(result[0]);
+  }
+
+  async deleteCompanyVisionMonthlyTargets(companyVisionId: string): Promise<boolean> {
+    await db.delete(dbSchema.company_vision_monthly_targets)
+      .where(eq(dbSchema.company_vision_monthly_targets.company_vision_id, companyVisionId));
+    return true;
+  }
+
+  async getUserVisionAdminTarget(userId: string, year: number): Promise<UserVisionAdminTarget | null> {
+    const result = await db.select()
+      .from(dbSchema.user_vision_admin_targets)
+      .where(and(
+        eq(dbSchema.user_vision_admin_targets.user_id, userId),
+        eq(dbSchema.user_vision_admin_targets.year, year),
+        eq(dbSchema.user_vision_admin_targets.is_active, true)
+      ))
+      .limit(1);
+    if (result.length === 0) return null;
+    return this.mapUserVisionAdminTarget(result[0]);
+  }
+
+  async getUserVisionAdminTargetsByCompany(companyId: string, year: number): Promise<UserVisionAdminTarget[]> {
+    const result = await db.select()
+      .from(dbSchema.user_vision_admin_targets)
+      .where(and(
+        eq(dbSchema.user_vision_admin_targets.company_id, companyId),
+        eq(dbSchema.user_vision_admin_targets.year, year),
+        eq(dbSchema.user_vision_admin_targets.is_active, true)
+      ));
+    return result.map(r => this.mapUserVisionAdminTarget(r));
+  }
+
+  async createUserVisionAdminTarget(target: InsertUserVisionAdminTarget): Promise<UserVisionAdminTarget> {
+    const id = randomUUID();
+    const now = new Date();
+    const newTarget = {
+      id,
+      user_id: target.user_id,
+      company_id: target.company_id,
+      year: target.year,
+      goal_amount: target.goal_amount || 0,
+      currency: target.currency || 'INR',
+      goal_description: target.goal_description || null,
+      images: target.images || [],
+      annual_targets: target.annual_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      is_active: target.is_active ?? true,
+      created_by: target.created_by || null,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.user_vision_admin_targets).values(newTarget);
+    return this.mapUserVisionAdminTarget(newTarget);
+  }
+
+  async updateUserVisionAdminTarget(id: string, updates: Partial<UserVisionAdminTarget>): Promise<UserVisionAdminTarget | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    await db.update(dbSchema.user_vision_admin_targets)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.user_vision_admin_targets.id, id));
+    const result = await db.select()
+      .from(dbSchema.user_vision_admin_targets)
+      .where(eq(dbSchema.user_vision_admin_targets.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapUserVisionAdminTarget(result[0]);
+  }
+
+  async deleteUserVisionAdminTarget(id: string): Promise<boolean> {
+    await db.delete(dbSchema.user_vision_admin_targets).where(eq(dbSchema.user_vision_admin_targets.id, id));
+    return true;
+  }
+
+  async getUserVisionMonthlyTargets(userVisionId: string): Promise<UserVisionMonthlyTarget[]> {
+    const result = await db.select()
+      .from(dbSchema.user_vision_monthly_targets)
+      .where(eq(dbSchema.user_vision_monthly_targets.user_vision_id, userVisionId))
+      .orderBy(dbSchema.user_vision_monthly_targets.month);
+    return result.map(r => this.mapUserVisionMonthlyTarget(r));
+  }
+
+  async getUserVisionMonthlyTargetsByUser(userId: string, year: number): Promise<UserVisionMonthlyTarget[]> {
+    const result = await db.select()
+      .from(dbSchema.user_vision_monthly_targets)
+      .where(and(
+        eq(dbSchema.user_vision_monthly_targets.user_id, userId),
+        eq(dbSchema.user_vision_monthly_targets.year, year)
+      ))
+      .orderBy(dbSchema.user_vision_monthly_targets.month);
+    return result.map(r => this.mapUserVisionMonthlyTarget(r));
+  }
+
+  async upsertUserVisionMonthlyTarget(target: InsertUserVisionMonthlyTarget): Promise<UserVisionMonthlyTarget> {
+    const existing = await db.select()
+      .from(dbSchema.user_vision_monthly_targets)
+      .where(and(
+        eq(dbSchema.user_vision_monthly_targets.user_vision_id, target.user_vision_id),
+        eq(dbSchema.user_vision_monthly_targets.year, target.year),
+        eq(dbSchema.user_vision_monthly_targets.month, target.month)
+      ))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      return this.updateUserVisionMonthlyTarget(existing[0].id, target) as Promise<UserVisionMonthlyTarget>;
+    }
+    
+    const id = randomUUID();
+    const now = new Date();
+    const newTarget = {
+      id,
+      user_vision_id: target.user_vision_id,
+      user_id: target.user_id,
+      company_id: target.company_id,
+      year: target.year,
+      month: target.month,
+      targets: target.targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      is_auto_calculated: target.is_auto_calculated ?? true,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.user_vision_monthly_targets).values(newTarget);
+    return this.mapUserVisionMonthlyTarget(newTarget);
+  }
+
+  async updateUserVisionMonthlyTarget(id: string, updates: Partial<UserVisionMonthlyTarget>): Promise<UserVisionMonthlyTarget | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    await db.update(dbSchema.user_vision_monthly_targets)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.user_vision_monthly_targets.id, id));
+    const result = await db.select()
+      .from(dbSchema.user_vision_monthly_targets)
+      .where(eq(dbSchema.user_vision_monthly_targets.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapUserVisionMonthlyTarget(result[0]);
+  }
+
+  async deleteUserVisionMonthlyTargets(userVisionId: string): Promise<boolean> {
+    await db.delete(dbSchema.user_vision_monthly_targets)
+      .where(eq(dbSchema.user_vision_monthly_targets.user_vision_id, userVisionId));
+    return true;
+  }
+
+  async getAdminActualIncentives(companyId: string, year: number, userId?: string): Promise<AdminActualIncentive[]> {
+    const conditions = [
+      eq(dbSchema.admin_actual_incentives.company_id, companyId),
+      eq(dbSchema.admin_actual_incentives.year, year)
+    ];
+    if (userId) {
+      conditions.push(eq(dbSchema.admin_actual_incentives.user_id, userId));
+    }
+    const result = await db.select()
+      .from(dbSchema.admin_actual_incentives)
+      .where(and(...conditions))
+      .orderBy(desc(dbSchema.admin_actual_incentives.created_at));
+    return result.map(r => this.mapAdminActualIncentive(r));
+  }
+
+  async getAdminActualIncentivesByUser(userId: string, year: number): Promise<AdminActualIncentive[]> {
+    const result = await db.select()
+      .from(dbSchema.admin_actual_incentives)
+      .where(and(
+        eq(dbSchema.admin_actual_incentives.user_id, userId),
+        eq(dbSchema.admin_actual_incentives.year, year)
+      ))
+      .orderBy(desc(dbSchema.admin_actual_incentives.created_at));
+    return result.map(r => this.mapAdminActualIncentive(r));
+  }
+
+  async createAdminActualIncentive(incentive: InsertAdminActualIncentive): Promise<AdminActualIncentive> {
+    const id = randomUUID();
+    const now = new Date();
+    const newIncentive = {
+      id,
+      user_id: incentive.user_id,
+      company_id: incentive.company_id,
+      year: incentive.year,
+      month: incentive.month,
+      amount: incentive.amount,
+      currency: incentive.currency || 'INR',
+      description: incentive.description || null,
+      payment_date: incentive.payment_date ? (incentive.payment_date instanceof Date ? incentive.payment_date : new Date(incentive.payment_date)) : null,
+      added_by: incentive.added_by,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.insert(dbSchema.admin_actual_incentives).values(newIncentive);
+    return this.mapAdminActualIncentive(newIncentive);
+  }
+
+  async updateAdminActualIncentive(id: string, updates: Partial<AdminActualIncentive>): Promise<AdminActualIncentive | undefined> {
+    const convertedUpdates: any = { ...updates, updated_at: new Date() };
+    delete convertedUpdates.id;
+    delete convertedUpdates.created_at;
+    if (updates.payment_date && typeof updates.payment_date === 'string') {
+      convertedUpdates.payment_date = new Date(updates.payment_date);
+    }
+    await db.update(dbSchema.admin_actual_incentives)
+      .set(convertedUpdates)
+      .where(eq(dbSchema.admin_actual_incentives.id, id));
+    const result = await db.select()
+      .from(dbSchema.admin_actual_incentives)
+      .where(eq(dbSchema.admin_actual_incentives.id, id))
+      .limit(1);
+    if (result.length === 0) return undefined;
+    return this.mapAdminActualIncentive(result[0]);
+  }
+
+  async deleteAdminActualIncentive(id: string): Promise<boolean> {
+    await db.delete(dbSchema.admin_actual_incentives).where(eq(dbSchema.admin_actual_incentives.id, id));
     return true;
   }
 
