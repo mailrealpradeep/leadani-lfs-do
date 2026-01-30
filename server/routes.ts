@@ -24771,12 +24771,43 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       const user = await storage.getUser(userId);
       
+      // Calculate effort achievements for the target user
+      // Use same logic as personal vision board progress endpoint
+      let accessibleSheetIds: string[] = [];
+      if (user && req.companyId) {
+        if (user.role === "super_admin" || user.role === "company_admin") {
+          // Admins see ALL non-personal company sheets
+          const allCompanySheets = await storage.getSheetsByCompanyId(req.companyId);
+          accessibleSheetIds = allCompanySheets
+            .filter(s => !s.deleted_at && !s.is_personal)
+            .map(s => s.id);
+        } else {
+          // Regular users see only sheets they're assigned to
+          const userSheets = await storage.getSheetsByUserId(userId);
+          const companySheets = userSheets.filter(s => s.company_id === req.companyId && !s.is_personal);
+          accessibleSheetIds = companySheets.map(s => s.id);
+        }
+      }
+      
+      // Use year boundaries for effort calculation
+      const yearStart = new Date(year, 0, 1);
+      const yearEnd = new Date(year, 11, 31);
+      
+      const effortAchieved = await calculateEffortMetrics(
+        userId,
+        req.companyId,
+        yearStart,
+        yearEnd,
+        accessibleSheetIds
+      );
+      
       res.json({
         target: adminTarget,
         monthly_targets: monthlyTargets,
         incentives,
         user_name: user?.name || 'Unknown',
         year,
+        effort_achieved: effortAchieved,
       });
     } catch (error: any) {
       console.error("Error fetching user vision data:", error);

@@ -2293,6 +2293,12 @@ export default function VisionBoardPage() {
     }>;
     user_name: string;
     year: number;
+    effort_achieved?: {
+      yearly: { sales: number; visits: number; leads_attended: number; followups: number };
+      monthly: { sales: number; visits: number; leads_attended: number; followups: number };
+      weekly: { sales: number; visits: number; leads_attended: number; followups: number };
+      daily: { sales: number; visits: number; leads_attended: number; followups: number };
+    };
   }
   
   const { data: adminUserVision, isLoading: loadingAdminUser } = useQuery<AdminUserVisionResponse>({
