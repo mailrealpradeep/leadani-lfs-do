@@ -2216,6 +2216,17 @@ export default function VisionBoardPage() {
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   
+  // User filter state for Admin/Multi-sheet users
+  // 'company' = company-wide vision, 'me' = personal, user ID = specific user
+  const isAdminOrMultiSheet = user?.role === 'company_admin' || user?.is_multi_sheet_user;
+  const [selectedUserView, setSelectedUserView] = useState<string>(isAdminOrMultiSheet ? 'company' : 'me');
+  
+  // Fetch all users for the dropdown (only for Admin/Multi-sheet users)
+  const { data: allUsers = [] } = useQuery<Array<{ id: string; name: string; email: string }>>({
+    queryKey: ["/api/company/users"],
+    enabled: !!isAdminOrMultiSheet && !!user?.company_id,
+  });
+  
   // Helper to scale yearly targets based on selected period
   // Uses same Math.ceil logic as existing yearlyToMonthly/Weekly/Daily helpers
   const scaleTargetByPeriod = (yearlyTarget: number, period: "daily" | "weekly" | "monthly" | "yearly"): number => {
@@ -2532,8 +2543,55 @@ export default function VisionBoardPage() {
     effortTitle: "Effort Targets",
   };
 
+  // Get selected user name for display
+  const getSelectedUserName = () => {
+    if (selectedUserView === 'company') return 'Company Vision';
+    if (selectedUserView === 'me') return 'My Vision';
+    const selectedUser = allUsers.find(u => u.id === selectedUserView);
+    return selectedUser?.name || 'Unknown User';
+  };
+
   return (
-    <div className="h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 pb-16">
+    <div className="relative h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 pb-16">
+      {/* User Filter Dropdown for Admin/Multi-sheet users */}
+      {isAdminOrMultiSheet && (
+        <div className="absolute top-4 right-4 z-50">
+          <Select value={selectedUserView} onValueChange={setSelectedUserView}>
+            <SelectTrigger 
+              className="w-48 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm border-white/20 shadow-lg"
+              data-testid="select-vision-user-filter"
+            >
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <SelectValue placeholder="Select View" />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="company" data-testid="option-company-vision">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4" />
+                  Company Vision
+                </div>
+              </SelectItem>
+              <SelectItem value="me" data-testid="option-my-vision">
+                <div className="flex items-center gap-2">
+                  <Star className="h-4 w-4" />
+                  My Vision
+                </div>
+              </SelectItem>
+              {allUsers.filter(u => u.id !== user?.id).map(u => (
+                <SelectItem key={u.id} value={u.id} data-testid={`option-user-${u.id}`}>
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    {u.name}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      
       {images.length > 0 ? (
         <div className="relative h-[40vh] min-h-[300px]">
           <ImageCarousel images={images} />
