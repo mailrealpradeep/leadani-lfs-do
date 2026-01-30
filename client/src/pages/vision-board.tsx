@@ -2255,8 +2255,12 @@ export default function VisionBoardPage() {
   const { data: adminCompanyVision, isLoading: loadingAdminCompany } = useQuery<AdminCompanyVisionResponse>({
     queryKey: ["/api/vision-board/admin/company-data", new Date().getFullYear()],
     queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
       const res = await fetch(`/api/vision-board/admin/company-data?year=${new Date().getFullYear()}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!res.ok) throw new Error('Failed to fetch company vision');
       return res.json();
@@ -2294,8 +2298,12 @@ export default function VisionBoardPage() {
   const { data: adminUserVision, isLoading: loadingAdminUser } = useQuery<AdminUserVisionResponse>({
     queryKey: ["/api/vision-board/admin/user-data", viewingUserId, new Date().getFullYear()],
     queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
       const res = await fetch(`/api/vision-board/admin/user-data/${viewingUserId}?year=${new Date().getFullYear()}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
       });
       if (!res.ok) throw new Error('Failed to fetch user vision');
       return res.json();
