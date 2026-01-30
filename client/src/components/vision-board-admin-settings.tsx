@@ -132,6 +132,42 @@ export function VisionBoardAdminSettings() {
     },
   });
 
+  const splitAnnualMutation = useMutation({
+    mutationFn: async (data: { company_vision_id: string; annual_targets: EffortTargets }) => {
+      return await apiRequest("POST", "/api/admin/vision-board/company/split-annual", {
+        company_vision_id: data.company_vision_id,
+        year: selectedYear,
+        annual_targets: data.annual_targets,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/vision-board/company", selectedYear] });
+      toast({ title: "Annual targets split to all 12 months" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const saveMonthlyTargetMutation = useMutation({
+    mutationFn: async (data: { company_vision_id: string; month: number; targets: EffortTargets }) => {
+      return await apiRequest("POST", "/api/admin/vision-board/company/monthly", {
+        company_vision_id: data.company_vision_id,
+        year: selectedYear,
+        month: data.month,
+        targets: data.targets,
+        is_auto_calculated: false,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/vision-board/company", selectedYear] });
+      toast({ title: "Monthly target updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const saveUserTargetMutation = useMutation({
     mutationFn: async (data: { userId: string } & Partial<UserVisionAdminTarget>) => {
       const { userId, ...rest } = data;
@@ -282,7 +318,9 @@ export function VisionBoardAdminSettings() {
             loading={loadingCompany}
             onSave={(data) => saveCompanyVisionMutation.mutate(data)}
             onAutoDistribute={(visionId, targets) => autoDistributeCompanyMutation.mutate({ company_vision_id: visionId, annual_targets: targets })}
-            saving={saveCompanyVisionMutation.isPending || autoDistributeCompanyMutation.isPending}
+            onSplitAnnual={(visionId, targets) => splitAnnualMutation.mutate({ company_vision_id: visionId, annual_targets: targets })}
+            onSaveMonthlyTarget={(visionId, month, targets) => saveMonthlyTargetMutation.mutate({ company_vision_id: visionId, month, targets })}
+            saving={saveCompanyVisionMutation.isPending || autoDistributeCompanyMutation.isPending || splitAnnualMutation.isPending || saveMonthlyTargetMutation.isPending}
             existingTeamData={teamAggregate}
           />
         </TabsContent>
@@ -348,12 +386,16 @@ function CompanyVisionTab({
   loading,
   onSave,
   onAutoDistribute,
+  onSplitAnnual,
+  onSaveMonthlyTarget,
   saving,
   existingTeamData,
 }: {
   vision?: { board: CompanyVisionBoard | null; monthly_targets: CompanyVisionMonthlyTarget[] };
   loading: boolean;
   onSave: (data: Partial<CompanyVisionBoard>) => void;
+  onSplitAnnual: (visionId: string, targets: EffortTargets) => void;
+  onSaveMonthlyTarget: (visionId: string, month: number, targets: EffortTargets) => void;
   onAutoDistribute: (visionId: string, targets: EffortTargets) => void;
   saving: boolean;
   existingTeamData?: {
@@ -405,6 +447,21 @@ function CompanyVisionTab({
         annual_targets: existingTeamData.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
       });
       toast({ title: "Imported from existing vision boards", description: `Data from ${existingTeamData.board_count} user vision boards` });
+    }
+  };
+
+  const handleSplitAnnual = () => {
+    if (vision?.board?.id) {
+      onSplitAnnual(vision.board.id, formData.annual_targets);
+    }
+  };
+
+  const handleMonthlyTargetChange = (month: number, field: keyof EffortTargets, value: number) => {
+    if (vision?.board?.id) {
+      const existingTarget = vision.monthly_targets?.find(t => t.month === month);
+      const currentTargets = existingTarget?.targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+      const newTargets = { ...currentTargets, [field]: value };
+      onSaveMonthlyTarget(vision.board.id, month, newTargets);
     }
   };
 
@@ -559,15 +616,20 @@ function CompanyVisionTab({
             </div>
           </div>
 
-          <div className="flex gap-2 pt-4">
+          <div className="flex gap-2 pt-4 flex-wrap">
             <Button onClick={handleSave} disabled={saving} data-testid="button-save-company-vision">
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Save Company Vision
             </Button>
             {vision?.board?.id && (
-              <Button variant="outline" onClick={handleAutoDistribute} disabled={saving} data-testid="button-auto-distribute">
-                Auto-Distribute to Months
-              </Button>
+              <>
+                <Button variant="outline" onClick={handleSplitAnnual} disabled={saving} data-testid="button-split-annual">
+                  Split to 12 Months
+                </Button>
+                <Button variant="ghost" onClick={handleAutoDistribute} disabled={saving} data-testid="button-auto-distribute">
+                  Distribute to Remaining
+                </Button>
+              </>
             )}
           </div>
         </CardContent>
@@ -578,31 +640,70 @@ function CompanyVisionTab({
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Calendar className="h-5 w-5" />
-              Monthly Breakdown
+              Monthly Effort Targets
             </CardTitle>
+            <CardDescription>
+              Edit individual months to customize targets. Week = Month ÷ 4, Day = Month ÷ 25
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Month</TableHead>
+                  <TableHead className="w-24">Month</TableHead>
                   <TableHead>Sales</TableHead>
                   <TableHead>Visits</TableHead>
                   <TableHead>Leads</TableHead>
                   <TableHead>Follow-ups</TableHead>
-                  <TableHead>Auto</TableHead>
+                  <TableHead className="w-20">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {vision.monthly_targets.map((mt) => (
                   <TableRow key={mt.id}>
-                    <TableCell>{MONTHS[mt.month - 1]}</TableCell>
-                    <TableCell>{mt.targets?.sales || 0}</TableCell>
-                    <TableCell>{mt.targets?.visits || 0}</TableCell>
-                    <TableCell>{mt.targets?.leads_attended || 0}</TableCell>
-                    <TableCell>{mt.targets?.followups || 0}</TableCell>
+                    <TableCell className="font-medium">{MONTHS[mt.month - 1]}</TableCell>
                     <TableCell>
-                      <Badge variant={mt.is_auto_calculated ? "secondary" : "outline"}>
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={mt.targets?.sales || 0}
+                        onChange={(e) => handleMonthlyTargetChange(mt.month, 'sales', Number(e.target.value))}
+                        disabled={saving}
+                        data-testid={`input-month-${mt.month}-sales`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={mt.targets?.visits || 0}
+                        onChange={(e) => handleMonthlyTargetChange(mt.month, 'visits', Number(e.target.value))}
+                        disabled={saving}
+                        data-testid={`input-month-${mt.month}-visits`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={mt.targets?.leads_attended || 0}
+                        onChange={(e) => handleMonthlyTargetChange(mt.month, 'leads_attended', Number(e.target.value))}
+                        disabled={saving}
+                        data-testid={`input-month-${mt.month}-leads`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={mt.targets?.followups || 0}
+                        onChange={(e) => handleMonthlyTargetChange(mt.month, 'followups', Number(e.target.value))}
+                        disabled={saving}
+                        data-testid={`input-month-${mt.month}-followups`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={mt.is_auto_calculated ? "secondary" : "outline"} className="text-xs">
                         {mt.is_auto_calculated ? "Auto" : "Manual"}
                       </Badge>
                     </TableCell>
