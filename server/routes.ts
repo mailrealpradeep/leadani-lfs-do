@@ -24124,6 +24124,510 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // ADMIN VISION BOARD MANAGEMENT (Company Vision & User Targets)
+  // ============================================================================
+
+  // Get company vision board for a year
+  app.get("/api/admin/vision-board/company", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const board = await storage.getCompanyVisionBoard(req.companyId, year);
+      
+      if (!board) {
+        return res.json(null);
+      }
+      
+      const monthlyTargets = await storage.getCompanyVisionMonthlyTargets(board.id);
+      res.json({ board, monthly_targets: monthlyTargets });
+    } catch (error: any) {
+      console.error("Error fetching company vision:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create/update company vision board
+  app.post("/api/admin/vision-board/company", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { year, goal_amount, currency, goal_description, images, annual_targets } = req.body;
+      const targetYear = year || new Date().getFullYear();
+      
+      let board = await storage.getCompanyVisionBoard(req.companyId, targetYear);
+      
+      if (board) {
+        board = await storage.updateCompanyVisionBoard(board.id, {
+          goal_amount,
+          currency,
+          goal_description,
+          images,
+          annual_targets,
+        });
+      } else {
+        board = await storage.createCompanyVisionBoard({
+          company_id: req.companyId,
+          year: targetYear,
+          goal_amount: goal_amount || 0,
+          currency: currency || 'INR',
+          goal_description,
+          images: images || [],
+          annual_targets: annual_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+          is_active: true,
+          created_by: req.userId,
+        });
+      }
+      
+      res.json(board);
+    } catch (error: any) {
+      console.error("Error saving company vision:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update company vision monthly targets
+  app.post("/api/admin/vision-board/company/monthly", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { company_vision_id, year, month, targets, is_auto_calculated } = req.body;
+      
+      if (!company_vision_id || !year || month === undefined) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      const monthlyTarget = await storage.upsertCompanyVisionMonthlyTarget({
+        company_vision_id,
+        company_id: req.companyId,
+        year,
+        month,
+        targets: targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+        is_auto_calculated: is_auto_calculated ?? false,
+      });
+      
+      res.json(monthlyTarget);
+    } catch (error: any) {
+      console.error("Error saving company monthly target:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Auto-distribute annual targets to remaining months
+  app.post("/api/admin/vision-board/company/auto-distribute", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { company_vision_id, year, annual_targets } = req.body;
+      
+      if (!company_vision_id || !year) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      const currentMonth = new Date().getMonth() + 1;
+      const remainingMonths = 12 - currentMonth + 1;
+      
+      if (remainingMonths <= 0) {
+        return res.status(400).json({ error: "No remaining months to distribute" });
+      }
+      
+      const perMonthTargets = {
+        sales: Math.ceil((annual_targets?.sales || 0) / remainingMonths),
+        visits: Math.ceil((annual_targets?.visits || 0) / remainingMonths),
+        leads_attended: Math.ceil((annual_targets?.leads_attended || 0) / remainingMonths),
+        followups: Math.ceil((annual_targets?.followups || 0) / remainingMonths),
+      };
+      
+      const monthlyTargets = [];
+      for (let month = currentMonth; month <= 12; month++) {
+        const target = await storage.upsertCompanyVisionMonthlyTarget({
+          company_vision_id,
+          company_id: req.companyId,
+          year,
+          month,
+          targets: perMonthTargets,
+          is_auto_calculated: true,
+        });
+        monthlyTargets.push(target);
+      }
+      
+      res.json({ monthly_targets: monthlyTargets, per_month: perMonthTargets });
+    } catch (error: any) {
+      console.error("Error auto-distributing targets:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all user vision admin targets for a company
+  app.get("/api/admin/vision-board/users", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const targets = await storage.getUserVisionAdminTargetsByCompany(req.companyId, year);
+      const users = await storage.getUsersByCompanyId(req.companyId);
+      
+      const result = targets.map(target => {
+        const user = users.find(u => u.id === target.user_id);
+        return {
+          ...target,
+          user_name: user?.name || 'Unknown',
+          user_email: user?.email || '',
+        };
+      });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error fetching user vision targets:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get single user vision admin target
+  app.get("/api/admin/vision-board/user/:userId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { userId } = req.params;
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      
+      const target = await storage.getUserVisionAdminTarget(userId, year);
+      if (!target) {
+        return res.json(null);
+      }
+      
+      const monthlyTargets = await storage.getUserVisionMonthlyTargets(target.id);
+      const user = await storage.getUser(userId);
+      
+      res.json({
+        target,
+        monthly_targets: monthlyTargets,
+        user_name: user?.name || 'Unknown',
+        user_email: user?.email || '',
+      });
+    } catch (error: any) {
+      console.error("Error fetching user vision target:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create/update user vision admin target
+  app.post("/api/admin/vision-board/user/:userId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { userId } = req.params;
+      const { year, goal_amount, currency, goal_description, images, annual_targets } = req.body;
+      const targetYear = year || new Date().getFullYear();
+      
+      let target = await storage.getUserVisionAdminTarget(userId, targetYear);
+      
+      if (target) {
+        target = await storage.updateUserVisionAdminTarget(target.id, {
+          goal_amount,
+          currency,
+          goal_description,
+          images,
+          annual_targets,
+        });
+      } else {
+        target = await storage.createUserVisionAdminTarget({
+          user_id: userId,
+          company_id: req.companyId,
+          year: targetYear,
+          goal_amount: goal_amount || 0,
+          currency: currency || 'INR',
+          goal_description,
+          images: images || [],
+          annual_targets: annual_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+          is_active: true,
+          created_by: req.userId,
+        });
+      }
+      
+      res.json(target);
+    } catch (error: any) {
+      console.error("Error saving user vision target:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update user vision monthly target
+  app.post("/api/admin/vision-board/user/:userId/monthly", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { userId } = req.params;
+      const { user_vision_id, year, month, targets, is_auto_calculated } = req.body;
+      
+      if (!user_vision_id || !year || month === undefined) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      const monthlyTarget = await storage.upsertUserVisionMonthlyTarget({
+        user_vision_id,
+        user_id: userId,
+        company_id: req.companyId,
+        year,
+        month,
+        targets: targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+        is_auto_calculated: is_auto_calculated ?? false,
+      });
+      
+      res.json(monthlyTarget);
+    } catch (error: any) {
+      console.error("Error saving user monthly target:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Auto-distribute user annual targets to remaining months
+  app.post("/api/admin/vision-board/user/:userId/auto-distribute", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { userId } = req.params;
+      const { user_vision_id, year, annual_targets } = req.body;
+      
+      if (!user_vision_id || !year) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      const currentMonth = new Date().getMonth() + 1;
+      const remainingMonths = 12 - currentMonth + 1;
+      
+      if (remainingMonths <= 0) {
+        return res.status(400).json({ error: "No remaining months to distribute" });
+      }
+      
+      const perMonthTargets = {
+        sales: Math.ceil((annual_targets?.sales || 0) / remainingMonths),
+        visits: Math.ceil((annual_targets?.visits || 0) / remainingMonths),
+        leads_attended: Math.ceil((annual_targets?.leads_attended || 0) / remainingMonths),
+        followups: Math.ceil((annual_targets?.followups || 0) / remainingMonths),
+      };
+      
+      const monthlyTargets = [];
+      for (let month = currentMonth; month <= 12; month++) {
+        const target = await storage.upsertUserVisionMonthlyTarget({
+          user_vision_id,
+          user_id: userId,
+          company_id: req.companyId,
+          year,
+          month,
+          targets: perMonthTargets,
+          is_auto_calculated: true,
+        });
+        monthlyTargets.push(target);
+      }
+      
+      res.json({ monthly_targets: monthlyTargets, per_month: perMonthTargets });
+    } catch (error: any) {
+      console.error("Error auto-distributing user targets:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete user vision admin target
+  app.delete("/api/admin/vision-board/user/:userId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { userId } = req.params;
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      
+      const target = await storage.getUserVisionAdminTarget(userId, year);
+      if (!target) {
+        return res.status(404).json({ error: "Target not found" });
+      }
+      
+      await storage.deleteUserVisionMonthlyTargets(target.id);
+      await storage.deleteUserVisionAdminTarget(target.id);
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting user vision target:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get admin actual incentives
+  app.get("/api/admin/vision-board/incentives", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const userId = req.query.user_id as string | undefined;
+      
+      const incentives = await storage.getAdminActualIncentives(req.companyId, year, userId);
+      res.json(incentives);
+    } catch (error: any) {
+      console.error("Error fetching admin incentives:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create admin actual incentive
+  app.post("/api/admin/vision-board/incentives", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { user_id, year, month, amount, currency, description, payment_date } = req.body;
+      
+      if (!user_id || !year || month === undefined || amount === undefined) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      const incentive = await storage.createAdminActualIncentive({
+        user_id,
+        company_id: req.companyId,
+        year,
+        month,
+        amount,
+        currency: currency || 'INR',
+        description,
+        payment_date: payment_date ? new Date(payment_date) : null,
+        added_by: req.userId,
+      });
+      
+      res.json(incentive);
+    } catch (error: any) {
+      console.error("Error creating admin incentive:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update admin actual incentive
+  app.patch("/api/admin/vision-board/incentives/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { id } = req.params;
+      const { amount, description, payment_date } = req.body;
+      
+      const incentive = await storage.updateAdminActualIncentive(id, {
+        amount,
+        description,
+        payment_date: payment_date ? new Date(payment_date) : undefined,
+      });
+      
+      if (!incentive) {
+        return res.status(404).json({ error: "Incentive not found" });
+      }
+      
+      res.json(incentive);
+    } catch (error: any) {
+      console.error("Error updating admin incentive:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete admin actual incentive
+  app.delete("/api/admin/vision-board/incentives/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { id } = req.params;
+      await storage.deleteAdminActualIncentive(id);
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting admin incentive:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get user vision data (for Vision Board page - supports user filter for admin)
+  app.get("/api/vision-board/admin/user-data/:userId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { userId } = req.params;
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      
+      const currentUser = await storage.getUser(req.userId);
+      const isAdminOrMultiSheet = currentUser?.role === 'company_admin' || currentUser?.is_multi_sheet_user;
+      
+      if (!isAdminOrMultiSheet && userId !== req.userId) {
+        return res.status(403).json({ error: "Cannot view other users' vision data" });
+      }
+      
+      const adminTarget = await storage.getUserVisionAdminTarget(userId, year);
+      const monthlyTargets = adminTarget 
+        ? await storage.getUserVisionMonthlyTargets(adminTarget.id)
+        : [];
+      const incentives = await storage.getAdminActualIncentivesByUser(userId, year);
+      
+      const user = await storage.getUser(userId);
+      
+      res.json({
+        target: adminTarget,
+        monthly_targets: monthlyTargets,
+        incentives,
+        user_name: user?.name || 'Unknown',
+        year,
+      });
+    } catch (error: any) {
+      console.error("Error fetching user vision data:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get company vision data (for Vision Board page - company-wide view)
+  app.get("/api/vision-board/admin/company-data", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      
+      const board = await storage.getCompanyVisionBoard(req.companyId, year);
+      const monthlyTargets = board 
+        ? await storage.getCompanyVisionMonthlyTargets(board.id)
+        : [];
+      
+      res.json({
+        board,
+        monthly_targets: monthlyTargets,
+        year,
+      });
+    } catch (error: any) {
+      console.error("Error fetching company vision data:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // CONVERSION SETTINGS (Pipeline Stage Management) - Admin Only
   // ============================================================================
 
