@@ -24724,11 +24724,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
   // Migrate existing vision boards to admin-controlled tables
   app.post("/api/admin/vision-board/migrate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    console.log("[Migration] Starting vision board migration...");
     try {
       if (!req.companyId || !req.userId) {
+        console.log("[Migration] Error: Must belong to a company");
         return res.status(403).json({ error: "Must belong to a company" });
       }
       
+      console.log("[Migration] Company ID:", req.companyId, "User ID:", req.userId);
       const currentYear = new Date().getFullYear();
       
       // Get all users in company with their vision boards
@@ -24796,6 +24799,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
       
+      console.log("[Migration] Complete:", results);
       res.json(results);
     } catch (error: any) {
       console.error("Error migrating vision boards:", error);

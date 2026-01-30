@@ -237,9 +237,13 @@ export function VisionBoardAdminSettings() {
 
   const migrateMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", "/api/admin/vision-board/migrate");
+      console.log("[Migrate] Starting migration...");
+      const result = await apiRequest("POST", "/api/admin/vision-board/migrate");
+      console.log("[Migrate] Migration result:", result);
+      return result;
     },
     onSuccess: (data: any) => {
+      console.log("[Migrate] Success:", data);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/vision-board/users", selectedYear] });
       queryClient.invalidateQueries({ queryKey: ["/api/vision-board/team/aggregate"] });
       toast({ 
@@ -248,6 +252,7 @@ export function VisionBoardAdminSettings() {
       });
     },
     onError: (error: any) => {
+      console.error("[Migrate] Error:", error);
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
