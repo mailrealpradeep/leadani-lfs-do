@@ -191,10 +191,59 @@ export function VisionBoardAdminSettings() {
     },
   });
 
+  const migrateMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/admin/vision-board/migrate");
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/vision-board/users", selectedYear] });
+      queryClient.invalidateQueries({ queryKey: ["/api/vision-board/team/aggregate"] });
+      toast({ 
+        title: "Migration Complete", 
+        description: `Migrated ${data.migrated} users, skipped ${data.skipped}` 
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const regularUsers = users?.filter(u => u.role === 'user') || [];
+  const hasNoUserTargets = !userTargets || userTargets.length === 0;
+  const hasTeamBoards = teamAggregate && teamAggregate.board_count > 0;
 
   return (
     <div className="space-y-4">
+      {/* Migration Banner - shows when there are existing vision boards but no admin targets */}
+      {hasNoUserTargets && hasTeamBoards && (
+        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <div>
+                  <p className="font-medium text-sm">Migrate Existing Vision Boards</p>
+                  <p className="text-sm text-muted-foreground">
+                    {teamAggregate?.board_count} users have personal vision boards. Click to migrate their data to admin-controlled settings.
+                  </p>
+                </div>
+              </div>
+              <Button 
+                onClick={() => migrateMutation.mutate()} 
+                disabled={migrateMutation.isPending}
+                data-testid="button-migrate-vision-boards"
+              >
+                {migrateMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Migrating...</>
+                ) : (
+                  <><Download className="h-4 w-4 mr-2" />Migrate Now</>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <Label htmlFor="year">Year:</Label>

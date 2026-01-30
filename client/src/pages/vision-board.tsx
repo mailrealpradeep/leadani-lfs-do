@@ -2534,9 +2534,10 @@ export default function VisionBoardPage() {
     );
   }
   
-  // Viewing specific user with no admin targets set
-  if (viewingUserId && !adminUserVision?.target) {
-    const userName = selectedUserView === 'me' ? 'You' : (allUsers.find(u => u.id === selectedUserView)?.name || 'This user');
+  // Viewing specific user with no admin targets set - only show empty state for admin viewing others
+  // Regular users viewing themselves should fall back to personal board (handled below)
+  if (viewingUserId && !adminUserVision?.target && viewingUserId !== user?.id && isAdminOrMultiSheet) {
+    const userName = allUsers.find(u => u.id === selectedUserView)?.name || 'This user';
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center p-4">
         <Card className="w-full max-w-lg mx-auto">
@@ -2546,20 +2547,16 @@ export default function VisionBoardPage() {
             </div>
             <CardTitle className="text-2xl">Vision Targets Not Set</CardTitle>
             <CardDescription className="text-base">
-              {selectedUserView === 'me' 
-                ? "Your vision targets haven't been configured by an admin yet. Please contact your administrator to set up your annual goals."
-                : `${userName}'s vision targets haven't been configured yet. Go to Admin Console to set up their annual goals.`}
+              {`${userName}'s vision targets haven't been configured yet. Go to Admin Console to set up their annual goals.`}
             </CardDescription>
           </CardHeader>
-          {isAdminOrMultiSheet && (
-            <CardContent className="text-center">
-              <Link href="/admin">
-                <Button data-testid="button-go-to-admin">
-                  Go to Admin Console
-                </Button>
-              </Link>
-            </CardContent>
-          )}
+          <CardContent className="text-center">
+            <Link href="/admin">
+              <Button data-testid="button-go-to-admin">
+                Go to Admin Console
+              </Button>
+            </Link>
+          </CardContent>
         </Card>
       </div>
     );

@@ -24627,6 +24627,87 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Migrate existing vision boards to admin-controlled tables
+  app.post("/api/admin/vision-board/migrate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const currentYear = new Date().getFullYear();
+      
+      // Get all users in company with their vision boards
+      const companyUsers = await storage.getCompanyUsers(req.companyId);
+      const results = {
+        migrated: 0,
+        skipped: 0,
+        errors: [] as string[],
+        details: [] as { userId: string; userName: string; status: string; goalAmount?: number }[],
+      };
+      
+      for (const user of companyUsers) {
+        try {
+          // Check if admin target already exists
+          const existingAdminTarget = await storage.getUserVisionAdminTarget(user.id, currentYear);
+          if (existingAdminTarget) {
+            results.skipped++;
+            results.details.push({ userId: user.id, userName: user.name, status: 'skipped (already has admin target)' });
+            continue;
+          }
+          
+          // Get user's personal vision board
+          const visionBoard = await storage.getVisionBoard(user.id);
+          if (!visionBoard) {
+            results.skipped++;
+            results.details.push({ userId: user.id, userName: user.name, status: 'skipped (no personal vision board)' });
+            continue;
+          }
+          
+          // Create admin target from vision board data
+          const adminTarget = await storage.createUserVisionAdminTarget({
+            user_id: user.id,
+            company_id: req.companyId,
+            year: currentYear,
+            goal_amount: visionBoard.goal_amount,
+            currency: visionBoard.currency || 'INR',
+            goal_description: visionBoard.goal_description,
+            images: visionBoard.images || [],
+            annual_targets: visionBoard.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+            is_active: true,
+            created_by: req.userId,
+          });
+          
+          // Auto-distribute monthly targets from annual targets
+          if (adminTarget.id) {
+            await storage.autoDistributeUserVisionMonthly(
+              adminTarget.id, 
+              user.id, 
+              req.companyId, 
+              currentYear, 
+              visionBoard.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 }
+            );
+          }
+          
+          results.migrated++;
+          results.details.push({ 
+            userId: user.id, 
+            userName: user.name, 
+            status: 'migrated', 
+            goalAmount: visionBoard.goal_amount 
+          });
+        } catch (err: any) {
+          results.errors.push(`${user.name}: ${err.message}`);
+          results.details.push({ userId: user.id, userName: user.name, status: `error: ${err.message}` });
+        }
+      }
+      
+      res.json(results);
+    } catch (error: any) {
+      console.error("Error migrating vision boards:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // CONVERSION SETTINGS (Pipeline Stage Management) - Admin Only
   // ============================================================================
