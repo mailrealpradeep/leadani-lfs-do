@@ -24408,11 +24408,43 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const monthlyTargets = await storage.getUserVisionMonthlyTargets(target.id);
       const user = await storage.getUser(userId);
       
+      // Calculate effort_achieved using the same logic as personal vision board
+      // Get the user's accessible sheet IDs for counting metrics
+      let accessibleSheetIds: string[] = [];
+      const targetUser = await storage.getUser(userId);
+      if (targetUser && req.companyId) {
+        if (targetUser.role === "super_admin" || targetUser.role === "company_admin") {
+          // Admins see ALL non-personal company sheets
+          const allCompanySheets = await storage.getSheetsByCompanyId(req.companyId);
+          accessibleSheetIds = allCompanySheets
+            .filter(s => !s.deleted_at && !s.is_personal)
+            .map(s => s.id);
+        } else {
+          // Regular users see only sheets they're assigned to
+          const userSheets = await storage.getSheetsByUserId(userId);
+          const companySheets = userSheets.filter(s => s.company_id === req.companyId && !s.is_personal);
+          accessibleSheetIds = companySheets.map(s => s.id);
+        }
+      }
+      
+      // Use year boundaries for effort calculation
+      const yearStart = new Date(year, 0, 1);
+      const yearEnd = new Date(year, 11, 31);
+      
+      const effortAchieved = await calculateEffortMetrics(
+        userId,
+        req.companyId,
+        yearStart,
+        yearEnd,
+        accessibleSheetIds
+      );
+      
       res.json({
         target,
         monthly_targets: monthlyTargets,
         user_name: user?.name || 'Unknown',
         user_email: user?.email || '',
+        effort_achieved: effortAchieved,
       });
     } catch (error: any) {
       console.error("Error fetching user vision target:", error);

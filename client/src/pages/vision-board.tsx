@@ -2695,7 +2695,8 @@ export default function VisionBoardPage() {
       ? Math.min(100, (userProjectedData.projectedIncentive / adminUserVision.target.goal_amount) * 100) 
       : 0,
     effortTargets: getScaledEffortTargets(adminUserVision.target.annual_targets, selectedPeriod),
-    effortAchieved: progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    // Use effort_achieved from adminUserVision response (calculated on backend)
+    effortAchieved: adminUserVision.effort_achieved?.[selectedPeriod] || progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: yearEnd,
     startDate: yearStart,
   } : isTeamView && teamAggregate ? {
