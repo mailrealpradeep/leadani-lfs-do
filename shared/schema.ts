@@ -4907,3 +4907,158 @@ export const insertWhatsAppMessageLogSchema = createInsertSchema(whatsapp_messag
 });
 
 export type InsertWhatsAppMessageLogData = z.infer<typeof insertWhatsAppMessageLogSchema>;
+
+// ============================================================================
+// VISION BOARD ADMIN MANAGEMENT (Admin-controlled targets)
+// ============================================================================
+
+// Company Vision Board - Company-level vision with targets set by admin
+export const company_vision_boards = pgTable('company_vision_boards', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  year: integer('year').notNull(), // Calendar year (e.g., 2026)
+  goal_amount: doublePrecision('goal_amount').notNull().default(0), // Company money goal
+  currency: varchar('currency', { length: 10 }).notNull().default('INR'),
+  goal_description: text('goal_description'), // Company goal description
+  images: json('images').$type<VisionBoardImage[]>().notNull().default([]), // Company vision images
+  annual_targets: json('annual_targets').$type<VisionBoardEffortTargets>().notNull().default({
+    sales: 0,
+    visits: 0,
+    leads_attended: 0,
+    followups: 0,
+  }), // Company-wide annual targets
+  is_active: boolean('is_active').notNull().default(true),
+  created_by: varchar('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type CompanyVisionBoard = typeof company_vision_boards.$inferSelect;
+export type InsertCompanyVisionBoard = typeof company_vision_boards.$inferInsert;
+
+export const insertCompanyVisionBoardSchema = createInsertSchema(company_vision_boards).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertCompanyVisionBoardData = z.infer<typeof insertCompanyVisionBoardSchema>;
+
+// Company Vision Monthly Targets - Per-month breakdown for company
+export const company_vision_monthly_targets = pgTable('company_vision_monthly_targets', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_vision_id: varchar('company_vision_id').notNull().references(() => company_vision_boards.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  year: integer('year').notNull(),
+  month: integer('month').notNull(), // 1-12
+  targets: json('targets').$type<VisionBoardEffortTargets>().notNull().default({
+    sales: 0,
+    visits: 0,
+    leads_attended: 0,
+    followups: 0,
+  }),
+  is_auto_calculated: boolean('is_auto_calculated').notNull().default(true), // False if admin manually edited
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type CompanyVisionMonthlyTarget = typeof company_vision_monthly_targets.$inferSelect;
+export type InsertCompanyVisionMonthlyTarget = typeof company_vision_monthly_targets.$inferInsert;
+
+export const insertCompanyVisionMonthlyTargetSchema = createInsertSchema(company_vision_monthly_targets).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertCompanyVisionMonthlyTargetData = z.infer<typeof insertCompanyVisionMonthlyTargetSchema>;
+
+// User Vision Admin Targets - Admin sets targets per user per year
+export const user_vision_admin_targets = pgTable('user_vision_admin_targets', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  year: integer('year').notNull(), // Calendar year (e.g., 2026)
+  goal_amount: doublePrecision('goal_amount').notNull().default(0), // User's money goal set by admin
+  currency: varchar('currency', { length: 10 }).notNull().default('INR'),
+  goal_description: text('goal_description'), // Goal description
+  images: json('images').$type<VisionBoardImage[]>().notNull().default([]), // Dream images set by admin
+  annual_targets: json('annual_targets').$type<VisionBoardEffortTargets>().notNull().default({
+    sales: 0,
+    visits: 0,
+    leads_attended: 0,
+    followups: 0,
+  }), // User's annual effort targets
+  is_active: boolean('is_active').notNull().default(true),
+  created_by: varchar('created_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type UserVisionAdminTarget = typeof user_vision_admin_targets.$inferSelect;
+export type InsertUserVisionAdminTarget = typeof user_vision_admin_targets.$inferInsert;
+
+export const insertUserVisionAdminTargetSchema = createInsertSchema(user_vision_admin_targets).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertUserVisionAdminTargetData = z.infer<typeof insertUserVisionAdminTargetSchema>;
+
+// User Vision Monthly Targets - Per user per month breakdown (admin-editable)
+export const user_vision_monthly_targets = pgTable('user_vision_monthly_targets', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_vision_id: varchar('user_vision_id').notNull().references(() => user_vision_admin_targets.id, { onDelete: 'cascade' }),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  year: integer('year').notNull(),
+  month: integer('month').notNull(), // 1-12
+  targets: json('targets').$type<VisionBoardEffortTargets>().notNull().default({
+    sales: 0,
+    visits: 0,
+    leads_attended: 0,
+    followups: 0,
+  }),
+  is_auto_calculated: boolean('is_auto_calculated').notNull().default(true), // False if admin manually edited
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type UserVisionMonthlyTarget = typeof user_vision_monthly_targets.$inferSelect;
+export type InsertUserVisionMonthlyTarget = typeof user_vision_monthly_targets.$inferInsert;
+
+export const insertUserVisionMonthlyTargetSchema = createInsertSchema(user_vision_monthly_targets).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertUserVisionMonthlyTargetData = z.infer<typeof insertUserVisionMonthlyTargetSchema>;
+
+// Admin Actual Incentives - Incentives added by admin for users
+export const admin_actual_incentives = pgTable('admin_actual_incentives', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  year: integer('year').notNull(), // For filtering by year
+  month: integer('month').notNull(), // 1-12, for filtering by month
+  amount: doublePrecision('amount').notNull(), // Incentive amount
+  currency: varchar('currency', { length: 10 }).notNull().default('INR'),
+  description: text('description'), // Description of the incentive
+  payment_date: timestamp('payment_date'), // Date when incentive was/will be paid
+  added_by: varchar('added_by').notNull().references(() => users.id, { onDelete: 'cascade' }), // Admin who added
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type AdminActualIncentive = typeof admin_actual_incentives.$inferSelect;
+export type InsertAdminActualIncentive = typeof admin_actual_incentives.$inferInsert;
+
+export const insertAdminActualIncentiveSchema = createInsertSchema(admin_actual_incentives).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertAdminActualIncentiveData = z.infer<typeof insertAdminActualIncentiveSchema>;
