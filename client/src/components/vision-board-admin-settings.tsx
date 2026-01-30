@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, Pencil, Trash2, Building2, Users, Target, DollarSign, Image, Calendar, ChevronRight, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Building2, Users, Target, DollarSign, Image, Calendar, ChevronRight, Loader2, Download } from "lucide-react";
 import type { User, CompanyVisionBoard, UserVisionAdminTarget, AdminActualIncentive, CompanyVisionMonthlyTarget, UserVisionMonthlyTarget } from "@shared/schema";
 
 const CURRENCIES = [
@@ -86,6 +86,17 @@ export function VisionBoardAdminSettings() {
       if (!res.ok) throw new Error('Failed to fetch incentives');
       return res.json();
     },
+  });
+
+  // Fetch existing team vision board aggregate to import data
+  const { data: teamAggregate } = useQuery<{
+    currency: string;
+    goal_amount: number;
+    goal_description: string;
+    effort_targets: { sales: number; visits: number; leads_attended: number; followups: number };
+    board_count: number;
+  }>({
+    queryKey: ["/api/vision-board/team/aggregate"],
   });
 
   const saveCompanyVisionMutation = useMutation({
@@ -223,6 +234,7 @@ export function VisionBoardAdminSettings() {
             onSave={(data) => saveCompanyVisionMutation.mutate(data)}
             onAutoDistribute={(visionId, targets) => autoDistributeCompanyMutation.mutate({ company_vision_id: visionId, annual_targets: targets })}
             saving={saveCompanyVisionMutation.isPending || autoDistributeCompanyMutation.isPending}
+            existingTeamData={teamAggregate}
           />
         </TabsContent>
 
@@ -288,13 +300,22 @@ function CompanyVisionTab({
   onSave,
   onAutoDistribute,
   saving,
+  existingTeamData,
 }: {
   vision?: { board: CompanyVisionBoard | null; monthly_targets: CompanyVisionMonthlyTarget[] };
   loading: boolean;
   onSave: (data: Partial<CompanyVisionBoard>) => void;
   onAutoDistribute: (visionId: string, targets: EffortTargets) => void;
   saving: boolean;
+  existingTeamData?: {
+    currency: string;
+    goal_amount: number;
+    goal_description: string;
+    effort_targets: { sales: number; visits: number; leads_attended: number; followups: number };
+    board_count: number;
+  };
 }) {
+  const { toast } = useToast();
   const [formData, setFormData] = useState<{
     goal_amount: number;
     currency: string;
@@ -326,17 +347,75 @@ function CompanyVisionTab({
     }
   };
 
+  const handleImportFromTeam = () => {
+    if (existingTeamData) {
+      setFormData({
+        goal_amount: existingTeamData.goal_amount || 0,
+        currency: existingTeamData.currency || 'INR',
+        goal_description: existingTeamData.goal_description || `Company Annual Goal (from ${existingTeamData.board_count} users)`,
+        annual_targets: existingTeamData.effort_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+      });
+      toast({ title: "Imported from existing vision boards", description: `Data from ${existingTeamData.board_count} user vision boards` });
+    }
+  };
+
+  const hasExistingTeamData = existingTeamData && existingTeamData.board_count > 0;
+  const isFormEmpty = formData.goal_amount === 0 && !formData.goal_description;
+
   return (
     <div className="space-y-6">
+      {/* Import from existing data banner */}
+      {hasExistingTeamData && isFormEmpty && (
+        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <div>
+                  <p className="font-medium text-sm">Existing Vision Board Data Available</p>
+                  <p className="text-sm text-muted-foreground">
+                    {existingTeamData?.board_count} users have vision boards with goals and targets
+                  </p>
+                </div>
+              </div>
+              <Button 
+                onClick={handleImportFromTeam} 
+                variant="outline" 
+                size="sm"
+                data-testid="button-import-team-data"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Import Existing Data
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Target className="h-5 w-5" />
-            Company Annual Targets
-          </CardTitle>
-          <CardDescription>
-            Set company-wide goals and effort targets for the year
-          </CardDescription>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="h-5 w-5" />
+                Company Annual Targets
+              </CardTitle>
+              <CardDescription>
+                Set company-wide goals and effort targets for the year
+              </CardDescription>
+            </div>
+            {hasExistingTeamData && !isFormEmpty && (
+              <Button 
+                onClick={handleImportFromTeam} 
+                variant="ghost" 
+                size="sm"
+                data-testid="button-import-team-data-alt"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Re-import from Team
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -594,13 +673,13 @@ function IncentivesTab({
   onDelete: (id: string) => void;
   year: number;
 }) {
-  const [selectedUser, setSelectedUser] = useState<string>("");
+  const [selectedUser, setSelectedUser] = useState<string>("all");
 
   if (loading) {
     return <Skeleton className="h-64" />;
   }
 
-  const filteredIncentives = selectedUser
+  const filteredIncentives = selectedUser !== "all"
     ? incentives.filter(i => i.user_id === selectedUser)
     : incentives;
 
@@ -616,14 +695,14 @@ function IncentivesTab({
               <SelectValue placeholder="All Users" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Users</SelectItem>
+              <SelectItem value="all">All Users</SelectItem>
               {users.map(u => (
                 <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={() => onAdd(selectedUser || users[0]?.id || "")} disabled={users.length === 0} data-testid="button-add-incentive">
+        <Button onClick={() => onAdd(selectedUser !== "all" ? selectedUser : (users[0]?.id || ""))} disabled={users.length === 0} data-testid="button-add-incentive">
           <Plus className="h-4 w-4 mr-2" />
           Add Incentive
         </Button>
