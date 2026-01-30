@@ -24540,6 +24540,49 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Split user annual targets to ALL 12 months (equal distribution)
+  app.post("/api/admin/vision-board/user/:userId/split-annual", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      const { userId } = req.params;
+      const { user_vision_id, year, annual_targets } = req.body;
+      
+      if (!user_vision_id || !year) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      // Divide annual targets equally across all 12 months
+      const perMonthTargets = {
+        sales: Math.ceil((annual_targets?.sales || 0) / 12),
+        visits: Math.ceil((annual_targets?.visits || 0) / 12),
+        leads_attended: Math.ceil((annual_targets?.leads_attended || 0) / 12),
+        followups: Math.ceil((annual_targets?.followups || 0) / 12),
+      };
+      
+      const monthlyTargets = [];
+      for (let month = 1; month <= 12; month++) {
+        const target = await storage.upsertUserVisionMonthlyTarget({
+          user_vision_id,
+          user_id: userId,
+          company_id: req.companyId,
+          year,
+          month,
+          targets: perMonthTargets,
+          is_auto_calculated: true,
+        });
+        monthlyTargets.push(target);
+      }
+      
+      res.json({ monthly_targets: monthlyTargets, per_month: perMonthTargets });
+    } catch (error: any) {
+      console.error("Error splitting user annual targets:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Delete user vision admin target
   app.delete("/api/admin/vision-board/user/:userId", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
