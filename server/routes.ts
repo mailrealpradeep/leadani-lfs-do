@@ -23299,6 +23299,60 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get team vision board aggregate (for admin settings - shows if personal boards exist)
+  app.get("/api/vision-board/team/aggregate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      
+      // Get all personal vision boards in the company
+      const allBoards = await storage.getVisionBoardsByCompany(req.companyId);
+      
+      if (!allBoards || allBoards.length === 0) {
+        return res.json({
+          board_count: 0,
+          currency: 'INR',
+          goal_amount: 0,
+          goal_description: '',
+          effort_targets: { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+          images: [],
+        });
+      }
+      
+      // Aggregate data from all boards
+      const totalGoal = allBoards.reduce((sum, b) => sum + (b.goal_amount || 0), 0);
+      const avgGoal = totalGoal / allBoards.length;
+      const currency = allBoards[0]?.currency || 'INR';
+      
+      // Aggregate effort targets
+      const aggregatedEffort = allBoards.reduce((acc, b) => {
+        const targets = b.effort_targets as { sales?: number; visits?: number; leads_attended?: number; followups?: number } || {};
+        return {
+          sales: acc.sales + (targets.sales || 0),
+          visits: acc.visits + (targets.visits || 0),
+          leads_attended: acc.leads_attended + (targets.leads_attended || 0),
+          followups: acc.followups + (targets.followups || 0),
+        };
+      }, { sales: 0, visits: 0, leads_attended: 0, followups: 0 });
+      
+      // Collect all images
+      const allImages = allBoards.flatMap(b => b.images || []);
+      
+      res.json({
+        board_count: allBoards.length,
+        currency,
+        goal_amount: avgGoal,
+        goal_description: `Team average from ${allBoards.length} vision boards`,
+        effort_targets: aggregatedEffort,
+        images: allImages.slice(0, 10), // Limit to first 10 images
+      });
+    } catch (error: any) {
+      console.error("Error fetching team vision aggregate:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Create/update vision board (blocked for admins/multi-sheet users)
   app.post("/api/vision-board", authMiddleware, async (req: AuthRequest, res) => {
     try {
