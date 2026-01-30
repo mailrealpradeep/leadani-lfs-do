@@ -24371,14 +24371,17 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const targets = await storage.getUserVisionAdminTargetsByCompany(req.companyId, year);
       const users = await storage.getUsersByCompanyId(req.companyId);
       
-      const result = targets.map(target => {
+      const result = await Promise.all(targets.map(async (target) => {
         const user = users.find(u => u.id === target.user_id);
+        const monthlyTargets = await storage.getUserVisionMonthlyTargets(target.id);
+        const filteredMonthly = monthlyTargets.filter(m => m.year === year);
         return {
           ...target,
           user_name: user?.name || 'Unknown',
           user_email: user?.email || '',
+          monthly_targets: filteredMonthly,
         };
-      });
+      }));
       
       res.json(result);
     } catch (error: any) {
@@ -24552,6 +24555,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       if (!user_vision_id || !year) {
         return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      // Validate user_vision_id belongs to this userId and year
+      const existingTarget = await storage.getUserVisionAdminTarget(userId, year);
+      if (!existingTarget || existingTarget.id !== user_vision_id) {
+        return res.status(403).json({ error: "Invalid user vision ID" });
+      }
+      if (existingTarget.company_id !== req.companyId) {
+        return res.status(403).json({ error: "User vision belongs to different company" });
       }
       
       // Divide annual targets equally across all 12 months

@@ -66,7 +66,7 @@ export function VisionBoardAdminSettings() {
     },
   });
 
-  const { data: userTargets, isLoading: loadingUsers } = useQuery<Array<UserVisionAdminTarget & { user_name: string; user_email: string }>>({
+  const { data: userTargets, isLoading: loadingUsers } = useQuery<Array<UserVisionAdminTarget & { user_name: string; user_email: string; monthly_targets: UserVisionMonthlyTarget[] }>>({
     queryKey: ["/api/admin/vision-board/users", selectedYear],
     queryFn: async () => {
       const token = localStorage.getItem("auth_token");
@@ -202,6 +202,42 @@ export function VisionBoardAdminSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/vision-board/users", selectedYear] });
       toast({ title: "User target deleted" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const splitUserAnnualMutation = useMutation({
+    mutationFn: async (data: { userId: string; user_vision_id: string; annual_targets: EffortTargets }) => {
+      return await apiRequest("POST", `/api/admin/vision-board/user/${data.userId}/split-annual`, {
+        user_vision_id: data.user_vision_id,
+        year: selectedYear,
+        annual_targets: data.annual_targets,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/vision-board/users", selectedYear] });
+      toast({ title: "User annual targets split to all 12 months" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const saveUserMonthlyTargetMutation = useMutation({
+    mutationFn: async (data: { userId: string; user_vision_id: string; month: number; targets: EffortTargets }) => {
+      return await apiRequest("POST", `/api/admin/vision-board/user/${data.userId}/monthly`, {
+        user_vision_id: data.user_vision_id,
+        year: selectedYear,
+        month: data.month,
+        targets: data.targets,
+        is_auto_calculated: false,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/vision-board/users", selectedYear] });
+      toast({ title: "User monthly target updated" });
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -352,6 +388,13 @@ export function VisionBoardAdminSettings() {
               setShowUserDialog(true);
             }}
             onDelete={(userId) => deleteUserTargetMutation.mutate(userId)}
+            onSplitAnnual={(userId, userVisionId, annualTargets) => 
+              splitUserAnnualMutation.mutate({ userId, user_vision_id: userVisionId, annual_targets: annualTargets })
+            }
+            onSaveMonthlyTarget={(userId, userVisionId, month, targets) =>
+              saveUserMonthlyTargetMutation.mutate({ userId, user_vision_id: userVisionId, month, targets })
+            }
+            splittingUserId={splitUserAnnualMutation.isPending ? (splitUserAnnualMutation.variables?.userId || null) : null}
           />
         </TabsContent>
 
@@ -766,14 +809,79 @@ function UserTargetsTab({
   onEdit,
   onAddNew,
   onDelete,
+  onSplitAnnual,
+  onSaveMonthlyTarget,
+  splittingUserId,
 }: {
-  targets: Array<UserVisionAdminTarget & { user_name: string; user_email: string }>;
+  targets: Array<UserVisionAdminTarget & { user_name: string; user_email: string; monthly_targets: UserVisionMonthlyTarget[] }>;
   users: User[];
   loading: boolean;
   onEdit: (userId: string) => void;
   onAddNew: () => void;
   onDelete: (userId: string) => void;
+  onSplitAnnual: (userId: string, userVisionId: string, annualTargets: EffortTargets) => void;
+  onSaveMonthlyTarget: (userId: string, userVisionId: string, month: number, targets: EffortTargets) => void;
+  splittingUserId: string | null;
 }) {
+  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
+  const [editingMonthlyTargets, setEditingMonthlyTargets] = useState<Record<string, Record<number, EffortTargets>>>({});
+
+  const toggleExpanded = (userId: string) => {
+    setExpandedUsers(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else {
+        next.add(userId);
+      }
+      return next;
+    });
+  };
+
+  const getMonthlyTargetValue = (target: typeof targets[0], month: number, field: keyof EffortTargets): number => {
+    const userEdits = editingMonthlyTargets[target.user_id];
+    if (userEdits && userEdits[month]) {
+      return userEdits[month][field];
+    }
+    const serverTarget = target.monthly_targets?.find(t => t.month === month);
+    return serverTarget?.targets?.[field] || 0;
+  };
+
+  const handleMonthlyTargetChange = (target: typeof targets[0], month: number, field: keyof EffortTargets, value: number) => {
+    const existingTarget = target.monthly_targets?.find(t => t.month === month);
+    const userEdits = editingMonthlyTargets[target.user_id] || {};
+    const currentTargets = userEdits[month] || existingTarget?.targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+    
+    setEditingMonthlyTargets(prev => ({
+      ...prev,
+      [target.user_id]: {
+        ...(prev[target.user_id] || {}),
+        [month]: { ...currentTargets, [field]: value }
+      }
+    }));
+  };
+
+  const handleMonthlyTargetBlur = (target: typeof targets[0], month: number) => {
+    const userEdits = editingMonthlyTargets[target.user_id];
+    if (userEdits && userEdits[month]) {
+      onSaveMonthlyTarget(target.user_id, target.id, month, userEdits[month]);
+      setEditingMonthlyTargets(prev => {
+        const next = { ...prev };
+        if (next[target.user_id]) {
+          const { [month]: _, ...rest } = next[target.user_id];
+          next[target.user_id] = rest;
+        }
+        return next;
+      });
+    }
+  };
+
+  const getMonthStatus = (target: typeof targets[0], month: number): 'auto' | 'manual' | 'empty' => {
+    const serverTarget = target.monthly_targets?.find(t => t.month === month);
+    if (!serverTarget) return 'empty';
+    return serverTarget.is_auto_calculated ? 'auto' : 'manual';
+  };
+
   if (loading) {
     return <Skeleton className="h-64" />;
   }
@@ -803,47 +911,153 @@ function UserTargetsTab({
           </CardContent>
         </Card>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>User</TableHead>
-              <TableHead>Goal Amount</TableHead>
-              <TableHead>Annual Targets</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {targets.map((target) => (
-              <TableRow key={target.id}>
-                <TableCell>
-                  <div>
-                    <div className="font-medium">{target.user_name}</div>
-                    <div className="text-xs text-muted-foreground">{target.user_email}</div>
+        <div className="space-y-3">
+          {targets.map((target) => {
+            const isExpanded = expandedUsers.has(target.user_id);
+            const isSplitting = splittingUserId === target.user_id;
+            
+            return (
+              <Card key={target.id}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => toggleExpanded(target.user_id)}
+                        data-testid={`button-expand-user-${target.user_id}`}
+                      >
+                        <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                      </Button>
+                      <div>
+                        <div className="font-medium">{target.user_name}</div>
+                        <div className="text-xs text-muted-foreground">{target.user_email}</div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Goal: </span>
+                        {CURRENCIES.find(c => c.value === target.currency)?.label.split(' ')[0]} {target.goal_amount?.toLocaleString() || 0}
+                      </div>
+                      <div className="flex gap-1 text-xs">
+                        <Badge variant="outline">S: {target.annual_targets?.sales || 0}</Badge>
+                        <Badge variant="outline">V: {target.annual_targets?.visits || 0}</Badge>
+                        <Badge variant="outline">L: {target.annual_targets?.leads_attended || 0}</Badge>
+                        <Badge variant="outline">F: {target.annual_targets?.followups || 0}</Badge>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => onEdit(target.user_id)} data-testid={`button-edit-target-${target.user_id}`}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => onDelete(target.user_id)} data-testid={`button-delete-target-${target.user_id}`}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                </TableCell>
-                <TableCell>
-                  {CURRENCIES.find(c => c.value === target.currency)?.label.split(' ')[0]} {target.goal_amount?.toLocaleString() || 0}
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-2 text-xs">
-                    <Badge variant="outline">S: {target.annual_targets?.sales || 0}</Badge>
-                    <Badge variant="outline">V: {target.annual_targets?.visits || 0}</Badge>
-                    <Badge variant="outline">L: {target.annual_targets?.leads_attended || 0}</Badge>
-                    <Badge variant="outline">F: {target.annual_targets?.followups || 0}</Badge>
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" onClick={() => onEdit(target.user_id)} data-testid={`button-edit-target-${target.user_id}`}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => onDelete(target.user_id)} data-testid={`button-delete-target-${target.user_id}`}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+
+                  {isExpanded && (
+                    <div className="mt-4 pt-4 border-t">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-medium">Monthly Effort Targets</h4>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onSplitAnnual(target.user_id, target.id, target.annual_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 })}
+                          disabled={isSplitting}
+                          data-testid={`button-split-user-${target.user_id}`}
+                        >
+                          {isSplitting ? (
+                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Splitting...</>
+                          ) : (
+                            <><Calendar className="h-4 w-4 mr-2" />Split to 12 Months</>
+                          )}
+                        </Button>
+                      </div>
+                      
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-24">Month</TableHead>
+                              <TableHead className="w-20">Sales</TableHead>
+                              <TableHead className="w-20">Visits</TableHead>
+                              <TableHead className="w-20">Leads</TableHead>
+                              <TableHead className="w-20">Followups</TableHead>
+                              <TableHead className="w-16">Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {MONTHS.map((monthName, index) => {
+                              const month = index + 1;
+                              const status = getMonthStatus(target, month);
+                              
+                              return (
+                                <TableRow key={month}>
+                                  <TableCell className="font-medium">{monthName.substring(0, 3)}</TableCell>
+                                  <TableCell>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      value={getMonthlyTargetValue(target, month, 'sales') || ''}
+                                      onChange={(e) => handleMonthlyTargetChange(target, month, 'sales', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                      onBlur={() => handleMonthlyTargetBlur(target, month)}
+                                      data-testid={`input-user-${target.user_id}-month-${month}-sales`}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      value={getMonthlyTargetValue(target, month, 'visits') || ''}
+                                      onChange={(e) => handleMonthlyTargetChange(target, month, 'visits', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                      onBlur={() => handleMonthlyTargetBlur(target, month)}
+                                      data-testid={`input-user-${target.user_id}-month-${month}-visits`}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      value={getMonthlyTargetValue(target, month, 'leads_attended') || ''}
+                                      onChange={(e) => handleMonthlyTargetChange(target, month, 'leads_attended', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                      onBlur={() => handleMonthlyTargetBlur(target, month)}
+                                      data-testid={`input-user-${target.user_id}-month-${month}-leads`}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      value={getMonthlyTargetValue(target, month, 'followups') || ''}
+                                      onChange={(e) => handleMonthlyTargetChange(target, month, 'followups', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                      onBlur={() => handleMonthlyTargetBlur(target, month)}
+                                      data-testid={`input-user-${target.user_id}-month-${month}-followups`}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    {status === 'empty' ? (
+                                      <Badge variant="secondary" className="text-xs">Empty</Badge>
+                                    ) : status === 'auto' ? (
+                                      <Badge variant="outline" className="text-xs">Auto</Badge>
+                                    ) : (
+                                      <Badge className="text-xs">Manual</Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
     </div>
   );
