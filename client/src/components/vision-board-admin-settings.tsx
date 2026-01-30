@@ -456,12 +456,36 @@ function CompanyVisionTab({
     }
   };
 
+  // Local state for monthly target editing (saves on blur to avoid excessive API calls)
+  const [editingMonthlyTargets, setEditingMonthlyTargets] = useState<Record<number, EffortTargets>>({});
+  
+  const getMonthlyTargetValue = (month: number, field: keyof EffortTargets): number => {
+    // Use local edit state if exists, otherwise use server data
+    if (editingMonthlyTargets[month]) {
+      return editingMonthlyTargets[month][field];
+    }
+    const serverTarget = vision?.monthly_targets?.find(t => t.month === month);
+    return serverTarget?.targets?.[field] || 0;
+  };
+  
   const handleMonthlyTargetChange = (month: number, field: keyof EffortTargets, value: number) => {
-    if (vision?.board?.id) {
-      const existingTarget = vision.monthly_targets?.find(t => t.month === month);
-      const currentTargets = existingTarget?.targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
-      const newTargets = { ...currentTargets, [field]: value };
-      onSaveMonthlyTarget(vision.board.id, month, newTargets);
+    const existingTarget = vision?.monthly_targets?.find(t => t.month === month);
+    const currentTargets = editingMonthlyTargets[month] || existingTarget?.targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+    setEditingMonthlyTargets(prev => ({
+      ...prev,
+      [month]: { ...currentTargets, [field]: value }
+    }));
+  };
+  
+  const handleMonthlyTargetBlur = (month: number) => {
+    if (vision?.board?.id && editingMonthlyTargets[month]) {
+      onSaveMonthlyTarget(vision.board.id, month, editingMonthlyTargets[month]);
+      // Clear local state after save
+      setEditingMonthlyTargets(prev => {
+        const next = { ...prev };
+        delete next[month];
+        return next;
+      });
     }
   };
 
@@ -666,8 +690,9 @@ function CompanyVisionTab({
                       <Input
                         type="number"
                         className="h-8 w-20"
-                        value={mt.targets?.sales || 0}
+                        value={getMonthlyTargetValue(mt.month, 'sales')}
                         onChange={(e) => handleMonthlyTargetChange(mt.month, 'sales', Number(e.target.value))}
+                        onBlur={() => handleMonthlyTargetBlur(mt.month)}
                         disabled={saving}
                         data-testid={`input-month-${mt.month}-sales`}
                       />
@@ -676,8 +701,9 @@ function CompanyVisionTab({
                       <Input
                         type="number"
                         className="h-8 w-20"
-                        value={mt.targets?.visits || 0}
+                        value={getMonthlyTargetValue(mt.month, 'visits')}
                         onChange={(e) => handleMonthlyTargetChange(mt.month, 'visits', Number(e.target.value))}
+                        onBlur={() => handleMonthlyTargetBlur(mt.month)}
                         disabled={saving}
                         data-testid={`input-month-${mt.month}-visits`}
                       />
@@ -686,8 +712,9 @@ function CompanyVisionTab({
                       <Input
                         type="number"
                         className="h-8 w-20"
-                        value={mt.targets?.leads_attended || 0}
+                        value={getMonthlyTargetValue(mt.month, 'leads_attended')}
                         onChange={(e) => handleMonthlyTargetChange(mt.month, 'leads_attended', Number(e.target.value))}
+                        onBlur={() => handleMonthlyTargetBlur(mt.month)}
                         disabled={saving}
                         data-testid={`input-month-${mt.month}-leads`}
                       />
@@ -696,8 +723,9 @@ function CompanyVisionTab({
                       <Input
                         type="number"
                         className="h-8 w-20"
-                        value={mt.targets?.followups || 0}
+                        value={getMonthlyTargetValue(mt.month, 'followups')}
                         onChange={(e) => handleMonthlyTargetChange(mt.month, 'followups', Number(e.target.value))}
+                        onBlur={() => handleMonthlyTargetBlur(mt.month)}
                         disabled={saving}
                         data-testid={`input-month-${mt.month}-followups`}
                       />

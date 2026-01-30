@@ -2324,11 +2324,48 @@ export default function VisionBoardPage() {
   };
   
   // Helper to scale all effort targets for a period
+  // When monthlyTargets is provided, uses: Year = annual, Month = from table, Week = Month÷4, Day = Month÷25
   const getScaledEffortTargets = (
     targets: { sales: number; visits: number; leads_attended: number; followups: number } | null | undefined,
-    period: "daily" | "weekly" | "monthly" | "yearly"
+    period: "daily" | "weekly" | "monthly" | "yearly",
+    monthlyTargets?: Array<{ month: number; targets: { sales: number; visits: number; leads_attended: number; followups: number } }>
   ) => {
     if (!targets) return { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+    
+    // If monthly targets provided, use them for month/week/day calculations
+    if (monthlyTargets && monthlyTargets.length > 0) {
+      const currentMonth = new Date().getMonth() + 1; // 1-12
+      const monthTarget = monthlyTargets.find(mt => mt.month === currentMonth)?.targets;
+      
+      if (monthTarget) {
+        switch (period) {
+          case "yearly":
+            // Year = annual target
+            return targets;
+          case "monthly":
+            // Month = from table
+            return monthTarget;
+          case "weekly":
+            // Week = Month ÷ 4
+            return {
+              sales: Math.round(monthTarget.sales / 4),
+              visits: Math.round(monthTarget.visits / 4),
+              leads_attended: Math.round(monthTarget.leads_attended / 4),
+              followups: Math.round(monthTarget.followups / 4),
+            };
+          case "daily":
+            // Day = Month ÷ 25 (working days)
+            return {
+              sales: Math.round(monthTarget.sales / 25),
+              visits: Math.round(monthTarget.visits / 25),
+              leads_attended: Math.round(monthTarget.leads_attended / 25),
+              followups: Math.round(monthTarget.followups / 25),
+            };
+        }
+      }
+    }
+    
+    // Fallback to original calculation (divide annual by 12/52/260)
     return {
       sales: scaleTargetByPeriod(targets.sales, period),
       visits: scaleTargetByPeriod(targets.visits, period),
@@ -2635,7 +2672,7 @@ export default function VisionBoardPage() {
     projectedProgressPercent: companyGoalAmount > 0 
       ? Math.min(100, (companyProjectedIncentives / companyGoalAmount) * 100) 
       : 0,
-    effortTargets: getScaledEffortTargets(adminCompanyVision.board.annual_targets, selectedPeriod),
+    effortTargets: getScaledEffortTargets(adminCompanyVision.board.annual_targets, selectedPeriod, adminCompanyVision.monthly_targets),
     // Use team effort achieved for company-wide metrics
     effortAchieved: teamProgress?.team_effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: yearEnd,
