@@ -2602,37 +2602,53 @@ export default function VisionBoardPage() {
   // Calculate total incentives from admin_actual_incentives for a user
   const totalUserIncentives = adminUserVision?.incentives?.reduce((sum, inc) => sum + inc.amount, 0) || 0;
   
-  // Priority 1: Admin viewing Company Vision
-  // Priority 2: Admin/User viewing specific user's admin-controlled targets
-  // Priority 3: Old team view (for multi-sheet users without admin data)
-  // Priority 4: Old personal vision board (user-created)
+  // Priority 1: Admin viewing Company Vision - uses team aggregation for actual performance
+  // Priority 2: Admin/User viewing specific user's admin-controlled targets - uses personal progress
+  // Priority 3: Old team view (for multi-sheet users without admin data)  
+  // Priority 4: Old personal vision board (user-created) - regular user experience unchanged
+  
+  // For Company Vision, use team totals for actual performance data
+  // These provide company-wide aggregation from all users' vision board progress
+  const hasTeamData = teamProgress && teamTotals;
+  const companyGoalAmount = adminCompanyVision?.board?.goal_amount || 0;
+  const companyActualIncentives = hasTeamData ? (teamTotals?.actual_incentive || 0) : 0;
+  const companyProjectedIncentives = hasTeamData ? (teamTotals?.projected_incentive || 0) : 0;
+  
   const displayData = isCompanyView && adminCompanyVision?.board ? {
-    goalAmount: adminCompanyVision.board.goal_amount || 0,
+    goalAmount: companyGoalAmount,
     goalDescription: adminCompanyVision.board.goal_description || 'Company Annual Goal',
     currency: adminCompanyVision.board.currency || "INR",
     images: [] as Array<{url: string; caption: string}>,
-    progressPercent: 0, // Will be calculated from actual performance data
-    earned: 0, // Company-wide earned - would need aggregation
-    remaining: adminCompanyVision.board.goal_amount || 0,
-    projectedIncentive: 0,
-    actualIncentive: 0,
-    projectedProgressPercent: 0,
+    // Use team totals for actual progress (aggregated from all users' conversions)
+    progressPercent: companyGoalAmount > 0 
+      ? Math.min(100, (companyActualIncentives / companyGoalAmount) * 100) 
+      : 0,
+    earned: companyActualIncentives,
+    remaining: Math.max(0, companyGoalAmount - companyActualIncentives),
+    projectedIncentive: companyProjectedIncentives,
+    actualIncentive: companyActualIncentives,
+    projectedProgressPercent: companyGoalAmount > 0 
+      ? Math.min(100, (companyProjectedIncentives / companyGoalAmount) * 100) 
+      : 0,
     effortTargets: getScaledEffortTargets(adminCompanyVision.board.annual_targets, selectedPeriod),
-    effortAchieved: { sales: 0, visits: 0, leads_attended: 0, followups: 0 }, // Would need company-wide aggregation
+    // Use team effort achieved for company-wide metrics
+    effortAchieved: teamProgress?.team_effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: yearEnd,
     startDate: yearStart,
   } : viewingUserId && adminUserVision?.target ? {
+    // Admin viewing a specific user's targets - use their actual progress data
     goalAmount: adminUserVision.target.goal_amount || 0,
     goalDescription: adminUserVision.target.goal_description || `${adminUserVision.user_name}'s Goals`,
     currency: adminUserVision.target.currency || "INR",
     images: [] as Array<{url: string; caption: string}>,
+    // Use actual earnings from progress API for consistency
     progressPercent: adminUserVision.target.goal_amount > 0 
-      ? Math.min(100, (totalUserIncentives / adminUserVision.target.goal_amount) * 100) 
+      ? Math.min(100, ((progress?.earnings.total || totalUserIncentives) / adminUserVision.target.goal_amount) * 100) 
       : 0,
-    earned: totalUserIncentives,
-    remaining: Math.max(0, (adminUserVision.target.goal_amount || 0) - totalUserIncentives),
+    earned: progress?.earnings.total || totalUserIncentives,
+    remaining: Math.max(0, (adminUserVision.target.goal_amount || 0) - (progress?.earnings.total || totalUserIncentives)),
     projectedIncentive: userProjectedData.projectedIncentive,
-    actualIncentive: totalUserIncentives,
+    actualIncentive: progress?.earnings.total || totalUserIncentives,
     projectedProgressPercent: adminUserVision.target.goal_amount > 0 
       ? Math.min(100, (userProjectedData.projectedIncentive / adminUserVision.target.goal_amount) * 100) 
       : 0,
