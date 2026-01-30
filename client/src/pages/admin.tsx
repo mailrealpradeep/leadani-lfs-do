@@ -53,6 +53,7 @@ import { PowerScoreSettings } from "@/components/powerscore-settings";
 import { PowerFlowSettings } from "@/components/powerflow-settings";
 import { QualityCheckSettings } from "@/components/quality-check-settings";
 import { VisionBoardMessagingSettings } from "@/components/vision-board-messaging-settings";
+import { VisionBoardAdminSettings } from "@/components/vision-board-admin-settings";
 import type { Sheet } from "@shared/schema";
 
 function SuperAdminView() {
@@ -849,6 +850,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <VisionBoardMessagingSettings />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="vision-board-admin" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-vision-board-admin">
+              <div className="flex items-center gap-3">
+                <Target className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">Vision Board Targets</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Set company and user vision targets, manage incentives
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <VisionBoardAdminSettings />
               </div>
             </AccordionContent>
           </AccordionItem>
