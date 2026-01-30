@@ -418,6 +418,9 @@ function CompanyVisionTab({
     goal_description: vision?.board?.goal_description || '',
     annual_targets: vision?.board?.annual_targets || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
   });
+  
+  // Local state for monthly target editing (saves on blur to avoid excessive API calls)
+  const [editingMonthlyTargets, setEditingMonthlyTargets] = useState<Record<number, EffortTargets>>({});
 
   if (loading) {
     return (
@@ -456,9 +459,6 @@ function CompanyVisionTab({
     }
   };
 
-  // Local state for monthly target editing (saves on blur to avoid excessive API calls)
-  const [editingMonthlyTargets, setEditingMonthlyTargets] = useState<Record<number, EffortTargets>>({});
-  
   const getMonthlyTargetValue = (month: number, field: keyof EffortTargets): number => {
     // Use local edit state if exists, otherwise use server data
     if (editingMonthlyTargets[month]) {
