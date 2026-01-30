@@ -2227,6 +2227,82 @@ export default function VisionBoardPage() {
     enabled: !!isAdminOrMultiSheet && !!user?.company_id,
   });
   
+  // Determine which user to view (for admin-controlled data)
+  const viewingUserId = selectedUserView === 'me' ? user?.id : 
+                        selectedUserView !== 'company' ? selectedUserView : null;
+  const isCompanyView = selectedUserView === 'company' && isAdminOrMultiSheet;
+  
+  // Fetch admin-controlled company vision data (for Company Vision view)
+  interface AdminCompanyVisionResponse {
+    board: {
+      id: string;
+      company_id: string;
+      year: number;
+      goal_amount: number;
+      currency: string;
+      goal_description: string;
+      annual_targets: { sales: number; visits: number; leads_attended: number; followups: number };
+    } | null;
+    monthly_targets: Array<{
+      id: string;
+      month: number;
+      targets: { sales: number; visits: number; leads_attended: number; followups: number };
+      is_auto_calculated: boolean;
+    }>;
+    year: number;
+  }
+  
+  const { data: adminCompanyVision, isLoading: loadingAdminCompany } = useQuery<AdminCompanyVisionResponse>({
+    queryKey: ["/api/vision-board/admin/company-data", new Date().getFullYear()],
+    queryFn: async () => {
+      const res = await fetch(`/api/vision-board/admin/company-data?year=${new Date().getFullYear()}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch company vision');
+      return res.json();
+    },
+    enabled: isCompanyView,
+  });
+  
+  // Fetch admin-controlled user vision data (for specific user view or 'me')
+  interface AdminUserVisionResponse {
+    target: {
+      id: string;
+      user_id: string;
+      year: number;
+      goal_amount: number;
+      currency: string;
+      goal_description: string;
+      annual_targets: { sales: number; visits: number; leads_attended: number; followups: number };
+    } | null;
+    monthly_targets: Array<{
+      id: string;
+      month: number;
+      targets: { sales: number; visits: number; leads_attended: number; followups: number };
+      is_auto_calculated: boolean;
+    }>;
+    incentives: Array<{
+      id: string;
+      month: number;
+      amount: number;
+      currency: string;
+    }>;
+    user_name: string;
+    year: number;
+  }
+  
+  const { data: adminUserVision, isLoading: loadingAdminUser } = useQuery<AdminUserVisionResponse>({
+    queryKey: ["/api/vision-board/admin/user-data", viewingUserId, new Date().getFullYear()],
+    queryFn: async () => {
+      const res = await fetch(`/api/vision-board/admin/user-data/${viewingUserId}?year=${new Date().getFullYear()}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch user vision');
+      return res.json();
+    },
+    enabled: !!viewingUserId,
+  });
+  
   // Helper to scale yearly targets based on selected period
   // Uses same Math.ceil logic as existing yearlyToMonthly/Weekly/Daily helpers
   const scaleTargetByPeriod = (yearlyTarget: number, period: "daily" | "weekly" | "monthly" | "yearly"): number => {
@@ -2420,15 +2496,76 @@ export default function VisionBoardPage() {
     return acc;
   }, {} as Record<string, CustomView[]>);
 
-  if (boardLoading) {
+  // Loading states
+  const isLoading = boardLoading || loadingAdminCompany || loadingAdminUser;
+  
+  if (isLoading) {
     return (
       <AnimatePresence>
         <VisionBoardPreloader />
       </AnimatePresence>
     );
   }
+  
+  // Admin viewing Company Vision with no targets set
+  if (isCompanyView && !adminCompanyVision?.board) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center p-4">
+        <Card className="w-full max-w-lg mx-auto">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 flex items-center justify-center">
+              <Target className="w-10 h-10 text-white" />
+            </div>
+            <CardTitle className="text-2xl">Company Vision Not Configured</CardTitle>
+            <CardDescription className="text-base">
+              Set up your company's annual vision targets in the Admin Console.
+              Go to Vision Board Targets to configure company-wide goals.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center">
+            <Link href="/admin">
+              <Button data-testid="button-go-to-admin">
+                Go to Admin Console
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+  
+  // Viewing specific user with no admin targets set
+  if (viewingUserId && !adminUserVision?.target) {
+    const userName = selectedUserView === 'me' ? 'You' : (allUsers.find(u => u.id === selectedUserView)?.name || 'This user');
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center p-4">
+        <Card className="w-full max-w-lg mx-auto">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
+              <Star className="w-10 h-10 text-white" />
+            </div>
+            <CardTitle className="text-2xl">Vision Targets Not Set</CardTitle>
+            <CardDescription className="text-base">
+              {selectedUserView === 'me' 
+                ? "Your vision targets haven't been configured by an admin yet. Please contact your administrator to set up your annual goals."
+                : `${userName}'s vision targets haven't been configured yet. Go to Admin Console to set up their annual goals.`}
+            </CardDescription>
+          </CardHeader>
+          {isAdminOrMultiSheet && (
+            <CardContent className="text-center">
+              <Link href="/admin">
+                <Button data-testid="button-go-to-admin">
+                  Go to Admin Console
+                </Button>
+              </Link>
+            </CardContent>
+          )}
+        </Card>
+      </div>
+    );
+  }
 
-  // Team view with no boards - show empty state
+  // Team view with no boards - show empty state (fallback for non-admin users)
   if (isTeamView && (!teamAggregate || boardCount === 0)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center p-4">
@@ -2456,9 +2593,54 @@ export default function VisionBoardPage() {
     return <SetupWizard onComplete={() => queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] })} />;
   }
 
-  // Unified data for both team and personal views
+  // Unified data for admin-controlled views, team views, and personal views
   const teamTotals = teamProgress?.team_totals;
-  const displayData = isTeamView && teamAggregate ? {
+  const visionYear = new Date().getFullYear();
+  const yearStart = new Date(visionYear, 0, 1);
+  const yearEnd = new Date(visionYear, 11, 31);
+  
+  // Calculate total incentives from admin_actual_incentives for a user
+  const totalUserIncentives = adminUserVision?.incentives?.reduce((sum, inc) => sum + inc.amount, 0) || 0;
+  
+  // Priority 1: Admin viewing Company Vision
+  // Priority 2: Admin/User viewing specific user's admin-controlled targets
+  // Priority 3: Old team view (for multi-sheet users without admin data)
+  // Priority 4: Old personal vision board (user-created)
+  const displayData = isCompanyView && adminCompanyVision?.board ? {
+    goalAmount: adminCompanyVision.board.goal_amount || 0,
+    goalDescription: adminCompanyVision.board.goal_description || 'Company Annual Goal',
+    currency: adminCompanyVision.board.currency || "INR",
+    images: [] as Array<{url: string; caption: string}>,
+    progressPercent: 0, // Will be calculated from actual performance data
+    earned: 0, // Company-wide earned - would need aggregation
+    remaining: adminCompanyVision.board.goal_amount || 0,
+    projectedIncentive: 0,
+    actualIncentive: 0,
+    projectedProgressPercent: 0,
+    effortTargets: getScaledEffortTargets(adminCompanyVision.board.annual_targets, selectedPeriod),
+    effortAchieved: { sales: 0, visits: 0, leads_attended: 0, followups: 0 }, // Would need company-wide aggregation
+    targetDate: yearEnd,
+    startDate: yearStart,
+  } : viewingUserId && adminUserVision?.target ? {
+    goalAmount: adminUserVision.target.goal_amount || 0,
+    goalDescription: adminUserVision.target.goal_description || `${adminUserVision.user_name}'s Goals`,
+    currency: adminUserVision.target.currency || "INR",
+    images: [] as Array<{url: string; caption: string}>,
+    progressPercent: adminUserVision.target.goal_amount > 0 
+      ? Math.min(100, (totalUserIncentives / adminUserVision.target.goal_amount) * 100) 
+      : 0,
+    earned: totalUserIncentives,
+    remaining: Math.max(0, (adminUserVision.target.goal_amount || 0) - totalUserIncentives),
+    projectedIncentive: userProjectedData.projectedIncentive,
+    actualIncentive: totalUserIncentives,
+    projectedProgressPercent: adminUserVision.target.goal_amount > 0 
+      ? Math.min(100, (userProjectedData.projectedIncentive / adminUserVision.target.goal_amount) * 100) 
+      : 0,
+    effortTargets: getScaledEffortTargets(adminUserVision.target.annual_targets, selectedPeriod),
+    effortAchieved: progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    targetDate: yearEnd,
+    startDate: yearStart,
+  } : isTeamView && teamAggregate ? {
     goalAmount: teamTotals?.total_goal || 0,
     goalDescription: `Team Total (${boardCount} members)`,
     currency: teamAggregate.currency || "INR",
@@ -2466,7 +2648,6 @@ export default function VisionBoardPage() {
     progressPercent: teamTotals?.overall_progress_percent || 0,
     earned: teamTotals?.total_earnings || 0,
     remaining: Math.max(0, (teamTotals?.total_goal || 0) - (teamTotals?.total_earnings || 0)),
-    // Use actual team incentive values from API for unified dual-ring UI
     projectedIncentive: teamTotals?.projected_incentive || 0,
     actualIncentive: teamTotals?.actual_incentive || 0,
     projectedProgressPercent: teamTotals?.projected_progress_percent || 0,
@@ -2482,10 +2663,8 @@ export default function VisionBoardPage() {
     progressPercent: progress?.earnings.progress_percent || 0,
     earned: progress?.earnings.total || 0,
     remaining: progress?.earnings.remaining || 0,
-    // Use projected incentive from Conversion Settings user pipeline (not backend calculation)
     projectedIncentive: userProjectedData.projectedIncentive,
     actualIncentive: userProjectedData.actualIncentive,
-    // Calculate projected progress percent = (projected incentive / goal amount) × 100
     projectedProgressPercent: visionBoard.goal_amount > 0 
       ? Math.min(100, (userProjectedData.projectedIncentive / visionBoard.goal_amount) * 100) 
       : 0,
@@ -2526,22 +2705,50 @@ export default function VisionBoardPage() {
     displayData.startDate  // Pass Vision Board start date for yearly calculation
   );
   
-  // Labels for team vs personal view
-  const labels = isTeamView ? {
-    headerTitle: "Team Goal",
-    progressLabel: "Team Progress",
-    progressSubLabel: "Total Completed",
-    earnedLabel: "Team Earned",
-    remainingLabel: "Team Remaining",
-    effortTitle: "Team Effort Targets",
-  } : {
-    headerTitle: "Your Dream",
-    progressLabel: "Vision Progress",
-    progressSubLabel: "Completed",
-    earnedLabel: "Earned",
-    remainingLabel: "Remaining",
-    effortTitle: "Effort Targets",
+  // Labels based on view type
+  const getLabels = () => {
+    if (isCompanyView && adminCompanyVision?.board) {
+      return {
+        headerTitle: "Company Goal",
+        progressLabel: "Company Progress",
+        progressSubLabel: "Total Completed",
+        earnedLabel: "Company Earned",
+        remainingLabel: "Company Remaining",
+        effortTitle: "Company Effort Targets",
+      };
+    }
+    if (viewingUserId && adminUserVision?.target) {
+      const isOwnView = viewingUserId === user?.id;
+      const userName = isOwnView ? "Your" : `${adminUserVision.user_name}'s`;
+      return {
+        headerTitle: isOwnView ? "Your Goal" : `${adminUserVision.user_name}'s Goal`,
+        progressLabel: `${userName} Progress`,
+        progressSubLabel: "Completed",
+        earnedLabel: "Earned",
+        remainingLabel: "Remaining",
+        effortTitle: `${userName} Effort Targets`,
+      };
+    }
+    if (isTeamView) {
+      return {
+        headerTitle: "Team Goal",
+        progressLabel: "Team Progress",
+        progressSubLabel: "Total Completed",
+        earnedLabel: "Team Earned",
+        remainingLabel: "Team Remaining",
+        effortTitle: "Team Effort Targets",
+      };
+    }
+    return {
+      headerTitle: "Your Dream",
+      progressLabel: "Vision Progress",
+      progressSubLabel: "Completed",
+      earnedLabel: "Earned",
+      remainingLabel: "Remaining",
+      effortTitle: "Effort Targets",
+    };
   };
+  const labels = getLabels();
 
   // Get selected user name for display
   const getSelectedUserName = () => {
