@@ -21,7 +21,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useBackButtonGuard, BackButtonGuardDialog } from "@/hooks/use-back-button-guard";
 import { Button } from "@/components/ui/button";
 import { Plus, Eye } from "lucide-react";
-import type { CustomColumn } from "@shared/schema";
+import type { CustomColumn, Sheet } from "@shared/schema";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Landing from "@/pages/landing";
@@ -213,14 +213,31 @@ function Router() {
 function DashboardHeader() {
   const [location] = useLocation();
   const { selectedSheetId, activeQuickFilter, quickFilterHandlers, actions } = useDashboard();
+  const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
   const isMobile = useIsMobile();
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   
   // Only show quick filters on dashboard/root routes when sheet is selected
   const showQuickFilters = (location === "/" || location === "/dashboard") && !!selectedSheetId;
   
-  // Show Add Lead button when a sheet is selected and the action is available
-  const showAddLead = !!selectedSheetId && !!actions.onAddLead;
+  // Fetch company settings to check allow_user_add_lead
+  const { data: companySettings } = useQuery<{ settings: { allow_user_add_lead?: boolean } }>({
+    queryKey: ["/api/company/settings"],
+  });
+  
+  // Fetch sheets to determine if user is multi-sheet
+  const { data: sheets = [] } = useQuery<Sheet[]>({
+    queryKey: ["/api/sheets"],
+  });
+  
+  const isMultiSheetUser = sheets.length > 1;
+  const allowUserAddLead = companySettings?.settings?.allow_user_add_lead !== false; // Default true
+  
+  // Show Add Lead button when:
+  // - A sheet is selected AND action is available
+  // - AND (user is admin/multi-sheet OR setting allows regular users)
+  const canAddLead = isCompanyAdmin || isSuperAdmin || isMultiSheetUser || allowUserAddLead;
+  const showAddLead = !!selectedSheetId && !!actions.onAddLead && canAddLead;
   
   const { data: customColumns = [] } = useQuery<CustomColumn[]>({
     queryKey: ["/api/company/columns"],

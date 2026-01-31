@@ -96,6 +96,16 @@ export function AppSidebar() {
     queryKey: ["/api/sheets"],
   });
 
+  // Fetch company settings to check allow_user_add_lead
+  const { data: companySettings } = useQuery<{ settings: { allow_user_add_lead?: boolean } }>({
+    queryKey: ["/api/company/settings"],
+    enabled: !isSuperAdminAccount,
+  });
+  
+  const isMultiSheetUser = (sheets?.length || 0) > 1;
+  const allowUserAddLead = companySettings?.settings?.allow_user_add_lead !== false; // Default true
+  const canAddLead = isCompanyAdmin || isSuperAdmin || isMultiSheetUser || allowUserAddLead;
+
   // Fetch row filters for active count display
   const { data: rowFilters = [] } = useQuery<UserRowFilterRecord[]>({
     queryKey: ["/api/sheets", selectedSheetId, "row-filters"],
@@ -709,14 +719,16 @@ export function AppSidebar() {
                     />
                     {(selectedSheetId || (isMultiSheetMode && selectedSheetIds.length > 0)) && (
                       <div className="flex flex-col gap-2">
-                        <Button
-                          onClick={actions.onAddLead}
-                          className="w-full justify-start"
-                          data-testid="button-add-lead"
-                        >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Lead
-                        </Button>
+                        {canAddLead && (
+                          <Button
+                            onClick={actions.onAddLead}
+                            className="w-full justify-start"
+                            data-testid="button-add-lead"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Lead
+                          </Button>
+                        )}
                         {(isCompanyAdmin || isSuperAdmin) && (
                           <Button
                             variant="outline"

@@ -8262,6 +8262,20 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         if (sheetUser && sheetUser.role === "viewer") {
           return res.status(403).json({ error: "Viewers cannot create leads" });
         }
+        
+        // Check if regular user is allowed to add leads based on company setting
+        const userSheets = await storage.getSheetsByUserId(req.userId!);
+        const isMultiSheetUser = userSheets.length > 1;
+        
+        if (!isMultiSheetUser) {
+          // Check company setting for allow_user_add_lead
+          const company = await storage.getCompany(sheet.company_id);
+          const allowUserAddLead = company?.settings?.allow_user_add_lead !== false; // Default true
+          
+          if (!allowUserAddLead) {
+            return res.status(403).json({ error: "Users are not allowed to add leads. Contact your admin." });
+          }
+        }
       }
 
       // Remove owner_user_id from req.body to prevent client spoofing
