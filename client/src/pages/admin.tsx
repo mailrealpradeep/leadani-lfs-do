@@ -5,6 +5,7 @@ import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlu
 import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -293,6 +294,7 @@ function GeneralCompanySettings() {
   const [hasError, setHasError] = useState(false);
   const [timezoneOpen, setTimezoneOpen] = useState(false);
   const [weeklyOffDays, setWeeklyOffDays] = useState<number[]>([]);
+  const [allowUserAddLead, setAllowUserAddLead] = useState<boolean>(true);
 
   // Get all timezones with country names using countries-and-timezones library
   const allTimezones = useMemo(() => {
@@ -328,18 +330,20 @@ function GeneralCompanySettings() {
   }, []);
 
   // Fetch current company settings
-  const { data: settingsData, isLoading } = useQuery<{ settings: { timezone?: string; weekly_off_days?: number[] } }>({
+  const { data: settingsData, isLoading } = useQuery<{ settings: { timezone?: string; weekly_off_days?: number[]; allow_user_add_lead?: boolean } }>({
     queryKey: ["/api/admin/company/settings"],
   });
 
   // Get server timezone value (empty string if not configured)
   const serverTimezone = settingsData?.settings?.timezone || '';
   const serverWeeklyOffDays = settingsData?.settings?.weekly_off_days || [];
+  const serverAllowUserAddLead = settingsData?.settings?.allow_user_add_lead !== false; // Default true
 
   // Sync weekly off days with server data
   useEffect(() => {
     if (settingsData !== undefined) {
       setWeeklyOffDays(settingsData?.settings?.weekly_off_days || []);
+      setAllowUserAddLead(settingsData?.settings?.allow_user_add_lead !== false);
     }
   }, [settingsData]);
   
@@ -422,6 +426,38 @@ function GeneralCompanySettings() {
       : weeklyOffDays.filter(d => d !== day);
     setWeeklyOffDays(newDays);
     weeklyOffMutation.mutate(newDays);
+  };
+
+  // Update allow user add lead mutation
+  const allowUserAddLeadMutation = useMutation({
+    mutationFn: async (allowed: boolean) => {
+      return await apiRequest("PATCH", "/api/admin/company/settings", {
+        settings: { allow_user_add_lead: allowed }
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company/settings"] });
+      toast({
+        title: "Settings updated",
+        description: allowUserAddLead 
+          ? "Users can now add leads." 
+          : "Users can no longer add leads.",
+      });
+    },
+    onError: (error: any) => {
+      setAllowUserAddLead(serverAllowUserAddLead);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update settings.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAllowUserAddLeadToggle = (checked: boolean) => {
+    setAllowUserAddLead(checked);
+    allowUserAddLeadMutation.mutate(checked);
   };
 
   if (isLoading) {
@@ -542,6 +578,30 @@ function GeneralCompanySettings() {
               <p className="text-xs text-green-600 dark:text-green-400">
                 Off days: {serverWeeklyOffDays.map(d => DAY_NAMES.find(dn => dn.value === d)?.label).join(', ')}
               </p>
+            )}
+          </div>
+        </div>
+
+        {/* Allow Users to Add Leads */}
+        <div className="flex items-start gap-3">
+          <UserPlus className="h-5 w-5 text-muted-foreground mt-0.5" />
+          <div className="flex-1 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-medium text-sm">Allow Users to Add Leads</h4>
+                <p className="text-xs text-muted-foreground">
+                  When disabled, only Admins and Multi-Sheet users can add new leads
+                </p>
+              </div>
+              <Switch
+                checked={allowUserAddLead}
+                onCheckedChange={handleAllowUserAddLeadToggle}
+                disabled={allowUserAddLeadMutation.isPending}
+                data-testid="switch-allow-user-add-lead"
+              />
+            </div>
+            {allowUserAddLeadMutation.isPending && (
+              <p className="text-xs text-muted-foreground">Saving...</p>
             )}
           </div>
         </div>
