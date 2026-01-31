@@ -927,6 +927,7 @@ export const companies = pgTable('companies', {
     date_format?: string;
     custom_branding?: any;
     weekly_off_days?: number[]; // 0=Sunday, 1=Monday, ..., 6=Saturday
+    allow_user_add_lead?: boolean; // If false, regular users cannot add leads (default: true)
   }>().default({}).notNull(),
   status: varchar('status', { length: 50 }).notNull().default('active'),
   attendance_exit_target_id: varchar('attendance_exit_target_id'), // Links to working_targets for attendance exit condition
