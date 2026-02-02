@@ -199,6 +199,14 @@ export function LeadTransferRequests({ headless = false }: { headless?: boolean 
                           <p className="text-sm text-muted-foreground">
                             Mobile: {request.lead?.custom_fields?.mobile_no || "N/A"}
                           </p>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                              Lead: {request.lead?.custom_fields?.lead_status || "N/A"}
+                            </span>
+                            <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                              Visit: {request.lead?.custom_fields?.visit_status || "N/A"}
+                            </span>
+                          </div>
                         </div>
                         <div className="flex gap-2">
                           <Button
