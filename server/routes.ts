@@ -22996,6 +22996,18 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const dayStart = getStartOfDayInTimezone(now, companyTimezone);
     const dayEnd = getEndOfDayInTimezone(now, companyTimezone);
     
+    // Yesterday boundaries
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayStart = getStartOfDayInTimezone(yesterdayDate, companyTimezone);
+    const yesterdayEnd = getEndOfDayInTimezone(yesterdayDate, companyTimezone);
+    
+    // Last month boundaries
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthStart = getStartOfDayInTimezone(lastMonthDate, companyTimezone);
+    const lastMonthEndDate = new Date(now.getFullYear(), now.getMonth(), 0); // Last day of previous month
+    const lastMonthEnd = getEndOfDayInTimezone(lastMonthEndDate, companyTimezone);
+    
     // Get all sheets for this company to count leads
     const companySheets = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.company_id, companyId));
     const companySheetIds = companySheets.map(s => s.id);
@@ -23082,34 +23094,44 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     // For yearly: cap at yearEnd if now is beyond Vision Board year, otherwise use now
     const yearlyPeriodEnd = now > yearEnd ? yearEnd : now;
     const [
-      yearlyVisits, monthlyVisits, weeklyVisits, dailyVisits,
-      yearlySales, monthlySales, weeklySales, dailySales,
-      yearlyLeads, monthlyLeads, weeklyLeads, dailyLeads,
-      yearlyFollowups, monthlyFollowups, weeklyFollowups, dailyFollowups
+      yearlyVisits, monthlyVisits, lastMonthVisits, weeklyVisits, dailyVisits, yesterdayVisits,
+      yearlySales, monthlySales, lastMonthSales, weeklySales, dailySales, yesterdaySales,
+      yearlyLeads, monthlyLeads, lastMonthLeads, weeklyLeads, dailyLeads, yesterdayLeads,
+      yearlyFollowups, monthlyFollowups, lastMonthFollowups, weeklyFollowups, dailyFollowups, yesterdayFollowups
     ] = await Promise.all([
       countVisitsInPeriod(yearStart, yearlyPeriodEnd),
       countVisitsInPeriod(monthStart, now),
+      countVisitsInPeriod(lastMonthStart, lastMonthEnd),
       countVisitsInPeriod(weekStart, now),
       countVisitsInPeriod(dayStart, dayEnd),
+      countVisitsInPeriod(yesterdayStart, yesterdayEnd),
       countSalesInPeriod(yearStart, yearlyPeriodEnd),
       countSalesInPeriod(monthStart, now),
+      countSalesInPeriod(lastMonthStart, lastMonthEnd),
       countSalesInPeriod(weekStart, now),
       countSalesInPeriod(dayStart, dayEnd),
+      countSalesInPeriod(yesterdayStart, yesterdayEnd),
       countLeadsCreated(yearStart, yearlyPeriodEnd),
       countLeadsCreated(monthStart, now),
+      countLeadsCreated(lastMonthStart, lastMonthEnd),
       countLeadsCreated(weekStart, now),
       countLeadsCreated(dayStart, dayEnd),
+      countLeadsCreated(yesterdayStart, yesterdayEnd),
       countFollowupsInPeriod(yearStart, yearlyPeriodEnd),
       countFollowupsInPeriod(monthStart, now),
+      countFollowupsInPeriod(lastMonthStart, lastMonthEnd),
       countFollowupsInPeriod(weekStart, now),
       countFollowupsInPeriod(dayStart, dayEnd),
+      countFollowupsInPeriod(yesterdayStart, yesterdayEnd),
     ]);
     
     const teamEffortAchieved = {
       yearly: { sales: yearlySales, visits: yearlyVisits, leads_attended: yearlyLeads, followups: yearlyFollowups },
       monthly: { sales: monthlySales, visits: monthlyVisits, leads_attended: monthlyLeads, followups: monthlyFollowups },
+      last_month: { sales: lastMonthSales, visits: lastMonthVisits, leads_attended: lastMonthLeads, followups: lastMonthFollowups },
       weekly: { sales: weeklySales, visits: weeklyVisits, leads_attended: weeklyLeads, followups: weeklyFollowups },
       daily: { sales: dailySales, visits: dailyVisits, leads_attended: dailyLeads, followups: dailyFollowups },
+      yesterday: { sales: yesterdaySales, visits: yesterdayVisits, leads_attended: yesterdayLeads, followups: yesterdayFollowups },
     };
 
     return {

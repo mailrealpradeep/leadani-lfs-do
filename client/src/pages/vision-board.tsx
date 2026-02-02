@@ -2211,7 +2211,7 @@ function VisionBoardPreloader() {
 
 export default function VisionBoardPage() {
   const { user, company } = useAuth();
-  const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("daily");
+  const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "yesterday" | "weekly" | "monthly" | "last_month" | "yearly">("daily");
   const [conversionDateFilter, setConversionDateFilter] = useState<"all_time" | "this_week" | "last_week" | "this_month" | "last_month" | "last_30_days" | "custom">("last_30_days");
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
@@ -2296,8 +2296,10 @@ export default function VisionBoardPage() {
     effort_achieved?: {
       yearly: { sales: number; visits: number; leads_attended: number; followups: number };
       monthly: { sales: number; visits: number; leads_attended: number; followups: number };
+      last_month: { sales: number; visits: number; leads_attended: number; followups: number };
       weekly: { sales: number; visits: number; leads_attended: number; followups: number };
       daily: { sales: number; visits: number; leads_attended: number; followups: number };
+      yesterday: { sales: number; visits: number; leads_attended: number; followups: number };
     };
   }
   
@@ -2319,11 +2321,13 @@ export default function VisionBoardPage() {
   
   // Helper to scale yearly targets based on selected period
   // Uses same Math.ceil logic as existing yearlyToMonthly/Weekly/Daily helpers
-  const scaleTargetByPeriod = (yearlyTarget: number, period: "daily" | "weekly" | "monthly" | "yearly"): number => {
+  const scaleTargetByPeriod = (yearlyTarget: number, period: "daily" | "yesterday" | "weekly" | "monthly" | "last_month" | "yearly"): number => {
     switch (period) {
       case "daily": return Math.ceil(yearlyTarget / 365);
+      case "yesterday": return Math.ceil(yearlyTarget / 365); // Same as daily
       case "weekly": return Math.ceil(yearlyTarget / 52);
       case "monthly": return Math.ceil(yearlyTarget / 12);
+      case "last_month": return Math.ceil(yearlyTarget / 12); // Same as monthly
       case "yearly": return yearlyTarget;
       default: return yearlyTarget;
     }
@@ -2333,7 +2337,7 @@ export default function VisionBoardPage() {
   // When monthlyTargets is provided, uses: Year = annual, Month = from table, Week = Month÷4, Day = Month÷25
   const getScaledEffortTargets = (
     targets: { sales: number; visits: number; leads_attended: number; followups: number } | null | undefined,
-    period: "daily" | "weekly" | "monthly" | "yearly",
+    period: "daily" | "yesterday" | "weekly" | "monthly" | "last_month" | "yearly",
     monthlyTargets?: Array<{ month: number; targets: { sales: number; visits: number; leads_attended: number; followups: number } }>
   ) => {
     if (!targets) return { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
@@ -2341,7 +2345,9 @@ export default function VisionBoardPage() {
     // If monthly targets provided, use them for month/week/day calculations
     if (monthlyTargets && monthlyTargets.length > 0) {
       const currentMonth = new Date().getMonth() + 1; // 1-12
+      const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
       const monthTarget = monthlyTargets.find(mt => mt.month === currentMonth)?.targets;
+      const lastMonthTarget = monthlyTargets.find(mt => mt.month === lastMonth)?.targets;
       
       if (monthTarget) {
         switch (period) {
@@ -2351,6 +2357,9 @@ export default function VisionBoardPage() {
           case "monthly":
             // Month = from table
             return monthTarget;
+          case "last_month":
+            // Last month = from table or fallback to monthly calculation
+            return lastMonthTarget || monthTarget;
           case "weekly":
             // Week = Month ÷ 4
             return {
@@ -2361,6 +2370,14 @@ export default function VisionBoardPage() {
             };
           case "daily":
             // Day = Month ÷ 25 (working days)
+            return {
+              sales: Math.round(monthTarget.sales / 25),
+              visits: Math.round(monthTarget.visits / 25),
+              leads_attended: Math.round(monthTarget.leads_attended / 25),
+              followups: Math.round(monthTarget.followups / 25),
+            };
+          case "yesterday":
+            // Yesterday = same as daily (Month ÷ 25)
             return {
               sales: Math.round(monthTarget.sales / 25),
               visits: Math.round(monthTarget.visits / 25),
@@ -3055,12 +3072,14 @@ export default function VisionBoardPage() {
                       {labels.effortTitle}
                     </CardTitle>
                   {/* Unified date filter for both team and personal views */}
-                  <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                    {(["daily", "weekly", "monthly", "yearly"] as const).map((period) => {
+                  <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700 rounded-lg flex-wrap">
+                    {(["daily", "yesterday", "weekly", "monthly", "last_month", "yearly"] as const).map((period) => {
                       const periodLabels: Record<typeof period, string> = {
                         daily: "Today",
+                        yesterday: "Yesterday",
                         weekly: "This Week",
                         monthly: "This Month",
+                        last_month: "Last Month",
                         yearly: "This Year"
                       };
                       return (
