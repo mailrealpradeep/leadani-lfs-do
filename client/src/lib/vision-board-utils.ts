@@ -7,7 +7,7 @@ import {
   getMonthRangeInTimezone,
 } from "./timezone-utils";
 
-export type PeriodType = "daily" | "weekly" | "monthly" | "yearly";
+export type PeriodType = "daily" | "yesterday" | "weekly" | "monthly" | "last_month" | "yearly";
 
 /**
  * Get the first working day of the week based on weekly off days
@@ -181,6 +181,16 @@ export function calculateExpectedPercentage(
         return 100;
       }
       return 0;
+    }
+
+    case "yesterday": {
+      // For yesterday: past period, so expected is always 100%
+      return 100;
+    }
+
+    case "last_month": {
+      // For last month: past period, so expected is always 100%
+      return 100;
     }
 
     case "weekly": {
