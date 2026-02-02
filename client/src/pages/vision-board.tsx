@@ -2361,28 +2361,28 @@ export default function VisionBoardPage() {
             // Last month = from table or fallback to monthly calculation
             return lastMonthTarget || monthTarget;
           case "weekly":
-            // Week = Month ÷ 4
+            // Week = Month ÷ 4 (round UP to ensure targets stay on higher side)
             return {
-              sales: Math.round(monthTarget.sales / 4),
-              visits: Math.round(monthTarget.visits / 4),
-              leads_attended: Math.round(monthTarget.leads_attended / 4),
-              followups: Math.round(monthTarget.followups / 4),
+              sales: Math.ceil(monthTarget.sales / 4),
+              visits: Math.ceil(monthTarget.visits / 4),
+              leads_attended: Math.ceil(monthTarget.leads_attended / 4),
+              followups: Math.ceil(monthTarget.followups / 4),
             };
           case "daily":
-            // Day = Month ÷ 25 (working days)
+            // Day = Month ÷ 25 (round UP to ensure targets stay on higher side)
             return {
-              sales: Math.round(monthTarget.sales / 25),
-              visits: Math.round(monthTarget.visits / 25),
-              leads_attended: Math.round(monthTarget.leads_attended / 25),
-              followups: Math.round(monthTarget.followups / 25),
+              sales: Math.ceil(monthTarget.sales / 25),
+              visits: Math.ceil(monthTarget.visits / 25),
+              leads_attended: Math.ceil(monthTarget.leads_attended / 25),
+              followups: Math.ceil(monthTarget.followups / 25),
             };
           case "yesterday":
-            // Yesterday = same as daily (Month ÷ 25)
+            // Yesterday = same as daily (Month ÷ 25, round UP)
             return {
-              sales: Math.round(monthTarget.sales / 25),
-              visits: Math.round(monthTarget.visits / 25),
-              leads_attended: Math.round(monthTarget.leads_attended / 25),
-              followups: Math.round(monthTarget.followups / 25),
+              sales: Math.ceil(monthTarget.sales / 25),
+              visits: Math.ceil(monthTarget.visits / 25),
+              leads_attended: Math.ceil(monthTarget.leads_attended / 25),
+              followups: Math.ceil(monthTarget.followups / 25),
             };
         }
       }
