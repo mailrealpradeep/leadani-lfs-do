@@ -446,7 +446,7 @@ function EffortMetricCard({
                     "text-xs px-2 py-0.5 rounded-full font-medium",
                     "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
                   )}>
-                    {formatPercent(expectedPercent)}%
+                    {formatPercent(expectedPercent)}% ({Math.round(target * expectedPercent / 100)})
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -459,7 +459,7 @@ function EffortMetricCard({
                       ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                       : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
                   )}>
-                    {formatPercent(progress)}%
+                    {formatPercent(progress)}% ({achieved})
                   </span>
                 </div>
               </div>
