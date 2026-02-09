@@ -272,7 +272,10 @@ export async function processWhatsAppMessage(
         return followupResult;
       }
 
-      if (existingLead.lead.owner_user_id === allocation.user_id) {
+      if (existingLead.lead.owner_user_id === allocation.user_id || existingLead.lead.sheet_id === allocation.sheet_id) {
+        if (existingLead.lead.sheet_id === allocation.sheet_id && existingLead.lead.owner_user_id !== allocation.user_id) {
+          console.log("[WhatsApp Processor] Lead already in same sheet (different owner) - adding follow-up instead of transfer request");
+        }
         const followupResult = await addFollowupToLead(existingLead.lead, log, messageText, senderName, matchedRule.id);
         return followupResult;
       } else {
