@@ -247,7 +247,7 @@ async function processDropdownChangeRule(
 
   if (!matchingChange) return { awarded: 0, pending: 0 };
 
-  const { pointsAwarded, hasPending } = await getDailyPointsAndPending(context.userId, rule.id, scoreDate);
+  const { pointsAwarded } = await getDailyPointsAndPending(context.userId, rule.id, scoreDate);
   
   // Check daily cap - ensure adding this award won't exceed the cap
   if (rule.daily_cap && pointsAwarded + rule.points > rule.daily_cap) {
@@ -257,9 +257,14 @@ async function processDropdownChangeRule(
   const description = `${config.column_key}: ${matchingChange.oldValue || 'any'} → ${matchingChange.newValue}`;
 
   if (rule.requires_approval) {
-    // If already has pending approval for this rule today, skip to prevent duplicates
-    if (hasPending) {
-      return { awarded: 0, pending: 0 };
+    // Check per-lead duplicate: only skip if THIS specific lead already has a pending approval for this rule
+    // (not other leads - each lead's status transition is a unique scoring event)
+    if (context.leadId) {
+      const leadApprovals = await storage.getPendingApprovalsByLeadId(context.leadId);
+      const hasPendingForThisLead = leadApprovals.some(a => a.rule_id === rule.id && a.status === 'pending');
+      if (hasPendingForThisLead) {
+        return { awarded: 0, pending: 0 };
+      }
     }
     await storage.createPowerScorePendingApproval({
       company_id: context.companyId,
