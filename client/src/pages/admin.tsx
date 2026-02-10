@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, Database, CheckCircle2, Loader2, MapPin, Calendar } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, MessageSquare, Database, CheckCircle2, Loader2, MapPin, Calendar } from "lucide-react";
 import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -49,6 +49,7 @@ import { FinalValueSettings } from "@/components/final-value-settings";
 import { LeadTransferConfig } from "@/components/lead-transfer-config";
 import { LeadTransferRequests } from "@/components/lead-transfer-requests";
 import { WhatsAppSettings } from "@/components/whatsapp-settings";
+import { WhatsAppCloudAdminSettings } from "@/components/whatsapp-cloud-settings";
 import { Flame, ClipboardCheck, Eye, FormInput, Zap, Sparkles, ThumbsUp, Gift, Trophy, Award, Activity, Lock, ArrowRightLeft, Phone } from "lucide-react";
 import { PowerScoreSettings } from "@/components/powerscore-settings";
 import { PowerFlowSettings } from "@/components/powerflow-settings";
@@ -1527,6 +1528,25 @@ function CompanyAdminView() {
             <AccordionContent>
               <div className="pt-2">
                 <WhatsAppSettings />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="whatsapp-cloud" className="border rounded-lg px-4 bg-card">
+            <AccordionTrigger className="hover:no-underline" data-testid="accordion-whatsapp-cloud">
+              <div className="flex items-center gap-3">
+                <MessageSquare className="h-5 w-5 text-muted-foreground" />
+                <div className="text-left">
+                  <div className="font-semibold">WhatsApp Business API</div>
+                  <div className="text-sm text-muted-foreground font-normal">
+                    Connect your WhatsApp Business number via Meta Cloud API
+                  </div>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <WhatsAppCloudAdminSettings />
               </div>
             </AccordionContent>
           </AccordionItem>

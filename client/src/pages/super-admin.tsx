@@ -31,6 +31,7 @@ import {
   GripVertical,
   AlertCircle,
   EyeOff,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,6 +76,7 @@ import { ApiDocumentation } from "@/components/api-documentation";
 import { FutureImprovements } from "@/components/future-improvements";
 import { ApiKeysManager } from "@/components/api-keys-manager";
 import { DataRecovery } from "@/components/data-recovery";
+import { MetaPlatformSettings } from "@/components/whatsapp-cloud-settings";
 import {
   Sidebar,
   SidebarContent,
@@ -133,7 +135,7 @@ interface SystemValueDefinition {
   created_at: string;
 }
 
-type Section = "dashboard" | "users" | "companies" | "recovery" | "api-docs" | "api-keys" | "system-values" | "future";
+type Section = "dashboard" | "users" | "companies" | "recovery" | "api-docs" | "api-keys" | "system-values" | "whatsapp-cloud" | "future";
 
 const SUPER_ADMIN_EMAIL = "adminleadani@leadani.com";
 
@@ -145,6 +147,7 @@ const menuItems = [
   { id: "recovery" as Section, title: "Recovery", icon: History },
   { id: "api-docs" as Section, title: "API Docs", icon: Code },
   { id: "api-keys" as Section, title: "API Keys", icon: Key },
+  { id: "whatsapp-cloud" as Section, title: "WhatsApp Cloud", icon: MessageSquare },
   { id: "future" as Section, title: "Future", icon: Lightbulb },
 ];
 
@@ -1046,6 +1049,12 @@ function SuperAdminContent() {
         );
       case "system-values":
         return renderSystemValues();
+      case "whatsapp-cloud":
+        return (
+          <div className="h-full">
+            <MetaPlatformSettings />
+          </div>
+        );
       case "future":
         return <FutureImprovements />;
       default:
@@ -1063,6 +1072,7 @@ function SuperAdminContent() {
     recovery: "Restore data from point-in-time snapshots",
     "api-docs": "Reference for API integration",
     "api-keys": "Manage API access credentials",
+    "whatsapp-cloud": "Configure Meta WhatsApp Cloud API integration",
     future: "Planned improvements and features",
   };
 
