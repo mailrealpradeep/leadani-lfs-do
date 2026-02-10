@@ -81,8 +81,6 @@ function ManualPointDetails({ details }: { details: BreakdownDetail[] }) {
       {details.map((detail, i) => {
         const reasonMatch = detail.description?.match(/\(([^)]+)\)$/);
         const reason = reasonMatch ? reasonMatch[1] : detail.description || 'Manual adjustment';
-        const adminMatch = detail.description?.match(/^Manual Point by ([^(]+)/);
-        const adminName = adminMatch ? adminMatch[1].trim() : '';
         
         return (
           <div
@@ -90,17 +88,10 @@ function ManualPointDetails({ details }: { details: BreakdownDetail[] }) {
             className="flex items-center justify-between gap-2 text-xs py-1 px-2 rounded-md bg-muted/50"
             data-testid={`manual-detail-${i}`}
           >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-muted-foreground shrink-0">
-                {detail.points > 0 ? '+' : ''}{detail.points} pts
-              </span>
-              <span className="truncate">{reason}</span>
-            </div>
-            {adminName && (
-              <span className="text-muted-foreground shrink-0 text-[10px]">
-                by {adminName}
-              </span>
-            )}
+            <span className="truncate">{reason}</span>
+            <span className="text-muted-foreground shrink-0">
+              {detail.points > 0 ? '+' : ''}{detail.points} pts
+            </span>
           </div>
         );
       })}
