@@ -9902,7 +9902,9 @@ export class PgStorage implements IStorage {
       let ruleName = row.rule_name;
       if (!ruleName) {
         if (isManual) {
-          ruleName = 'Manual Points';
+          const adminMatch = row.description?.match(/^Manual Point by (.+?)\s*\(/);
+          const adminName = adminMatch ? adminMatch[1].trim() : '';
+          ruleName = adminName ? `Manual Points by ${adminName}` : 'Manual Points';
         } else {
           ruleName = 'Unknown Rule';
         }
