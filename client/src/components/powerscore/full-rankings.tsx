@@ -149,6 +149,15 @@ function PointsBreakdown({ userId, period }: { userId: string; period: string })
             const entryKey = entry.action_type === 'admin_manual' ? `admin_manual_${index}` : entry.rule_id;
             const isExpanded = expandedManual === entryKey;
             
+            let displayName = entry.rule_name;
+            if (entry.action_type === 'admin_manual' && hasDetails) {
+              const firstDesc = entry.details![0]?.description || '';
+              const adminMatch = firstDesc.match(/^Manual Point by (.+?)\s*\(/);
+              if (adminMatch) {
+                displayName = `Manual Points by ${adminMatch[1].trim()}`;
+              }
+            }
+            
             return (
               <div key={entryKey}>
                 <motion.div
@@ -169,7 +178,7 @@ function PointsBreakdown({ userId, period }: { userId: string; period: string })
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1 mb-1">
                       <div className="flex items-center gap-1 min-w-0">
-                        <span className="text-sm font-medium truncate">{entry.rule_name}</span>
+                        <span className="text-sm font-medium truncate">{displayName}</span>
                         {hasDetails && (
                           <ChevronDown className={cn(
                             "h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
