@@ -79,7 +79,7 @@ function ManualPointDetails({ details }: { details: BreakdownDetail[] }) {
   return (
     <div className="ml-9 mt-1.5 space-y-1">
       {details.map((detail, i) => {
-        const reasonMatch = detail.description?.match(/\(([^)]+)\)$/);
+        const reasonMatch = detail.description?.match(/^Manual Point by .+?\((.+)\)$/);
         const reason = reasonMatch ? reasonMatch[1] : detail.description || 'Manual adjustment';
         
         return (
