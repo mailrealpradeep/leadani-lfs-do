@@ -92,9 +92,11 @@ export async function recordFollowupAndAwardPoints(
     console.error("Error fetching final value settings:", err);
   }
 
-  // Always award points for dropdown changes to final stage values (configured in Admin Console),
-  // even if the followup event was deduplicated. These are major scoring points, not regular updates.
-  const shouldAwardPoints = result.isNew || hasFinalStageChange(dropdownChanges, finalValueSettings);
+  // Always award points for dropdown changes (visit_status, lead_status transitions like "Visit Done", "Sales Closed"),
+  // even if the followup event was deduplicated. Dropdown_change rules are significant milestone awards
+  // that should never be blocked by the 60-second deduplication window designed for followup points.
+  const hasDropdownChanges = dropdownChanges.length > 0;
+  const shouldAwardPoints = result.isNew || hasDropdownChanges || hasFinalStageChange(dropdownChanges, finalValueSettings);
 
   if (shouldAwardPoints) {
     const { awarded, pending } = await awardLeadUpdatePoints(
