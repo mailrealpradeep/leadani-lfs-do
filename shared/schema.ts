@@ -5063,3 +5063,47 @@ export const insertAdminActualIncentiveSchema = createInsertSchema(admin_actual_
 });
 
 export type InsertAdminActualIncentiveData = z.infer<typeof insertAdminActualIncentiveSchema>;
+
+// ============================================================================
+// WHATSAPP CLOUD API - META EMBEDDED SIGNUP (Multi-Tenant)
+// ============================================================================
+
+export const whatsapp_cloud_config = pgTable('whatsapp_cloud_config', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  waba_id: varchar('waba_id', { length: 100 }),
+  phone_number_id: varchar('phone_number_id', { length: 100 }),
+  display_phone_number: varchar('display_phone_number', { length: 30 }),
+  business_name: varchar('business_name', { length: 255 }),
+  access_token: text('access_token'),
+  account_status: varchar('account_status', { length: 30 }).notNull().default('disconnected'),
+  webhook_verify_token: varchar('webhook_verify_token', { length: 100 }),
+  connected_at: timestamp('connected_at'),
+  connected_by: varchar('connected_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WhatsAppCloudConfig = typeof whatsapp_cloud_config.$inferSelect;
+export type InsertWhatsAppCloudConfig = typeof whatsapp_cloud_config.$inferInsert;
+
+export const insertWhatsAppCloudConfigSchema = createInsertSchema(whatsapp_cloud_config).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWhatsAppCloudConfigData = z.infer<typeof insertWhatsAppCloudConfigSchema>;
+
+export const meta_platform_settings = pgTable('meta_platform_settings', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  setting_key: varchar('setting_key', { length: 100 }).notNull().unique(),
+  setting_value: text('setting_value').notNull(),
+  description: varchar('description', { length: 255 }),
+  updated_by: varchar('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type MetaPlatformSetting = typeof meta_platform_settings.$inferSelect;
+export type InsertMetaPlatformSetting = typeof meta_platform_settings.$inferInsert;
