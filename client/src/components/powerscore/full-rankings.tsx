@@ -14,6 +14,7 @@ import {
   Medal,
   Award,
   TrendingUp,
+  PenLine,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,12 @@ interface FullRankingsProps {
   period: string;
 }
 
+interface BreakdownDetail {
+  description: string;
+  points: number;
+  created_at: string;
+}
+
 interface BreakdownEntry {
   rule_id: string;
   rule_name: string;
@@ -36,6 +43,7 @@ interface BreakdownEntry {
   points_earned: number;
   transaction_count: number;
   daily_cap: number | null;
+  details?: BreakdownDetail[];
 }
 
 const actionTypeIcons: Record<string, { icon: typeof LogIn; color: string; bgColor: string }> = {
@@ -54,6 +62,11 @@ const actionTypeIcons: Record<string, { icon: typeof LogIn; color: string; bgCol
     color: "text-purple-600 dark:text-purple-400",
     bgColor: "bg-purple-100 dark:bg-purple-900/40"
   },
+  admin_manual: {
+    icon: PenLine,
+    color: "text-orange-600 dark:text-orange-400",
+    bgColor: "bg-orange-100 dark:bg-orange-900/40"
+  },
 };
 
 const rankIcons: Record<number, { icon: typeof Trophy; color: string }> = {
@@ -62,7 +75,41 @@ const rankIcons: Record<number, { icon: typeof Trophy; color: string }> = {
   3: { icon: Award, color: "text-orange-500" },
 };
 
+function ManualPointDetails({ details }: { details: BreakdownDetail[] }) {
+  return (
+    <div className="ml-9 mt-1.5 space-y-1">
+      {details.map((detail, i) => {
+        const reasonMatch = detail.description?.match(/\(([^)]+)\)$/);
+        const reason = reasonMatch ? reasonMatch[1] : detail.description || 'Manual adjustment';
+        const adminMatch = detail.description?.match(/^Manual Point by ([^(]+)/);
+        const adminName = adminMatch ? adminMatch[1].trim() : '';
+        
+        return (
+          <div
+            key={i}
+            className="flex items-center justify-between gap-2 text-xs py-1 px-2 rounded-md bg-muted/50"
+            data-testid={`manual-detail-${i}`}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-muted-foreground shrink-0">
+                {detail.points > 0 ? '+' : ''}{detail.points} pts
+              </span>
+              <span className="truncate">{reason}</span>
+            </div>
+            {adminName && (
+              <span className="text-muted-foreground shrink-0 text-[10px]">
+                by {adminName}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PointsBreakdown({ userId, period }: { userId: string; period: string }) {
+  const [expandedManual, setExpandedManual] = useState<string | null>(null);
   const { data, isLoading } = useQuery<{ breakdown: BreakdownEntry[] }>({
     queryKey: [`/api/powerscore/breakdown/${userId}?period=${period}`],
   });
@@ -107,43 +154,72 @@ function PointsBreakdown({ userId, period }: { userId: string; period: string })
             const progressValue = entry.daily_cap 
               ? Math.min(100, Math.round((entry.points_earned / entry.daily_cap) * 100))
               : 100;
+            const hasDetails = entry.details && entry.details.length > 0;
+            const entryKey = entry.action_type === 'admin_manual' ? `admin_manual_${index}` : entry.rule_id;
+            const isExpanded = expandedManual === entryKey;
             
             return (
-              <motion.div
-                key={entry.rule_id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="flex items-center gap-3"
-                data-testid={`breakdown-entry-${entry.rule_id}`}
-              >
-                <div className={cn("p-1.5 rounded-lg", config.bgColor)}>
-                  <Icon className={cn("h-3.5 w-3.5", config.color)} />
-                </div>
-                
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium truncate">{entry.rule_name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {entry.transaction_count} {entry.transaction_count === 1 ? 'action' : 'actions'}, {entry.points_earned} pts
-                    </span>
+              <div key={entryKey}>
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  className={cn(
+                    "flex items-center gap-3",
+                    hasDetails && "cursor-pointer"
+                  )}
+                  onClick={hasDetails ? () => setExpandedManual(isExpanded ? null : entryKey) : undefined}
+                  data-testid={`breakdown-entry-${entryKey}`}
+                >
+                  <div className={cn("p-1.5 rounded-lg", config.bgColor)}>
+                    <Icon className={cn("h-3.5 w-3.5", config.color)} />
                   </div>
-                  <Progress value={progressValue} className="h-1.5" />
-                </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-sm font-medium truncate">{entry.rule_name}</span>
+                        {hasDetails && (
+                          <ChevronDown className={cn(
+                            "h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
+                            isExpanded && "rotate-180"
+                          )} />
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {entry.transaction_count} {entry.transaction_count === 1 ? 'action' : 'actions'}, {entry.points_earned} pts
+                      </span>
+                    </div>
+                    <Progress value={progressValue} className="h-1.5" />
+                  </div>
+                  
+                  {capReached ? (
+                    <Badge 
+                      variant="outline" 
+                      className="text-xs font-medium min-w-[85px] justify-center bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-700"
+                    >
+                      Cap Reached
+                    </Badge>
+                  ) : entry.daily_cap ? (
+                    <span className="text-xs text-muted-foreground min-w-[85px] text-right">
+                      {entry.points_earned} / {entry.daily_cap}
+                    </span>
+                  ) : null}
+                </motion.div>
                 
-                {capReached ? (
-                  <Badge 
-                    variant="outline" 
-                    className="text-xs font-medium min-w-[85px] justify-center bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-700"
-                  >
-                    Cap Reached
-                  </Badge>
-                ) : entry.daily_cap ? (
-                  <span className="text-xs text-muted-foreground min-w-[85px] text-right">
-                    {entry.points_earned} / {entry.daily_cap}
-                  </span>
-                ) : null}
-              </motion.div>
+                <AnimatePresence>
+                  {isExpanded && hasDetails && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      <ManualPointDetails details={entry.details!} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             );
           })}
         </div>

@@ -915,7 +915,7 @@ export interface IStorage {
   isMultiSheetUser(userId: string): Promise<boolean>;
   getUserPowerScorePersonalStats(userId: string, companyTimezone: string): Promise<PowerScorePersonalStats>;
   getUserPowerScoreHistory(userId: string, limit?: number): Promise<PowerScoreHistoryEntry[]>;
-  getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }[]>;
+  getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; details?: { description: string; points: number; created_at: string }[] }[]>;
 
   // PowerScore Pending Approvals (For high-value actions)
   getPowerScorePendingApprovals(companyId: string): Promise<PowerScorePendingApproval[]>;
@@ -3614,7 +3614,7 @@ export class MemStorage implements IStorage {
   async isMultiSheetUser(_userId: string): Promise<boolean> { return false; }
   async getUserPowerScorePersonalStats(_userId: string, _companyTimezone: string): Promise<PowerScorePersonalStats> { return { today: 0, yesterday: 0, this_week: 0, last_week: 0, this_month: 0, last_month: 0, today_vs_yesterday_percent: 0, this_week_vs_last_week_percent: 0 }; }
   async getUserPowerScoreHistory(_userId: string, _limit?: number): Promise<PowerScoreHistoryEntry[]> { return []; }
-  async getUserPowerScoreBreakdown(_userId: string, _startDate: Date, _endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }[]> { return []; }
+  async getUserPowerScoreBreakdown(_userId: string, _startDate: Date, _endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; details?: { description: string; points: number; created_at: string }[] }[]> { return []; }
   async getPowerScorePendingApprovals(_companyId: string): Promise<PowerScorePendingApproval[]> { return []; }
   async getPowerScorePendingApproval(_id: string): Promise<PowerScorePendingApproval | undefined> { return undefined; }
   async getPendingApprovalsByRuleAndDate(_userId: string, _ruleId: string, _scoreDate: string): Promise<PowerScorePendingApproval[]> { return []; }
@@ -9865,7 +9865,7 @@ export class PgStorage implements IStorage {
     }));
   }
 
-  async getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }[]> {
+  async getUserPowerScoreBreakdown(userId: string, startDate: Date, endDate: Date): Promise<{ rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; details?: { description: string; points: number; created_at: string }[] }[]> {
     const result = await db
       .select({
         rule_id: dbSchema.powerscore_transactions.rule_id,
@@ -9874,6 +9874,7 @@ export class PgStorage implements IStorage {
         daily_cap: dbSchema.powerscore_rules.daily_cap,
         points: dbSchema.powerscore_transactions.points,
         description: dbSchema.powerscore_transactions.description,
+        created_at: dbSchema.powerscore_transactions.created_at,
       })
       .from(dbSchema.powerscore_transactions)
       .leftJoin(
@@ -9885,32 +9886,23 @@ export class PgStorage implements IStorage {
           eq(dbSchema.powerscore_transactions.user_id, userId),
           gte(dbSchema.powerscore_transactions.created_at, startDate),
           lte(dbSchema.powerscore_transactions.created_at, endDate),
-          // Exclude voided transactions (those that have been reversed)
           isNull(dbSchema.powerscore_transactions.voided_by_transaction_id),
-          // Exclude reversal transactions (those whose ID appears as voided_by_transaction_id in another transaction)
           sql`${dbSchema.powerscore_transactions.id} NOT IN (SELECT voided_by_transaction_id FROM powerscore_transactions WHERE voided_by_transaction_id IS NOT NULL)`
         )
       );
 
-    const breakdown = new Map<string, { rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; }>();
+    const breakdown = new Map<string, { rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; details?: { description: string; points: number; created_at: string }[] }>();
     
     for (const row of result) {
-      // For manual points, group by rule_id + description to separate different reasons
-      // For other transactions, group by rule_id
-      const groupKey = row.action_type === 'admin_manual' && row.description
-        ? `manual_${row.description}`
-        : (row.rule_id || 'unknown');
+      const isManual = row.action_type === 'admin_manual';
+      const groupKey = isManual ? 'admin_manual_all' : (row.rule_id || 'unknown');
       
       const existing = breakdown.get(groupKey);
       
-      // Determine rule name: use actual rule name, or "Manual Points (reason)" for admin_manual, or "Unknown Rule" as fallback
       let ruleName = row.rule_name;
       if (!ruleName) {
-        if (row.action_type === 'admin_manual') {
-          // Extract reason from description: "Manual Point by Admin Name (reason)"
-          const reasonMatch = row.description?.match(/\(([^)]+)\)$/);
-          const reason = reasonMatch ? reasonMatch[1] : '';
-          ruleName = reason ? `Manual Points (${reason})` : 'Manual Points';
+        if (isManual) {
+          ruleName = 'Manual Points';
         } else {
           ruleName = 'Unknown Rule';
         }
@@ -9919,15 +9911,30 @@ export class PgStorage implements IStorage {
       if (existing) {
         existing.points_earned += row.points;
         existing.transaction_count += 1;
+        if (isManual && existing.details) {
+          existing.details.push({
+            description: row.description || 'Manual adjustment',
+            points: row.points,
+            created_at: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+          });
+        }
       } else {
-        breakdown.set(groupKey, {
+        const entry: { rule_id: string; rule_name: string; action_type: string; points_earned: number; transaction_count: number; daily_cap: number | null; details?: { description: string; points: number; created_at: string }[] } = {
           rule_id: row.rule_id || 'unknown',
           rule_name: ruleName,
           action_type: row.action_type,
           points_earned: row.points,
           transaction_count: 1,
           daily_cap: row.daily_cap ?? null,
-        });
+        };
+        if (isManual) {
+          entry.details = [{
+            description: row.description || 'Manual adjustment',
+            points: row.points,
+            created_at: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+          }];
+        }
+        breakdown.set(groupKey, entry);
       }
     }
     
