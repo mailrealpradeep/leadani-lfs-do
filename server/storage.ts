@@ -9415,15 +9415,17 @@ export class PgStorage implements IStorage {
       .where(and(...conditions));
     const total = Number(countResult[0]?.count || 0);
 
-    // Get transactions with user and rule joins
+    // Get transactions with user, rule, and lead joins
     const result = await db.select({
       transaction: dbSchema.powerscore_transactions,
       user_name: dbSchema.users.name,
       rule_name: dbSchema.powerscore_rules.name,
+      lead_sheet_id: dbSchema.leads.sheet_id,
     })
       .from(dbSchema.powerscore_transactions)
       .leftJoin(dbSchema.users, eq(dbSchema.powerscore_transactions.user_id, dbSchema.users.id))
       .leftJoin(dbSchema.powerscore_rules, eq(dbSchema.powerscore_transactions.rule_id, dbSchema.powerscore_rules.id))
+      .leftJoin(dbSchema.leads, eq(dbSchema.powerscore_transactions.lead_id, dbSchema.leads.id))
       .where(and(...conditions))
       .orderBy(desc(dbSchema.powerscore_transactions.created_at))
       .limit(limit)
@@ -9466,6 +9468,7 @@ export class PgStorage implements IStorage {
         action_type: row.transaction.action_type as PowerScoreActionType,
         points: row.transaction.points,
         lead_id: row.transaction.lead_id,
+        lead_sheet_id: row.lead_sheet_id || null,
         description: row.transaction.description,
         score_date: row.transaction.score_date,
         approval_id: row.transaction.approval_id,

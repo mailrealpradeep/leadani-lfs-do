@@ -41,6 +41,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
+import { TransferRequestLeadDetailsDialog } from "@/components/transfer-request-lead-details-dialog";
 
 interface TransactionWithDetails {
   id: string;
@@ -51,6 +52,8 @@ interface TransactionWithDetails {
   points: number;
   action_type: string;
   description: string | null;
+  lead_id: string | null;
+  lead_sheet_id: string | null;
   status: string;
   voided_at: string | null;
   voided_by_user_id: string | null;
@@ -91,6 +94,9 @@ export default function PowerScoreTransactions() {
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
   const [transactionToVoid, setTransactionToVoid] = useState<TransactionWithDetails | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  const [leadDetailsDialogOpen, setLeadDetailsDialogOpen] = useState(false);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
 
   const { data: usersData } = useQuery<SimpleUser[]>({
     queryKey: ["/api/users/simple"],
@@ -385,8 +391,16 @@ export default function PowerScoreTransactions() {
                       <TableRow 
                         key={transaction.id}
                         className={cn(
-                          transaction.voided_at && "opacity-60"
+                          transaction.voided_at && "opacity-60",
+                          transaction.lead_id && transaction.lead_sheet_id && "cursor-pointer"
                         )}
+                        onClick={() => {
+                          if (transaction.lead_id && transaction.lead_sheet_id) {
+                            setSelectedLeadId(transaction.lead_id);
+                            setSelectedSheetId(transaction.lead_sheet_id);
+                            setLeadDetailsDialogOpen(true);
+                          }
+                        }}
                         data-testid={`row-transaction-${transaction.id}`}
                       >
                         <TableCell className="whitespace-nowrap">
@@ -447,7 +461,7 @@ export default function PowerScoreTransactions() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleVoidClick(transaction)}
+                              onClick={(e) => { e.stopPropagation(); handleVoidClick(transaction); }}
                               className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                               data-testid={`button-void-${transaction.id}`}
                             >
@@ -561,6 +575,21 @@ export default function PowerScoreTransactions() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {selectedLeadId && selectedSheetId && (
+        <TransferRequestLeadDetailsDialog
+          leadId={selectedLeadId}
+          sheetId={selectedSheetId}
+          open={leadDetailsDialogOpen}
+          onOpenChange={(open) => {
+            setLeadDetailsDialogOpen(open);
+            if (!open) {
+              setSelectedLeadId(null);
+              setSelectedSheetId(null);
+            }
+          }}
+        />
+      )}
     </div>
     </div>
   );
