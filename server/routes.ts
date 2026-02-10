@@ -21939,17 +21939,34 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // Get all PowerScore transactions for company (Admin only) - paginated with filters
+  app.get("/api/powerscore/transactions/filter-values", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const { userId } = req.query;
+      const result = await storage.getPowerScoreTransactionFilterValues(req.companyId, userId as string | undefined);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error fetching PowerScore transaction filter values:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/powerscore/transactions", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId) {
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      const { userId, page, limit } = req.query;
+      const { userId, page, limit, actionType, description, points } = req.query;
       const result = await storage.getPowerScoreTransactionsWithDetails(req.companyId, {
         userId: userId as string | undefined,
         page: page ? parseInt(page as string) : undefined,
         limit: limit ? parseInt(limit as string) : undefined,
+        actionType: actionType as string | undefined,
+        description: description as string | undefined,
+        points: points !== undefined && points !== '' ? parseInt(points as string) : undefined,
       });
       res.json(result);
     } catch (error: any) {

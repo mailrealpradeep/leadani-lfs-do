@@ -878,12 +878,21 @@ export interface IStorage {
   getDailyActionCount(userId: string, actionType: PowerScoreActionType, date: Date): Promise<number>;
   
   // PowerScore Transaction Admin Management
+  getPowerScoreTransactionFilterValues(companyId: string, userId?: string): Promise<{
+    actionTypes: string[];
+    descriptions: string[];
+    points: number[];
+  }>;
+
   getPowerScoreTransactionsWithDetails(
     companyId: string,
     options?: {
       userId?: string;
       page?: number;
       limit?: number;
+      actionType?: string;
+      description?: string;
+      points?: number;
     }
   ): Promise<{
     transactions: (PowerScoreTransaction & { user_name: string; voided_by_name?: string })[];
@@ -3596,7 +3605,8 @@ export class MemStorage implements IStorage {
   async getPowerScoreTransaction(_id: string): Promise<PowerScoreTransaction | undefined> { return undefined; }
   async createPowerScoreTransaction(_transaction: Omit<PowerScoreTransaction, 'id' | 'created_at'>): Promise<PowerScoreTransaction> { throw new Error("PowerScore not implemented in MemStorage"); }
   async getDailyActionCount(_userId: string, _actionType: PowerScoreActionType, _date: Date): Promise<number> { return 0; }
-  async getPowerScoreTransactionsWithDetails(_companyId: string, _options?: { userId?: string; page?: number; limit?: number }): Promise<{ transactions: (PowerScoreTransaction & { user_name: string; voided_by_name?: string })[]; total: number; page: number; totalPages: number }> { return { transactions: [], total: 0, page: 1, totalPages: 0 }; }
+  async getPowerScoreTransactionFilterValues(_companyId: string, _userId?: string): Promise<{ actionTypes: string[]; descriptions: string[]; points: number[] }> { return { actionTypes: [], descriptions: [], points: [] }; }
+  async getPowerScoreTransactionsWithDetails(_companyId: string, _options?: { userId?: string; page?: number; limit?: number; actionType?: string; description?: string; points?: number }): Promise<{ transactions: (PowerScoreTransaction & { user_name: string; voided_by_name?: string })[]; total: number; page: number; totalPages: number }> { return { transactions: [], total: 0, page: 1, totalPages: 0 }; }
   async voidPowerScoreTransaction(_transactionId: string, _voidedByUserId: string, _reason: string): Promise<{ originalTransaction: PowerScoreTransaction; adjustmentTransaction: PowerScoreTransaction }> { throw new Error("PowerScore not implemented in MemStorage"); }
   async getPowerScoreLeaderboard(_companyId: string, _startDate: Date, _endDate: Date): Promise<PowerScoreLeaderboardEntry[]> { return []; }
   async getUserPowerScore(_userId: string, _startDate: Date, _endDate: Date): Promise<number> { return 0; }
@@ -9339,9 +9349,41 @@ export class PgStorage implements IStorage {
     };
   }
 
+  async getPowerScoreTransactionFilterValues(companyId: string, userId?: string): Promise<{
+    actionTypes: string[];
+    descriptions: string[];
+    points: number[];
+  }> {
+    const conditions: any[] = [eq(dbSchema.powerscore_transactions.company_id, companyId)];
+    if (userId) {
+      conditions.push(eq(dbSchema.powerscore_transactions.user_id, userId));
+    }
+
+    const actionTypesResult = await db.selectDistinct({ action_type: dbSchema.powerscore_transactions.action_type })
+      .from(dbSchema.powerscore_transactions)
+      .where(and(...conditions))
+      .orderBy(dbSchema.powerscore_transactions.action_type);
+
+    const descriptionsResult = await db.selectDistinct({ description: dbSchema.powerscore_transactions.description })
+      .from(dbSchema.powerscore_transactions)
+      .where(and(...conditions))
+      .orderBy(dbSchema.powerscore_transactions.description);
+
+    const pointsResult = await db.selectDistinct({ points: dbSchema.powerscore_transactions.points })
+      .from(dbSchema.powerscore_transactions)
+      .where(and(...conditions))
+      .orderBy(dbSchema.powerscore_transactions.points);
+
+    return {
+      actionTypes: actionTypesResult.map(r => r.action_type).filter(Boolean) as string[],
+      descriptions: descriptionsResult.map(r => r.description).filter(Boolean) as string[],
+      points: pointsResult.map(r => r.points).filter(p => p !== null && p !== undefined) as number[],
+    };
+  }
+
   async getPowerScoreTransactionsWithDetails(
     companyId: string,
-    options?: { userId?: string; page?: number; limit?: number }
+    options?: { userId?: string; page?: number; limit?: number; actionType?: string; description?: string; points?: number }
   ): Promise<{
     transactions: (PowerScoreTransaction & { user_name: string; voided_by_name?: string })[];
     total: number;
@@ -9353,9 +9395,18 @@ export class PgStorage implements IStorage {
     const offset = (page - 1) * limit;
 
     // Build conditions
-    const conditions = [eq(dbSchema.powerscore_transactions.company_id, companyId)];
+    const conditions: any[] = [eq(dbSchema.powerscore_transactions.company_id, companyId)];
     if (options?.userId) {
       conditions.push(eq(dbSchema.powerscore_transactions.user_id, options.userId));
+    }
+    if (options?.actionType) {
+      conditions.push(eq(dbSchema.powerscore_transactions.action_type, options.actionType));
+    }
+    if (options?.description) {
+      conditions.push(eq(dbSchema.powerscore_transactions.description, options.description));
+    }
+    if (options?.points !== undefined && options?.points !== null) {
+      conditions.push(eq(dbSchema.powerscore_transactions.points, options.points));
     }
 
     // Get total count

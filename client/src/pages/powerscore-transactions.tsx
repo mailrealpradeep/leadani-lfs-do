@@ -73,12 +73,21 @@ interface SimpleUser {
   name: string;
 }
 
+interface FilterValues {
+  actionTypes: string[];
+  descriptions: string[];
+  points: number[];
+}
+
 export default function PowerScoreTransactions() {
   const { user, isCompanyAdmin, isSuperAdmin } = useAuth();
   const isAdmin = isCompanyAdmin || isSuperAdmin;
   const { toast } = useToast();
   const [page, setPage] = useState(1);
   const [selectedUserId, setSelectedUserId] = useState<string>("all");
+  const [selectedActionType, setSelectedActionType] = useState<string>("all");
+  const [selectedDescription, setSelectedDescription] = useState<string>("all");
+  const [selectedPoints, setSelectedPoints] = useState<string>("all");
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
   const [transactionToVoid, setTransactionToVoid] = useState<TransactionWithDetails | null>(null);
   const [voidReason, setVoidReason] = useState("");
@@ -87,7 +96,13 @@ export default function PowerScoreTransactions() {
     queryKey: ["/api/users/simple"],
   });
 
-  const transactionsQueryUrl = `/api/powerscore/transactions?page=${page}&limit=25${selectedUserId !== "all" ? `&userId=${selectedUserId}` : ""}`;
+  const filterValuesUrl = `/api/powerscore/transactions/filter-values${selectedUserId !== "all" ? `?userId=${selectedUserId}` : ""}`;
+  const { data: filterValues } = useQuery<FilterValues>({
+    queryKey: [filterValuesUrl],
+    enabled: isAdmin,
+  });
+
+  const transactionsQueryUrl = `/api/powerscore/transactions?page=${page}&limit=25${selectedUserId !== "all" ? `&userId=${selectedUserId}` : ""}${selectedActionType !== "all" ? `&actionType=${encodeURIComponent(selectedActionType)}` : ""}${selectedDescription !== "all" ? `&description=${encodeURIComponent(selectedDescription)}` : ""}${selectedPoints !== "all" ? `&points=${selectedPoints}` : ""}`;
   
   const { 
     data: transactionsData, 
@@ -224,30 +239,107 @@ export default function PowerScoreTransactions() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex-1">
-              <Label htmlFor="user-filter" className="text-sm font-medium mb-2 block">
-                Filter by User
-              </Label>
-              <Select 
-                value={selectedUserId} 
-                onValueChange={(value) => {
-                  setSelectedUserId(value);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-full sm:w-[280px]" data-testid="select-user-filter">
-                  <SelectValue placeholder="All Users" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  {usersData?.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3 flex-wrap">
+              <div>
+                <Label htmlFor="user-filter" className="text-xs font-medium mb-1 block text-muted-foreground">
+                  User
+                </Label>
+                <Select 
+                  value={selectedUserId} 
+                  onValueChange={(value) => {
+                    setSelectedUserId(value);
+                    setSelectedActionType("all");
+                    setSelectedDescription("all");
+                    setSelectedPoints("all");
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-[200px]" data-testid="select-user-filter">
+                    <SelectValue placeholder="All Users" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Users</SelectItem>
+                    {usersData?.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-medium mb-1 block text-muted-foreground">
+                  Action
+                </Label>
+                <Select 
+                  value={selectedActionType} 
+                  onValueChange={(value) => {
+                    setSelectedActionType(value);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-action-filter">
+                    <SelectValue placeholder="All Actions" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Actions</SelectItem>
+                    {filterValues?.actionTypes.map((action) => (
+                      <SelectItem key={action} value={action}>
+                        {action === "admin_manual" ? "Manual Point" : action.replace(/_/g, " ")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-medium mb-1 block text-muted-foreground">
+                  Description
+                </Label>
+                <Select 
+                  value={selectedDescription} 
+                  onValueChange={(value) => {
+                    setSelectedDescription(value);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-[220px]" data-testid="select-description-filter">
+                    <SelectValue placeholder="All Descriptions" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Descriptions</SelectItem>
+                    {filterValues?.descriptions.map((desc) => (
+                      <SelectItem key={desc} value={desc}>
+                        {desc}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs font-medium mb-1 block text-muted-foreground">
+                  Points
+                </Label>
+                <Select 
+                  value={selectedPoints} 
+                  onValueChange={(value) => {
+                    setSelectedPoints(value);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-[140px]" data-testid="select-points-filter">
+                    <SelectValue placeholder="All Points" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Points</SelectItem>
+                    {filterValues?.points.map((pts) => (
+                      <SelectItem key={pts} value={String(pts)}>
+                        {pts > 0 ? `+${pts}` : pts}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {transactionsData && (
               <div className="text-sm text-muted-foreground">
