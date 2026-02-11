@@ -273,6 +273,8 @@ import type {
   InsertWhatsAppFieldMappingData,
   WhatsAppDefaultValueRecord,
   InsertWhatsAppDefaultValueData,
+  WhatsAppTransferSettingsRecord,
+  InsertWhatsAppTransferSettingsData,
   WhatsAppMessageLogRecord,
   InsertWhatsAppMessageLogData,
 } from "@shared/schema";
@@ -1076,6 +1078,10 @@ export interface IStorage {
   createWhatsAppDefaultValue(value: InsertWhatsAppDefaultValueData): Promise<WhatsAppDefaultValueRecord>;
   updateWhatsAppDefaultValue(id: string, updates: Partial<WhatsAppDefaultValueRecord>): Promise<WhatsAppDefaultValueRecord | undefined>;
   deleteWhatsAppDefaultValue(id: string): Promise<boolean>;
+
+  // WhatsApp Transfer Settings
+  getWhatsAppTransferSettings(companyId: string): Promise<WhatsAppTransferSettingsRecord | undefined>;
+  upsertWhatsAppTransferSettings(companyId: string, settings: Partial<InsertWhatsAppTransferSettingsData>): Promise<WhatsAppTransferSettingsRecord>;
 
   // WhatsApp Message Logs (Track processed messages)
   getWhatsAppMessageLogs(companyId: string, options?: { 
@@ -3734,6 +3740,8 @@ export class MemStorage implements IStorage {
   async createWhatsAppDefaultValue(_value: InsertWhatsAppDefaultValueData): Promise<WhatsAppDefaultValueRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppDefaultValue(_id: string, _updates: Partial<WhatsAppDefaultValueRecord>): Promise<WhatsAppDefaultValueRecord | undefined> { return undefined; }
   async deleteWhatsAppDefaultValue(_id: string): Promise<boolean> { return false; }
+  async getWhatsAppTransferSettings(_companyId: string): Promise<WhatsAppTransferSettingsRecord | undefined> { return undefined; }
+  async upsertWhatsAppTransferSettings(_companyId: string, _settings: Partial<InsertWhatsAppTransferSettingsData>): Promise<WhatsAppTransferSettingsRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; status?: string; search?: string; fromDate?: Date; toDate?: Date; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
@@ -11979,6 +11987,29 @@ export class PgStorage implements IStorage {
   async deleteWhatsAppDefaultValue(id: string): Promise<boolean> {
     await db.delete(dbSchema.whatsapp_default_values).where(eq(dbSchema.whatsapp_default_values.id, id));
     return true;
+  }
+
+  async getWhatsAppTransferSettings(companyId: string): Promise<WhatsAppTransferSettingsRecord | undefined> {
+    const result = await db.select().from(dbSchema.whatsapp_transfer_settings)
+      .where(eq(dbSchema.whatsapp_transfer_settings.company_id, companyId))
+      .limit(1);
+    return result[0];
+  }
+
+  async upsertWhatsAppTransferSettings(companyId: string, settings: Partial<InsertWhatsAppTransferSettingsData>): Promise<WhatsAppTransferSettingsRecord> {
+    const existing = await this.getWhatsAppTransferSettings(companyId);
+    if (existing) {
+      const result = await db.update(dbSchema.whatsapp_transfer_settings)
+        .set({ ...settings, updated_at: new Date() })
+        .where(eq(dbSchema.whatsapp_transfer_settings.company_id, companyId))
+        .returning();
+      return result[0];
+    } else {
+      const result = await db.insert(dbSchema.whatsapp_transfer_settings)
+        .values({ company_id: companyId, ...settings })
+        .returning();
+      return result[0];
+    }
   }
 
   // WhatsApp Message Logs

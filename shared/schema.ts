@@ -4851,6 +4851,29 @@ export const insertWhatsAppDefaultValueSchema = createInsertSchema(whatsapp_defa
 
 export type InsertWhatsAppDefaultValueData = z.infer<typeof insertWhatsAppDefaultValueSchema>;
 
+// WhatsApp Transfer Settings - Configurable behavior for transfer requests
+export const whatsapp_transfer_settings = pgTable('whatsapp_transfer_settings', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }).unique(),
+  enabled: boolean('enabled').notNull().default(true),
+  auto_reset_statuses: json('auto_reset_statuses').$type<string[]>().default([]).notNull(),
+  reset_to_status: varchar('reset_to_status', { length: 255 }).default('New Lead'),
+  auto_approve_enabled: boolean('auto_approve_enabled').notNull().default(false),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WhatsAppTransferSettingsRecord = typeof whatsapp_transfer_settings.$inferSelect;
+export type InsertWhatsAppTransferSettings = typeof whatsapp_transfer_settings.$inferInsert;
+
+export const insertWhatsAppTransferSettingsSchema = createInsertSchema(whatsapp_transfer_settings).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWhatsAppTransferSettingsData = z.infer<typeof insertWhatsAppTransferSettingsSchema>;
+
 // WhatsApp Message Log - Track all processed WhatsApp messages
 export type WhatsAppMessageOutcome = 
   | "new_lead_created"

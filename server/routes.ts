@@ -7394,6 +7394,39 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+
+  // WhatsApp Transfer Settings
+  app.get("/api/admin/company/whatsapp/transfer-settings", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const settings = await storage.getWhatsAppTransferSettings(req.companyId);
+      res.json(settings || { enabled: false, auto_reset_statuses: [], reset_to_status: "New Lead", auto_approve_enabled: false });
+    } catch (error: any) {
+      console.error("Get WhatsApp transfer settings error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/admin/company/whatsapp/transfer-settings", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+      const { enabled, auto_reset_statuses, reset_to_status, auto_approve_enabled } = req.body;
+      const settings = await storage.upsertWhatsAppTransferSettings(req.companyId, {
+        enabled: enabled ?? true,
+        auto_reset_statuses: auto_reset_statuses ?? [],
+        reset_to_status: reset_to_status ?? "New Lead",
+        auto_approve_enabled: auto_approve_enabled ?? false,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Update WhatsApp transfer settings error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
   // Get WhatsApp message logs for the company
   app.get("/api/admin/company/whatsapp/message-logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock, Search, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock, Search, ChevronLeft, ChevronRight, Calendar, ArrowLeftRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -465,6 +465,53 @@ export function WhatsAppSettings() {
     },
   });
 
+  // Transfer settings queries and state
+  const { data: transferSettings, isLoading: transferSettingsLoading } = useQuery<{
+    enabled: boolean;
+    auto_reset_statuses: string[];
+    reset_to_status: string;
+    auto_approve_enabled: boolean;
+  }>({
+    queryKey: ["/api/admin/company/whatsapp/transfer-settings"],
+  });
+
+  const { data: leadStatusOptions = [] } = useQuery<{ value: string }[]>({
+    queryKey: ["/api/company/dropdown-options", "lead_status"],
+    queryFn: async () => {
+      const res = await fetch("/api/company/dropdown-options/lead_status", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      return res.json();
+    },
+  });
+
+  const [transferEnabled, setTransferEnabled] = useState(false);
+  const [autoResetStatuses, setAutoResetStatuses] = useState<string[]>([]);
+  const [resetToStatus, setResetToStatus] = useState("New Lead");
+  const [autoApproveEnabled, setAutoApproveEnabled] = useState(false);
+
+  useEffect(() => {
+    if (transferSettings) {
+      setTransferEnabled(transferSettings.enabled ?? false);
+      setAutoResetStatuses(transferSettings.auto_reset_statuses ?? []);
+      setResetToStatus(transferSettings.reset_to_status ?? "New Lead");
+      setAutoApproveEnabled(transferSettings.auto_approve_enabled ?? false);
+    }
+  }, [transferSettings]);
+
+  const saveTransferSettingsMutation = useMutation({
+    mutationFn: async (data: { enabled: boolean; auto_reset_statuses: string[]; reset_to_status: string; auto_approve_enabled: boolean }) => {
+      return await apiRequest("PUT", "/api/admin/company/whatsapp/transfer-settings", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/transfer-settings"] });
+      toast({ title: "Transfer settings saved" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error saving settings", description: error.message, variant: "destructive" });
+    },
+  });
+
   // Process pending messages mutation
   const processPendingMutation = useMutation({
     mutationFn: async () => {
@@ -797,7 +844,7 @@ export function WhatsAppSettings() {
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="allocations" className="flex items-center gap-2" data-testid="tab-allocations">
             <Phone className="h-4 w-4" />
             <span className="hidden sm:inline">Phone Allocations</span>
@@ -817,6 +864,10 @@ export function WhatsAppSettings() {
           <TabsTrigger value="logs" className="flex items-center gap-2" data-testid="tab-logs">
             <MessageSquare className="h-4 w-4" />
             <span className="hidden sm:inline">Message Logs</span>
+          </TabsTrigger>
+          <TabsTrigger value="transfer" className="flex items-center gap-2" data-testid="tab-transfer">
+            <ArrowLeftRight className="h-4 w-4" />
+            <span className="hidden sm:inline">Transfer Settings</span>
           </TabsTrigger>
         </TabsList>
 
@@ -1409,6 +1460,120 @@ export function WhatsAppSettings() {
                     </Button>
                   </div>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Transfer Settings Tab */}
+        <TabsContent value="transfer" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ArrowLeftRight className="h-5 w-5" />
+                Transfer Request Settings
+              </CardTitle>
+              <CardDescription>
+                Configure automatic behavior for WhatsApp lead transfer requests. Control auto-reset of lead statuses and auto-approval of transfers.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {transferSettingsLoading ? (
+                <div className="text-center py-4 text-muted-foreground">Loading transfer settings...</div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="transfer-enabled">Enable Transfer Settings</Label>
+                      <p className="text-sm text-muted-foreground">Enable automatic processing of transfer requests</p>
+                    </div>
+                    <Switch
+                      id="transfer-enabled"
+                      checked={transferEnabled}
+                      onCheckedChange={setTransferEnabled}
+                      data-testid="switch-transfer-enabled"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <Label>Auto-Reset Statuses</Label>
+                      <p className="text-sm text-muted-foreground">
+                        When a WhatsApp transfer request is created and the lead has one of these statuses, the lead status will be automatically reset.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {leadStatusOptions.map((option) => (
+                        <div key={option.value} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`auto-reset-${option.value}`}
+                            checked={autoResetStatuses.includes(option.value)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setAutoResetStatuses((prev) => [...prev, option.value]);
+                              } else {
+                                setAutoResetStatuses((prev) => prev.filter((s) => s !== option.value));
+                              }
+                            }}
+                            data-testid={`checkbox-auto-reset-${option.value}`}
+                          />
+                          <Label htmlFor={`auto-reset-${option.value}`} className="text-sm font-normal cursor-pointer">
+                            {option.value}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Reset To Status</Label>
+                    <p className="text-sm text-muted-foreground">
+                      The status to set the lead to when auto-reset triggers.
+                    </p>
+                    <Select value={resetToStatus} onValueChange={setResetToStatus} data-testid="select-reset-to-status">
+                      <SelectTrigger data-testid="select-trigger-reset-to-status">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {leadStatusOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value} data-testid={`select-item-reset-${option.value}`}>
+                            {option.value}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="auto-approve-enabled">Auto-Approve Transfer</Label>
+                      <p className="text-sm text-muted-foreground">
+                        When enabled, transfer requests for leads with the above statuses will be automatically approved and the lead will be moved immediately.
+                      </p>
+                    </div>
+                    <Switch
+                      id="auto-approve-enabled"
+                      checked={autoApproveEnabled}
+                      onCheckedChange={setAutoApproveEnabled}
+                      data-testid="switch-auto-approve"
+                    />
+                  </div>
+
+                  <Button
+                    onClick={() =>
+                      saveTransferSettingsMutation.mutate({
+                        enabled: transferEnabled,
+                        auto_reset_statuses: autoResetStatuses,
+                        reset_to_status: resetToStatus,
+                        auto_approve_enabled: autoApproveEnabled,
+                      })
+                    }
+                    disabled={saveTransferSettingsMutation.isPending}
+                    data-testid="button-save-transfer-settings"
+                  >
+                    {saveTransferSettingsMutation.isPending ? "Saving..." : "Save Transfer Settings"}
+                  </Button>
+                </>
               )}
             </CardContent>
           </Card>

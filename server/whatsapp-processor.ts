@@ -381,14 +381,52 @@ async function createTransferRequest(
 ): Promise<ProcessedMessageResult> {
   const fromUser = await storage.getUser(existingLead.lead.owner_user_id);
   const toUser = await storage.getUser(allocation.user_id);
+  const companyId = log.company_id;
+  
+  const transferSettings = await storage.getWhatsAppTransferSettings(companyId);
+  
+  const leadStatus = existingLead.lead.custom_fields?.lead_status || "";
+  const statusLower = String(leadStatus).toLowerCase().trim();
+  const autoResetStatuses = (transferSettings?.auto_reset_statuses || []).map((s: string) => s.toLowerCase().trim());
+  const shouldAutoReset = transferSettings?.enabled && autoResetStatuses.includes(statusLower);
+  const shouldAutoApprove = transferSettings?.enabled && transferSettings?.auto_approve_enabled && autoResetStatuses.includes(statusLower);
+  
+  if (shouldAutoReset && transferSettings?.reset_to_status) {
+    const updatedFields = { ...existingLead.lead.custom_fields, lead_status: transferSettings.reset_to_status };
+    await storage.updateLead(existingLead.lead.id, { custom_fields: updatedFields });
+    console.log(`[WhatsApp Processor] Auto-reset lead status from "${leadStatus}" to "${transferSettings.reset_to_status}"`);
+  }
   
   const transferRequest = await storage.createLeadTransferRequest({
     lead_id: existingLead.lead.id,
     from_sheet_id: existingLead.sheetId,
     to_sheet_id: allocation.sheet_id,
     requested_by_user_id: allocation.user_id,
-    status: "pending"
+    status: shouldAutoApprove ? "approved" : "pending"
   });
+  
+  if (shouldAutoApprove) {
+    await storage.updateLead(existingLead.lead.id, { 
+      sheet_id: allocation.sheet_id,
+      owner_user_id: allocation.user_id
+    });
+    
+    await storage.approveLeadTransferRequest(transferRequest.id, allocation.user_id);
+    
+    const fromSheet = await storage.getSheet(existingLead.sheetId);
+    const toSheet = await storage.getSheet(allocation.sheet_id);
+    const today = new Date().toISOString().split('T')[0];
+    
+    await storage.createLeadUpdate({
+      lead_id: existingLead.lead.id,
+      update_via: "transfer",
+      update_on: today,
+      remark: `Auto-approved WhatsApp transfer from "${fromSheet?.name || 'Unknown'}" to "${toSheet?.name || 'Unknown'}" (status was "${leadStatus}")`,
+      created_by_user_id: allocation.user_id,
+    });
+    
+    console.log(`[WhatsApp Processor] Auto-approved transfer for lead ${existingLead.lead.id} (status: "${leadStatus}")`);
+  }
   
   await storage.updateWhatsAppMessageLog(log.id, {
     outcome: "transfer_request_created",
@@ -398,15 +436,20 @@ async function createTransferRequest(
       lead_id: existingLead.lead.id, 
       transfer_request_id: transferRequest.id,
       from_user: fromUser?.name,
-      to_user: toUser?.name
+      to_user: toUser?.name,
+      auto_approved: shouldAutoApprove || false,
+      auto_reset: shouldAutoReset || false,
+      original_status: leadStatus,
+      reset_to: shouldAutoReset ? transferSettings?.reset_to_status : undefined
     },
     processed_at: new Date()
   });
   
+  const autoApproveMsg = shouldAutoApprove ? " (auto-approved)" : "";
   return {
     success: true,
     outcome: "transfer_request_created",
-    message: `Transfer request created from ${fromUser?.name || 'Unknown'} to ${toUser?.name || 'Unknown'}`,
+    message: `Transfer request created from ${fromUser?.name || 'Unknown'} to ${toUser?.name || 'Unknown'}${autoApproveMsg}`,
     leadId: existingLead.lead.id,
     transferRequestId: transferRequest.id
   };
