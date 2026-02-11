@@ -476,12 +476,14 @@ export function WhatsAppSettings() {
   });
 
   const { data: leadStatusOptions = [] } = useQuery<{ value: string }[]>({
-    queryKey: ["/api/company/dropdown-options", "lead_status"],
+    queryKey: ["/api/company/dropdown-options", "status"],
     queryFn: async () => {
-      const res = await fetch("/api/company/dropdown-options/lead_status", {
+      const res = await fetch("/api/company/dropdown-options/status", {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
-      return res.json();
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
   });
 
