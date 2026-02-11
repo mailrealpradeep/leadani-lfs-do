@@ -10957,8 +10957,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         'lost_reason': 'lost_reason',
       };
 
+      const mappedKey = systemColumnTypeMap[columnKey] || columnKey;
       // Get options from dropdown_options table
-      let options = await storage.getDropdownOptionsByColumn(companyId, columnKey);
+      let options = await storage.getDropdownOptionsByColumn(companyId, mappedKey);
       
       // Track existing values for deduplication (case-insensitive)
       const existingValuesLower = new Set(options.map(o => o.value.toLowerCase()));
@@ -10966,7 +10967,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       // ALWAYS check column.config.dropdown_options and merge (for legacy custom values)
       const columns = await storage.getCompanyColumns(companyId);
-      const column = columns.find(c => c.column_key === columnKey && c.type === "dropdown");
+      const column = columns.find(c => c.column_key === mappedKey && c.type === "dropdown");
       
       if (column && column.config && Array.isArray((column.config as any).dropdown_options)) {
         const configOptions = (column.config as any).dropdown_options as string[];
