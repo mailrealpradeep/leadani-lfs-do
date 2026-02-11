@@ -24930,7 +24930,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const currentYear = new Date().getFullYear();
       
       // Get all users in company with their vision boards
-      const companyUsers = await storage.getCompanyUsers(req.companyId);
+      const companyUsers = await storage.getUsersByCompanyId(req.companyId!);
       const results = {
         migrated: 0,
         skipped: 0,
