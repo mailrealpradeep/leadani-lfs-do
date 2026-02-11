@@ -385,16 +385,18 @@ async function createTransferRequest(
   
   const transferSettings = await storage.getWhatsAppTransferSettings(companyId);
   
-  const leadStatus = existingLead.lead.custom_fields?.lead_status || "";
-  const statusLower = String(leadStatus).toLowerCase().trim();
+  const columnKey = transferSettings?.column_key || 'status';
+  const fieldKey = columnKey === 'status' ? 'lead_status' : columnKey;
+  const currentValue = existingLead.lead.custom_fields?.[fieldKey] || "";
+  const currentValueLower = String(currentValue).toLowerCase().trim();
   const autoResetStatuses = (transferSettings?.auto_reset_statuses || []).map((s: string) => s.toLowerCase().trim());
-  const shouldAutoReset = transferSettings?.enabled && autoResetStatuses.includes(statusLower);
-  const shouldAutoApprove = transferSettings?.enabled && transferSettings?.auto_approve_enabled && autoResetStatuses.includes(statusLower);
+  const shouldAutoReset = transferSettings?.enabled && autoResetStatuses.includes(currentValueLower);
+  const shouldAutoApprove = transferSettings?.enabled && transferSettings?.auto_approve_enabled && autoResetStatuses.includes(currentValueLower);
   
   if (shouldAutoReset && transferSettings?.reset_to_status) {
-    const updatedFields = { ...existingLead.lead.custom_fields, lead_status: transferSettings.reset_to_status };
+    const updatedFields = { ...existingLead.lead.custom_fields, [fieldKey]: transferSettings.reset_to_status };
     await storage.updateLead(existingLead.lead.id, { custom_fields: updatedFields });
-    console.log(`[WhatsApp Processor] Auto-reset lead status from "${leadStatus}" to "${transferSettings.reset_to_status}"`);
+    console.log(`[WhatsApp Processor] Auto-reset ${fieldKey} from "${currentValue}" to "${transferSettings.reset_to_status}"`);
   }
   
   const transferRequest = await storage.createLeadTransferRequest({
@@ -421,11 +423,11 @@ async function createTransferRequest(
       lead_id: existingLead.lead.id,
       update_via: "transfer",
       update_on: today,
-      remark: `Auto-approved WhatsApp transfer from "${fromSheet?.name || 'Unknown'}" to "${toSheet?.name || 'Unknown'}" (status was "${leadStatus}")`,
+      remark: `Auto-approved WhatsApp transfer from "${fromSheet?.name || 'Unknown'}" to "${toSheet?.name || 'Unknown'}" (${fieldKey} was "${currentValue}")`,
       created_by_user_id: allocation.user_id,
     });
     
-    console.log(`[WhatsApp Processor] Auto-approved transfer for lead ${existingLead.lead.id} (status: "${leadStatus}")`);
+    console.log(`[WhatsApp Processor] Auto-approved transfer for lead ${existingLead.lead.id} (${fieldKey}: "${currentValue}")`);
   }
   
   await storage.updateWhatsAppMessageLog(log.id, {
@@ -439,7 +441,8 @@ async function createTransferRequest(
       to_user: toUser?.name,
       auto_approved: shouldAutoApprove || false,
       auto_reset: shouldAutoReset || false,
-      original_status: leadStatus,
+      original_value: currentValue,
+      column_key: columnKey,
       reset_to: shouldAutoReset ? transferSettings?.reset_to_status : undefined
     },
     processed_at: new Date()

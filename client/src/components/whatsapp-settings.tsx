@@ -468,6 +468,7 @@ export function WhatsAppSettings() {
   // Transfer settings queries and state
   const { data: transferSettings, isLoading: transferSettingsLoading } = useQuery<{
     enabled: boolean;
+    column_key: string;
     auto_reset_statuses: string[];
     reset_to_status: string;
     auto_approve_enabled: boolean;
@@ -475,34 +476,37 @@ export function WhatsAppSettings() {
     queryKey: ["/api/admin/company/whatsapp/transfer-settings"],
   });
 
-  const { data: leadStatusOptions = [] } = useQuery<{ value: string }[]>({
-    queryKey: ["/api/company/dropdown-options", "status"],
+  const [transferEnabled, setTransferEnabled] = useState(false);
+  const [transferColumnKey, setTransferColumnKey] = useState("status");
+  const [autoResetStatuses, setAutoResetStatuses] = useState<string[]>([]);
+  const [resetToStatus, setResetToStatus] = useState("");
+  const [autoApproveEnabled, setAutoApproveEnabled] = useState(false);
+
+  const { data: columnDropdownOptions = [] } = useQuery<{ value: string }[]>({
+    queryKey: ["/api/company/dropdown-options", transferColumnKey],
     queryFn: async () => {
-      const res = await fetch("/api/company/dropdown-options/status", {
+      const res = await fetch(`/api/company/dropdown-options/${encodeURIComponent(transferColumnKey)}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
       if (!res.ok) return [];
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     },
+    enabled: !!transferColumnKey,
   });
-
-  const [transferEnabled, setTransferEnabled] = useState(false);
-  const [autoResetStatuses, setAutoResetStatuses] = useState<string[]>([]);
-  const [resetToStatus, setResetToStatus] = useState("New Lead");
-  const [autoApproveEnabled, setAutoApproveEnabled] = useState(false);
 
   useEffect(() => {
     if (transferSettings) {
       setTransferEnabled(transferSettings.enabled ?? false);
+      setTransferColumnKey(transferSettings.column_key ?? "status");
       setAutoResetStatuses(transferSettings.auto_reset_statuses ?? []);
-      setResetToStatus(transferSettings.reset_to_status ?? "New Lead");
+      setResetToStatus(transferSettings.reset_to_status ?? "");
       setAutoApproveEnabled(transferSettings.auto_approve_enabled ?? false);
     }
   }, [transferSettings]);
 
   const saveTransferSettingsMutation = useMutation({
-    mutationFn: async (data: { enabled: boolean; auto_reset_statuses: string[]; reset_to_status: string; auto_approve_enabled: boolean }) => {
+    mutationFn: async (data: { enabled: boolean; column_key: string; auto_reset_statuses: string[]; reset_to_status: string; auto_approve_enabled: boolean }) => {
       return await apiRequest("PUT", "/api/admin/company/whatsapp/transfer-settings", data);
     },
     onSuccess: () => {
@@ -1476,7 +1480,7 @@ export function WhatsAppSettings() {
                 Transfer Request Settings
               </CardTitle>
               <CardDescription>
-                Configure automatic behavior for WhatsApp lead transfer requests. Control auto-reset of lead statuses and auto-approval of transfers.
+                Configure automatic behavior for WhatsApp lead transfer requests. Select a column, choose which values should trigger an auto-reset, and set the value to reset to.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -1484,7 +1488,7 @@ export function WhatsAppSettings() {
                 <div className="text-center py-4 text-muted-foreground">Loading transfer settings...</div>
               ) : (
                 <>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-4">
                     <div className="space-y-0.5">
                       <Label htmlFor="transfer-enabled">Enable Transfer Settings</Label>
                       <p className="text-sm text-muted-foreground">Enable automatic processing of transfer requests</p>
@@ -1497,15 +1501,41 @@ export function WhatsAppSettings() {
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label>Column</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Select which lead column to check and reset when a transfer is created.
+                    </p>
+                    <Select
+                      value={transferColumnKey}
+                      onValueChange={(val) => {
+                        setTransferColumnKey(val);
+                        setAutoResetStatuses([]);
+                        setResetToStatus("");
+                      }}
+                      data-testid="select-transfer-column"
+                    >
+                      <SelectTrigger data-testid="select-trigger-transfer-column">
+                        <SelectValue placeholder="Select column" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="status">Lead Status</SelectItem>
+                        <SelectItem value="visit_status">Visit Status</SelectItem>
+                        <SelectItem value="visit_type">Visit Type</SelectItem>
+                        <SelectItem value="lost_reason">Lost Reason</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <div className="space-y-3">
                     <div>
-                      <Label>Auto-Reset Statuses</Label>
+                      <Label>FROM (Trigger Values)</Label>
                       <p className="text-sm text-muted-foreground">
-                        When a WhatsApp transfer request is created and the lead has one of these statuses, the lead status will be automatically reset.
+                        When a WhatsApp transfer is created and the lead's {transferColumnKey === 'status' ? 'Lead Status' : transferColumnKey === 'visit_status' ? 'Visit Status' : transferColumnKey === 'visit_type' ? 'Visit Type' : 'Lost Reason'} matches one of these values, auto-reset will trigger.
                       </p>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {leadStatusOptions.map((option) => (
+                      {columnDropdownOptions.map((option) => (
                         <div key={option.value} className="flex items-center gap-2">
                           <Checkbox
                             id={`auto-reset-${option.value}`}
@@ -1517,28 +1547,31 @@ export function WhatsAppSettings() {
                                 setAutoResetStatuses((prev) => prev.filter((s) => s !== option.value));
                               }
                             }}
-                            data-testid={`checkbox-auto-reset-${option.value}`}
+                            data-testid={`checkbox-from-${option.value}`}
                           />
                           <Label htmlFor={`auto-reset-${option.value}`} className="text-sm font-normal cursor-pointer">
                             {option.value}
                           </Label>
                         </div>
                       ))}
+                      {columnDropdownOptions.length === 0 && (
+                        <p className="text-sm text-muted-foreground col-span-full">No values found for this column.</p>
+                      )}
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Reset To Status</Label>
+                    <Label>TO (Reset Value)</Label>
                     <p className="text-sm text-muted-foreground">
-                      The status to set the lead to when auto-reset triggers.
+                      The value to set the column to when auto-reset triggers.
                     </p>
-                    <Select value={resetToStatus} onValueChange={setResetToStatus} data-testid="select-reset-to-status">
-                      <SelectTrigger data-testid="select-trigger-reset-to-status">
-                        <SelectValue placeholder="Select status" />
+                    <Select value={resetToStatus} onValueChange={setResetToStatus} data-testid="select-reset-to">
+                      <SelectTrigger data-testid="select-trigger-reset-to">
+                        <SelectValue placeholder="Select value" />
                       </SelectTrigger>
                       <SelectContent>
-                        {leadStatusOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value} data-testid={`select-item-reset-${option.value}`}>
+                        {columnDropdownOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value} data-testid={`select-item-to-${option.value}`}>
                             {option.value}
                           </SelectItem>
                         ))}
@@ -1546,11 +1579,11 @@ export function WhatsAppSettings() {
                     </Select>
                   </div>
 
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-4">
                     <div className="space-y-0.5">
                       <Label htmlFor="auto-approve-enabled">Auto-Approve Transfer</Label>
                       <p className="text-sm text-muted-foreground">
-                        When enabled, transfer requests for leads with the above statuses will be automatically approved and the lead will be moved immediately.
+                        When enabled, transfer requests for leads matching the FROM values will be automatically approved and the lead will be moved immediately.
                       </p>
                     </div>
                     <Switch
@@ -1565,6 +1598,7 @@ export function WhatsAppSettings() {
                     onClick={() =>
                       saveTransferSettingsMutation.mutate({
                         enabled: transferEnabled,
+                        column_key: transferColumnKey,
                         auto_reset_statuses: autoResetStatuses,
                         reset_to_status: resetToStatus,
                         auto_approve_enabled: autoApproveEnabled,

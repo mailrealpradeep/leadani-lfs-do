@@ -7402,7 +7402,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
       const settings = await storage.getWhatsAppTransferSettings(req.companyId);
-      res.json(settings || { enabled: false, auto_reset_statuses: [], reset_to_status: "New Lead", auto_approve_enabled: false });
+      res.json(settings || { enabled: false, column_key: "status", auto_reset_statuses: [], reset_to_status: "", auto_approve_enabled: false });
     } catch (error: any) {
       console.error("Get WhatsApp transfer settings error:", error);
       res.status(500).json({ error: error.message });
@@ -7414,11 +7414,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!req.companyId) {
         return res.status(403).json({ error: "Must belong to a company" });
       }
-      const { enabled, auto_reset_statuses, reset_to_status, auto_approve_enabled } = req.body;
+      const { enabled, column_key, auto_reset_statuses, reset_to_status, auto_approve_enabled } = req.body;
       const settings = await storage.upsertWhatsAppTransferSettings(req.companyId, {
         enabled: enabled ?? true,
+        column_key: column_key ?? "status",
         auto_reset_statuses: auto_reset_statuses ?? [],
-        reset_to_status: reset_to_status ?? "New Lead",
+        reset_to_status: reset_to_status ?? "",
         auto_approve_enabled: auto_approve_enabled ?? false,
       });
       res.json(settings);
