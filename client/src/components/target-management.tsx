@@ -121,6 +121,7 @@ const OPERATORS = [
   { value: "less_equal", label: "Less or Equal", types: ["number"] },
   { value: "between", label: "Between", types: ["number"] },
   { value: "is_today", label: "Is Today", types: ["date", "datetime"] },
+  { value: "is_tomorrow", label: "Is Tomorrow", types: ["date", "datetime"] },
   { value: "is_this_week", label: "Is This Week", types: ["date", "datetime"] },
   { value: "is_this_month", label: "Is This Month", types: ["date", "datetime"] },
   { value: "is_overdue", label: "Is Overdue", types: ["date", "datetime"] },
@@ -362,7 +363,7 @@ function ConditionBuilder({
   };
 
   const needsValueInput = (operator: string) => {
-    return !["is_empty", "is_not_empty", "is_today", "is_this_week", "is_this_month", "is_overdue"].includes(operator);
+    return !["is_empty", "is_not_empty", "is_today", "is_tomorrow", "is_this_week", "is_this_month", "is_overdue"].includes(operator);
   };
 
   const isMultiValueOperator = (operator: string) => {

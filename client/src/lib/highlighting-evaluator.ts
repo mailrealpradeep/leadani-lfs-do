@@ -196,6 +196,14 @@ function evaluateCondition(condition: HighlightingCondition, lead: Lead, timezon
       return isSameDayInTimezone(dateValue, new Date(), timezone);
     }
     
+    case "is_tomorrow": {
+      const dateValue = parseDate(fieldValue);
+      if (!dateValue) return false;
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return isSameDayInTimezone(dateValue, tomorrow, timezone);
+    }
+    
     case "is_before_today": {
       const dateValue = parseDate(fieldValue);
       if (!dateValue) return false;

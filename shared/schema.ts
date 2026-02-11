@@ -548,7 +548,7 @@ export const highlightingConditionSchema = z.object({
     "greater_than", "less_than", "greater_equal", "less_equal", "between",
     // Date operators
     "date_equals", "date_before", "date_after", "date_between",
-    "is_today", "is_before_today", "is_after_today", 
+    "is_today", "is_tomorrow", "is_before_today", "is_after_today", 
     "is_this_week", "is_next_week", "is_last_week"
   ]),
   value: z.union([z.string(), z.number(), z.array(z.string()), z.null()]).optional(),
@@ -2345,7 +2345,7 @@ export const targetConditionOperators = [
   "greater_than", "less_than", "greater_equal", "less_equal", "between",
   // Date operators
   "date_equals", "date_before", "date_after", "date_between",
-  "is_today", "is_before_today", "is_after_today",
+  "is_today", "is_tomorrow", "is_before_today", "is_after_today",
   "is_this_week", "is_this_month",
   "is_overdue", "within_days", "days_ago",
 ] as const;
@@ -2362,7 +2362,7 @@ export const targetConditionSchema = z.object({
     "is_empty", "is_not_empty",
     "greater_than", "less_than", "greater_equal", "less_equal", "between",
     "date_equals", "date_before", "date_after", "date_between",
-    "is_today", "is_before_today", "is_after_today",
+    "is_today", "is_tomorrow", "is_before_today", "is_after_today",
     "is_this_week", "is_this_month",
     "is_overdue", "within_days", "days_ago",
   ]),

@@ -190,6 +190,7 @@ export function evaluateCondition(condition: TargetCondition, leadValue: any, ti
     case 'date_after':
     case 'date_between':
     case 'is_today':
+    case 'is_tomorrow':
     case 'is_before_today':
     case 'is_after_today':
     case 'is_this_week':
@@ -250,6 +251,10 @@ function evaluateDateCondition(
     
     case 'is_today':
       return leadDateNorm.getTime() === today.getTime();
+    
+    case 'is_tomorrow':
+      const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+      return leadDateNorm.getTime() === tomorrow.getTime();
     
     case 'is_before_today':
       return leadDateNorm.getTime() < today.getTime();
