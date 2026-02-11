@@ -2683,8 +2683,7 @@ export default function VisionBoardPage() {
     goalAmount: companyGoalAmount,
     goalDescription: adminCompanyVision.board.goal_description || 'Company Annual Goal',
     currency: adminCompanyVision.board.currency || "INR",
-    images: [] as Array<{url: string; caption: string}>,
-    // Use team totals for actual progress (aggregated from all users' conversions)
+    images: ((adminCompanyVision.board.images || []) as Array<{url: string; caption?: string; id?: string; order?: number}>).map(img => typeof img === 'string' ? { url: img, caption: '' } : { url: img.url, caption: img.caption || '' }),
     progressPercent: companyGoalAmount > 0 
       ? Math.min(100, (companyActualIncentives / companyGoalAmount) * 100) 
       : 0,
@@ -2696,16 +2695,14 @@ export default function VisionBoardPage() {
       ? Math.min(100, (companyProjectedIncentives / companyGoalAmount) * 100) 
       : 0,
     effortTargets: getScaledEffortTargets(adminCompanyVision.board.annual_targets, selectedPeriod, adminCompanyVision.monthly_targets),
-    // Use team effort achieved for company-wide metrics
     effortAchieved: teamProgress?.team_effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: yearEnd,
     startDate: yearStart,
   } : viewingUserId && adminUserVision?.target ? {
-    // Admin viewing a specific user's targets - use their actual progress data
     goalAmount: adminUserVision.target.goal_amount || 0,
     goalDescription: adminUserVision.target.goal_description || `${adminUserVision.user_name}'s Goals`,
     currency: adminUserVision.target.currency || "INR",
-    images: [] as Array<{url: string; caption: string}>,
+    images: ((adminUserVision.target.images || []) as Array<{url: string; caption?: string; id?: string; order?: number}>).map(img => typeof img === 'string' ? { url: img, caption: '' } : { url: img.url, caption: img.caption || '' }),
     // Use actual earnings from progress API for consistency
     progressPercent: adminUserVision.target.goal_amount > 0 
       ? Math.min(100, ((progress?.earnings.total || totalUserIncentives) / adminUserVision.target.goal_amount) * 100) 
@@ -2741,7 +2738,7 @@ export default function VisionBoardPage() {
     goalAmount: visionBoard.goal_amount,
     goalDescription: visionBoard.goal_description,
     currency: visionBoard.currency || "INR",
-    images: visionBoard.images || [],
+    images: ((visionBoard.images || []) as Array<any>).map((img: any) => typeof img === 'string' ? { url: img, caption: '' } : { url: img.url, caption: img.caption || '' }),
     progressPercent: progress?.earnings.progress_percent || 0,
     earned: progress?.earnings.total || 0,
     remaining: progress?.earnings.remaining || 0,
