@@ -522,6 +522,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   ]);
   const [noMatchAction, setNoMatchAction] = useState<NoMatchAction>('create_lead');
   const [skipAllocationOnMatch, setSkipAllocationOnMatch] = useState<boolean>(false);
+  const [matchResetStatusEnabled, setMatchResetStatusEnabled] = useState<boolean>(false);
+  const [matchResetStatusValue, setMatchResetStatusValue] = useState<string>("");
 
   // Duplicate detection state for Push to CRM
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicateLeadInfo | null>(null);
@@ -620,6 +622,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     update_field_mappings?: UpdateFieldMapping[];
     no_match_action?: NoMatchAction;
     skip_allocation_on_match?: boolean;
+    match_reset_status_enabled?: boolean;
+    match_reset_status_value?: string;
   }>({
     queryKey: ["/api/admin/company/webhooks", webhook.id],
     enabled: !!webhook.id,
@@ -635,6 +639,20 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
   }>>({
     queryKey: ["/api/admin/company/webhooks", webhook.id, "requests"],
     enabled: !!webhook.id,
+  });
+
+  const { data: leadStatusOptions = [] } = useQuery<{ value: string }[]>({
+    queryKey: ["/api/company/dropdown-options", "lead_status"],
+    queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch(`/api/company/dropdown-options/lead_status`, {
+        headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+        credentials: "include",
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
   });
 
   // Auto-select the most recent request when data loads
@@ -819,6 +837,12 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
     if (webhookDetails?.skip_allocation_on_match !== undefined) {
       setSkipAllocationOnMatch(webhookDetails.skip_allocation_on_match);
     }
+    if (webhookDetails?.match_reset_status_enabled !== undefined) {
+      setMatchResetStatusEnabled(webhookDetails.match_reset_status_enabled);
+    }
+    if (webhookDetails?.match_reset_status_value !== undefined) {
+      setMatchResetStatusValue(webhookDetails.match_reset_status_value);
+    }
   }, [webhookDetails]);
 
   const updateMutation = useMutation({
@@ -831,6 +855,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       update_field_mappings?: UpdateFieldMapping[];
       no_match_action?: NoMatchAction;
       skip_allocation_on_match?: boolean;
+      match_reset_status_enabled?: boolean;
+      match_reset_status_value?: string;
     }) => {
       return apiRequest("PUT", `/api/admin/company/webhooks/${webhook.id}`, data);
     },
@@ -1435,6 +1461,8 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
       update_field_mappings: validUpdateMappings, // Only send complete mappings, filter out empty rows
       no_match_action: noMatchAction,
       skip_allocation_on_match: skipAllocationOnMatch,
+      match_reset_status_enabled: matchResetStatusEnabled,
+      match_reset_status_value: matchResetStatusValue,
     });
   };
 
@@ -2749,6 +2777,45 @@ export function ConfigureWebhook({ webhook, onClose }: ConfigureWebhookProps) {
                 When a matching lead is found, keep it in its current sheet instead of applying allocation rules.
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Change Lead Status on Match */}
+        {matchMode !== 'create_only' && (
+          <div className="space-y-3 p-3 rounded-lg border bg-muted/30">
+            <div className="flex items-center space-x-3">
+              <Switch
+                id="match-reset-status"
+                checked={matchResetStatusEnabled}
+                onCheckedChange={setMatchResetStatusEnabled}
+                data-testid="switch-match-reset-status"
+              />
+              <div className="flex-1">
+                <Label htmlFor="match-reset-status" className="text-sm font-medium cursor-pointer">
+                  Change Lead Status
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  When a matching lead is found, automatically change its Lead Status to the selected value.
+                </p>
+              </div>
+            </div>
+            {matchResetStatusEnabled && (
+              <div className="pl-12 space-y-2">
+                <Label className="text-xs text-muted-foreground">New Lead Status Value</Label>
+                <Select value={matchResetStatusValue} onValueChange={setMatchResetStatusValue} data-testid="select-match-reset-status">
+                  <SelectTrigger data-testid="select-trigger-match-reset-status">
+                    <SelectValue placeholder="Select lead status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {leadStatusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value} data-testid={`option-match-reset-${option.value}`}>
+                        {option.value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         )}
 

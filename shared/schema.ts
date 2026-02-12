@@ -1216,6 +1216,8 @@ export const company_webhooks = pgTable('company_webhooks', {
   update_field_mappings: json('update_field_mappings').$type<Array<{source_field: string; target_column: string}>>().default([]),
   no_match_action: varchar('no_match_action', { length: 50 }).default('create_lead'), // 'create_lead', 'ignore', 'log_only'
   skip_allocation_on_match: boolean('skip_allocation_on_match').notNull().default(false), // Skip allocation rules when a match is found
+  match_reset_status_enabled: boolean('match_reset_status_enabled').notNull().default(false), // Change lead status on match
+  match_reset_status_value: varchar('match_reset_status_value', { length: 255 }).default(''), // New lead_status value to set on match
   source_label: varchar('source_label', { length: 100 }), // e.g., 'WhatsApp', 'Website', 'Facebook'
   // Weighted round-robin allocation tracking: { conditionGroupKey: { sheetId: count } }
   allocation_counts: json('allocation_counts').$type<AllocationCounts>().default({}),

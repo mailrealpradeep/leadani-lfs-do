@@ -2394,6 +2394,11 @@ ${questionsList}`;
           
           // Always update lead_date to today
           mergedCustomFields.lead_date = today;
+
+          // Apply match_reset_status if enabled
+          if (webhook.match_reset_status_enabled && webhook.match_reset_status_value) {
+            mergedCustomFields.lead_status = webhook.match_reset_status_value;
+          }
           
           const updated = await storage.updateLead(existingLead.id, {
             custom_fields: mergedCustomFields,
@@ -2454,6 +2459,13 @@ ${questionsList}`;
           }
           
         } else if (matchMode === "match_and_add_update") {
+          // Apply match_reset_status if enabled (change lead_status even in add_update mode)
+          if (webhook.match_reset_status_enabled && webhook.match_reset_status_value) {
+            const updatedFields = { ...existingLead.custom_fields, lead_status: webhook.match_reset_status_value };
+            await storage.updateLead(existingLead.id, { custom_fields: updatedFields });
+            existingLead = { ...existingLead, custom_fields: updatedFields };
+          }
+          
           // Just add a Lead Update without modifying the lead fields
           lead = existingLead;
           isUpdateAdded = true;
@@ -5646,7 +5658,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Cannot update webhooks from other companies" });
       }
 
-      const { name, is_active, field_mappings, allocation_rules, match_mode, match_field, match_rules, update_field_mappings, no_match_action, skip_allocation_on_match } = req.body;
+      const { name, is_active, field_mappings, allocation_rules, match_mode, match_field, match_rules, update_field_mappings, no_match_action, skip_allocation_on_match, match_reset_status_enabled, match_reset_status_value } = req.body;
 
       // Update webhook basic info
       const updates: any = {};
@@ -5658,6 +5670,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (update_field_mappings !== undefined) updates.update_field_mappings = update_field_mappings;
       if (no_match_action !== undefined) updates.no_match_action = no_match_action;
       if (skip_allocation_on_match !== undefined) updates.skip_allocation_on_match = skip_allocation_on_match;
+      if (match_reset_status_enabled !== undefined) updates.match_reset_status_enabled = match_reset_status_enabled;
+      if (match_reset_status_value !== undefined) updates.match_reset_status_value = match_reset_status_value;
 
       const updatedWebhook = await storage.updateCompanyWebhook(req.params.id, updates);
 
