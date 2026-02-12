@@ -485,8 +485,10 @@ export function WhatsAppSettings() {
   const { data: columnDropdownOptions = [] } = useQuery<{ value: string }[]>({
     queryKey: ["/api/company/dropdown-options", transferColumnKey],
     queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
       const res = await fetch(`/api/company/dropdown-options/${encodeURIComponent(transferColumnKey)}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+        credentials: "include",
       });
       if (!res.ok) return [];
       const data = await res.json();
