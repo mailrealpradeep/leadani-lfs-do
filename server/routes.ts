@@ -80,6 +80,39 @@ function getAllDropdownKeys(customColumns: { column_key: string; type: string }[
   ];
 }
 
+// Helper: get column keys protected by final value settings with block_automations enabled
+// Returns a Map of columnKey -> Set of final values that automations cannot change FROM
+function getAutomationBlockedFinalValues(companySettings: any): Map<string, Set<string>> {
+  const blocked = new Map<string, Set<string>>();
+  const rules = companySettings?.final_value_settings || [];
+  for (const rule of rules) {
+    if (rule.enabled && rule.block_automations && rule.column_key && rule.final_values?.length > 0) {
+      blocked.set(rule.column_key, new Set(rule.final_values));
+    }
+  }
+  return blocked;
+}
+
+// Helper: filter custom_fields updates, removing any changes blocked by final value automation protection
+function filterBlockedAutomationFields(
+  existingCustomFields: Record<string, any>,
+  newCustomFields: Record<string, any>,
+  blockedMap: Map<string, Set<string>>
+): Record<string, any> {
+  if (blockedMap.size === 0) return newCustomFields;
+  const filtered = { ...newCustomFields };
+  for (const [columnKey, finalValues] of blockedMap) {
+    const currentValue = existingCustomFields?.[columnKey];
+    if (currentValue && finalValues.has(currentValue)) {
+      // Current value is final — revert this key to the current value
+      if (filtered[columnKey] !== undefined && filtered[columnKey] !== currentValue) {
+        filtered[columnKey] = currentValue;
+      }
+    }
+  }
+  return filtered;
+}
+
 // Helper function to get value from a lead's field (standard or custom)
 function getLeadFieldValue(lead: Lead, columnKey: string): any {
   // Special handling for thought field (lead meta)
@@ -2399,9 +2432,17 @@ ${questionsList}`;
           if (webhook.match_reset_status_enabled && webhook.match_reset_status_value) {
             mergedCustomFields.lead_status = webhook.match_reset_status_value;
           }
+
+          // Enforce final value protection for automations (block_automations flag)
+          const blockedMap = getAutomationBlockedFinalValues(webhookCompany?.settings);
+          const filteredFields = filterBlockedAutomationFields(
+            existingLead.custom_fields || {},
+            mergedCustomFields,
+            blockedMap
+          );
           
           const updated = await storage.updateLead(existingLead.id, {
-            custom_fields: mergedCustomFields,
+            custom_fields: filteredFields,
             deleted_at: null,
           });
           
@@ -2431,7 +2472,7 @@ ${questionsList}`;
               
               for (const columnKey of allDropdownKeys) {
                 const oldVal = existingLead.custom_fields?.[columnKey] ?? null;
-                const newVal = mergedCustomFields[columnKey];
+                const newVal = filteredFields[columnKey];
                 if (newVal !== undefined && oldVal !== newVal) {
                   dropdownChanges.push({
                     columnKey,
@@ -2461,7 +2502,14 @@ ${questionsList}`;
         } else if (matchMode === "match_and_add_update") {
           // Apply match_reset_status if enabled (change lead_status even in add_update mode)
           if (webhook.match_reset_status_enabled && webhook.match_reset_status_value) {
-            const updatedFields = { ...existingLead.custom_fields, lead_status: webhook.match_reset_status_value };
+            let updatedFields: Record<string, any> = { ...existingLead.custom_fields, lead_status: webhook.match_reset_status_value };
+            // Enforce final value protection for automations
+            const blockedMapAddUpdate = getAutomationBlockedFinalValues(webhookCompany?.settings);
+            updatedFields = filterBlockedAutomationFields(
+              existingLead.custom_fields || {},
+              updatedFields,
+              blockedMapAddUpdate
+            );
             await storage.updateLead(existingLead.id, { custom_fields: updatedFields });
             existingLead = { ...existingLead, custom_fields: updatedFields };
           }

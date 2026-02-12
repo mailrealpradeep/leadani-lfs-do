@@ -6,6 +6,31 @@ import type {
   Lead
 } from "@shared/schema";
 
+// Helper: get column keys protected by final value settings with block_automations enabled
+function getAutomationBlockedFinalValues(companySettings: any): Map<string, Set<string>> {
+  const blocked = new Map<string, Set<string>>();
+  const rules = companySettings?.final_value_settings || [];
+  for (const rule of rules) {
+    if (rule.enabled && rule.block_automations && rule.column_key && rule.final_values?.length > 0) {
+      blocked.set(rule.column_key, new Set(rule.final_values));
+    }
+  }
+  return blocked;
+}
+
+// Helper: check if a specific field change is blocked by final value automation protection
+function isFieldChangeBlocked(
+  existingCustomFields: Record<string, any>,
+  columnKey: string,
+  newValue: string,
+  blockedMap: Map<string, Set<string>>
+): boolean {
+  const finalValues = blockedMap.get(columnKey);
+  if (!finalValues) return false;
+  const currentValue = existingCustomFields?.[columnKey];
+  return currentValue && finalValues.has(currentValue) && newValue !== currentValue;
+}
+
 export type MessageOutcome = 
   | "new_lead_created" 
   | "transfer_request_created" 
@@ -394,9 +419,16 @@ async function createTransferRequest(
   const shouldAutoApprove = transferSettings?.enabled && transferSettings?.auto_approve_enabled && autoResetStatuses.includes(currentValueLower);
   
   if (shouldAutoReset && transferSettings?.reset_to_status) {
-    const updatedFields = { ...existingLead.lead.custom_fields, [fieldKey]: transferSettings.reset_to_status };
-    await storage.updateLead(existingLead.lead.id, { custom_fields: updatedFields });
-    console.log(`[WhatsApp Processor] Auto-reset ${fieldKey} from "${currentValue}" to "${transferSettings.reset_to_status}"`);
+    // Check final value protection before auto-resetting
+    const company = await storage.getCompany(companyId);
+    const blockedMap = getAutomationBlockedFinalValues(company?.settings);
+    if (!isFieldChangeBlocked(existingLead.lead.custom_fields || {}, fieldKey, transferSettings.reset_to_status, blockedMap)) {
+      const updatedFields = { ...existingLead.lead.custom_fields, [fieldKey]: transferSettings.reset_to_status };
+      await storage.updateLead(existingLead.lead.id, { custom_fields: updatedFields });
+      console.log(`[WhatsApp Processor] Auto-reset ${fieldKey} from "${currentValue}" to "${transferSettings.reset_to_status}"`);
+    } else {
+      console.log(`[WhatsApp Processor] Skipped auto-reset of ${fieldKey} - value "${currentValue}" is protected by final value settings`);
+    }
   }
   
   const transferRequest = await storage.createLeadTransferRequest({

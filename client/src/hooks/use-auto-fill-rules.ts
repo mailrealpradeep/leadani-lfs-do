@@ -12,8 +12,17 @@ interface AutoFillRule {
   enabled: boolean;
 }
 
+interface FinalValueRule {
+  id: string;
+  column_key: string;
+  final_values: string[];
+  enabled: boolean;
+  block_automations?: boolean;
+}
+
 interface CompanySettings {
   auto_fill_rules?: AutoFillRule[];
+  final_value_settings?: FinalValueRule[];
   [key: string]: any;
 }
 
@@ -39,6 +48,18 @@ export function useAutoFillRules() {
       .sort((a, b) => a.priority - b.priority);
   }, [settingsData]);
 
+  const blockedFinalValues = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    const fvRules = settingsData?.settings?.final_value_settings;
+    if (!fvRules || !Array.isArray(fvRules)) return map;
+    for (const rule of fvRules) {
+      if (rule.enabled && rule.block_automations && rule.column_key && rule.final_values?.length > 0) {
+        map.set(rule.column_key, new Set(rule.final_values));
+      }
+    }
+    return map;
+  }, [settingsData]);
+
   const applyAutoFillRules = useCallback((
     changedColumnKey: string,
     newValue: string,
@@ -57,6 +78,10 @@ export function useAutoFillRules() {
       if (rule.trigger_value !== newValue) continue;
       if (appliedTargets.has(rule.target_column_key)) continue;
       
+      // Skip if the target column's current value is a protected final value
+      const finalVals = blockedFinalValues.get(rule.target_column_key);
+      if (finalVals && finalVals.has(currentData[rule.target_column_key])) continue;
+
       if (currentData[rule.target_column_key] !== rule.target_value) {
         updates[rule.target_column_key] = rule.target_value;
         appliedTargets.add(rule.target_column_key);
@@ -82,7 +107,7 @@ export function useAutoFillRules() {
     }
     
     return results;
-  }, [rules, toast]);
+  }, [rules, blockedFinalValues, toast]);
 
   return {
     rules,

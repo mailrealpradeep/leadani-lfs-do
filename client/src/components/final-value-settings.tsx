@@ -35,6 +35,7 @@ interface FinalValueRule {
   column_key: string;
   final_values: string[];
   enabled: boolean;
+  block_automations?: boolean;
 }
 
 interface CompanySettings {
@@ -180,6 +181,24 @@ function SortableRuleItem({
               </span>
             </div>
           )}
+
+          {rule.column_key && rule.final_values.length > 0 && (
+            <div className="flex items-center gap-3 p-2.5 rounded-md border bg-muted/30">
+              <Switch
+                checked={rule.block_automations ?? false}
+                onCheckedChange={(checked) => onUpdate({ block_automations: checked })}
+                data-testid={`switch-block-automations-${rule.id}`}
+              />
+              <div className="flex-1">
+                <Label className="text-sm font-medium cursor-pointer">
+                  Block Webhooks & Automations
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Also prevent webhooks, WhatsApp integration, and auto-fill rules from changing final values
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -305,6 +324,7 @@ export function FinalValueSettings({ headless = false }: { headless?: boolean })
       column_key: "",
       final_values: [],
       enabled: true,
+      block_automations: false,
     };
     setRules([...rules, newRule]);
     setHasChanges(true);

@@ -67,6 +67,7 @@ export interface Company {
       column_key: string; // which column has final values (e.g., "visit_status", "lead_status")
       final_values: string[]; // array of values that are considered final (e.g., ["Visited", "Converted"])
       enabled: boolean; // whether the rule is active
+      block_automations?: boolean; // when true, also block webhooks & automations from changing final values
     }[]; // Final value rules - once a field reaches a final value, only admins can change it
     lead_transfer_config?: {
       enabled: boolean;
@@ -149,6 +150,7 @@ export const insertCompanySchema = z.object({
       column_key: z.string(),
       final_values: z.array(z.string()),
       enabled: z.boolean(),
+      block_automations: z.boolean().optional(),
     })).optional(),
     lead_transfer_config: z.object({
       enabled: z.boolean().optional(),
