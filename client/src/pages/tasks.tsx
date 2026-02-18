@@ -1395,25 +1395,22 @@ function KanbanCard({
   getDueDateClass: (dueDate: string | null, status: string) => string;
   columnKey: string;
 }) {
-  const priorityDot: Record<string, string> = {
-    high: "bg-red-500",
-    medium: "bg-amber-500",
-    low: "bg-emerald-500",
+  const priorityStyle: Record<string, string> = {
+    high: "border-red-400/60 dark:border-red-500/40 bg-red-50/40 dark:bg-red-950/20",
+    medium: "border-amber-400/60 dark:border-amber-500/40 bg-amber-50/30 dark:bg-amber-950/15",
+    low: "border-emerald-400/60 dark:border-emerald-500/40 bg-emerald-50/30 dark:bg-emerald-950/15",
   };
 
   const moveOptions = COLUMN_CONFIG.filter(c => c.key !== columnKey);
 
   return (
     <div
-      className="group bg-background rounded-md border p-2.5 cursor-pointer hover-elevate transition-shadow"
+      className={`group rounded-md border p-2 cursor-pointer hover-elevate transition-shadow ${priorityStyle[task.priority || "medium"]}`}
       onClick={onView}
       data-testid={`kanban-card-${task.id}`}
     >
       <div className="flex items-start justify-between gap-1">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5 ${priorityDot[task.priority || "medium"]}`} title={`${PRIORITY_LABELS[task.priority || "medium"]} priority`} />
-          <span className="text-sm font-medium leading-tight line-clamp-2">{task.title}</span>
-        </div>
+        <span className="text-sm font-medium leading-tight line-clamp-2 min-w-0 flex-1">{task.title}</span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
             <Button
@@ -1460,23 +1457,30 @@ function KanbanCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground flex-wrap">
+        {task.start_date && (
+          <span className="flex items-center gap-0.5" title="Start date">
+            {formatTaskDate(task.start_date, "MMM d")}
+          </span>
+        )}
+        {task.start_date && task.due_date && (
+          <span className="text-muted-foreground/50">-</span>
+        )}
         {task.due_date && (
-          <span className={`text-[11px] flex items-center gap-1 ${getDueDateClass(task.due_date, task.status)}`}>
-            <Calendar className="h-3 w-3" />
+          <span className={`flex items-center gap-0.5 ${getDueDateClass(task.due_date, task.status)}`} title="Due date">
             {formatTaskDate(task.due_date, "MMM d")}
           </span>
         )}
-        {task.recurrence_type && task.recurrence_type !== "none" && (
-          <span className="text-[11px] text-muted-foreground flex items-center gap-0.5">
-            <Repeat className="h-3 w-3" />
-            {task.recurrence_type.charAt(0).toUpperCase() + task.recurrence_type.slice(1)}
-          </span>
+        {(task.start_date || task.due_date) && (
+          <span className="text-muted-foreground/40">|</span>
         )}
-      </div>
-      <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-        <User className="h-3 w-3" />
         <span className="truncate">{task.assigned_to_name}</span>
+        {task.recurrence_type && task.recurrence_type !== "none" && (
+          <>
+            <span className="text-muted-foreground/40">|</span>
+            <Repeat className="h-3 w-3 flex-shrink-0" />
+          </>
+        )}
       </div>
     </div>
   );
