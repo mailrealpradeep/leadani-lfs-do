@@ -349,9 +349,17 @@ export default function Tasks() {
   }, [tasks, sortField, sortDirection, startDateFilter, dueDateFilter, customStartDateRange, customDueDateRange]);
 
   const kanbanColumns = useMemo(() => {
-    const pending = sortedTasks.filter(t => t.status === "pending");
-    const ongoing = sortedTasks.filter(t => t.status === "ongoing");
-    const completed = sortedTasks.filter(t => t.status === "completed");
+    const byDueDateAsc = (a: Task, b: Task) => {
+      if (a.due_date && b.due_date) return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      if (a.due_date) return -1;
+      if (b.due_date) return 1;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    };
+    const pending = sortedTasks.filter(t => t.status === "pending").sort(byDueDateAsc);
+    const ongoing = sortedTasks.filter(t => t.status === "ongoing").sort(byDueDateAsc);
+    const completed = sortedTasks.filter(t => t.status === "completed").sort(
+      (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    );
     return { pending, ongoing, completed };
   }, [sortedTasks]);
   
