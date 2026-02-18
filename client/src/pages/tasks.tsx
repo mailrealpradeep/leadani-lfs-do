@@ -9,8 +9,6 @@ import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import {
   Plus,
   CheckSquare,
-  Clock,
-  AlertCircle,
   User,
   Calendar,
   Link2,
@@ -18,19 +16,12 @@ import {
   Edit,
   Trash2,
   Eye,
-  ChevronDown,
-  Filter,
-  X,
-  MessageSquare,
   Repeat,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   CalendarRange,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -184,7 +175,7 @@ export default function Tasks() {
     return "outline";
   };
   
-  const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [assignedFilter, setAssignedFilter] = useState<string>("all");
   
   // Sorting state
@@ -304,16 +295,13 @@ export default function Tasks() {
   };
 
   const sortedTasks = useMemo(() => {
-    // First, filter by date filters
     let filtered = [...tasks].filter(task => {
       const matchesStartDate = matchesDateFilter(task.start_date, startDateFilter, customStartDateRange);
       const matchesDueDate = matchesDateFilter(task.due_date, dueDateFilter, customDueDateRange);
       return matchesStartDate && matchesDueDate;
     });
     
-    // Then sort
     return filtered.sort((a, b) => {
-      // If a sort field is specified, use it
       if (sortField) {
         const priorityOrder = { high: 0, medium: 1, low: 2 };
         const recurrenceOrder = { daily: 0, weekly: 1, monthly: 2, none: 3 };
@@ -347,7 +335,10 @@ export default function Tasks() {
         return sortDirection === "asc" ? comparison : -comparison;
       }
       
-      // Default sort by due date
+      const priorityOrder = { high: 0, medium: 1, low: 2 };
+      const pDiff = priorityOrder[a.priority as keyof typeof priorityOrder] - priorityOrder[b.priority as keyof typeof priorityOrder];
+      if (pDiff !== 0) return pDiff;
+      
       if (a.due_date && b.due_date) {
         return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
       }
@@ -356,22 +347,14 @@ export default function Tasks() {
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   }, [tasks, sortField, sortDirection, startDateFilter, dueDateFilter, customStartDateRange, customDueDateRange]);
-  
-  // Handle sorting
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      if (sortDirection === "asc") {
-        setSortDirection("desc");
-      } else {
-        setSortField(null);
-        setSortDirection("asc");
-      }
-    } else {
-      setSortField(field);
-      setSortDirection("asc");
-    }
-  };
 
+  const kanbanColumns = useMemo(() => {
+    const pending = sortedTasks.filter(t => t.status === "pending");
+    const ongoing = sortedTasks.filter(t => t.status === "ongoing");
+    const completed = sortedTasks.filter(t => t.status === "completed");
+    return { pending, ongoing, completed };
+  }, [sortedTasks]);
+  
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       return await apiRequest("POST", "/api/tasks", data);
@@ -547,24 +530,24 @@ export default function Tasks() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-4 md:p-6 space-y-4 flex flex-col flex-1 min-h-0">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <CheckSquare className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl font-bold" data-testid="text-tasks-title">Tasks</h1>
+      <div className="px-3 pt-2 pb-1 md:px-4 md:pt-3 md:pb-1 flex flex-col flex-1 min-h-0 gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <CheckSquare className="h-5 w-5 text-primary flex-shrink-0" />
+            <h1 className="text-lg font-bold whitespace-nowrap" data-testid="text-tasks-title">Tasks</h1>
             {taskCounts && (
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" data-testid="badge-task-count">
-                  {taskCounts.total} Active
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant="secondary" className="text-xs" data-testid="badge-task-count">
+                  {taskCounts.total}
                 </Badge>
                 {taskCounts.overdue > 0 && (
-                  <Badge variant="destructive" data-testid="badge-overdue-count">
+                  <Badge variant="destructive" className="text-xs" data-testid="badge-overdue-count">
                     {taskCounts.overdue} Overdue
                   </Badge>
                 )}
                 {taskCounts.dueToday > 0 && (
-                  <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400" data-testid="badge-today-count">
-                    {taskCounts.dueToday} Due Today
+                  <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs" data-testid="badge-today-count">
+                    {taskCounts.dueToday} Today
                   </Badge>
                 )}
               </div>
@@ -572,6 +555,7 @@ export default function Tasks() {
           </div>
           
           <Button 
+            size="sm"
             onClick={() => {
               resetForm();
               setFormData(prev => ({ ...prev, assigned_to_user_id: user?.id || "" }));
@@ -579,40 +563,21 @@ export default function Tasks() {
             }}
             data-testid="button-create-task"
           >
-            <Plus className="h-4 w-4 mr-2" />
+            <Plus className="h-4 w-4 mr-1" />
             New Task
           </Button>
         </div>
 
         <div className={`${isMobile ? 'bg-muted/30 rounded-xl p-3 border border-border/50' : ''}`}>
-          <div className={`flex ${isMobile ? 'flex-col gap-2' : 'flex-wrap items-center gap-3'}`}>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger 
-                className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[160px]'}`} 
-                data-testid="select-status-filter"
-              >
-                <div className="flex items-center gap-2">
-                  <Filter className="h-4 w-4 text-primary" />
-                  <SelectValue placeholder="Status" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Pending & Ongoing</SelectItem>
-                <SelectItem value="pending">Pending Only</SelectItem>
-                <SelectItem value="ongoing">Ongoing Only</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="all">All Tasks</SelectItem>
-              </SelectContent>
-            </Select>
-
+          <div className={`flex ${isMobile ? 'flex-col gap-2' : 'flex-wrap items-center gap-2'}`}>
             {isAdmin && (
               <Select value={assignedFilter} onValueChange={setAssignedFilter}>
                 <SelectTrigger 
-                  className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[180px]'}`} 
+                  className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[160px] h-8 text-xs'}`} 
                   data-testid="select-assigned-filter"
                 >
-                  <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-primary" />
+                  <div className="flex items-center gap-1.5">
+                    <User className="h-3.5 w-3.5 text-primary" />
                     <SelectValue placeholder="Assigned To" />
                   </div>
                 </SelectTrigger>
@@ -627,11 +592,11 @@ export default function Tasks() {
 
             <Select value={startDateFilter} onValueChange={(v: DateFilterOption) => setStartDateFilter(v)}>
               <SelectTrigger 
-                className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[160px]'}`} 
+                className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[150px] h-8 text-xs'}`} 
                 data-testid="select-start-date-filter"
               >
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-primary" />
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-primary" />
                   <SelectValue placeholder="Start Date" />
                 </div>
               </SelectTrigger>
@@ -647,11 +612,11 @@ export default function Tasks() {
 
             <Select value={dueDateFilter} onValueChange={(v: DateFilterOption) => setDueDateFilter(v)}>
               <SelectTrigger 
-                className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[160px]'}`} 
+                className={`${isMobile ? 'w-full bg-background shadow-sm' : 'w-[150px] h-8 text-xs'}`} 
                 data-testid="select-due-date-filter"
               >
-                <div className="flex items-center gap-2">
-                  <CalendarRange className="h-4 w-4 text-primary" />
+                <div className="flex items-center gap-1.5">
+                  <CalendarRange className="h-3.5 w-3.5 text-primary" />
                   <SelectValue placeholder="Due Date" />
                 </div>
               </SelectTrigger>
@@ -718,9 +683,7 @@ export default function Tasks() {
               <CheckSquare className="h-12 w-12 text-muted-foreground mb-4" />
               <p className="text-lg font-medium text-muted-foreground">No tasks found</p>
               <p className="text-sm text-muted-foreground mt-1">
-                {statusFilter === "active" 
-                  ? "You have no pending or ongoing tasks" 
-                  : "No tasks match the current filters"}
+                No tasks match the current filters
               </p>
               <Button 
                 variant="outline" 
@@ -757,23 +720,19 @@ export default function Tasks() {
             </div>
           </ScrollArea>
         ) : (
-          <div className="flex-1 min-h-0 border rounded-lg overflow-hidden">
-            <TasksGrid 
-              tasks={sortedTasks}
-              isAdmin={isAdmin}
-              onView={openViewDialog}
-              onEdit={openEditDialog}
-              onDelete={openDeleteDialog}
-              onStatusChange={handleStatusChange}
-              canEditTask={canEditTask}
-              canDeleteTask={canDeleteTask}
-              formatTaskDate={formatTaskDate}
-              getDueDateClass={getDueDateClass}
-              sortField={sortField}
-              sortDirection={sortDirection}
-              onSort={handleSort}
-            />
-          </div>
+          <KanbanBoard
+            columns={kanbanColumns}
+            isAdmin={isAdmin}
+            onView={openViewDialog}
+            onEdit={openEditDialog}
+            onDelete={openDeleteDialog}
+            onStatusChange={handleStatusChange}
+            canEditTask={canEditTask}
+            canDeleteTask={canDeleteTask}
+            formatTaskDate={formatTaskDate}
+            getDueDateClass={getDueDateClass}
+            getDueDateBadgeVariant={getDueDateBadgeVariant}
+          />
         )}
       </div>
 
@@ -1335,70 +1294,26 @@ function TaskCard({
   );
 }
 
-const RECURRENCE_LABELS: Record<string, string> = {
-  none: "One-time",
-  daily: "Daily",
-  weekly: "Weekly",
-  monthly: "Monthly",
-};
+const COLUMN_CONFIG: { key: "pending" | "ongoing" | "completed"; label: string; headerClass: string; dotClass: string }[] = [
+  { key: "pending", label: "Pending", headerClass: "text-amber-600 dark:text-amber-400", dotClass: "bg-amber-500" },
+  { key: "ongoing", label: "Ongoing", headerClass: "text-blue-600 dark:text-blue-400", dotClass: "bg-blue-500" },
+  { key: "completed", label: "Completed", headerClass: "text-emerald-600 dark:text-emerald-400", dotClass: "bg-emerald-500" },
+];
 
-type SortField = "priority" | "start_date" | "due_date" | "recurrence_type" | "assigned_to_name" | null;
-
-function SortableHeader({ 
-  label, 
-  field, 
-  sortField, 
-  sortDirection, 
-  onSort,
-  className = ""
-}: { 
-  label: string; 
-  field: SortField; 
-  sortField: SortField; 
-  sortDirection: "asc" | "desc"; 
-  onSort: (field: SortField) => void;
-  className?: string;
-}) {
-  const isActive = sortField === field;
-  
-  return (
-    <th 
-      className={`text-left p-3 font-medium text-sm cursor-pointer hover:bg-muted/80 transition-colors select-none ${className}`}
-      onClick={() => onSort(field)}
-      data-testid={`header-sort-${field}`}
-    >
-      <div className="flex items-center gap-1">
-        <span>{label}</span>
-        {isActive ? (
-          sortDirection === "asc" ? (
-            <ArrowUp className="h-3 w-3 text-primary" />
-          ) : (
-            <ArrowDown className="h-3 w-3 text-primary" />
-          )
-        ) : (
-          <ArrowUpDown className="h-3 w-3 text-muted-foreground opacity-50" />
-        )}
-      </div>
-    </th>
-  );
-}
-
-function TasksGrid({ 
-  tasks, 
-  isAdmin, 
-  onView, 
-  onEdit, 
-  onDelete, 
+function KanbanBoard({
+  columns,
+  isAdmin,
+  onView,
+  onEdit,
+  onDelete,
   onStatusChange,
   canEditTask,
   canDeleteTask,
   formatTaskDate,
   getDueDateClass,
-  sortField,
-  sortDirection,
-  onSort,
-}: { 
-  tasks: Task[]; 
+  getDueDateBadgeVariant,
+}: {
+  columns: { pending: Task[]; ongoing: Task[]; completed: Task[] };
   isAdmin: boolean;
   onView: (task: Task) => void;
   onEdit: (task: Task) => void;
@@ -1408,145 +1323,161 @@ function TasksGrid({
   canDeleteTask: (task: Task) => boolean;
   formatTaskDate: (date: string | null, pattern?: string) => string;
   getDueDateClass: (dueDate: string | null, status: string) => string;
-  sortField: SortField;
-  sortDirection: "asc" | "desc";
-  onSort: (field: SortField) => void;
+  getDueDateBadgeVariant: (dueDate: string | null, status: string) => "destructive" | "secondary" | "outline";
 }) {
   return (
-    <div className="h-full overflow-auto">
-      <table className="w-full">
-        <thead className="bg-muted/50 sticky top-0 z-10">
-          <tr className="border-b">
-            <th className="text-left p-3 font-medium text-sm">Title</th>
-            <SortableHeader label="Priority" field="priority" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[100px]" />
-            <th className="text-left p-3 font-medium text-sm w-[120px]">Status</th>
-            <SortableHeader label="Assigned To" field="assigned_to_name" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[140px]" />
-            <SortableHeader label="Start Date" field="start_date" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[110px]" />
-            <SortableHeader label="Due Date" field="due_date" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[110px]" />
-            <SortableHeader label="Recurrence" field="recurrence_type" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="w-[110px]" />
-            <th className="text-center p-3 font-medium text-sm w-[80px]">Updates</th>
-            <th className="text-center p-3 font-medium text-sm w-[70px]">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tasks.map(task => (
-            <tr 
-              key={task.id} 
-              className="border-b hover:bg-muted/30 transition-colors"
-              data-testid={`row-task-${task.id}`}
-            >
-              <td className="p-3">
-                <div 
-                  className="font-medium cursor-pointer hover:text-primary"
-                  onClick={() => onView(task)}
-                >
-                  {task.title}
+    <div className="flex-1 min-h-0 flex gap-3" data-testid="kanban-board">
+      {COLUMN_CONFIG.map(col => (
+        <div key={col.key} className="flex-1 min-w-0 flex flex-col border rounded-lg overflow-hidden bg-muted/20">
+          <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/40">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${col.dotClass}`} />
+              <span className={`text-sm font-semibold ${col.headerClass}`}>{col.label}</span>
+            </div>
+            <Badge variant="secondary" className="text-xs">
+              {columns[col.key].length}
+            </Badge>
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="p-2 space-y-1.5">
+              {columns[col.key].length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">
+                  No {col.label.toLowerCase()} tasks
                 </div>
-                {task.description && (
-                  <p className="text-sm text-muted-foreground truncate max-w-[400px]">
-                    {task.description}
-                  </p>
-                )}
-              </td>
-              <td className="p-3">
-                <Badge className={PRIORITY_COLORS[task.priority || "medium"]} variant="secondary">
-                  {PRIORITY_LABELS[task.priority || "medium"]}
-                </Badge>
-              </td>
-              <td className="p-3">
-                {canEditTask(task) ? (
-                  <Select 
-                    value={task.status} 
-                    onValueChange={(value) => onStatusChange(task.id, value)}
-                  >
-                    <SelectTrigger className="h-8 w-[110px]" data-testid={`select-status-${task.id}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="ongoing">Ongoing</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Badge className={STATUS_COLORS[task.status]}>
-                    {STATUS_LABELS[task.status]}
-                  </Badge>
-                )}
-              </td>
-              <td className="p-3 text-sm">
-                {task.assigned_to_name}
-              </td>
-              <td className="p-3 text-sm">
-                {task.start_date ? (
-                  <span>{formatTaskDate(task.start_date)}</span>
-                ) : (
-                  <span className="text-muted-foreground">-</span>
-                )}
-              </td>
-              <td className="p-3">
-                {task.due_date ? (
-                  <span className={getDueDateClass(task.due_date, task.status)}>
-                    {formatTaskDate(task.due_date)}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">-</span>
-                )}
-              </td>
-              <td className="p-3 text-sm">
-                <Badge variant="outline" className="text-xs">
-                  {RECURRENCE_LABELS[task.recurrence_type] || "One-time"}
-                </Badge>
-              </td>
-              <td className="p-3 text-center">
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => onView(task)}
-                  className="gap-1"
-                  data-testid={`button-view-updates-${task.id}`}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  <span className="text-xs">View</span>
-                </Button>
-              </td>
-              <td className="p-3 text-center">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" data-testid={`button-grid-task-menu-${task.id}`}>
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => onView(task)}>
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Details
-                    </DropdownMenuItem>
-                    {isAdmin && canEditTask(task) && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => onEdit(task)}>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit Task
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                    {canDeleteTask(task) && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => onDelete(task)} className="text-destructive">
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete Task
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              ) : (
+                columns[col.key].map(task => (
+                  <KanbanCard
+                    key={task.id}
+                    task={task}
+                    isAdmin={isAdmin}
+                    onView={() => onView(task)}
+                    onEdit={() => onEdit(task)}
+                    onDelete={() => onDelete(task)}
+                    onStatusChange={(status) => onStatusChange(task.id, status)}
+                    canEdit={canEditTask(task)}
+                    canDelete={canDeleteTask(task)}
+                    formatTaskDate={formatTaskDate}
+                    getDueDateClass={getDueDateClass}
+                    columnKey={col.key}
+                  />
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function KanbanCard({
+  task,
+  isAdmin,
+  onView,
+  onEdit,
+  onDelete,
+  onStatusChange,
+  canEdit,
+  canDelete,
+  formatTaskDate,
+  getDueDateClass,
+  columnKey,
+}: {
+  task: Task;
+  isAdmin: boolean;
+  onView: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onStatusChange: (status: string) => void;
+  canEdit: boolean;
+  canDelete: boolean;
+  formatTaskDate: (date: string | null, pattern?: string) => string;
+  getDueDateClass: (dueDate: string | null, status: string) => string;
+  columnKey: string;
+}) {
+  const priorityDot: Record<string, string> = {
+    high: "bg-red-500",
+    medium: "bg-amber-500",
+    low: "bg-emerald-500",
+  };
+
+  const moveOptions = COLUMN_CONFIG.filter(c => c.key !== columnKey);
+
+  return (
+    <div
+      className="group bg-background rounded-md border p-2.5 cursor-pointer hover-elevate transition-shadow"
+      onClick={onView}
+      data-testid={`kanban-card-${task.id}`}
+    >
+      <div className="flex items-start justify-between gap-1">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5 ${priorityDot[task.priority || "medium"]}`} title={`${PRIORITY_LABELS[task.priority || "medium"]} priority`} />
+          <span className="text-sm font-medium leading-tight line-clamp-2">{task.title}</span>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 opacity-0 group-hover:opacity-100 flex-shrink-0 transition-opacity"
+              data-testid={`button-kanban-menu-${task.id}`}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onView(); }}>
+              <Eye className="h-4 w-4 mr-2" />
+              View Details
+            </DropdownMenuItem>
+            {canEdit && moveOptions.map(opt => (
+              <DropdownMenuItem
+                key={opt.key}
+                onClick={(e) => { e.stopPropagation(); onStatusChange(opt.key); }}
+              >
+                <div className={`w-2.5 h-2.5 rounded-full mr-2 ${opt.dotClass}`} />
+                Move to {opt.label}
+              </DropdownMenuItem>
+            ))}
+            {isAdmin && canEdit && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit(); }}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Task
+                </DropdownMenuItem>
+              </>
+            )}
+            {canDelete && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDelete(); }} className="text-destructive">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Task
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+        {task.due_date && (
+          <span className={`text-[11px] flex items-center gap-1 ${getDueDateClass(task.due_date, task.status)}`}>
+            <Calendar className="h-3 w-3" />
+            {formatTaskDate(task.due_date, "MMM d")}
+          </span>
+        )}
+        {task.recurrence_type && task.recurrence_type !== "none" && (
+          <span className="text-[11px] text-muted-foreground flex items-center gap-0.5">
+            <Repeat className="h-3 w-3" />
+            {task.recurrence_type.charAt(0).toUpperCase() + task.recurrence_type.slice(1)}
+          </span>
+        )}
+      </div>
+      <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+        <User className="h-3 w-3" />
+        <span className="truncate">{task.assigned_to_name}</span>
+      </div>
     </div>
   );
 }
