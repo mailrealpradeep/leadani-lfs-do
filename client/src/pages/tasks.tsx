@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -1325,10 +1325,60 @@ function KanbanBoard({
   getDueDateClass: (dueDate: string | null, status: string) => string;
   getDueDateBadgeVariant: (dueDate: string | null, status: string) => "destructive" | "secondary" | "outline";
 }) {
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+  const dragSourceCol = useRef<string | null>(null);
+
+  const handleDragStart = useCallback((taskId: string, sourceCol: string) => {
+    setDraggedTaskId(taskId);
+    dragSourceCol.current = sourceCol;
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedTaskId(null);
+    setDragOverCol(null);
+    dragSourceCol.current = null;
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, colKey: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (colKey !== dragSourceCol.current) {
+      setDragOverCol(colKey);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent, colKey: string) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const { clientX, clientY } = e;
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      if (dragOverCol === colKey) setDragOverCol(null);
+    }
+  }, [dragOverCol]);
+
+  const handleDrop = useCallback((e: React.DragEvent, targetCol: string) => {
+    e.preventDefault();
+    if (draggedTaskId && targetCol !== dragSourceCol.current) {
+      onStatusChange(draggedTaskId, targetCol);
+    }
+    setDraggedTaskId(null);
+    setDragOverCol(null);
+    dragSourceCol.current = null;
+  }, [draggedTaskId, onStatusChange]);
+
   return (
     <div className="flex-1 min-h-0 flex gap-3" data-testid="kanban-board">
       {COLUMN_CONFIG.map(col => (
-        <div key={col.key} className="flex-1 min-w-0 flex flex-col border rounded-lg overflow-hidden bg-muted/20">
+        <div
+          key={col.key}
+          className={`flex-1 min-w-0 flex flex-col border rounded-lg overflow-hidden bg-muted/20 transition-colors duration-150 ${
+            dragOverCol === col.key ? "ring-2 ring-primary/40 bg-primary/5" : ""
+          }`}
+          onDragOver={(e) => handleDragOver(e, col.key)}
+          onDragLeave={(e) => handleDragLeave(e, col.key)}
+          onDrop={(e) => handleDrop(e, col.key)}
+          data-testid={`kanban-column-${col.key}`}
+        >
           <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/40">
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${col.dotClass}`} />
@@ -1342,7 +1392,7 @@ function KanbanBoard({
             <div className="p-2 space-y-1.5">
               {columns[col.key].length === 0 ? (
                 <div className="py-8 text-center text-xs text-muted-foreground">
-                  No {col.label.toLowerCase()} tasks
+                  {dragOverCol === col.key ? "Drop here" : `No ${col.label.toLowerCase()} tasks`}
                 </div>
               ) : (
                 columns[col.key].map(task => (
@@ -1359,6 +1409,9 @@ function KanbanBoard({
                     formatTaskDate={formatTaskDate}
                     getDueDateClass={getDueDateClass}
                     columnKey={col.key}
+                    isDragging={draggedTaskId === task.id}
+                    onDragStart={() => handleDragStart(task.id, col.key)}
+                    onDragEnd={handleDragEnd}
                   />
                 ))
               )}
@@ -1382,6 +1435,9 @@ function KanbanCard({
   formatTaskDate,
   getDueDateClass,
   columnKey,
+  isDragging,
+  onDragStart,
+  onDragEnd,
 }: {
   task: Task;
   isAdmin: boolean;
@@ -1394,6 +1450,9 @@ function KanbanCard({
   formatTaskDate: (date: string | null, pattern?: string) => string;
   getDueDateClass: (dueDate: string | null, status: string) => string;
   columnKey: string;
+  isDragging?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }) {
   const priorityStyle: Record<string, string> = {
     high: "border-red-400/60 dark:border-red-500/40 bg-red-50/40 dark:bg-red-950/20",
@@ -1402,11 +1461,23 @@ function KanbanCard({
   };
 
   const moveOptions = COLUMN_CONFIG.filter(c => c.key !== columnKey);
+  const wasDragging = useRef(false);
 
   return (
     <div
-      className={`group rounded-md border p-2 cursor-pointer hover-elevate transition-shadow ${priorityStyle[task.priority || "medium"]}`}
-      onClick={onView}
+      className={`group rounded-md border p-2 cursor-grab active:cursor-grabbing hover-elevate transition-all ${priorityStyle[task.priority || "medium"]} ${isDragging ? "opacity-40 scale-95" : ""}`}
+      onClick={(e) => {
+        if (wasDragging.current) { wasDragging.current = false; return; }
+        onView();
+      }}
+      draggable={canEdit}
+      onDragStart={(e) => {
+        wasDragging.current = true;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", task.id);
+        onDragStart?.();
+      }}
+      onDragEnd={() => { onDragEnd?.(); setTimeout(() => { wasDragging.current = false; }, 100); }}
       data-testid={`kanban-card-${task.id}`}
     >
       <div className="flex items-start justify-between gap-1">
