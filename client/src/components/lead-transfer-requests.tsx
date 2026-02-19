@@ -42,7 +42,7 @@ interface TransferRequest {
 export function LeadTransferRequests({ headless = false }: { headless?: boolean }) {
   const { toast } = useToast();
   const { formatInTimezone } = useCompanyTimezone();
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("pending");
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<TransferRequest | null>(null);

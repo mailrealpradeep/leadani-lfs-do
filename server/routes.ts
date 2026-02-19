@@ -9915,7 +9915,20 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const oldSheetId = lead.sheet_id;
-      await storage.updateLead(transferRequest.lead_id, { sheet_id: transferRequest.to_sheet_id });
+      const updatePayload: any = { sheet_id: transferRequest.to_sheet_id };
+
+      // Check if status_on_transfer is configured
+      const companyForConfig = await storage.getCompany(sheet.company_id);
+      const transferConfig = (companyForConfig as any)?.settings?.lead_transfer_config;
+      if (transferConfig?.status_on_transfer) {
+        const currentCustomFields = lead.custom_fields || {};
+        updatePayload.custom_fields = {
+          ...currentCustomFields,
+          lead_status: transferConfig.status_on_transfer,
+        };
+      }
+
+      await storage.updateLead(transferRequest.lead_id, updatePayload);
 
       // Create audit log
       await storage.createAuditLog({
@@ -9928,7 +9941,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       });
 
       // Create lead update record
-      const company = await storage.getCompany(sheet.company_id);
+      const company = companyForConfig;
       const companyTimezone = getCompanyTimezone(company);
       const today = getTodayDateString(companyTimezone);
       const approverUser = await storage.getUser(req.userId!);

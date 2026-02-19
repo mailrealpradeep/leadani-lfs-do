@@ -23,6 +23,7 @@ interface LeadTransferConfig {
     condition_logic: "or" | "and";
   };
   visit_status_column_key?: string;
+  status_on_transfer?: string;
 }
 
 interface CompanySettings {
@@ -43,38 +44,29 @@ export function LeadTransferConfig({ headless = false }: { headless?: boolean })
     enabled: !!company?.default_sheet_id,
   });
 
-  const config = companyData?.settings?.lead_transfer_config || {
-    enabled: false,
-    auto_transfer_enabled: false,
-    auto_transfer_conditions: {
-      lead_statuses: [],
-      date_field: "created_at",
-      days_threshold: 30,
-      condition_logic: "or",
-    },
-  };
+  const config = companyData?.settings?.lead_transfer_config;
+  const configJson = JSON.stringify(config);
 
-  const [enabled, setEnabled] = useState(config.enabled);
-  const [autoTransferEnabled, setAutoTransferEnabled] = useState(config.auto_transfer_enabled);
-  const [leadStatuses, setLeadStatuses] = useState<string[]>(config.auto_transfer_conditions.lead_statuses || []);
-  const [dateField, setDateField] = useState<"created_at" | "last_edit" | "last_update_date">(
-    config.auto_transfer_conditions.date_field || "created_at"
-  );
-  const [daysThreshold, setDaysThreshold] = useState(config.auto_transfer_conditions.days_threshold || 30);
-  const [conditionLogic, setConditionLogic] = useState<"or" | "and">(
-    config.auto_transfer_conditions.condition_logic || "or"
-  );
-  const [visitStatusColumn, setVisitStatusColumn] = useState(config.visit_status_column_key || "");
+  const [enabled, setEnabled] = useState(false);
+  const [autoTransferEnabled, setAutoTransferEnabled] = useState(false);
+  const [leadStatuses, setLeadStatuses] = useState<string[]>([]);
+  const [dateField, setDateField] = useState<"created_at" | "last_edit" | "last_update_date">("created_at");
+  const [daysThreshold, setDaysThreshold] = useState(30);
+  const [conditionLogic, setConditionLogic] = useState<"or" | "and">("or");
+  const [visitStatusColumn, setVisitStatusColumn] = useState("");
+  const [statusOnTransfer, setStatusOnTransfer] = useState("");
 
   useEffect(() => {
+    if (!config) return;
     setEnabled(config.enabled);
     setAutoTransferEnabled(config.auto_transfer_enabled);
-    setLeadStatuses(config.auto_transfer_conditions.lead_statuses || []);
-    setDateField(config.auto_transfer_conditions.date_field || "created_at");
-    setDaysThreshold(config.auto_transfer_conditions.days_threshold || 30);
-    setConditionLogic(config.auto_transfer_conditions.condition_logic || "or");
+    setLeadStatuses(config.auto_transfer_conditions?.lead_statuses || []);
+    setDateField(config.auto_transfer_conditions?.date_field || "created_at");
+    setDaysThreshold(config.auto_transfer_conditions?.days_threshold || 30);
+    setConditionLogic(config.auto_transfer_conditions?.condition_logic || "or");
     setVisitStatusColumn(config.visit_status_column_key || "");
-  }, [config]);
+    setStatusOnTransfer(config.status_on_transfer || "");
+  }, [configJson]);
 
   // Get available lead status values
   const leadStatusColumn = columns.find(col => col.column_key === "lead_status" || col.name.toLowerCase().includes("lead status"));
@@ -123,6 +115,7 @@ export function LeadTransferConfig({ headless = false }: { headless?: boolean })
         condition_logic: conditionLogic,
       },
       visit_status_column_key: visitStatusColumn || undefined,
+      status_on_transfer: statusOnTransfer || undefined,
     });
   };
 
@@ -149,6 +142,26 @@ export function LeadTransferConfig({ headless = false }: { headless?: boolean })
 
         {enabled && (
           <>
+            <div className="space-y-2">
+              <Label>Lead Status After Transfer Approval</Label>
+              <Select value={statusOnTransfer} onValueChange={setStatusOnTransfer}>
+                <SelectTrigger data-testid="select-status-on-transfer">
+                  <SelectValue placeholder="No change (keep current status)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">No change</SelectItem>
+                  {availableLeadStatuses.map(status => (
+                    <SelectItem key={status} value={status}>
+                      {status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                When a transfer is approved, automatically set the lead's status to this value
+              </p>
+            </div>
+
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Enable Auto-Transfer</Label>
