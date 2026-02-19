@@ -144,6 +144,7 @@ const WHATSAPP_FIELDS = [
   { value: "sender_phone", label: "Sender Phone (Last 10 Digits)" },
   { value: "message_text", label: "Message Text" },
   { value: "display_phone_number", label: "Business Phone Number" },
+  { value: "referral_source_id", label: "Ad Source ID" },
 ];
 
 const TRIGGER_OPERATORS = [

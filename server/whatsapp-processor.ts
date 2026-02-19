@@ -528,6 +528,17 @@ async function createNewLead(
       case "display_phone_number":
         value = log.display_phone_number || "";
         break;
+      case "referral_source_id":
+        try {
+          const rawRef = (log as any).referral_data;
+          if (rawRef) {
+            const refData = typeof rawRef === 'string' ? JSON.parse(rawRef) : rawRef;
+            value = refData?.source_id || "";
+          }
+        } catch (e) {
+          value = "";
+        }
+        break;
       default:
         value = "";
     }
