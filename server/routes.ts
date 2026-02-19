@@ -3987,7 +3987,7 @@ ${questionsList}`;
       }
 
       // Merge new settings with existing settings (only allow known fields)
-      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'site_visited_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules', 'weekly_off_days', 'quality_check_settings', 'final_value_settings', 'whatsapp_webhook_id'];
+      const allowedFields = ['mobile_card_columns', 'timezone', 'site_visit_config', 'site_visited_config', 'quick_update_fields', 'add_lead_form_fields', 'auto_fill_rules', 'weekly_off_days', 'quality_check_settings', 'final_value_settings', 'whatsapp_webhook_id', 'lead_transfer_config'];
       const sanitizedSettings: Record<string, any> = {};
       for (const field of allowedFields) {
         if (incomingSettings[field] !== undefined) {
