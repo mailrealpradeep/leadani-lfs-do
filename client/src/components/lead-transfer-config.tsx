@@ -87,7 +87,7 @@ export function LeadTransferConfig({ headless = false }: { headless?: boolean })
   const updateMutation = useMutation({
     mutationFn: async (newConfig: LeadTransferConfig) => {
       const currentSettings = companyData?.settings || {};
-      return await apiRequest("PATCH", "/api/company/settings", {
+      return await apiRequest("PATCH", "/api/admin/company/settings", {
         settings: {
           ...currentSettings,
           lead_transfer_config: newConfig,
