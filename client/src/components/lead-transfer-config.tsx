@@ -39,9 +39,15 @@ export function LeadTransferConfig({ headless = false }: { headless?: boolean })
     queryKey: ["/api/company/settings"],
   });
 
+  const { data: sheets = [] } = useQuery<any[]>({
+    queryKey: ["/api/sheets"],
+  });
+
+  const firstSheetId = sheets.length > 0 ? sheets[0].id : null;
+
   const { data: columns = [] } = useQuery<CustomColumn[]>({
-    queryKey: ["/api/sheets", company?.default_sheet_id, "columns"],
-    enabled: !!company?.default_sheet_id,
+    queryKey: ["/api/sheets", firstSheetId, "columns"],
+    enabled: !!firstSheetId,
   });
 
   const config = companyData?.settings?.lead_transfer_config;
