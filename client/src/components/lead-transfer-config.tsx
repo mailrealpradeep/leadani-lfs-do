@@ -68,14 +68,14 @@ export function LeadTransferConfig({ headless = false }: { headless?: boolean })
     setStatusOnTransfer(config.status_on_transfer || "");
   }, [configJson]);
 
-  // Get available lead status values
-  const leadStatusColumn = columns.find(col => col.column_key === "lead_status" || col.name.toLowerCase().includes("lead status"));
-  const availableLeadStatuses = leadStatusColumn?.dropdown_options?.map(opt => opt.value) || [];
+  const leadStatusColumn = columns.find((col: any) => col.column_key === "lead_status" || col.name?.toLowerCase().includes("lead status"));
+  const leadStatusConfig = leadStatusColumn ? (leadStatusColumn as any).config : null;
+  const availableLeadStatuses: string[] = leadStatusConfig?.dropdown_options || [];
 
   // Get available visit status columns
-  const visitStatusColumns = columns.filter(col => 
-    col.column_type === "dropdown" && 
-    (col.column_key.toLowerCase().includes("visit") || col.name.toLowerCase().includes("visit"))
+  const visitStatusColumns = columns.filter((col: any) => 
+    col.type === "dropdown" && 
+    (col.column_key?.toLowerCase().includes("visit") || col.name?.toLowerCase().includes("visit"))
   );
 
   const updateMutation = useMutation({
@@ -144,13 +144,13 @@ export function LeadTransferConfig({ headless = false }: { headless?: boolean })
           <>
             <div className="space-y-2">
               <Label>Lead Status After Transfer Approval</Label>
-              <Select value={statusOnTransfer} onValueChange={setStatusOnTransfer}>
+              <Select value={statusOnTransfer || "__none__"} onValueChange={(v) => setStatusOnTransfer(v === "__none__" ? "" : v)}>
                 <SelectTrigger data-testid="select-status-on-transfer">
                   <SelectValue placeholder="No change (keep current status)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No change</SelectItem>
-                  {availableLeadStatuses.map(status => (
+                  <SelectItem value="__none__">No change</SelectItem>
+                  {availableLeadStatuses.map((status: string) => (
                     <SelectItem key={status} value={status}>
                       {status}
                     </SelectItem>
@@ -252,12 +252,12 @@ export function LeadTransferConfig({ headless = false }: { headless?: boolean })
 
                   <div className="space-y-2">
                     <Label>Visit Status Column</Label>
-                    <Select value={visitStatusColumn} onValueChange={setVisitStatusColumn}>
+                    <Select value={visitStatusColumn || "__none__"} onValueChange={(v) => setVisitStatusColumn(v === "__none__" ? "" : v)}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select visit status column" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="__none__">None</SelectItem>
                         {visitStatusColumns.map(col => (
                           <SelectItem key={col.id} value={col.column_key}>
                             {col.name}
