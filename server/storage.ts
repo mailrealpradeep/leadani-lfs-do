@@ -1144,12 +1144,14 @@ export interface IStorage {
 
   // Saila.AI - Keywords
   getSailaKeywords(companyId: string): Promise<SailaKeyword[]>;
+  getSailaKeyword(id: string): Promise<SailaKeyword | undefined>;
   createSailaKeyword(data: InsertSailaKeyword): Promise<SailaKeyword>;
   updateSailaKeyword(id: string, data: Partial<InsertSailaKeyword>): Promise<SailaKeyword | undefined>;
   deleteSailaKeyword(id: string): Promise<void>;
 
   // Saila.AI - Media
   getSailaMedia(companyId: string): Promise<SailaMedia[]>;
+  getSailaMediaItem(id: string): Promise<SailaMedia | undefined>;
   createSailaMedia(data: InsertSailaMedia): Promise<SailaMedia>;
   updateSailaMedia(id: string, data: Partial<InsertSailaMedia>): Promise<SailaMedia | undefined>;
   deleteSailaMedia(id: string): Promise<void>;
@@ -1167,6 +1169,7 @@ export interface IStorage {
 
   // Saila.AI - Bookings
   getSailaBookings(companyId: string, options?: { limit?: number; offset?: number; status?: string }): Promise<{ bookings: SailaBooking[]; total: number }>;
+  getSailaBooking(id: string): Promise<SailaBooking | undefined>;
   createSailaBooking(data: InsertSailaBooking): Promise<SailaBooking>;
   updateSailaBooking(id: string, data: Partial<InsertSailaBooking>): Promise<SailaBooking | undefined>;
 }
@@ -3836,10 +3839,12 @@ export class MemStorage implements IStorage {
   async deleteSailaTemplateMessage(_id: string): Promise<void> {}
   async deleteAllSailaTemplateMessages(_templateId: string): Promise<void> {}
   async getSailaKeywords(_companyId: string): Promise<SailaKeyword[]> { return []; }
+  async getSailaKeyword(_id: string): Promise<SailaKeyword | undefined> { return undefined; }
   async createSailaKeyword(_data: InsertSailaKeyword): Promise<SailaKeyword> { throw new Error("Not implemented"); }
   async updateSailaKeyword(_id: string, _data: Partial<InsertSailaKeyword>): Promise<SailaKeyword | undefined> { return undefined; }
   async deleteSailaKeyword(_id: string): Promise<void> {}
   async getSailaMedia(_companyId: string): Promise<SailaMedia[]> { return []; }
+  async getSailaMediaItem(_id: string): Promise<SailaMedia | undefined> { return undefined; }
   async createSailaMedia(_data: InsertSailaMedia): Promise<SailaMedia> { throw new Error("Not implemented"); }
   async updateSailaMedia(_id: string, _data: Partial<InsertSailaMedia>): Promise<SailaMedia | undefined> { return undefined; }
   async deleteSailaMedia(_id: string): Promise<void> {}
@@ -3851,6 +3856,7 @@ export class MemStorage implements IStorage {
   async getSailaConversationMessages(_conversationId: string): Promise<SailaConversationMessage[]> { return []; }
   async createSailaConversationMessage(_data: InsertSailaConversationMessage): Promise<SailaConversationMessage> { throw new Error("Not implemented"); }
   async getSailaBookings(_companyId: string, _options?: any): Promise<{ bookings: SailaBooking[]; total: number }> { return { bookings: [], total: 0 }; }
+  async getSailaBooking(_id: string): Promise<SailaBooking | undefined> { return undefined; }
   async createSailaBooking(_data: InsertSailaBooking): Promise<SailaBooking> { throw new Error("Not implemented"); }
   async updateSailaBooking(_id: string, _data: Partial<InsertSailaBooking>): Promise<SailaBooking | undefined> { return undefined; }
 }
@@ -12355,6 +12361,13 @@ export class PgStorage implements IStorage {
     return result;
   }
 
+  async getSailaKeyword(id: string): Promise<SailaKeyword | undefined> {
+    const result = await db.select().from(dbSchema.saila_keywords)
+      .where(eq(dbSchema.saila_keywords.id, id))
+      .limit(1);
+    return result[0];
+  }
+
   async createSailaKeyword(data: InsertSailaKeyword): Promise<SailaKeyword> {
     const result = await db.insert(dbSchema.saila_keywords)
       .values(data)
@@ -12379,6 +12392,13 @@ export class PgStorage implements IStorage {
     const result = await db.select().from(dbSchema.saila_media)
       .where(eq(dbSchema.saila_media.company_id, companyId));
     return result;
+  }
+
+  async getSailaMediaItem(id: string): Promise<SailaMedia | undefined> {
+    const result = await db.select().from(dbSchema.saila_media)
+      .where(eq(dbSchema.saila_media.id, id))
+      .limit(1);
+    return result[0];
   }
 
   async createSailaMedia(data: InsertSailaMedia): Promise<SailaMedia> {
@@ -12500,6 +12520,13 @@ export class PgStorage implements IStorage {
       .offset(offsetVal);
 
     return { bookings, total };
+  }
+
+  async getSailaBooking(id: string): Promise<SailaBooking | undefined> {
+    const result = await db.select().from(dbSchema.saila_bookings)
+      .where(eq(dbSchema.saila_bookings.id, id))
+      .limit(1);
+    return result[0];
   }
 
   async createSailaBooking(data: InsertSailaBooking): Promise<SailaBooking> {

@@ -5,6 +5,7 @@ import type {
   WhatsAppAllocationRecord,
   Lead
 } from "@shared/schema";
+import { generateSailaResponse } from "./saila-engine";
 
 // Helper: get column keys protected by final value settings with block_automations enabled
 function getAutomationBlockedFinalValues(companySettings: any): Map<string, Set<string>> {
@@ -45,6 +46,29 @@ export interface ProcessedMessageResult {
   message: string;
   leadId?: string;
   transferRequestId?: string;
+}
+
+async function triggerSailaAI(
+  companyId: string,
+  senderPhone: string,
+  senderName: string,
+  displayPhoneNumber: string,
+  messageText: string,
+  leadId?: string
+): Promise<void> {
+  try {
+    await generateSailaResponse(
+      companyId,
+      senderPhone,
+      senderName,
+      displayPhoneNumber,
+      "",
+      messageText,
+      leadId
+    );
+  } catch (err) {
+    console.error("[WhatsApp Processor] Saila.AI error (non-blocking):", err);
+  }
 }
 
 export function normalizePhoneNumber(phone: string): string {
@@ -265,6 +289,8 @@ export async function processWhatsAppMessage(
           processed_at: new Date()
         });
         
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id).catch(() => {});
+
         return {
           success: true,
           outcome: "followup_added",
@@ -273,7 +299,8 @@ export async function processWhatsAppMessage(
         };
       }
       
-      // No trigger match and no existing lead - truly ignore
+      triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText).catch(() => {});
+
       await storage.updateWhatsAppMessageLog(log.id, {
         outcome: "ignored_no_trigger",
         trigger_matched: false,
@@ -294,6 +321,7 @@ export async function processWhatsAppMessage(
       
       if (!allocation) {
         const followupResult = await addFollowupToLead(existingLead.lead, log, messageText, senderName, matchedRule.id);
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id).catch(() => {});
         return followupResult;
       }
 
@@ -302,9 +330,11 @@ export async function processWhatsAppMessage(
           console.log("[WhatsApp Processor] Lead already in same sheet (different owner) - adding follow-up instead of transfer request");
         }
         const followupResult = await addFollowupToLead(existingLead.lead, log, messageText, senderName, matchedRule.id);
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id).catch(() => {});
         return followupResult;
       } else {
         const transferResult = await createTransferRequest(existingLead, allocation, log, messageText, senderName, matchedRule.id);
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id).catch(() => {});
         return transferResult;
       }
     } else {
@@ -580,6 +610,8 @@ async function createNewLead(
     processed_at: new Date()
   });
   
+  triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, lead.id).catch(() => {});
+
   return {
     success: true,
     outcome: "new_lead_created",

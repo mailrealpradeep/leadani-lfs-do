@@ -58,6 +58,7 @@ import FollowupTransactions from "@/pages/followup-transactions";
 import PowerFlow from "@/pages/powerflow";
 import VisionBoard from "@/pages/vision-board";
 import ConversionSettings from "@/pages/conversion-settings";
+import SailaAI from "@/pages/saila";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -171,6 +172,9 @@ function Router() {
       </Route>
       <Route path="/conversion-settings">
         {() => <ProtectedRoute component={ConversionSettings} adminOnly />}
+      </Route>
+      <Route path="/saila">
+        {() => <ProtectedRoute component={SailaAI} adminOnly />}
       </Route>
       <Route path="/custom-view/:viewId">
         {() => <ProtectedRoute component={CustomViewPage} />}
