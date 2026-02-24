@@ -139,10 +139,12 @@ function SettingsTab() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="hindi">Hindi</SelectItem>
                   <SelectItem value="odia">Odia</SelectItem>
+                  <SelectItem value="odinglish">Odinglish (Romanized Odia)</SelectItem>
                   <SelectItem value="english">English</SelectItem>
+                  <SelectItem value="hindi">Hindi</SelectItem>
                   <SelectItem value="hinglish">Hinglish</SelectItem>
+                  <SelectItem value="telugu">Telugu</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -155,12 +155,16 @@ async function callSarvamLLM(
 
   try {
     const languageInstruction = language === "odia"
-      ? "Respond naturally in Odia language."
-      : language === "english"
-        ? "Respond naturally in English."
-        : language === "hinglish"
-          ? "Respond naturally in Hinglish (Hindi+English mix)."
-          : "Respond naturally in Hindi.";
+      ? "Respond naturally in Odia language using Odia script."
+      : language === "odinglish"
+        ? "Respond naturally in Odinglish - romanized Odia written in English letters. Example style: 'kouthi ghara heba', 'kemiti achhanti', 'namaskar bhai'. Do NOT use Odia script, write everything in English/Roman letters."
+        : language === "english"
+          ? "Respond naturally in English."
+          : language === "hinglish"
+            ? "Respond naturally in Hinglish (Hindi+English mix written in Roman/English letters). Example: 'kya plan hai ghar lene ka', 'aap kab free ho call ke liye'."
+            : language === "telugu"
+              ? "Respond naturally in Telugu language using Telugu script."
+              : "Respond naturally in Hindi.";
 
     const conversationContext = conversationHistory.length > 0
       ? `\nPrevious conversation:\n${conversationHistory.slice(-6).join("\n")}`
