@@ -5135,3 +5135,160 @@ export const meta_platform_settings = pgTable('meta_platform_settings', {
 
 export type MetaPlatformSetting = typeof meta_platform_settings.$inferSelect;
 export type InsertMetaPlatformSetting = typeof meta_platform_settings.$inferInsert;
+
+// ==================== SAILA.AI TABLES ====================
+
+export const saila_config = pgTable('saila_config', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sarvam_api_key: text('sarvam_api_key'),
+  wauper_api_key: text('wauper_api_key'),
+  wauper_domain: varchar('wauper_domain', { length: 500 }).default('https://live-mt-server.wati.io'),
+  wauper_api_version: varchar('wauper_api_version', { length: 20 }).default('v2'),
+  confidence_threshold: integer('confidence_threshold').notNull().default(70),
+  language: varchar('language', { length: 20 }).notNull().default('hindi'),
+  fallback_message: text('fallback_message').default('Thank you for your message. Our team will get back to you shortly.'),
+  enabled: boolean('enabled').notNull().default(false),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaConfig = typeof saila_config.$inferSelect;
+export type InsertSailaConfig = typeof saila_config.$inferInsert;
+export const insertSailaConfigSchema = createInsertSchema(saila_config).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_phone_settings = pgTable('saila_phone_settings', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  display_phone_number: varchar('display_phone_number', { length: 30 }).notNull(),
+  enabled: boolean('enabled').notNull().default(false),
+  executive_name: varchar('executive_name', { length: 255 }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaPhoneSetting = typeof saila_phone_settings.$inferSelect;
+export type InsertSailaPhoneSetting = typeof saila_phone_settings.$inferInsert;
+export const insertSailaPhoneSettingSchema = createInsertSchema(saila_phone_settings).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_templates = pgTable('saila_templates', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  category: varchar('category', { length: 100 }),
+  enabled: boolean('enabled').notNull().default(true),
+  order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaTemplate = typeof saila_templates.$inferSelect;
+export type InsertSailaTemplate = typeof saila_templates.$inferInsert;
+export const insertSailaTemplateSchema = createInsertSchema(saila_templates).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_template_messages = pgTable('saila_template_messages', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  template_id: varchar('template_id').notNull().references(() => saila_templates.id, { onDelete: 'cascade' }),
+  direction: varchar('direction', { length: 10 }).notNull(),
+  message_text: text('message_text').notNull(),
+  order_index: integer('order_index').notNull().default(0),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type SailaTemplateMessage = typeof saila_template_messages.$inferSelect;
+export type InsertSailaTemplateMessage = typeof saila_template_messages.$inferInsert;
+export const insertSailaTemplateMessageSchema = createInsertSchema(saila_template_messages).omit({ id: true, created_at: true });
+
+export const saila_keywords = pgTable('saila_keywords', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  keyword: varchar('keyword', { length: 255 }).notNull(),
+  match_type: varchar('match_type', { length: 20 }).notNull().default('contains'),
+  response_text: text('response_text'),
+  template_id: varchar('template_id').references(() => saila_templates.id, { onDelete: 'set null' }),
+  priority: integer('priority').notNull().default(0),
+  enabled: boolean('enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaKeyword = typeof saila_keywords.$inferSelect;
+export type InsertSailaKeyword = typeof saila_keywords.$inferInsert;
+export const insertSailaKeywordSchema = createInsertSchema(saila_keywords).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_media = pgTable('saila_media', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: varchar('type', { length: 30 }).notNull(),
+  url: text('url').notNull(),
+  description: text('description'),
+  file_size: integer('file_size'),
+  enabled: boolean('enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaMedia = typeof saila_media.$inferSelect;
+export type InsertSailaMedia = typeof saila_media.$inferInsert;
+export const insertSailaMediaSchema = createInsertSchema(saila_media).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_conversations = pgTable('saila_conversations', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  sender_phone: varchar('sender_phone', { length: 30 }).notNull(),
+  sender_name: varchar('sender_name', { length: 255 }),
+  executive_phone: varchar('executive_phone', { length: 30 }).notNull(),
+  executive_name: varchar('executive_name', { length: 255 }),
+  status: varchar('status', { length: 30 }).notNull().default('active'),
+  booking_status: varchar('booking_status', { length: 30 }).default('none'),
+  last_message_at: timestamp('last_message_at'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaConversation = typeof saila_conversations.$inferSelect;
+export type InsertSailaConversation = typeof saila_conversations.$inferInsert;
+export const insertSailaConversationSchema = createInsertSchema(saila_conversations).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_conversation_messages = pgTable('saila_conversation_messages', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  conversation_id: varchar('conversation_id').notNull().references(() => saila_conversations.id, { onDelete: 'cascade' }),
+  direction: varchar('direction', { length: 10 }).notNull(),
+  message_text: text('message_text'),
+  message_type: varchar('message_type', { length: 30 }).notNull().default('text'),
+  media_url: text('media_url'),
+  confidence_score: integer('confidence_score'),
+  template_used: varchar('template_used'),
+  keyword_matched: varchar('keyword_matched'),
+  sent_status: varchar('sent_status', { length: 20 }).default('pending'),
+  wauper_message_id: varchar('wauper_message_id', { length: 255 }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type SailaConversationMessage = typeof saila_conversation_messages.$inferSelect;
+export type InsertSailaConversationMessage = typeof saila_conversation_messages.$inferInsert;
+export const insertSailaConversationMessageSchema = createInsertSchema(saila_conversation_messages).omit({ id: true, created_at: true });
+
+export const saila_bookings = pgTable('saila_bookings', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  conversation_id: varchar('conversation_id').references(() => saila_conversations.id, { onDelete: 'set null' }),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  sender_phone: varchar('sender_phone', { length: 30 }).notNull(),
+  sender_name: varchar('sender_name', { length: 255 }),
+  executive_phone: varchar('executive_phone', { length: 30 }).notNull(),
+  executive_name: varchar('executive_name', { length: 255 }),
+  booking_date: varchar('booking_date', { length: 20 }).notNull(),
+  booking_time: varchar('booking_time', { length: 20 }),
+  status: varchar('status', { length: 30 }).notNull().default('scheduled'),
+  notes: text('notes'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaBooking = typeof saila_bookings.$inferSelect;
+export type InsertSailaBooking = typeof saila_bookings.$inferInsert;
+export const insertSailaBookingSchema = createInsertSchema(saila_bookings).omit({ id: true, created_at: true, updated_at: true });

@@ -277,6 +277,24 @@ import type {
   InsertWhatsAppTransferSettingsData,
   WhatsAppMessageLogRecord,
   InsertWhatsAppMessageLogData,
+  SailaConfig,
+  InsertSailaConfig,
+  SailaPhoneSetting,
+  InsertSailaPhoneSetting,
+  SailaTemplate,
+  InsertSailaTemplate,
+  SailaTemplateMessage,
+  InsertSailaTemplateMessage,
+  SailaKeyword,
+  InsertSailaKeyword,
+  SailaMedia,
+  InsertSailaMedia,
+  SailaConversation,
+  InsertSailaConversation,
+  SailaConversationMessage,
+  InsertSailaConversationMessage,
+  SailaBooking,
+  InsertSailaBooking,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -1100,6 +1118,57 @@ export interface IStorage {
   
   // Helper methods for WhatsApp processing
   getLeadsForSheet(sheetId: string): Promise<Lead[]>;
+
+  // Saila.AI - Config
+  getSailaConfig(companyId: string): Promise<SailaConfig | undefined>;
+  upsertSailaConfig(companyId: string, data: Partial<InsertSailaConfig>): Promise<SailaConfig>;
+
+  // Saila.AI - Phone Settings
+  getSailaPhoneSettings(companyId: string): Promise<SailaPhoneSetting[]>;
+  upsertSailaPhoneSetting(companyId: string, displayPhoneNumber: string, data: Partial<InsertSailaPhoneSetting>): Promise<SailaPhoneSetting>;
+  getSailaPhoneSettingByNumber(companyId: string, displayPhoneNumber: string): Promise<SailaPhoneSetting | undefined>;
+
+  // Saila.AI - Templates
+  getSailaTemplates(companyId: string): Promise<SailaTemplate[]>;
+  getSailaTemplate(id: string): Promise<SailaTemplate | undefined>;
+  createSailaTemplate(data: InsertSailaTemplate): Promise<SailaTemplate>;
+  updateSailaTemplate(id: string, data: Partial<InsertSailaTemplate>): Promise<SailaTemplate | undefined>;
+  deleteSailaTemplate(id: string): Promise<void>;
+
+  // Saila.AI - Template Messages
+  getSailaTemplateMessages(templateId: string): Promise<SailaTemplateMessage[]>;
+  createSailaTemplateMessage(data: InsertSailaTemplateMessage): Promise<SailaTemplateMessage>;
+  updateSailaTemplateMessage(id: string, data: Partial<InsertSailaTemplateMessage>): Promise<SailaTemplateMessage | undefined>;
+  deleteSailaTemplateMessage(id: string): Promise<void>;
+  deleteAllSailaTemplateMessages(templateId: string): Promise<void>;
+
+  // Saila.AI - Keywords
+  getSailaKeywords(companyId: string): Promise<SailaKeyword[]>;
+  createSailaKeyword(data: InsertSailaKeyword): Promise<SailaKeyword>;
+  updateSailaKeyword(id: string, data: Partial<InsertSailaKeyword>): Promise<SailaKeyword | undefined>;
+  deleteSailaKeyword(id: string): Promise<void>;
+
+  // Saila.AI - Media
+  getSailaMedia(companyId: string): Promise<SailaMedia[]>;
+  createSailaMedia(data: InsertSailaMedia): Promise<SailaMedia>;
+  updateSailaMedia(id: string, data: Partial<InsertSailaMedia>): Promise<SailaMedia | undefined>;
+  deleteSailaMedia(id: string): Promise<void>;
+
+  // Saila.AI - Conversations
+  getSailaConversations(companyId: string, options?: { limit?: number; offset?: number; status?: string }): Promise<{ conversations: SailaConversation[]; total: number }>;
+  getSailaConversation(id: string): Promise<SailaConversation | undefined>;
+  getSailaConversationByPhone(companyId: string, senderPhone: string, executivePhone: string): Promise<SailaConversation | undefined>;
+  createSailaConversation(data: InsertSailaConversation): Promise<SailaConversation>;
+  updateSailaConversation(id: string, data: Partial<InsertSailaConversation>): Promise<SailaConversation | undefined>;
+
+  // Saila.AI - Conversation Messages
+  getSailaConversationMessages(conversationId: string): Promise<SailaConversationMessage[]>;
+  createSailaConversationMessage(data: InsertSailaConversationMessage): Promise<SailaConversationMessage>;
+
+  // Saila.AI - Bookings
+  getSailaBookings(companyId: string, options?: { limit?: number; offset?: number; status?: string }): Promise<{ bookings: SailaBooking[]; total: number }>;
+  createSailaBooking(data: InsertSailaBooking): Promise<SailaBooking>;
+  updateSailaBooking(id: string, data: Partial<InsertSailaBooking>): Promise<SailaBooking | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -3749,6 +3818,41 @@ export class MemStorage implements IStorage {
   async getLeadsForSheet(sheetId: string): Promise<Lead[]> {
     return Array.from(this.leads.values()).filter(lead => lead.sheet_id === sheetId && !lead.is_deleted);
   }
+
+  // Saila.AI stubs (MemStorage - not implemented)
+  async getSailaConfig(_companyId: string): Promise<SailaConfig | undefined> { return undefined; }
+  async upsertSailaConfig(_companyId: string, _data: Partial<InsertSailaConfig>): Promise<SailaConfig> { throw new Error("Not implemented"); }
+  async getSailaPhoneSettings(_companyId: string): Promise<SailaPhoneSetting[]> { return []; }
+  async upsertSailaPhoneSetting(_companyId: string, _displayPhoneNumber: string, _data: Partial<InsertSailaPhoneSetting>): Promise<SailaPhoneSetting> { throw new Error("Not implemented"); }
+  async getSailaPhoneSettingByNumber(_companyId: string, _displayPhoneNumber: string): Promise<SailaPhoneSetting | undefined> { return undefined; }
+  async getSailaTemplates(_companyId: string): Promise<SailaTemplate[]> { return []; }
+  async getSailaTemplate(_id: string): Promise<SailaTemplate | undefined> { return undefined; }
+  async createSailaTemplate(_data: InsertSailaTemplate): Promise<SailaTemplate> { throw new Error("Not implemented"); }
+  async updateSailaTemplate(_id: string, _data: Partial<InsertSailaTemplate>): Promise<SailaTemplate | undefined> { return undefined; }
+  async deleteSailaTemplate(_id: string): Promise<void> {}
+  async getSailaTemplateMessages(_templateId: string): Promise<SailaTemplateMessage[]> { return []; }
+  async createSailaTemplateMessage(_data: InsertSailaTemplateMessage): Promise<SailaTemplateMessage> { throw new Error("Not implemented"); }
+  async updateSailaTemplateMessage(_id: string, _data: Partial<InsertSailaTemplateMessage>): Promise<SailaTemplateMessage | undefined> { return undefined; }
+  async deleteSailaTemplateMessage(_id: string): Promise<void> {}
+  async deleteAllSailaTemplateMessages(_templateId: string): Promise<void> {}
+  async getSailaKeywords(_companyId: string): Promise<SailaKeyword[]> { return []; }
+  async createSailaKeyword(_data: InsertSailaKeyword): Promise<SailaKeyword> { throw new Error("Not implemented"); }
+  async updateSailaKeyword(_id: string, _data: Partial<InsertSailaKeyword>): Promise<SailaKeyword | undefined> { return undefined; }
+  async deleteSailaKeyword(_id: string): Promise<void> {}
+  async getSailaMedia(_companyId: string): Promise<SailaMedia[]> { return []; }
+  async createSailaMedia(_data: InsertSailaMedia): Promise<SailaMedia> { throw new Error("Not implemented"); }
+  async updateSailaMedia(_id: string, _data: Partial<InsertSailaMedia>): Promise<SailaMedia | undefined> { return undefined; }
+  async deleteSailaMedia(_id: string): Promise<void> {}
+  async getSailaConversations(_companyId: string, _options?: any): Promise<{ conversations: SailaConversation[]; total: number }> { return { conversations: [], total: 0 }; }
+  async getSailaConversation(_id: string): Promise<SailaConversation | undefined> { return undefined; }
+  async getSailaConversationByPhone(_companyId: string, _senderPhone: string, _executivePhone: string): Promise<SailaConversation | undefined> { return undefined; }
+  async createSailaConversation(_data: InsertSailaConversation): Promise<SailaConversation> { throw new Error("Not implemented"); }
+  async updateSailaConversation(_id: string, _data: Partial<InsertSailaConversation>): Promise<SailaConversation | undefined> { return undefined; }
+  async getSailaConversationMessages(_conversationId: string): Promise<SailaConversationMessage[]> { return []; }
+  async createSailaConversationMessage(_data: InsertSailaConversationMessage): Promise<SailaConversationMessage> { throw new Error("Not implemented"); }
+  async getSailaBookings(_companyId: string, _options?: any): Promise<{ bookings: SailaBooking[]; total: number }> { return { bookings: [], total: 0 }; }
+  async createSailaBooking(_data: InsertSailaBooking): Promise<SailaBooking> { throw new Error("Not implemented"); }
+  async updateSailaBooking(_id: string, _data: Partial<InsertSailaBooking>): Promise<SailaBooking | undefined> { return undefined; }
 }
 
 // ============================================================================
@@ -12121,6 +12225,296 @@ export class PgStorage implements IStorage {
         isNull(dbSchema.leads.deleted_at)
       ));
     return result.map(this.mapLead);
+  }
+
+  // Saila.AI Methods
+
+  async getSailaConfig(companyId: string): Promise<SailaConfig | undefined> {
+    const result = await db.select().from(dbSchema.saila_config)
+      .where(eq(dbSchema.saila_config.company_id, companyId))
+      .limit(1);
+    return result[0];
+  }
+
+  async upsertSailaConfig(companyId: string, data: Partial<InsertSailaConfig>): Promise<SailaConfig> {
+    const existing = await this.getSailaConfig(companyId);
+    if (existing) {
+      const result = await db.update(dbSchema.saila_config)
+        .set({ ...data, updated_at: new Date() })
+        .where(eq(dbSchema.saila_config.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(dbSchema.saila_config)
+      .values({ company_id: companyId, ...data })
+      .returning();
+    return result[0];
+  }
+
+  async getSailaPhoneSettings(companyId: string): Promise<SailaPhoneSetting[]> {
+    const result = await db.select().from(dbSchema.saila_phone_settings)
+      .where(eq(dbSchema.saila_phone_settings.company_id, companyId));
+    return result;
+  }
+
+  async upsertSailaPhoneSetting(companyId: string, displayPhoneNumber: string, data: Partial<InsertSailaPhoneSetting>): Promise<SailaPhoneSetting> {
+    const existing = await this.getSailaPhoneSettingByNumber(companyId, displayPhoneNumber);
+    if (existing) {
+      const result = await db.update(dbSchema.saila_phone_settings)
+        .set({ ...data, updated_at: new Date() })
+        .where(eq(dbSchema.saila_phone_settings.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(dbSchema.saila_phone_settings)
+      .values({ company_id: companyId, display_phone_number: displayPhoneNumber, ...data })
+      .returning();
+    return result[0];
+  }
+
+  async getSailaPhoneSettingByNumber(companyId: string, displayPhoneNumber: string): Promise<SailaPhoneSetting | undefined> {
+    const result = await db.select().from(dbSchema.saila_phone_settings)
+      .where(and(
+        eq(dbSchema.saila_phone_settings.company_id, companyId),
+        eq(dbSchema.saila_phone_settings.display_phone_number, displayPhoneNumber)
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async getSailaTemplates(companyId: string): Promise<SailaTemplate[]> {
+    const result = await db.select().from(dbSchema.saila_templates)
+      .where(eq(dbSchema.saila_templates.company_id, companyId))
+      .orderBy(asc(dbSchema.saila_templates.order_index));
+    return result;
+  }
+
+  async getSailaTemplate(id: string): Promise<SailaTemplate | undefined> {
+    const result = await db.select().from(dbSchema.saila_templates)
+      .where(eq(dbSchema.saila_templates.id, id))
+      .limit(1);
+    return result[0];
+  }
+
+  async createSailaTemplate(data: InsertSailaTemplate): Promise<SailaTemplate> {
+    const result = await db.insert(dbSchema.saila_templates)
+      .values(data)
+      .returning();
+    return result[0];
+  }
+
+  async updateSailaTemplate(id: string, data: Partial<InsertSailaTemplate>): Promise<SailaTemplate | undefined> {
+    const result = await db.update(dbSchema.saila_templates)
+      .set({ ...data, updated_at: new Date() })
+      .where(eq(dbSchema.saila_templates.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSailaTemplate(id: string): Promise<void> {
+    await db.delete(dbSchema.saila_templates)
+      .where(eq(dbSchema.saila_templates.id, id));
+  }
+
+  async getSailaTemplateMessages(templateId: string): Promise<SailaTemplateMessage[]> {
+    const result = await db.select().from(dbSchema.saila_template_messages)
+      .where(eq(dbSchema.saila_template_messages.template_id, templateId))
+      .orderBy(asc(dbSchema.saila_template_messages.order_index));
+    return result;
+  }
+
+  async createSailaTemplateMessage(data: InsertSailaTemplateMessage): Promise<SailaTemplateMessage> {
+    const result = await db.insert(dbSchema.saila_template_messages)
+      .values(data)
+      .returning();
+    return result[0];
+  }
+
+  async updateSailaTemplateMessage(id: string, data: Partial<InsertSailaTemplateMessage>): Promise<SailaTemplateMessage | undefined> {
+    const result = await db.update(dbSchema.saila_template_messages)
+      .set(data)
+      .where(eq(dbSchema.saila_template_messages.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSailaTemplateMessage(id: string): Promise<void> {
+    await db.delete(dbSchema.saila_template_messages)
+      .where(eq(dbSchema.saila_template_messages.id, id));
+  }
+
+  async deleteAllSailaTemplateMessages(templateId: string): Promise<void> {
+    await db.delete(dbSchema.saila_template_messages)
+      .where(eq(dbSchema.saila_template_messages.template_id, templateId));
+  }
+
+  async getSailaKeywords(companyId: string): Promise<SailaKeyword[]> {
+    const result = await db.select().from(dbSchema.saila_keywords)
+      .where(eq(dbSchema.saila_keywords.company_id, companyId))
+      .orderBy(asc(dbSchema.saila_keywords.priority));
+    return result;
+  }
+
+  async createSailaKeyword(data: InsertSailaKeyword): Promise<SailaKeyword> {
+    const result = await db.insert(dbSchema.saila_keywords)
+      .values(data)
+      .returning();
+    return result[0];
+  }
+
+  async updateSailaKeyword(id: string, data: Partial<InsertSailaKeyword>): Promise<SailaKeyword | undefined> {
+    const result = await db.update(dbSchema.saila_keywords)
+      .set({ ...data, updated_at: new Date() })
+      .where(eq(dbSchema.saila_keywords.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSailaKeyword(id: string): Promise<void> {
+    await db.delete(dbSchema.saila_keywords)
+      .where(eq(dbSchema.saila_keywords.id, id));
+  }
+
+  async getSailaMedia(companyId: string): Promise<SailaMedia[]> {
+    const result = await db.select().from(dbSchema.saila_media)
+      .where(eq(dbSchema.saila_media.company_id, companyId));
+    return result;
+  }
+
+  async createSailaMedia(data: InsertSailaMedia): Promise<SailaMedia> {
+    const result = await db.insert(dbSchema.saila_media)
+      .values(data)
+      .returning();
+    return result[0];
+  }
+
+  async updateSailaMedia(id: string, data: Partial<InsertSailaMedia>): Promise<SailaMedia | undefined> {
+    const result = await db.update(dbSchema.saila_media)
+      .set({ ...data, updated_at: new Date() })
+      .where(eq(dbSchema.saila_media.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSailaMedia(id: string): Promise<void> {
+    await db.delete(dbSchema.saila_media)
+      .where(eq(dbSchema.saila_media.id, id));
+  }
+
+  async getSailaConversations(companyId: string, options?: { limit?: number; offset?: number; status?: string }): Promise<{ conversations: SailaConversation[]; total: number }> {
+    const limitVal = options?.limit ?? 25;
+    const offsetVal = options?.offset ?? 0;
+
+    const conditions: any[] = [eq(dbSchema.saila_conversations.company_id, companyId)];
+
+    if (options?.status) {
+      conditions.push(eq(dbSchema.saila_conversations.status, options.status));
+    }
+
+    const whereClause = and(...conditions);
+
+    const countResult = await db.select({ count: sql<number>`count(*)::int` })
+      .from(dbSchema.saila_conversations)
+      .where(whereClause);
+    const total = countResult[0]?.count ?? 0;
+
+    const conversations = await db.select()
+      .from(dbSchema.saila_conversations)
+      .where(whereClause)
+      .orderBy(desc(dbSchema.saila_conversations.created_at))
+      .limit(limitVal)
+      .offset(offsetVal);
+
+    return { conversations, total };
+  }
+
+  async getSailaConversation(id: string): Promise<SailaConversation | undefined> {
+    const result = await db.select().from(dbSchema.saila_conversations)
+      .where(eq(dbSchema.saila_conversations.id, id))
+      .limit(1);
+    return result[0];
+  }
+
+  async getSailaConversationByPhone(companyId: string, senderPhone: string, executivePhone: string): Promise<SailaConversation | undefined> {
+    const result = await db.select().from(dbSchema.saila_conversations)
+      .where(and(
+        eq(dbSchema.saila_conversations.company_id, companyId),
+        eq(dbSchema.saila_conversations.sender_phone, senderPhone),
+        eq(dbSchema.saila_conversations.executive_phone, executivePhone)
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async createSailaConversation(data: InsertSailaConversation): Promise<SailaConversation> {
+    const result = await db.insert(dbSchema.saila_conversations)
+      .values(data)
+      .returning();
+    return result[0];
+  }
+
+  async updateSailaConversation(id: string, data: Partial<InsertSailaConversation>): Promise<SailaConversation | undefined> {
+    const result = await db.update(dbSchema.saila_conversations)
+      .set({ ...data, updated_at: new Date() })
+      .where(eq(dbSchema.saila_conversations.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async getSailaConversationMessages(conversationId: string): Promise<SailaConversationMessage[]> {
+    const result = await db.select().from(dbSchema.saila_conversation_messages)
+      .where(eq(dbSchema.saila_conversation_messages.conversation_id, conversationId))
+      .orderBy(asc(dbSchema.saila_conversation_messages.created_at));
+    return result;
+  }
+
+  async createSailaConversationMessage(data: InsertSailaConversationMessage): Promise<SailaConversationMessage> {
+    const result = await db.insert(dbSchema.saila_conversation_messages)
+      .values(data)
+      .returning();
+    return result[0];
+  }
+
+  async getSailaBookings(companyId: string, options?: { limit?: number; offset?: number; status?: string }): Promise<{ bookings: SailaBooking[]; total: number }> {
+    const limitVal = options?.limit ?? 25;
+    const offsetVal = options?.offset ?? 0;
+
+    const conditions: any[] = [eq(dbSchema.saila_bookings.company_id, companyId)];
+
+    if (options?.status) {
+      conditions.push(eq(dbSchema.saila_bookings.status, options.status));
+    }
+
+    const whereClause = and(...conditions);
+
+    const countResult = await db.select({ count: sql<number>`count(*)::int` })
+      .from(dbSchema.saila_bookings)
+      .where(whereClause);
+    const total = countResult[0]?.count ?? 0;
+
+    const bookings = await db.select()
+      .from(dbSchema.saila_bookings)
+      .where(whereClause)
+      .orderBy(desc(dbSchema.saila_bookings.created_at))
+      .limit(limitVal)
+      .offset(offsetVal);
+
+    return { bookings, total };
+  }
+
+  async createSailaBooking(data: InsertSailaBooking): Promise<SailaBooking> {
+    const result = await db.insert(dbSchema.saila_bookings)
+      .values(data)
+      .returning();
+    return result[0];
+  }
+
+  async updateSailaBooking(id: string, data: Partial<InsertSailaBooking>): Promise<SailaBooking | undefined> {
+    const result = await db.update(dbSchema.saila_bookings)
+      .set({ ...data, updated_at: new Date() })
+      .where(eq(dbSchema.saila_bookings.id, id))
+      .returning();
+    return result[0];
   }
 }
 
