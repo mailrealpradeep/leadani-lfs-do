@@ -174,7 +174,8 @@ async function callSarvamLLM(
   language: string,
   selectedTemplates: TemplateWithMessages[],
   rolePrompt?: string,
-  instructionPrompt?: string
+  instructionPrompt?: string,
+  executiveDesignation?: string
 ): Promise<{ responseText: string; confidence: number } | null> {
   if (!config.sarvam_api_key) {
     console.log("[Saila] No Sarvam API key configured, skipping LLM");
@@ -196,14 +197,21 @@ async function callSarvamLLM(
               : "Respond naturally in Hindi.";
 
     // Block 1: Role & Persona
-    const defaultRolePrompt = `You are ${executiveName}, a friendly and professional sales executive. Your goal is to engage with potential customers, understand their needs, and schedule a call or site visit.`;
+    const identityLine = executiveDesignation
+      ? `${executiveName}, ${executiveDesignation}`
+      : executiveName;
+    const defaultRolePrompt = `You are ${identityLine}, a friendly and professional sales executive. Your goal is to engage with potential customers, understand their needs, and schedule a call or site visit.`;
     const block1 = (rolePrompt || defaultRolePrompt)
-      .replace(/\{executive_name\}/g, executiveName);
+      .replace(/\{executive_name\}/g, executiveName)
+      .replace(/\{executive_designation\}/g, executiveDesignation || "");
 
     // Block 2: Top 10 pre-selected conversation scripts
     let block2 = "";
     if (selectedTemplates.length > 0) {
-      const scriptLines: string[] = ["=== Reference Conversation Scripts ==="];
+      const scriptLines: string[] = [
+        "=== Reference Conversation Scripts ===",
+        `Executive Identity: ${identityLine}`,
+      ];
       for (const { template, messages } of selectedTemplates) {
         const sortedMessages = messages.sort((a, b) => a.order_index - b.order_index);
         scriptLines.push(`\nScript: "${template.name}"${template.description ? ` (${template.description})` : ""}`);
@@ -229,7 +237,8 @@ async function callSarvamLLM(
     // Block 4: Response instruction
     const defaultInstructionPrompt = `Based on the conversation scripts and history above, understand what the customer needs right now and respond naturally. Follow the spirit of the scripts but do not copy them word-for-word. Keep it concise (2-3 sentences). Always move toward booking a call or visit.`;
     const block4 = (instructionPrompt || defaultInstructionPrompt)
-      .replace(/\{executive_name\}/g, executiveName);
+      .replace(/\{executive_name\}/g, executiveName)
+      .replace(/\{executive_designation\}/g, executiveDesignation || "");
 
     // Assemble system prompt
     const systemParts = [block1, languageInstruction];
@@ -384,6 +393,7 @@ export async function generateSailaResponse(
   }
 
   const effectiveExecutiveName = phoneSetting.executive_name || executiveName || "Sales Executive";
+  const effectiveDesignation = phoneSetting.designation || undefined;
 
   // Get or create conversation
   let conversation = await storage.getSailaConversationByPhone(companyId, senderPhone, executivePhone);
@@ -471,7 +481,8 @@ export async function generateSailaResponse(
     config.language,
     top10Templates,
     config.role_prompt || undefined,
-    config.instruction_prompt || undefined
+    config.instruction_prompt || undefined,
+    effectiveDesignation
   );
 
   let response: SailaResponse;

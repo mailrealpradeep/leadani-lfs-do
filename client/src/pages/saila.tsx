@@ -36,8 +36,7 @@ function SettingsTab() {
 
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/saila/config", data);
-      return res.json();
+      return await apiRequest("POST", "/api/saila/config", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saila/config"] });
@@ -206,12 +205,12 @@ function SettingsTab() {
 function PhoneSettingsTab() {
   const { toast } = useToast();
   const { data: phoneSettings = [] } = useQuery<SailaPhoneSetting[]>({ queryKey: ["/api/saila/phone-settings"] });
-  const { data: allocations = [] } = useQuery<any[]>({ queryKey: ["/api/whatsapp/allocations"] });
+  const { data: allocations = [] } = useQuery<any[]>({ queryKey: ["/api/admin/company/whatsapp/allocations"] });
+  const { data: cloudConfigs = [] } = useQuery<any[]>({ queryKey: ["/api/whatsapp-cloud/config"] });
 
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/saila/phone-settings", data);
-      return res.json();
+      return await apiRequest("POST", "/api/saila/phone-settings", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saila/phone-settings"] });
@@ -222,11 +221,13 @@ function PhoneSettingsTab() {
 
   const allPhones = Array.from(new Set([
     ...allocations.map((a: any) => a.display_phone_number),
+    ...(Array.isArray(cloudConfigs) ? cloudConfigs : [cloudConfigs]).filter((c: any) => c?.account_status && c.account_status !== "disconnected").map((c: any) => c.display_phone_number),
     ...phoneSettings.map(s => s.display_phone_number),
   ])).filter(Boolean);
 
   const getSettingForPhone = (phone: string) => phoneSettings.find(s => s.display_phone_number === phone);
   const getAllocationForPhone = (phone: string) => allocations.find((a: any) => a.display_phone_number === phone);
+  const getCloudConfigForPhone = (phone: string) => (Array.isArray(cloudConfigs) ? cloudConfigs : [cloudConfigs]).find((c: any) => c?.display_phone_number === phone);
 
   return (
     <div className="space-y-4">
@@ -250,22 +251,34 @@ function PhoneSettingsTab() {
               {allPhones.map(phone => {
                 const setting = getSettingForPhone(phone);
                 const allocation = getAllocationForPhone(phone);
+                const cloudConfig = getCloudConfigForPhone(phone);
+                const displayLabel = allocation?.user_name || cloudConfig?.business_name;
                 return (
-                  <div key={phone} className="flex items-center justify-between p-4 border rounded-md gap-4">
-                    <div className="flex-1 min-w-0">
+                  <div key={phone} className="p-4 border rounded-md space-y-3">
+                    <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium" data-testid={`text-phone-${phone}`}>{phone}</span>
-                        {allocation && (
-                          <Badge variant="outline" className="text-xs">
-                            {allocation.user_name || "Allocated"}
-                          </Badge>
+                        {displayLabel && (
+                          <Badge variant="outline" className="text-xs">{displayLabel}</Badge>
                         )}
                       </div>
+                      <Switch
+                        checked={setting?.enabled ?? false}
+                        onCheckedChange={(checked) => {
+                          saveMutation.mutate({
+                            display_phone_number: phone,
+                            enabled: checked,
+                            executive_name: setting?.executive_name || allocation?.user_name || "",
+                          });
+                        }}
+                        data-testid={`switch-phone-${phone}`}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <Input
-                        className="mt-2"
                         placeholder="Executive name (shown to leads)"
-                        value={setting?.executive_name || allocation?.user_name || ""}
-                        onChange={(e) => {
+                        defaultValue={setting?.executive_name || allocation?.user_name || ""}
+                        onBlur={(e) => {
                           saveMutation.mutate({
                             display_phone_number: phone,
                             executive_name: e.target.value,
@@ -274,18 +287,19 @@ function PhoneSettingsTab() {
                         }}
                         data-testid={`input-exec-name-${phone}`}
                       />
+                      <Input
+                        placeholder="Designation (e.g., Senior Sales Consultant)"
+                        defaultValue={setting?.designation || ""}
+                        onBlur={(e) => {
+                          saveMutation.mutate({
+                            display_phone_number: phone,
+                            designation: e.target.value,
+                            enabled: setting?.enabled ?? false,
+                          });
+                        }}
+                        data-testid={`input-designation-${phone}`}
+                      />
                     </div>
-                    <Switch
-                      checked={setting?.enabled ?? false}
-                      onCheckedChange={(checked) => {
-                        saveMutation.mutate({
-                          display_phone_number: phone,
-                          enabled: checked,
-                          executive_name: setting?.executive_name || allocation?.user_name || "",
-                        });
-                      }}
-                      data-testid={`switch-phone-${phone}`}
-                    />
                   </div>
                 );
               })}
@@ -308,8 +322,7 @@ function TemplatesTab() {
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/saila/templates", data);
-      return res.json();
+      return await apiRequest("POST", "/api/saila/templates", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saila/templates"] });
@@ -460,10 +473,9 @@ function TemplateMessageEditor({ template, onClose }: { template: SailaTemplate;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/saila/templates/${template.id}/messages`, {
+      return await apiRequest("POST", `/api/saila/templates/${template.id}/messages`, {
         messages: messages.map((m, i) => ({ ...m, order_index: i })),
       });
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saila/templates", template.id, "messages"] });
@@ -551,8 +563,7 @@ function KeywordsTab() {
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/saila/keywords", data);
-      return res.json();
+      return await apiRequest("POST", "/api/saila/keywords", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saila/keywords"] });
@@ -573,8 +584,7 @@ function KeywordsTab() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const res = await apiRequest("PUT", `/api/saila/keywords/${id}`, { enabled });
-      return res.json();
+      return await apiRequest("PUT", `/api/saila/keywords/${id}`, { enabled });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/saila/keywords"] }),
   });
@@ -702,8 +712,7 @@ function MediaTab() {
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/saila/media", data);
-      return res.json();
+      return await apiRequest("POST", "/api/saila/media", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saila/media"] });
@@ -968,8 +977,7 @@ function BookingsTab() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const res = await apiRequest("PUT", `/api/saila/bookings/${id}`, { status });
-      return res.json();
+      return await apiRequest("PUT", `/api/saila/bookings/${id}`, { status });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saila/bookings"] });

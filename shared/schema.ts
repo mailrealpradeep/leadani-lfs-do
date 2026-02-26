@@ -5165,6 +5165,7 @@ export const saila_phone_settings = pgTable('saila_phone_settings', {
   display_phone_number: varchar('display_phone_number', { length: 30 }).notNull(),
   enabled: boolean('enabled').notNull().default(false),
   executive_name: varchar('executive_name', { length: 255 }),
+  designation: varchar('designation', { length: 255 }),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
