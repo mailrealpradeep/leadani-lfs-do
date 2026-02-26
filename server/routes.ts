@@ -14330,33 +14330,23 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json({ counts });
       }
 
-      // Get all leads with their sheet_id for filtering
-      const leadsBySheet: Record<string, Lead[]> = {};
-      for (const sheet of sheets) {
-        const leads = await storage.getLeadsBySheetId(sheet.id);
-        leadsBySheet[sheet.id] = leads;
-      }
-
-      // Calculate count for each view (respecting view's sheet_ids filter)
+      // Calculate count for each view independently to avoid holding all leads in memory at once
       const counts: Record<string, number> = {};
       for (const view of enabledViews) {
         if (!view.conditions || view.conditions.length === 0) {
           counts[view.id] = 0;
         } else {
-          // Filter to view's allowed sheets (null = all sheets)
-          const viewSheets = view.sheet_ids && view.sheet_ids.length > 0 
+          // Filter to view's allowed sheets only
+          const viewSheets = view.sheet_ids && view.sheet_ids.length > 0
             ? sheets.filter(s => view.sheet_ids!.includes(s.id))
             : sheets;
-          
-          // Get leads only from allowed sheets
-          const viewLeads: Lead[] = [];
+
+          let count = 0;
           for (const sheet of viewSheets) {
-            if (leadsBySheet[sheet.id]) {
-              viewLeads.push(...leadsBySheet[sheet.id]);
-            }
+            const leads = await storage.getLeadsBySheetId(sheet.id);
+            count += leads.filter(lead => !lead.deleted_at && evaluateCustomViewConditions(lead, view.conditions)).length;
           }
-          
-          counts[view.id] = viewLeads.filter(lead => evaluateCustomViewConditions(lead, view.conditions)).length;
+          counts[view.id] = count;
         }
       }
 

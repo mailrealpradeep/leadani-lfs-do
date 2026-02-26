@@ -24,7 +24,6 @@ export async function setupVite(app: Express, server: Server) {
       ...viteLogger,
       error: (msg, options) => {
         viteLogger.error(msg, options);
-        process.exit(1);
       },
     },
     server: serverOptions,
@@ -70,6 +69,39 @@ export async function setupVite(app: Express, server: Server) {
     }
   });
 }
+
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL] Uncaught exception:', error);
+  console.error(error.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
+  if (reason instanceof Error) {
+    console.error(reason.stack);
+  }
+});
+
+process.on('SIGTERM', () => {
+  console.error('[SIGNAL] Received SIGTERM - process being terminated externally');
+  console.error(new Error('SIGTERM stack trace:').stack);
+});
+
+process.on('SIGINT', () => {
+  console.error('[SIGNAL] Received SIGINT');
+});
+
+process.on('SIGBUS', () => {
+  console.error('[SIGNAL] Received SIGBUS (bus error) - likely a native module crash');
+});
+
+process.on('SIGSEGV', () => {
+  console.error('[SIGNAL] Received SIGSEGV (segfault) - likely a native module crash');
+});
+
+process.on('SIGABRT', () => {
+  console.error('[SIGNAL] Received SIGABRT - process aborted');
+});
 
 (async () => {
   await runApp(setupVite);
