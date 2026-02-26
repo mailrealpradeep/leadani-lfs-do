@@ -19,22 +19,10 @@ async function captureSheetSnapshot(sheet: any): Promise<boolean> {
     const leads = await storage.getLeadsBySheetId(sheetId);
     const activeLeads = leads.filter(l => !l.deleted_at);
     
-    const leadUpdates: Record<string, any[]> = {};
-    if (activeLeads.length > 0) {
-      const allUpdates = await storage.getLeadUpdatesBySheetId(sheetId);
-      for (const update of allUpdates) {
-        if (!leadUpdates[update.lead_id]) {
-          leadUpdates[update.lead_id] = [];
-        }
-        leadUpdates[update.lead_id].push(update);
-      }
-    }
-    
-    const dataForHash = {
-      leads: activeLeads,
-      lead_updates: leadUpdates,
-    };
-    const dataHash = generateDataHash(dataForHash);
+    // Hash only lead IDs + updated_at timestamps to detect changes efficiently
+    // Avoids loading thousands of lead updates into memory
+    const hashableLeads = activeLeads.map(l => ({ id: l.id, updated_at: l.updated_at }));
+    const dataHash = generateDataHash(hashableLeads);
     
     const latestSnapshot = await storage.getLatestSheetSnapshot(sheetId);
     if (latestSnapshot && latestSnapshot.data_hash === dataHash) {
@@ -44,7 +32,6 @@ async function captureSheetSnapshot(sheet: any): Promise<boolean> {
     
     const snapshotData = {
       leads: activeLeads,
-      lead_updates: leadUpdates,
       captured_at: new Date().toISOString(),
     };
     
@@ -111,11 +98,13 @@ let cleanupIntervalId: NodeJS.Timeout | null = null;
 export function startSnapshotScheduler(): void {
   console.log("[Snapshot] Starting snapshot scheduler");
   
+  // Delay initial snapshot by 2 minutes to let the server stabilise
+  // and avoid memory spikes immediately after startup
   setTimeout(() => {
     runSnapshotCycle().then(() => {
       cleanupOldSnapshots();
     });
-  }, 5000);
+  }, 2 * 60 * 1000);
   
   snapshotIntervalId = setInterval(runSnapshotCycle, SNAPSHOT_INTERVAL_MS);
   
