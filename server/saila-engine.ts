@@ -25,6 +25,11 @@ interface ConversationContext {
   conversation: SailaConversation;
 }
 
+export interface TemplateWithMessages {
+  template: SailaTemplate;
+  messages: SailaTemplateMessage[];
+}
+
 function computeStringSimilarity(a: string, b: string): number {
   const s1 = a.toLowerCase().trim();
   const s2 = b.toLowerCase().trim();
@@ -56,53 +61,73 @@ function computeStringSimilarity(a: string, b: string): number {
   return Math.max(wordScore, substringScore);
 }
 
-async function matchTemplate(
-  companyId: string,
-  messageText: string,
-  conversationContext?: ConversationContext
-): Promise<{ template: SailaTemplate; response: SailaTemplateMessage; score: number } | null> {
-  const templates = await storage.getSailaTemplates(companyId);
-  const enabledTemplates = templates.filter(t => t.enabled);
-  if (enabledTemplates.length === 0) return null;
+/**
+ * Pre-selects the top 10 most contextually relevant templates from potentially
+ * 100+ templates using 4 local scoring signals — no LLM call needed.
+ *
+ * Signals:
+ *   S1 (weight 0.35): Direct message match vs template incoming messages
+ *   S2 (weight 0.25): Template name + description keyword overlap with message
+ *   S3 (weight 0.30): Conversation history alignment with template message sequence
+ *   S4 (flat +30):    Continuation bonus if last Saila response used this template
+ */
+function selectTopTemplates(
+  allTemplates: TemplateWithMessages[],
+  currentMessage: string,
+  conversationHistory: SailaConversationMessage[],
+  lastTemplateUsed?: string
+): TemplateWithMessages[] {
+  if (allTemplates.length <= 10) return allTemplates;
 
-  let bestMatch: { template: SailaTemplate; response: SailaTemplateMessage; score: number } | null = null;
+  const scored = allTemplates.map(({ template, messages }) => {
+    const incomingMessages = messages
+      .filter(m => m.direction === "incoming")
+      .sort((a, b) => a.order_index - b.order_index);
 
-  for (const template of enabledTemplates) {
-    const messages = await storage.getSailaTemplateMessages(template.id);
-    const incomingMessages = messages.filter(m => m.direction === "incoming").sort((a, b) => a.order_index - b.order_index);
-    const outgoingMessages = messages.filter(m => m.direction === "outgoing").sort((a, b) => a.order_index - b.order_index);
-
-    if (incomingMessages.length === 0 || outgoingMessages.length === 0) continue;
-
-    if (conversationContext && conversationContext.messages.length > 0) {
-      const prevMessages = conversationContext.messages;
-      const lastIncomingIdx = prevMessages.filter(m => m.direction === "incoming").length;
-
-      if (lastIncomingIdx < incomingMessages.length) {
-        const expectedIncoming = incomingMessages[lastIncomingIdx];
-        const score = computeStringSimilarity(messageText, expectedIncoming.message_text);
-        if (score > 30 && outgoingMessages.length > lastIncomingIdx) {
-          const responseMsg = outgoingMessages[lastIncomingIdx];
-          if (!bestMatch || score > bestMatch.score) {
-            bestMatch = { template, response: responseMsg, score };
-          }
-        }
-      }
+    // Signal 1: Best direct similarity between current message and any incoming template message
+    let s1 = 0;
+    for (const msg of incomingMessages) {
+      const sim = computeStringSimilarity(currentMessage, msg.message_text);
+      if (sim > s1) s1 = sim;
     }
 
-    for (const incoming of incomingMessages) {
-      const score = computeStringSimilarity(messageText, incoming.message_text);
-      if (score > 40) {
-        const idx = incomingMessages.indexOf(incoming);
-        const responseMsg = idx < outgoingMessages.length ? outgoingMessages[idx] : outgoingMessages[0];
-        if (responseMsg && (!bestMatch || score > bestMatch.score)) {
-          bestMatch = { template, response: responseMsg, score };
-        }
-      }
+    // Signal 2: Name + description keyword match
+    const nameDesc = `${template.name} ${template.description || ""} ${template.category || ""}`;
+    let s2 = computeStringSimilarity(currentMessage, nameDesc);
+    // Bonus if any individual word from template name appears in the message
+    const templateWords = template.name.toLowerCase().split(/\s+/);
+    const msgLower = currentMessage.toLowerCase();
+    if (templateWords.some(w => w.length > 3 && msgLower.includes(w))) {
+      s2 = Math.min(100, s2 + 20);
     }
-  }
 
-  return bestMatch;
+    // Signal 3: Conversation history alignment
+    // Take last 4 messages from history, compare against template's full message sequence
+    let s3 = 0;
+    if (conversationHistory.length > 0) {
+      const recentHistory = conversationHistory
+        .slice(-4)
+        .map(m => m.message_text)
+        .join(" ");
+      const templateFlow = messages
+        .sort((a, b) => a.order_index - b.order_index)
+        .map(m => m.message_text)
+        .join(" ");
+      s3 = computeStringSimilarity(recentHistory, templateFlow);
+    }
+
+    // Signal 4: Continuation bonus
+    const continuationBonus =
+      lastTemplateUsed && lastTemplateUsed === template.name ? 30 : 0;
+
+    const finalScore =
+      s1 * 0.35 + s2 * 0.25 + s3 * 0.30 + continuationBonus;
+
+    return { template, messages, score: finalScore };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 10).map(({ template, messages }) => ({ template, messages }));
 }
 
 async function matchKeyword(
@@ -145,8 +170,11 @@ async function callSarvamLLM(
   config: SailaConfig,
   messageText: string,
   executiveName: string,
-  conversationHistory: string[],
-  language: string
+  conversationHistory: SailaConversationMessage[],
+  language: string,
+  selectedTemplates: TemplateWithMessages[],
+  rolePrompt?: string,
+  instructionPrompt?: string
 ): Promise<{ responseText: string; confidence: number } | null> {
   if (!config.sarvam_api_key) {
     console.log("[Saila] No Sarvam API key configured, skipping LLM");
@@ -154,6 +182,7 @@ async function callSarvamLLM(
   }
 
   try {
+    // Language instruction
     const languageInstruction = language === "odia"
       ? "Respond naturally in Odia language using Odia script."
       : language === "odinglish"
@@ -166,20 +195,48 @@ async function callSarvamLLM(
               ? "Respond naturally in Telugu language using Telugu script."
               : "Respond naturally in Hindi.";
 
-    const conversationContext = conversationHistory.length > 0
-      ? `\nPrevious conversation:\n${conversationHistory.slice(-6).join("\n")}`
-      : "";
+    // Block 1: Role & Persona
+    const defaultRolePrompt = `You are ${executiveName}, a friendly and professional sales executive. Your goal is to engage with potential customers, understand their needs, and schedule a call or site visit.`;
+    const block1 = (rolePrompt || defaultRolePrompt)
+      .replace(/\{executive_name\}/g, executiveName);
 
-    const systemPrompt = `You are ${executiveName}, a friendly and professional sales executive for a real estate/construction company. Your goal is to engage with potential customers, understand their needs, and schedule a call or site visit. ${languageInstruction}
+    // Block 2: Top 10 pre-selected conversation scripts
+    let block2 = "";
+    if (selectedTemplates.length > 0) {
+      const scriptLines: string[] = ["=== Reference Conversation Scripts ==="];
+      for (const { template, messages } of selectedTemplates) {
+        const sortedMessages = messages.sort((a, b) => a.order_index - b.order_index);
+        scriptLines.push(`\nScript: "${template.name}"${template.description ? ` (${template.description})` : ""}`);
+        for (const msg of sortedMessages) {
+          const speaker = msg.direction === "incoming" ? "Customer" : executiveName;
+          const text = msg.message_text.replace(/\{executive_name\}/g, executiveName);
+          scriptLines.push(`  ${speaker}: ${text}`);
+        }
+      }
+      block2 = scriptLines.join("\n");
+    }
 
-Key guidelines:
-- Be warm, professional, and conversational
-- Always try to move the conversation towards booking a call or visit
-- If the customer asks about pricing, say you'd love to discuss details on a call
-- If they seem interested, suggest specific dates/times for a call
-- Never be pushy, be helpful and informative
-- Keep responses concise (2-3 sentences max)
-- If someone mentions a date/time for a call, confirm it enthusiastically${conversationContext}`;
+    // Block 3: Full conversation history (last 20 messages)
+    let block3 = "";
+    if (conversationHistory.length > 0) {
+      const historyLines = conversationHistory.slice(-20).map(m => {
+        const speaker = m.direction === "incoming" ? "Customer" : executiveName;
+        return `${speaker}: ${m.message_text}`;
+      });
+      block3 = `=== Current Conversation ===\n${historyLines.join("\n")}`;
+    }
+
+    // Block 4: Response instruction
+    const defaultInstructionPrompt = `Based on the conversation scripts and history above, understand what the customer needs right now and respond naturally. Follow the spirit of the scripts but do not copy them word-for-word. Keep it concise (2-3 sentences). Always move toward booking a call or visit.`;
+    const block4 = (instructionPrompt || defaultInstructionPrompt)
+      .replace(/\{executive_name\}/g, executiveName);
+
+    // Assemble system prompt
+    const systemParts = [block1, languageInstruction];
+    if (block2) systemParts.push(block2);
+    if (block3) systemParts.push(block3);
+    systemParts.push(block4);
+    const systemPrompt = systemParts.join("\n\n");
 
     const response = await fetch("https://api.sarvam.ai/v1/chat/completions", {
       method: "POST",
@@ -207,8 +264,7 @@ Key guidelines:
     const text = data.choices?.[0]?.message?.content?.trim();
     if (!text) return null;
 
-    const confidence = 65;
-    return { responseText: text, confidence };
+    return { responseText: text, confidence: 70 };
   } catch (err) {
     console.error("[Saila] Sarvam API call failed:", err);
     return null;
@@ -329,12 +385,12 @@ export async function generateSailaResponse(
 
   const effectiveExecutiveName = phoneSetting.executive_name || executiveName || "Sales Executive";
 
+  // Get or create conversation
   let conversation = await storage.getSailaConversationByPhone(companyId, senderPhone, executivePhone);
-  let conversationContext: ConversationContext | undefined;
+  let conversationHistory: SailaConversationMessage[] = [];
 
   if (conversation) {
-    const messages = await storage.getSailaConversationMessages(conversation.id);
-    conversationContext = { messages, conversation };
+    conversationHistory = await storage.getSailaConversationMessages(conversation.id);
     await storage.updateSailaConversation(conversation.id, {
       last_message_at: new Date(),
       sender_name: senderName || conversation.sender_name,
@@ -351,9 +407,9 @@ export async function generateSailaResponse(
       booking_status: "none",
       last_message_at: new Date(),
     });
-    conversationContext = { messages: [], conversation };
   }
 
+  // Record incoming message
   await storage.createSailaConversationMessage({
     conversation_id: conversation.id,
     direction: "incoming",
@@ -362,90 +418,124 @@ export async function generateSailaResponse(
     sent_status: "received",
   });
 
-  const conversationHistory = conversationContext
-    ? conversationContext.messages.slice(-10).map(m => `${m.direction === "incoming" ? "Customer" : effectiveExecutiveName}: ${m.message_text}`)
-    : [];
-
-  let response: SailaResponse = { shouldRespond: false, responseText: "", confidenceScore: 0, source: "none" };
-
+  // Fast path: keyword exact/starts_with (score >= 85) → respond immediately, skip LLM
   const keywordMatch = await matchKeyword(companyId, messageText);
-  if (keywordMatch && keywordMatch.keyword.response_text) {
+  if (keywordMatch && keywordMatch.score >= 85 && keywordMatch.keyword.response_text) {
     const text = keywordMatch.keyword.response_text.replace(/\{executive_name\}/g, effectiveExecutiveName);
-    response = {
+    const response: SailaResponse = {
       shouldRespond: true,
       responseText: text,
       confidenceScore: keywordMatch.score,
       source: "keyword",
       keywordMatched: keywordMatch.keyword.keyword,
     };
+    await _finalizeAndSend(config, conversation, senderPhone, executivePhone, conversationHistory, messageText, response, leadId);
+    return response;
   }
 
-  if (!response.shouldRespond || response.confidenceScore < 70) {
-    const templateMatch = await matchTemplate(companyId, messageText, conversationContext);
-    if (templateMatch && templateMatch.score > (response.confidenceScore || 0)) {
-      const text = templateMatch.response.message_text.replace(/\{executive_name\}/g, effectiveExecutiveName);
+  // Load ALL enabled templates once
+  const allEnabledTemplates = await storage.getSailaTemplates(companyId)
+    .then(ts => ts.filter(t => t.enabled));
+
+  const allTemplatesWithMessages: TemplateWithMessages[] = await Promise.all(
+    allEnabledTemplates.map(async (template) => ({
+      template,
+      messages: await storage.getSailaTemplateMessages(template.id),
+    }))
+  );
+
+  // Identify last template used for continuation bonus
+  const lastOutgoing = [...conversationHistory]
+    .reverse()
+    .find(m => m.direction === "outgoing" && m.template_used);
+  const lastTemplateUsed = lastOutgoing?.template_used || undefined;
+
+  // Pre-select top 10 most relevant templates
+  const top10Templates = selectTopTemplates(
+    allTemplatesWithMessages,
+    messageText,
+    conversationHistory,
+    lastTemplateUsed
+  );
+
+  console.log(
+    `[Saila] Pre-selected ${top10Templates.length} templates from ${allTemplatesWithMessages.length} total for: "${messageText.substring(0, 60)}"`
+  );
+
+  // Call Sarvam LLM with full context
+  const llmResult = await callSarvamLLM(
+    config,
+    messageText,
+    effectiveExecutiveName,
+    conversationHistory,
+    config.language,
+    top10Templates,
+    config.role_prompt || undefined,
+    config.instruction_prompt || undefined
+  );
+
+  let response: SailaResponse;
+
+  if (llmResult && llmResult.confidence >= config.confidence_threshold) {
+    response = {
+      shouldRespond: true,
+      responseText: llmResult.responseText,
+      confidenceScore: llmResult.confidence,
+      source: "sarvam_llm",
+    };
+  } else {
+    // Fallback: use keyword contains-match if available, otherwise config fallback
+    if (keywordMatch && keywordMatch.keyword.response_text) {
+      const text = keywordMatch.keyword.response_text.replace(/\{executive_name\}/g, effectiveExecutiveName);
       response = {
         shouldRespond: true,
         responseText: text,
-        confidenceScore: templateMatch.score,
-        source: "template",
-        templateUsed: templateMatch.template.name,
+        confidenceScore: keywordMatch.score,
+        source: "keyword",
+        keywordMatched: keywordMatch.keyword.keyword,
+      };
+    } else {
+      response = {
+        shouldRespond: true,
+        responseText: config.fallback_message || "Thank you for your message. Our team will get back to you shortly.",
+        confidenceScore: 0,
+        source: "fallback",
       };
     }
   }
 
-  if (!response.shouldRespond || response.confidenceScore < config.confidence_threshold) {
-    const llmResult = await callSarvamLLM(
-      config,
-      messageText,
-      effectiveExecutiveName,
-      conversationHistory,
-      config.language
-    );
-    if (llmResult) {
-      const combinedConfidence = response.shouldRespond
-        ? Math.max(response.confidenceScore, llmResult.confidence)
-        : llmResult.confidence;
+  await _finalizeAndSend(config, conversation, senderPhone, executivePhone, conversationHistory, messageText, response, leadId);
+  return response;
+}
 
-      if (combinedConfidence >= (response.confidenceScore || 0)) {
-        response = {
-          shouldRespond: true,
-          responseText: llmResult.responseText,
-          confidenceScore: combinedConfidence,
-          source: "sarvam_llm",
-        };
-      }
-    }
-  }
-
-  if (response.confidenceScore < config.confidence_threshold) {
-    response = {
-      shouldRespond: true,
-      responseText: config.fallback_message || "Thank you for your message. Our team will get back to you shortly.",
-      confidenceScore: config.confidence_threshold - 1,
-      source: "fallback",
-    };
-  }
-
-  const bookingIntent = detectBookingIntent(messageText);
+async function _finalizeAndSend(
+  config: SailaConfig,
+  conversation: SailaConversation,
+  senderPhone: string,
+  executivePhone: string,
+  conversationHistory: SailaConversationMessage[],
+  incomingMessage: string,
+  response: SailaResponse,
+  leadId?: string
+) {
+  // Detect booking intent
+  const bookingIntent = detectBookingIntent(incomingMessage);
   if (bookingIntent.hasIntent && bookingIntent.date) {
     try {
       await storage.createSailaBooking({
-        company_id: companyId,
+        company_id: conversation.company_id,
         conversation_id: conversation.id,
         lead_id: leadId || null,
         sender_phone: senderPhone,
-        sender_name: senderName || null,
+        sender_name: conversation.sender_name || null,
         executive_phone: executivePhone,
-        executive_name: effectiveExecutiveName,
+        executive_name: conversation.executive_name,
         booking_date: bookingIntent.date,
         booking_time: bookingIntent.time || null,
         status: "scheduled",
-        notes: `Auto-detected from message: "${messageText.substring(0, 200)}"`,
+        notes: `Auto-detected from message: "${incomingMessage.substring(0, 200)}"`,
       });
-      await storage.updateSailaConversation(conversation.id, {
-        booking_status: "scheduled",
-      });
+      await storage.updateSailaConversation(conversation.id, { booking_status: "scheduled" });
       console.log(`[Saila] Booking created for ${senderPhone} on ${bookingIntent.date}`);
     } catch (err) {
       console.error("[Saila] Failed to create booking:", err);
@@ -469,6 +559,4 @@ export async function generateSailaResponse(
 
     console.log(`[Saila] Response sent to ${senderPhone} via ${response.source} (confidence: ${response.confidenceScore}%, status: ${sendResult.success ? "sent" : "failed"})`);
   }
-
-  return response;
 }

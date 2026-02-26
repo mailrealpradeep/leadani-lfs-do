@@ -151,6 +151,34 @@ function SettingsTab() {
           </div>
 
           <div className="space-y-2">
+            <Label>Role &amp; Persona Prompt <span className="text-xs text-muted-foreground font-normal">(Block 1)</span></Label>
+            <p className="text-xs text-muted-foreground">
+              Describe who Saila is, what company she represents, and her goal. Use <code className="bg-muted px-1 rounded text-xs">{"{executive_name}"}</code> as a placeholder.
+            </p>
+            <Textarea
+              placeholder="You are {executive_name}, a friendly and professional sales executive..."
+              value={currentData.role_prompt || ""}
+              onChange={(e) => setFormData(prev => ({ ...prev, role_prompt: e.target.value }))}
+              rows={5}
+              data-testid="input-role-prompt"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Response Instruction <span className="text-xs text-muted-foreground font-normal">(Block 4)</span></Label>
+            <p className="text-xs text-muted-foreground">
+              Tell Saila how to reason, what to prioritize, and how to close each response. Saila will receive your conversation scripts and full chat history before this instruction.
+            </p>
+            <Textarea
+              placeholder="Based on the conversation scripts and history above, understand what the customer needs..."
+              value={currentData.instruction_prompt || ""}
+              onChange={(e) => setFormData(prev => ({ ...prev, instruction_prompt: e.target.value }))}
+              rows={4}
+              data-testid="input-instruction-prompt"
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label>Fallback Message</Label>
             <Textarea
               placeholder="Message sent when confidence is below threshold..."

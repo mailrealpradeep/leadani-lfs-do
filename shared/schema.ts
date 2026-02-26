@@ -5148,6 +5148,8 @@ export const saila_config = pgTable('saila_config', {
   confidence_threshold: integer('confidence_threshold').notNull().default(70),
   language: varchar('language', { length: 20 }).notNull().default('hindi'),
   fallback_message: text('fallback_message').default('Thank you for your message. Our team will get back to you shortly.'),
+  role_prompt: text('role_prompt').default('You are {executive_name}, a friendly and professional sales executive. Your goal is to engage with potential customers, understand their needs, and schedule a call or site visit.'),
+  instruction_prompt: text('instruction_prompt').default('Based on the conversation scripts and history above, understand what the customer needs right now and respond naturally. Follow the spirit of the scripts but do not copy them word-for-word. Keep it concise (2-3 sentences). Always move toward booking a call or visit.'),
   enabled: boolean('enabled').notNull().default(false),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
