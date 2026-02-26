@@ -22,6 +22,12 @@ The frontend uses React with Vite, Wouter for routing, `@tanstack/react-query` f
 
 The backend is an Express.js application providing RESTful APIs. It utilizes JWT for authentication, bcrypt for hashing, and Drizzle ORM with PostgreSQL for data persistence. Socket.io facilitates real-time bidirectional communication and UI synchronization.
 
+The main route file `server/routes.ts` is large (~26,000 lines). To reduce tsx compilation memory overhead in development, feature-specific routes are being extracted into separate modules under `server/routes/`:
+- `server/routes/saila-routes.ts` — All `/api/saila/*` routes (Saila.AI engine)
+- `server/routes/whatsapp-cloud-routes.ts` — All `/api/whatsapp-cloud/*` and `/api/super-admin/meta-settings` routes (Meta Embedded Signup)
+
+The dev workflow runs with `NODE_OPTIONS="--max-old-space-size=512"` to cap V8 heap and prevent OOM crashes from tsx's runtime TypeScript transformation.
+
 ### Data Model
 
 Core entities include Users, Companies, Sheets, Leads (with fixed and custom JSON fields), LeadUpdates, DropdownOptions, CustomColumns, Audit logs, and WebhookLogs. All tables use UUIDs, and leads support soft deletion.
