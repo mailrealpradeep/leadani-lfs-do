@@ -286,8 +286,10 @@ export async function sendWhatsAppMessage(
   messageText: string,
   _fromPhoneNumber?: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  if (!config.wauper_api_key) {
-    console.error("[Saila] No Wauper API key configured");
+  const keySource = process.env.WAUPER_API_KEY ? "env" : "db-config";
+  const apiKey = (process.env.WAUPER_API_KEY || config.wauper_api_key || "").trim();
+  if (!apiKey) {
+    console.error("[Saila] No Wauper API key configured (checked env + db)");
     return { success: false, error: "No Wauper API key configured" };
   }
 
@@ -305,13 +307,13 @@ export async function sendWhatsAppMessage(
       text: { body: messageText },
     };
 
-    console.log(`[Saila] Sending to Wauper: POST ${url} → to=${cleanPhone}`);
+    console.log(`[Saila] Sending to Wauper: POST ${url} → to=${cleanPhone} (key source: ${keySource})`);
 
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.wauper_api_key}`,
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
     });
