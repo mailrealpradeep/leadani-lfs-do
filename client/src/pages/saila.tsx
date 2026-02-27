@@ -959,60 +959,149 @@ function MediaTab() {
 }
 
 function ConversationsTab() {
+  const [view, setView] = useState<"conversations" | "not_responded">("conversations");
   const { data: result } = useQuery<{ conversations: SailaConversation[]; total: number }>({
     queryKey: ["/api/saila/conversations"],
+  });
+  const { data: skippedData } = useQuery<{ logs: SailaActivityLogEntry[]; total: number }>({
+    queryKey: ["/api/saila/activity-logs", "skipped"],
+    queryFn: async () => apiRequest<{ logs: SailaActivityLogEntry[]; total: number }>(
+      "GET",
+      "/api/saila/activity-logs?status=skipped&limit=200"
+    ),
+    refetchInterval: 30000,
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const conversations = result?.conversations || [];
+  const skipped = skippedData?.logs || [];
+
+  const REASON_LABELS: Record<string, string> = {
+    no_config: "No Saila config",
+    saila_disabled: "Saila.AI off",
+    phone_not_found: "Phone not configured",
+    phone_disabled: "Phone toggled off",
+  };
+
+  function formatTime(iso: string) {
+    const d = new Date(iso);
+    return d.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: true });
+  }
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold">AI Conversations</h3>
-        <p className="text-sm text-muted-foreground">View Saila.AI conversation threads with leads</p>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 className="text-lg font-semibold">Chats</h3>
+          <p className="text-sm text-muted-foreground">All incoming WhatsApp messages — responded and not responded</p>
+        </div>
+        <div className="flex rounded-md border overflow-hidden">
+          <button
+            onClick={() => setView("conversations")}
+            className={`px-4 py-1.5 text-sm font-medium transition-colors ${view === "conversations" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover-elevate"}`}
+            data-testid="tab-conversations-view"
+          >
+            Responded
+            {conversations.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-primary-foreground/20 px-1.5 py-0.5 text-xs">{conversations.length}</span>
+            )}
+          </button>
+          <button
+            onClick={() => setView("not_responded")}
+            className={`px-4 py-1.5 text-sm font-medium transition-colors border-l ${view === "not_responded" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover-elevate"}`}
+            data-testid="tab-not-responded-view"
+          >
+            Not Responded
+            {skipped.length > 0 && (
+              <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${view === "not_responded" ? "bg-primary-foreground/20" : "bg-amber-500/20 text-amber-700 dark:text-amber-400"}`}>{skipped.length}</span>
+            )}
+          </button>
+        </div>
       </div>
 
-      {conversations.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
-            <p>No conversations yet</p>
-            <p className="text-sm">Conversations will appear here when Saila.AI starts responding to messages</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {conversations.map(conv => (
-            <Card key={conv.id} className="hover-elevate cursor-pointer" onClick={() => setSelectedId(conv.id)}>
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <User className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium">{conv.sender_name || conv.sender_phone}</span>
-                    <Badge variant={conv.status === "active" ? "default" : "secondary"} className="text-xs">
-                      {conv.status}
-                    </Badge>
-                    {conv.booking_status !== "none" && (
-                      <Badge variant="outline" className="text-xs">
-                        <Calendar className="h-3 w-3 mr-1" />
-                        {conv.booking_status}
+      {view === "conversations" ? (
+        conversations.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p>No conversations yet</p>
+              <p className="text-sm">Conversations will appear here when Saila.AI starts responding to messages</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {conversations.map(conv => (
+              <Card key={conv.id} className="hover-elevate cursor-pointer" onClick={() => setSelectedId(conv.id)} data-testid={`card-conversation-${conv.id}`}>
+                <CardContent className="flex items-center gap-4 p-4">
+                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <User className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium">{conv.sender_name || conv.sender_phone}</span>
+                      <Badge variant={conv.status === "active" ? "default" : "secondary"} className="text-xs">
+                        {conv.status}
                       </Badge>
+                      {conv.booking_status !== "none" && (
+                        <Badge variant="outline" className="text-xs">
+                          <Calendar className="h-3 w-3 mr-1" />
+                          {conv.booking_status}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Executive: {conv.executive_name || conv.executive_phone}
+                    </p>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {conv.last_message_at && new Date(conv.last_message_at).toLocaleDateString()}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )
+      ) : (
+        skipped.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p>No skipped messages</p>
+              <p className="text-sm">Messages that Saila.AI could not respond to will appear here with reasons</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {skipped.map(log => (
+              <Card key={log.id} data-testid={`card-skipped-${log.id}`}>
+                <CardContent className="flex items-start gap-4 p-4">
+                  <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                    <MinusCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium">{log.sender_name || log.sender_phone}</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                        {REASON_LABELS[log.reason || ""] || log.reason || "Unknown reason"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      From: {log.sender_phone} · To channel: {log.executive_phone}
+                    </p>
+                    {log.incoming_message && (
+                      <p className="text-sm text-muted-foreground line-clamp-2 bg-muted/50 rounded px-2 py-1 mt-1">
+                        "{log.incoming_message.length > 120 ? log.incoming_message.slice(0, 120) + "…" : log.incoming_message}"
+                      </p>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    Executive: {conv.executive_name || conv.executive_phone}
-                  </p>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {conv.last_message_at && new Date(conv.last_message_at).toLocaleDateString()}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  <div className="text-xs text-muted-foreground shrink-0">
+                    {formatTime(log.time)}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )
       )}
 
       {selectedId && (
