@@ -5151,6 +5151,7 @@ export const saila_config = pgTable('saila_config', {
   role_prompt: text('role_prompt').default('You are {executive_name}, a friendly and professional sales executive. Your goal is to engage with potential customers, understand their needs, and schedule a call or site visit.'),
   instruction_prompt: text('instruction_prompt').default('Based on the conversation scripts and history above, understand what the customer needs right now and respond naturally. Follow the spirit of the scripts but do not copy them word-for-word. Keep it concise (2-3 sentences). Always move toward booking a call or visit.'),
   enabled: boolean('enabled').notNull().default(false),
+  llm_test_mode: boolean('llm_test_mode').notNull().default(false),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -5304,7 +5305,7 @@ export type SailaActivityLogEntry = {
   executive_name: string | null;
   incoming_message: string | null;
   response_text: string | null;
-  sent_status: "sent" | "failed" | "skipped";
+  sent_status: "sent" | "failed" | "skipped" | "dry_run";
   source: string;
   confidence_score: number | null;
   send_error: string | null;

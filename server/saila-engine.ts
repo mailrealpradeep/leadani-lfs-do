@@ -598,21 +598,41 @@ async function _finalizeAndSend(
   }
 
   if (response.shouldRespond && response.responseText) {
-    const sendResult = await sendWhatsAppMessage(config, phoneSetting, senderPhone, response.responseText);
+    // LLM Test Mode: suppress sending for non-keyword sources, but still store the generated response
+    const isKeywordSource = response.source === "keyword";
+    const suppressSend = config.llm_test_mode && !isKeywordSource;
 
-    await storage.createSailaConversationMessage({
-      conversation_id: conversation.id,
-      direction: "outgoing",
-      message_text: response.responseText,
-      message_type: "text",
-      confidence_score: response.confidenceScore,
-      template_used: response.templateUsed || null,
-      keyword_matched: response.keywordMatched || null,
-      sent_status: sendResult.success ? "sent" : "failed",
-      wauper_message_id: sendResult.messageId || null,
-      send_error: sendResult.success ? null : (sendResult.error || "Unknown send error"),
-    });
+    if (suppressSend) {
+      await storage.createSailaConversationMessage({
+        conversation_id: conversation.id,
+        direction: "outgoing",
+        message_text: response.responseText,
+        message_type: "text",
+        confidence_score: response.confidenceScore,
+        template_used: response.templateUsed || null,
+        keyword_matched: response.keywordMatched || null,
+        sent_status: "dry_run",
+        wauper_message_id: null,
+        send_error: "LLM Test Mode active — response generated but not sent",
+      });
+      console.log(`[Saila] LLM Test Mode: response generated for ${senderPhone} via ${response.source} (confidence: ${response.confidenceScore}%) — NOT sent`);
+    } else {
+      const sendResult = await sendWhatsAppMessage(config, phoneSetting, senderPhone, response.responseText);
 
-    console.log(`[Saila] Response sent to ${senderPhone} via ${response.source} (confidence: ${response.confidenceScore}%, status: ${sendResult.success ? "sent" : "failed"})`);
+      await storage.createSailaConversationMessage({
+        conversation_id: conversation.id,
+        direction: "outgoing",
+        message_text: response.responseText,
+        message_type: "text",
+        confidence_score: response.confidenceScore,
+        template_used: response.templateUsed || null,
+        keyword_matched: response.keywordMatched || null,
+        sent_status: sendResult.success ? "sent" : "failed",
+        wauper_message_id: sendResult.messageId || null,
+        send_error: sendResult.success ? null : (sendResult.error || "Unknown send error"),
+      });
+
+      console.log(`[Saila] Response sent to ${senderPhone} via ${response.source} (confidence: ${response.confidenceScore}%, status: ${sendResult.success ? "sent" : "failed"})`);
+    }
   }
 }

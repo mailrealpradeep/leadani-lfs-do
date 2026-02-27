@@ -145,6 +145,27 @@ function SettingsTab() {
             />
           </div>
 
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-base font-medium">LLM Test Mode</Label>
+              <p className="text-sm text-muted-foreground">AI responses are generated &amp; saved for review but NOT sent. Keyword responses still send. Use this to calibrate AI before going live.</p>
+            </div>
+            <Switch
+              checked={currentData.llm_test_mode ?? false}
+              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, llm_test_mode: checked }))}
+              data-testid="switch-llm-test-mode"
+            />
+          </div>
+
+          {(currentData.llm_test_mode) && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+              <Eye className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+                Test Mode active — AI responses will NOT be sent to leads. Keyword responses still send normally.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Sarvam AI API Key</Label>
@@ -1132,32 +1153,51 @@ function ConversationViewer({ conversationId, onClose }: { conversationId: strin
           <div className="space-y-3 pb-4">
             {messages.length === 0 ? (
               <p className="text-center text-muted-foreground py-4">No messages</p>
-            ) : messages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.direction === "outgoing" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] p-3 rounded-lg ${
-                  msg.direction === "outgoing"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted"
-                }`}>
-                  <p className="text-sm whitespace-pre-wrap">{msg.message_text}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs opacity-70">
-                      {new Date(msg.created_at).toLocaleTimeString()}
-                    </span>
-                    {msg.confidence_score != null && (
-                      <Badge variant="outline" className="text-xs h-4 px-1">
-                        {msg.confidence_score}%
-                      </Badge>
+            ) : messages.map(msg => {
+              const isDryRun = msg.direction === "outgoing" && msg.sent_status === "dry_run";
+              const isFailed = msg.direction === "outgoing" && msg.sent_status === "failed";
+              return (
+                <div key={msg.id} className={`flex ${msg.direction === "outgoing" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] p-3 rounded-lg ${
+                    msg.direction === "outgoing"
+                      ? isDryRun
+                        ? "border-2 border-dashed border-amber-500/60 bg-amber-500/10 text-foreground"
+                        : isFailed
+                          ? "bg-red-500/15 border border-red-500/30 text-foreground"
+                          : "bg-primary text-primary-foreground"
+                      : "bg-muted"
+                  }`}>
+                    {isDryRun && (
+                      <div className="flex items-center gap-1 mb-1.5">
+                        <Eye className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                        <span className="text-xs font-medium text-amber-700 dark:text-amber-400">Generated · Not Sent (LLM Test Mode)</span>
+                      </div>
                     )}
-                    {msg.sent_status && msg.direction === "outgoing" && (
+                    <p className="text-sm whitespace-pre-wrap">{msg.message_text}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="text-xs opacity-70">
-                        {msg.sent_status === "sent" ? <Check className="h-3 w-3 inline" /> : msg.sent_status}
+                        {new Date(msg.created_at).toLocaleTimeString()}
                       </span>
+                      {msg.confidence_score != null && (
+                        <Badge variant="outline" className="text-xs h-4 px-1">
+                          {msg.confidence_score}%
+                        </Badge>
+                      )}
+                      {msg.direction === "outgoing" && (
+                        <span className="text-xs opacity-70 flex items-center gap-0.5">
+                          {msg.sent_status === "sent" && <Check className="h-3 w-3 inline text-green-400" />}
+                          {msg.sent_status === "dry_run" && <Eye className="h-3 w-3 inline text-amber-500" />}
+                          {msg.sent_status === "failed" && <span className="text-red-400">failed</span>}
+                        </span>
+                      )}
+                    </div>
+                    {isFailed && msg.send_error && (
+                      <p className="text-xs text-red-500 dark:text-red-400 mt-1 opacity-80">{msg.send_error}</p>
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </ScrollArea>
       </DialogContent>
