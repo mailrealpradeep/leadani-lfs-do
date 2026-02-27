@@ -1174,7 +1174,8 @@ function ConversationViewer({ conversationId, onClose }: { conversationId: strin
             {conversation?.sender_name || conversation?.sender_phone || "Conversation"}
           </DialogTitle>
         </DialogHeader>
-        <ScrollArea className="flex-1 min-h-0 pr-4">
+        <div className="flex-1 min-h-0 overflow-hidden">
+        <ScrollArea className="h-full pr-4">
           <div className="space-y-3 pb-4">
             {messages.length === 0 ? (
               <p className="text-center text-muted-foreground py-4">No messages</p>
@@ -1225,6 +1226,7 @@ function ConversationViewer({ conversationId, onClose }: { conversationId: strin
             })}
           </div>
         </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );
