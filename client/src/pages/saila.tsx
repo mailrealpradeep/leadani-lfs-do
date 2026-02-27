@@ -30,12 +30,18 @@ import type {
 function TestSendSection() {
   const { toast } = useToast();
   const [testPhone, setTestPhone] = useState("");
+  const [fromPhone, setFromPhone] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const { data: phoneSettings = [] } = useQuery<SailaPhoneSetting[]>({ queryKey: ["/api/saila/phone-settings"] });
 
   async function handleTestSend() {
     const phone = testPhone.trim();
     if (!phone) {
-      toast({ title: "Enter a phone number", variant: "destructive" });
+      toast({ title: "Enter a recipient phone number", variant: "destructive" });
+      return;
+    }
+    if (!fromPhone) {
+      toast({ title: "Select a business channel", variant: "destructive" });
       return;
     }
     setIsSending(true);
@@ -43,7 +49,7 @@ function TestSendSection() {
       const result = await apiRequest<{ success: boolean; messageId?: string; error?: string }>(
         "POST",
         "/api/saila/test-send",
-        { toPhone: phone }
+        { toPhone: phone, fromPhone }
       );
       if (result.success) {
         toast({ title: "Test message sent!", description: `Message delivered. ID: ${result.messageId || "N/A"}` });
@@ -64,23 +70,34 @@ function TestSendSection() {
         <Check className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">Test Wauper Connection</span>
       </div>
-      <p className="text-xs text-muted-foreground">Send a test WhatsApp message to verify your API credentials and domain are correct.</p>
-      <div className="flex gap-2">
+      <p className="text-xs text-muted-foreground">Send a test WhatsApp message to verify your channel access token and phone number ID are correct.</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <Select value={fromPhone} onValueChange={setFromPhone}>
+          <SelectTrigger data-testid="select-from-phone">
+            <SelectValue placeholder="Select business channel…" />
+          </SelectTrigger>
+          <SelectContent>
+            {phoneSettings.map(s => (
+              <SelectItem key={s.id} value={s.display_phone_number}>
+                {s.display_phone_number}{s.executive_name ? ` — ${s.executive_name}` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Input
-          placeholder="Phone with country code, e.g. 918249723600"
+          placeholder="Recipient phone, e.g. 918249723600"
           value={testPhone}
           onChange={(e) => setTestPhone(e.target.value)}
           data-testid="input-test-phone"
-          className="flex-1"
         />
-        <Button
-          onClick={handleTestSend}
-          disabled={isSending}
-          data-testid="button-test-send"
-        >
-          {isSending ? "Sending..." : "Send Test Message"}
-        </Button>
       </div>
+      <Button
+        onClick={handleTestSend}
+        disabled={isSending}
+        data-testid="button-test-send"
+      >
+        {isSending ? "Sending..." : "Send Test Message"}
+      </Button>
     </div>
   );
 }
@@ -361,6 +378,34 @@ function PhoneSettingsTab() {
                         data-testid={`input-designation-${phone}`}
                       />
                     </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Input
+                        type="password"
+                        placeholder="Channel access token (from Wauper channel settings)"
+                        defaultValue={setting?.access_token || ""}
+                        onBlur={(e) => {
+                          saveMutation.mutate({
+                            display_phone_number: phone,
+                            access_token: e.target.value,
+                            enabled: setting?.enabled ?? false,
+                          });
+                        }}
+                        data-testid={`input-access-token-${phone}`}
+                      />
+                      <Input
+                        placeholder="Phone Number ID (from Wauper channel settings)"
+                        defaultValue={setting?.waba_phone_number_id || ""}
+                        onBlur={(e) => {
+                          saveMutation.mutate({
+                            display_phone_number: phone,
+                            waba_phone_number_id: e.target.value,
+                            enabled: setting?.enabled ?? false,
+                          });
+                        }}
+                        data-testid={`input-phone-number-id-${phone}`}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Access token and phone number ID are found in your Wauper channel settings for this number.</p>
                   </div>
                 );
               })}

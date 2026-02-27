@@ -282,15 +282,20 @@ async function callSarvamLLM(
 
 export async function sendWhatsAppMessage(
   config: SailaConfig,
+  phoneSetting: SailaPhoneSetting,
   recipientPhone: string,
-  messageText: string,
-  _fromPhoneNumber?: string
+  messageText: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  const keySource = process.env.WAUPER_API_KEY ? "env" : "db-config";
-  const apiKey = (process.env.WAUPER_API_KEY || config.wauper_api_key || "").trim();
-  if (!apiKey) {
-    console.error("[Saila] No Wauper API key configured (checked env + db)");
-    return { success: false, error: "No Wauper API key configured" };
+  const accessToken = (phoneSetting.access_token || "").trim();
+  if (!accessToken) {
+    console.error(`[Saila] No access token configured for channel ${phoneSetting.display_phone_number}`);
+    return { success: false, error: `No access token configured for channel ${phoneSetting.display_phone_number}` };
+  }
+
+  const phoneNumberId = (phoneSetting.waba_phone_number_id || "").trim();
+  if (!phoneNumberId) {
+    console.error(`[Saila] No phone number ID configured for channel ${phoneSetting.display_phone_number}`);
+    return { success: false, error: `No phone number ID configured for channel ${phoneSetting.display_phone_number}` };
   }
 
   const domain = (config.wauper_domain || "https://crmapi.wauper.com").replace(/\/$/, "");
@@ -298,22 +303,24 @@ export async function sendWhatsAppMessage(
 
   try {
     const cleanPhone = recipientPhone.replace(/\D/g, "");
-    // Wauper Omni Channel API: POST /api/v1/messages
-    const url = `${domain}/api/${version}/messages`;
+    // Wauper Session Messaging - Text Message: POST /api/meta/{version}/{phone_number_id}/messages
+    const url = `${domain}/api/meta/${version}/${phoneNumberId}/messages`;
 
     const body = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
       to: cleanPhone,
       type: "text",
       text: { body: messageText },
     };
 
-    console.log(`[Saila] Sending to Wauper: POST ${url} → to=${cleanPhone} (key source: ${keySource})`);
+    console.log(`[Saila] Sending Session Message: POST ${url} → to=${cleanPhone} (channel: ${phoneSetting.display_phone_number})`);
 
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${accessToken}`,
       },
       body: JSON.stringify(body),
     });
@@ -470,7 +477,7 @@ export async function generateSailaResponse(
       source: "keyword",
       keywordMatched: keywordMatch.keyword.keyword,
     };
-    await _finalizeAndSend(config, conversation, senderPhone, executivePhone, conversationHistory, messageText, response, leadId);
+    await _finalizeAndSend(config, phoneSetting, conversation, senderPhone, executivePhone, conversationHistory, messageText, response, leadId);
     return response;
   }
 
@@ -546,12 +553,13 @@ export async function generateSailaResponse(
     }
   }
 
-  await _finalizeAndSend(config, conversation, senderPhone, executivePhone, conversationHistory, messageText, response, leadId);
+  await _finalizeAndSend(config, phoneSetting, conversation, senderPhone, executivePhone, conversationHistory, messageText, response, leadId);
   return response;
 }
 
 async function _finalizeAndSend(
   config: SailaConfig,
+  phoneSetting: SailaPhoneSetting,
   conversation: SailaConversation,
   senderPhone: string,
   executivePhone: string,
@@ -585,7 +593,7 @@ async function _finalizeAndSend(
   }
 
   if (response.shouldRespond && response.responseText) {
-    const sendResult = await sendWhatsAppMessage(config, senderPhone, response.responseText, executivePhone);
+    const sendResult = await sendWhatsAppMessage(config, phoneSetting, senderPhone, response.responseText);
 
     await storage.createSailaConversationMessage({
       conversation_id: conversation.id,

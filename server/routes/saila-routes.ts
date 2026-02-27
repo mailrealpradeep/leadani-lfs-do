@@ -342,17 +342,22 @@ export function registerSailaRoutes(app: Express): void {
       const companyId = req.companyId;
       if (!companyId) return res.status(400).json({ error: "No company" });
 
-      const { toPhone } = req.body;
+      const { toPhone, fromPhone } = req.body;
       if (!toPhone) return res.status(400).json({ error: "toPhone is required" });
+      if (!fromPhone) return res.status(400).json({ error: "fromPhone (business channel number) is required" });
 
       const config = await storage.getSailaConfig(companyId);
       if (!config) return res.status(404).json({ error: "Saila not configured for this company" });
 
+      const phoneSettings = await storage.getSailaPhoneSettings(companyId);
+      const phoneSetting = phoneSettings.find(s => s.display_phone_number === fromPhone);
+      if (!phoneSetting) return res.status(404).json({ error: `No phone setting found for ${fromPhone}` });
+
       const result = await sendWhatsAppMessage(
         config,
+        phoneSetting,
         toPhone,
-        "This is a test message from Saila.AI to verify your Wauper connection is working correctly.",
-        undefined
+        "This is a test message from Saila.AI to verify your Wauper connection is working correctly."
       );
 
       if (result.success) {
