@@ -292,14 +292,16 @@ export async function sendWhatsAppMessage(
   }
 
   const domain = config.wauper_domain || "https://live-mt-server.wati.io";
-  const version = config.wauper_api_version || "v2";
+  const version = config.wauper_api_version || "v1";
 
   try {
     const cleanPhone = recipientPhone.replace(/\D/g, "");
-    let url = `${domain}/api/${version}/sendSessionMessage/${cleanPhone}?messageText=${encodeURIComponent(messageText)}`;
+    const url = `${domain}/api/${version}/sendSessionMessage/${cleanPhone}`;
+
+    const body: Record<string, string> = { messageText };
     if (fromPhoneNumber) {
       const cleanFrom = fromPhoneNumber.replace(/\D/g, "");
-      url += `&whatsappNumber=${encodeURIComponent(cleanFrom)}`;
+      body.channelPhoneNumber = cleanFrom;
     }
 
     const response = await fetch(url, {
@@ -308,6 +310,7 @@ export async function sendWhatsAppMessage(
         "Content-Type": "application/json",
         "Authorization": `Bearer ${config.wauper_api_key}`,
       },
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {

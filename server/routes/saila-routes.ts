@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { authMiddleware, requireCompanyAdmin, type AuthRequest } from "../middleware/auth";
 import { storage } from "../storage";
+import { sendWhatsAppMessage } from "../saila-engine";
 
 export function registerSailaRoutes(app: Express): void {
   app.get("/api/saila/config", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
@@ -308,6 +309,34 @@ export function registerSailaRoutes(app: Express): void {
       }
       const booking = await storage.updateSailaBooking(req.params.id, req.body);
       res.json(booking);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/saila/test-send", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const companyId = req.companyId;
+      if (!companyId) return res.status(400).json({ error: "No company" });
+
+      const { toPhone } = req.body;
+      if (!toPhone) return res.status(400).json({ error: "toPhone is required" });
+
+      const config = await storage.getSailaConfig(companyId);
+      if (!config) return res.status(404).json({ error: "Saila not configured for this company" });
+
+      const result = await sendWhatsAppMessage(
+        config,
+        toPhone,
+        "This is a test message from Saila.AI to verify your Wauper connection is working correctly.",
+        undefined
+      );
+
+      if (result.success) {
+        res.json({ success: true, messageId: result.messageId });
+      } else {
+        res.status(400).json({ success: false, error: result.error || "Send failed" });
+      }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

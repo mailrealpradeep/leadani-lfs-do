@@ -26,6 +26,64 @@ import type {
   SailaBooking
 } from "@shared/schema";
 
+function TestSendSection() {
+  const { toast } = useToast();
+  const [testPhone, setTestPhone] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  async function handleTestSend() {
+    const phone = testPhone.trim();
+    if (!phone) {
+      toast({ title: "Enter a phone number", variant: "destructive" });
+      return;
+    }
+    setIsSending(true);
+    try {
+      const result = await apiRequest<{ success: boolean; messageId?: string; error?: string }>(
+        "POST",
+        "/api/saila/test-send",
+        { toPhone: phone }
+      );
+      if (result.success) {
+        toast({ title: "Test message sent!", description: `Message delivered. ID: ${result.messageId || "N/A"}` });
+      } else {
+        toast({ title: "Send failed", description: result.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      const msg = err?.message || "Connection error";
+      toast({ title: "Send failed", description: msg, variant: "destructive" });
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md border p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Check className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Test Wauper Connection</span>
+      </div>
+      <p className="text-xs text-muted-foreground">Send a test WhatsApp message to verify your API credentials and domain are correct.</p>
+      <div className="flex gap-2">
+        <Input
+          placeholder="Phone with country code, e.g. 918249723600"
+          value={testPhone}
+          onChange={(e) => setTestPhone(e.target.value)}
+          data-testid="input-test-phone"
+          className="flex-1"
+        />
+        <Button
+          onClick={handleTestSend}
+          disabled={isSending}
+          data-testid="button-test-send"
+        >
+          {isSending ? "Sending..." : "Send Test Message"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SettingsTab() {
   const { toast } = useToast();
   const { data: config } = useQuery<SailaConfig | null>({ queryKey: ["/api/saila/config"] });
@@ -105,13 +163,15 @@ function SettingsTab() {
             <div className="space-y-2">
               <Label>API Version</Label>
               <Input
-                placeholder="v2"
+                placeholder="v1"
                 value={currentData.wauper_api_version || ""}
                 onChange={(e) => setFormData(prev => ({ ...prev, wauper_api_version: e.target.value }))}
                 data-testid="input-wauper-version"
               />
             </div>
           </div>
+
+          <TestSendSection />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
