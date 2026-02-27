@@ -295,6 +295,9 @@ import type {
   InsertSailaConversationMessage,
   SailaBooking,
   InsertSailaBooking,
+  SailaErrorLog,
+  InsertSailaErrorLog,
+  SailaActivityLogEntry,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -1172,6 +1175,10 @@ export interface IStorage {
   getSailaBooking(id: string): Promise<SailaBooking | undefined>;
   createSailaBooking(data: InsertSailaBooking): Promise<SailaBooking>;
   updateSailaBooking(id: string, data: Partial<InsertSailaBooking>): Promise<SailaBooking | undefined>;
+
+  // Saila.AI - Error Logs & Activity
+  createSailaErrorLog(data: InsertSailaErrorLog): Promise<SailaErrorLog>;
+  getSailaActivityLogs(companyId: string, options?: { limit?: number; offset?: number; status?: string; executive_phone?: string }): Promise<{ logs: SailaActivityLogEntry[]; total: number }>;
 }
 
 export class MemStorage implements IStorage {
@@ -3859,6 +3866,8 @@ export class MemStorage implements IStorage {
   async getSailaBooking(_id: string): Promise<SailaBooking | undefined> { return undefined; }
   async createSailaBooking(_data: InsertSailaBooking): Promise<SailaBooking> { throw new Error("Not implemented"); }
   async updateSailaBooking(_id: string, _data: Partial<InsertSailaBooking>): Promise<SailaBooking | undefined> { return undefined; }
+  async createSailaErrorLog(_data: InsertSailaErrorLog): Promise<SailaErrorLog> { throw new Error("Not implemented"); }
+  async getSailaActivityLogs(_companyId: string, _options?: any): Promise<{ logs: SailaActivityLogEntry[]; total: number }> { return { logs: [], total: 0 }; }
 }
 
 // ============================================================================
@@ -12542,6 +12551,105 @@ export class PgStorage implements IStorage {
       .where(eq(dbSchema.saila_bookings.id, id))
       .returning();
     return result[0];
+  }
+
+  async createSailaErrorLog(data: InsertSailaErrorLog): Promise<SailaErrorLog> {
+    const result = await db.insert(dbSchema.saila_error_logs).values(data).returning();
+    return result[0];
+  }
+
+  async getSailaActivityLogs(
+    companyId: string,
+    options?: { limit?: number; offset?: number; status?: string; executive_phone?: string }
+  ): Promise<{ logs: SailaActivityLogEntry[]; total: number }> {
+    const limit = options?.limit || 100;
+    const offset = options?.offset || 0;
+
+    const msgConditions: any[] = [
+      eq(dbSchema.saila_conversations.company_id, companyId),
+      eq(dbSchema.saila_conversation_messages.direction, "outgoing"),
+    ];
+    if (options?.executive_phone) {
+      msgConditions.push(eq(dbSchema.saila_conversations.executive_phone, options.executive_phone));
+    }
+    if (options?.status === "sent") {
+      msgConditions.push(eq(dbSchema.saila_conversation_messages.sent_status, "sent"));
+    } else if (options?.status === "failed") {
+      msgConditions.push(eq(dbSchema.saila_conversation_messages.sent_status, "failed"));
+    }
+
+    const outgoingMessages = options?.status === "skipped" ? [] : await db
+      .select({
+        id: dbSchema.saila_conversation_messages.id,
+        message_text: dbSchema.saila_conversation_messages.message_text,
+        sent_status: dbSchema.saila_conversation_messages.sent_status,
+        send_error: dbSchema.saila_conversation_messages.send_error,
+        confidence_score: dbSchema.saila_conversation_messages.confidence_score,
+        template_used: dbSchema.saila_conversation_messages.template_used,
+        keyword_matched: dbSchema.saila_conversation_messages.keyword_matched,
+        wauper_message_id: dbSchema.saila_conversation_messages.wauper_message_id,
+        created_at: dbSchema.saila_conversation_messages.created_at,
+        sender_phone: dbSchema.saila_conversations.sender_phone,
+        sender_name: dbSchema.saila_conversations.sender_name,
+        executive_phone: dbSchema.saila_conversations.executive_phone,
+        executive_name: dbSchema.saila_conversations.executive_name,
+      })
+      .from(dbSchema.saila_conversation_messages)
+      .innerJoin(dbSchema.saila_conversations, eq(dbSchema.saila_conversation_messages.conversation_id, dbSchema.saila_conversations.id))
+      .where(and(...msgConditions))
+      .orderBy(desc(dbSchema.saila_conversation_messages.created_at));
+
+    const errConditions: any[] = [eq(dbSchema.saila_error_logs.company_id, companyId)];
+    if (options?.executive_phone) {
+      errConditions.push(eq(dbSchema.saila_error_logs.executive_phone, options.executive_phone));
+    }
+
+    const errorLogs = (options?.status === "sent" || options?.status === "failed") ? [] : await db
+      .select()
+      .from(dbSchema.saila_error_logs)
+      .where(and(...errConditions))
+      .orderBy(desc(dbSchema.saila_error_logs.created_at));
+
+    const combined: SailaActivityLogEntry[] = [
+      ...outgoingMessages.map(m => ({
+        id: m.id,
+        type: "response" as const,
+        time: m.created_at.toISOString(),
+        sender_phone: m.sender_phone,
+        sender_name: m.sender_name,
+        executive_phone: m.executive_phone,
+        executive_name: m.executive_name,
+        incoming_message: null,
+        response_text: m.message_text,
+        sent_status: (m.sent_status || "failed") as "sent" | "failed" | "skipped",
+        source: m.keyword_matched ? "keyword" : m.template_used ? "template" : (m.confidence_score && m.confidence_score > 0) ? "ai_llm" : "fallback",
+        confidence_score: m.confidence_score,
+        send_error: m.send_error,
+        reason: null,
+        keyword_matched: m.keyword_matched,
+      })),
+      ...errorLogs.map(e => ({
+        id: e.id,
+        type: "skipped" as const,
+        time: e.created_at.toISOString(),
+        sender_phone: e.sender_phone,
+        sender_name: e.sender_name,
+        executive_phone: e.executive_phone,
+        executive_name: null,
+        incoming_message: e.message_text,
+        response_text: null,
+        sent_status: "skipped" as const,
+        source: "none",
+        confidence_score: null,
+        send_error: null,
+        reason: e.reason,
+        keyword_matched: null,
+      })),
+    ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+    const total = combined.length;
+    const paginated = combined.slice(offset, offset + limit);
+    return { logs: paginated, total };
   }
 }
 

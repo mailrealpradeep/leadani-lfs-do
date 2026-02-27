@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -18,12 +18,13 @@ import {
   Settings, Phone, MessageSquare, Search, FileText, Calendar,
   Plus, Trash2, Save, Edit, Bot, ArrowRight, ArrowLeft, Eye,
   Link as LinkIcon, Image, Video, FileUp, X, Check, Clock,
-  PhoneCall, User, Sparkles, AlertTriangle
+  PhoneCall, User, Sparkles, AlertTriangle, CheckCircle2, XCircle,
+  MinusCircle, RefreshCw, Activity, ChevronDown, ChevronRight
 } from "lucide-react";
 import type {
   SailaConfig, SailaPhoneSetting, SailaTemplate, SailaTemplateMessage,
   SailaKeyword, SailaMedia, SailaConversation, SailaConversationMessage,
-  SailaBooking
+  SailaBooking, SailaActivityLogEntry
 } from "@shared/schema";
 
 function TestSendSection() {
@@ -1124,6 +1125,268 @@ function BookingsTab() {
   );
 }
 
+function ErrorLogTab() {
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [phoneFilter, setPhoneFilter] = useState("all");
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+
+  const { data: phoneSettings } = useQuery<SailaPhoneSetting[]>({
+    queryKey: ["/api/saila/phone-settings"],
+  });
+
+  const queryKey = ["/api/saila/activity-logs", statusFilter, phoneFilter];
+  const { data, isLoading, refetch, isFetching } = useQuery<{ logs: SailaActivityLogEntry[]; total: number }>({
+    queryKey,
+    queryFn: async () => {
+      const params = new URLSearchParams({ status: statusFilter === "all" ? "" : statusFilter, limit: "100" });
+      if (phoneFilter !== "all") params.set("executive_phone", phoneFilter);
+      const res = await fetch(`/api/saila/activity-logs?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load");
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  const logs = data?.logs || [];
+  const total = data?.total || 0;
+
+  const sentCount = logs.filter(l => l.sent_status === "sent").length;
+  const failedCount = logs.filter(l => l.sent_status === "failed").length;
+  const skippedCount = logs.filter(l => l.sent_status === "skipped").length;
+
+  function getStatusBadge(status: string) {
+    if (status === "sent") return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 text-green-600 dark:text-green-400">
+        <CheckCircle2 className="h-3 w-3" /> Sent
+      </span>
+    );
+    if (status === "failed") return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-600 dark:text-red-400">
+        <XCircle className="h-3 w-3" /> Failed
+      </span>
+    );
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+        <MinusCircle className="h-3 w-3" /> Skipped
+      </span>
+    );
+  }
+
+  function getSourceBadge(log: SailaActivityLogEntry) {
+    if (log.type === "skipped") return null;
+    const src = log.source;
+    if (src === "keyword") return <Badge variant="outline" className="text-xs text-blue-600 dark:text-blue-400 border-blue-500/40">Keyword</Badge>;
+    if (src === "ai_llm") return <Badge variant="outline" className="text-xs text-violet-600 dark:text-violet-400 border-violet-500/40">AI</Badge>;
+    if (src === "template") return <Badge variant="outline" className="text-xs text-emerald-600 dark:text-emerald-400 border-emerald-500/40">Template</Badge>;
+    return <Badge variant="outline" className="text-xs text-muted-foreground">Fallback</Badge>;
+  }
+
+  function getReasonLabel(reason: string | null) {
+    if (!reason) return "—";
+    const labels: Record<string, string> = {
+      no_config: "No Saila config",
+      saila_disabled: "Saila.AI off",
+      phone_not_found: "Phone not configured",
+      phone_disabled: "Phone toggled off",
+    };
+    return labels[reason] || reason;
+  }
+
+  function formatTime(iso: string) {
+    const d = new Date(iso);
+    return d.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: true });
+  }
+
+  return (
+    <div className="space-y-4 pt-4">
+      <div>
+        <h2 className="font-semibold flex items-center gap-2"><Activity className="h-4 w-4" /> Activity Log</h2>
+        <p className="text-sm text-muted-foreground">Every Saila.AI response attempt — sent, failed, or skipped — is logged here.</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Card>
+          <CardContent className="py-3 flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+            <div>
+              <p className="text-xs text-muted-foreground">Sent</p>
+              <p className="text-lg font-bold text-green-600 dark:text-green-400">{sentCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-3 flex items-center gap-3">
+            <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+            <div>
+              <p className="text-xs text-muted-foreground">Failed</p>
+              <p className="text-lg font-bold text-red-600 dark:text-red-400">{failedCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-3 flex items-center gap-3">
+            <MinusCircle className="h-5 w-5 text-muted-foreground shrink-0" />
+            <div>
+              <p className="text-xs text-muted-foreground">Skipped</p>
+              <p className="text-lg font-bold">{skippedCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-40" data-testid="select-log-status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Events</SelectItem>
+            <SelectItem value="sent">Sent Only</SelectItem>
+            <SelectItem value="failed">Failed Only</SelectItem>
+            <SelectItem value="skipped">Skipped Only</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={phoneFilter} onValueChange={setPhoneFilter}>
+          <SelectTrigger className="w-48" data-testid="select-log-phone">
+            <SelectValue placeholder="All business numbers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All business numbers</SelectItem>
+            {(phoneSettings || []).map(p => (
+              <SelectItem key={p.id} value={p.display_phone_number}>
+                {p.display_phone_number}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button variant="outline" size="icon" onClick={() => refetch()} disabled={isFetching} data-testid="button-refresh-logs">
+          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+        </Button>
+
+        <span className="text-xs text-muted-foreground ml-auto">{total} total events · auto-refreshes every 30s</span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">Loading activity log…</div>
+      ) : logs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-40 text-center gap-2">
+          <Activity className="h-8 w-8 text-muted-foreground/40" />
+          <p className="text-sm font-medium text-muted-foreground">No activity yet</p>
+          <p className="text-xs text-muted-foreground">Saila.AI will log all response attempts here in real time.</p>
+        </div>
+      ) : (
+        <div className="rounded-md border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground w-8"></th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Time</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Customer</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Business #</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Response / Reason</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log, idx) => {
+                  const isExpanded = expandedRow === log.id;
+                  const hasDetail = !!(log.send_error || log.reason || log.incoming_message || log.keyword_matched || log.confidence_score);
+                  return (
+                    <Fragment key={log.id}>
+                      <tr
+                        className={`border-b last:border-0 transition-colors ${
+                          log.sent_status === "failed" ? "bg-red-500/5 hover:bg-red-500/10" :
+                          log.sent_status === "skipped" ? "bg-muted/20 hover:bg-muted/30" :
+                          "hover:bg-muted/20"
+                        } ${hasDetail ? "cursor-pointer" : ""}`}
+                        onClick={() => hasDetail && setExpandedRow(isExpanded ? null : log.id)}
+                        data-testid={`row-log-${idx}`}
+                      >
+                        <td className="px-3 py-2.5 text-muted-foreground">
+                          {hasDetail && (isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />)}
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+                          {formatTime(log.time)}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <p className="font-mono text-xs">{log.sender_phone}</p>
+                          {log.sender_name && <p className="text-xs text-muted-foreground">{log.sender_name}</p>}
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                          {log.executive_phone}
+                          {log.executive_name && <span className="ml-1 text-foreground">({log.executive_name})</span>}
+                        </td>
+                        <td className="px-3 py-2.5 max-w-xs">
+                          {log.type === "response" ? (
+                            <p className="text-xs line-clamp-2">{log.response_text || "—"}</p>
+                          ) : (
+                            <div>
+                              <p className="text-xs text-muted-foreground line-clamp-1">{log.incoming_message || "—"}</p>
+                              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{getReasonLabel(log.reason)}</p>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          {getStatusBadge(log.sent_status)}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {getSourceBadge(log)}
+                        </td>
+                      </tr>
+                      {isExpanded && hasDetail && (
+                        <tr key={`${log.id}-expanded`} className={`border-b last:border-0 ${log.sent_status === "failed" ? "bg-red-500/5" : "bg-muted/10"}`}>
+                          <td colSpan={7} className="px-6 py-3">
+                            <div className="space-y-2 text-xs">
+                              {log.incoming_message && (
+                                <div>
+                                  <span className="font-medium text-muted-foreground">Customer message: </span>
+                                  <span>{log.incoming_message}</span>
+                                </div>
+                              )}
+                              {log.keyword_matched && (
+                                <div>
+                                  <span className="font-medium text-muted-foreground">Keyword matched: </span>
+                                  <code className="bg-muted px-1 rounded">{log.keyword_matched}</code>
+                                </div>
+                              )}
+                              {log.confidence_score != null && (
+                                <div>
+                                  <span className="font-medium text-muted-foreground">AI confidence: </span>
+                                  <span>{log.confidence_score}%</span>
+                                </div>
+                              )}
+                              {log.send_error && (
+                                <div>
+                                  <span className="font-medium text-red-600 dark:text-red-400">Delivery error: </span>
+                                  <code className="bg-red-500/10 text-red-600 dark:text-red-400 px-1 rounded">{log.send_error}</code>
+                                </div>
+                              )}
+                              {log.reason && (
+                                <div>
+                                  <span className="font-medium text-amber-600 dark:text-amber-400">Skip reason: </span>
+                                  <span>{getReasonLabel(log.reason)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SailaAI() {
   const { isCompanyAdmin, isSuperAdmin } = useAuth();
 
@@ -1155,7 +1418,7 @@ export default function SailaAI() {
         </div>
 
         <Tabs defaultValue="settings">
-          <TabsList className="grid grid-cols-7 w-full" data-testid="tabs-saila">
+          <TabsList className="grid grid-cols-8 w-full" data-testid="tabs-saila">
             <TabsTrigger value="settings" className="text-xs sm:text-sm" data-testid="tab-settings">
               <Settings className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Settings</span>
@@ -1184,6 +1447,10 @@ export default function SailaAI() {
               <Calendar className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Bookings</span>
             </TabsTrigger>
+            <TabsTrigger value="error-log" className="text-xs sm:text-sm" data-testid="tab-error-log">
+              <Activity className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">Log</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="settings"><SettingsTab /></TabsContent>
@@ -1193,6 +1460,7 @@ export default function SailaAI() {
           <TabsContent value="media"><MediaTab /></TabsContent>
           <TabsContent value="conversations"><ConversationsTab /></TabsContent>
           <TabsContent value="bookings"><BookingsTab /></TabsContent>
+          <TabsContent value="error-log"><ErrorLogTab /></TabsContent>
         </Tabs>
       </div>
     </ScrollArea>

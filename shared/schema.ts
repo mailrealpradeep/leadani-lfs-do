@@ -5268,12 +5268,47 @@ export const saila_conversation_messages = pgTable('saila_conversation_messages'
   keyword_matched: varchar('keyword_matched'),
   sent_status: varchar('sent_status', { length: 20 }).default('pending'),
   wauper_message_id: varchar('wauper_message_id', { length: 255 }),
+  send_error: text('send_error'),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
 export type SailaConversationMessage = typeof saila_conversation_messages.$inferSelect;
 export type InsertSailaConversationMessage = typeof saila_conversation_messages.$inferInsert;
 export const insertSailaConversationMessageSchema = createInsertSchema(saila_conversation_messages).omit({ id: true, created_at: true });
+
+export const saila_error_logs = pgTable('saila_error_logs', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  sender_phone: varchar('sender_phone', { length: 30 }).notNull(),
+  sender_name: varchar('sender_name', { length: 255 }),
+  executive_phone: varchar('executive_phone', { length: 30 }).notNull(),
+  message_text: text('message_text'),
+  reason: varchar('reason', { length: 50 }).notNull(),
+  reason_detail: text('reason_detail'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type SailaErrorLog = typeof saila_error_logs.$inferSelect;
+export type InsertSailaErrorLog = typeof saila_error_logs.$inferInsert;
+export const insertSailaErrorLogSchema = createInsertSchema(saila_error_logs).omit({ id: true, created_at: true });
+
+export type SailaActivityLogEntry = {
+  id: string;
+  type: "response" | "skipped";
+  time: string;
+  sender_phone: string;
+  sender_name: string | null;
+  executive_phone: string;
+  executive_name: string | null;
+  incoming_message: string | null;
+  response_text: string | null;
+  sent_status: "sent" | "failed" | "skipped";
+  source: string;
+  confidence_score: number | null;
+  send_error: string | null;
+  reason: string | null;
+  keyword_matched: string | null;
+};
 
 export const saila_bookings = pgTable('saila_bookings', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),

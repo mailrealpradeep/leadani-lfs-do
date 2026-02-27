@@ -314,6 +314,29 @@ export function registerSailaRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/saila/activity-logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const companyId = req.companyId;
+      if (!companyId) return res.status(400).json({ error: "No company" });
+
+      const status = req.query.status as string | undefined;
+      const executive_phone = req.query.executive_phone as string | undefined;
+      const limit = parseInt(req.query.limit as string || "100");
+      const offset = parseInt(req.query.offset as string || "0");
+
+      const result = await storage.getSailaActivityLogs(companyId, {
+        limit,
+        offset,
+        status: status || undefined,
+        executive_phone: executive_phone || undefined,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/saila/test-send", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       const companyId = req.companyId;

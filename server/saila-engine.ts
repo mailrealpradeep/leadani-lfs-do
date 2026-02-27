@@ -386,12 +386,34 @@ export async function generateSailaResponse(
 ): Promise<SailaResponse> {
   const config = await storage.getSailaConfig(companyId);
   if (!config || !config.enabled) {
+    const reason = !config ? "no_config" : "saila_disabled";
+    storage.createSailaErrorLog({
+      company_id: companyId,
+      sender_phone: senderPhone,
+      sender_name: senderName || null,
+      executive_phone: executivePhone,
+      message_text: messageText,
+      reason,
+      reason_detail: !config ? "No Saila.AI configuration found for this company" : "Saila.AI is disabled in settings",
+    }).catch(() => {});
     return { shouldRespond: false, responseText: "", confidenceScore: 0, source: "none" };
   }
 
   const phoneSetting = (await storage.getSailaPhoneSettings(companyId))
     .find(s => s.display_phone_number === executivePhone);
   if (!phoneSetting || !phoneSetting.enabled) {
+    const reason = !phoneSetting ? "phone_not_found" : "phone_disabled";
+    storage.createSailaErrorLog({
+      company_id: companyId,
+      sender_phone: senderPhone,
+      sender_name: senderName || null,
+      executive_phone: executivePhone,
+      message_text: messageText,
+      reason,
+      reason_detail: !phoneSetting
+        ? `Business number ${executivePhone} is not configured in Saila.AI phone settings`
+        : `Business number ${executivePhone} has Saila.AI toggled off`,
+    }).catch(() => {});
     return { shouldRespond: false, responseText: "", confidenceScore: 0, source: "none" };
   }
 
@@ -569,6 +591,7 @@ async function _finalizeAndSend(
       keyword_matched: response.keywordMatched || null,
       sent_status: sendResult.success ? "sent" : "failed",
       wauper_message_id: sendResult.messageId || null,
+      send_error: sendResult.success ? null : (sendResult.error || "Unknown send error"),
     });
 
     console.log(`[Saila] Response sent to ${senderPhone} via ${response.source} (confidence: ${response.confidenceScore}%, status: ${sendResult.success ? "sent" : "failed"})`);
