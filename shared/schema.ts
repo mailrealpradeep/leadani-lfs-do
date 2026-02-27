@@ -5144,7 +5144,7 @@ export const saila_config = pgTable('saila_config', {
   sarvam_api_key: text('sarvam_api_key'),
   wauper_api_key: text('wauper_api_key'),
   wauper_domain: varchar('wauper_domain', { length: 500 }).default('https://live-mt-server.wati.io'),
-  wauper_api_version: varchar('wauper_api_version', { length: 20 }).default('v1'),
+  wauper_api_version: varchar('wauper_api_version', { length: 20 }).default('v20.0'),
   confidence_threshold: integer('confidence_threshold').notNull().default(70),
   language: varchar('language', { length: 20 }).notNull().default('hindi'),
   fallback_message: text('fallback_message').default('Thank you for your message. Our team will get back to you shortly.'),

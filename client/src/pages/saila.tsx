@@ -179,13 +179,14 @@ function SettingsTab() {
               />
             </div>
             <div className="space-y-2">
-              <Label>API Version</Label>
+              <Label>Meta API Version</Label>
               <Input
-                placeholder="v1"
+                placeholder="v20.0"
                 value={currentData.wauper_api_version || ""}
                 onChange={(e) => setFormData(prev => ({ ...prev, wauper_api_version: e.target.value }))}
                 data-testid="input-wauper-version"
               />
+              <p className="text-xs text-muted-foreground">Meta WhatsApp API version used by Wauper Session Messaging (e.g. v20.0). Not Wauper's own v1.</p>
             </div>
           </div>
 

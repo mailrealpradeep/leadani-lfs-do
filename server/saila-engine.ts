@@ -332,6 +332,11 @@ export async function sendWhatsAppMessage(
     }
 
     const data = await response.json();
+    if (data.success === false) {
+      const errMsg = data.error || "Unknown error from Wauper";
+      console.error("[Saila] Wauper send failed (body):", errMsg);
+      return { success: false, error: `Wauper error: ${errMsg}` };
+    }
     console.log("[Saila] Wauper send success:", JSON.stringify(data).slice(0, 200));
     return {
       success: true,
