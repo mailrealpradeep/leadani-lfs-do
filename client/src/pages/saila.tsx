@@ -1140,9 +1140,10 @@ function ErrorLogTab() {
     queryFn: async () => {
       const params = new URLSearchParams({ status: statusFilter === "all" ? "" : statusFilter, limit: "100" });
       if (phoneFilter !== "all") params.set("executive_phone", phoneFilter);
-      const res = await fetch(`/api/saila/activity-logs?${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load");
-      return res.json();
+      return apiRequest<{ logs: SailaActivityLogEntry[]; total: number }>(
+        "GET",
+        `/api/saila/activity-logs?${params}`
+      );
     },
     refetchInterval: 30000,
   });

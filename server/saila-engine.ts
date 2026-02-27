@@ -296,7 +296,7 @@ export async function sendWhatsAppMessage(
 
   try {
     const cleanPhone = recipientPhone.replace(/\D/g, "");
-    const url = `${domain}/api/${version}/sendSessionMessage/${cleanPhone}`;
+    const url = `${domain}/api/sendSessionMessage/${cleanPhone}`;
 
     const body: Record<string, string> = { messageText };
     if (fromPhoneNumber) {
