@@ -688,19 +688,33 @@ function KeywordsTab() {
   const { data: keywords = [] } = useQuery<SailaKeyword[]>({ queryKey: ["/api/saila/keywords"] });
   const [showCreate, setShowCreate] = useState(false);
   const [newKeyword, setNewKeyword] = useState({ keyword: "", match_type: "contains", response_text: "", priority: 0 });
+  const [isCreating, setIsCreating] = useState(false);
 
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return await apiRequest("POST", "/api/saila/keywords", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/saila/keywords"] });
-      toast({ title: "Keyword added" });
+  const parsedKeywords = newKeyword.keyword
+    .split(",")
+    .map(k => k.trim())
+    .filter(k => k.length > 0);
+
+  const handleCreate = async () => {
+    if (parsedKeywords.length === 0) return;
+    setIsCreating(true);
+    try {
+      await Promise.all(
+        parsedKeywords.map(kw =>
+          apiRequest("POST", "/api/saila/keywords", { ...newKeyword, keyword: kw })
+        )
+      );
+      await queryClient.invalidateQueries({ queryKey: ["/api/saila/keywords"] });
+      const count = parsedKeywords.length;
+      toast({ title: count === 1 ? "Keyword added" : `${count} keywords added` });
       setShowCreate(false);
       setNewKeyword({ keyword: "", match_type: "contains", response_text: "", priority: 0 });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => { await apiRequest("DELETE", `/api/saila/keywords/${id}`); },
@@ -772,13 +786,24 @@ function KeywordsTab() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Keyword</Label>
+              <Label>Keyword(s)</Label>
               <Input
                 value={newKeyword.keyword}
                 onChange={(e) => setNewKeyword(prev => ({ ...prev, keyword: e.target.value }))}
-                placeholder="e.g., price, cost, rate"
+                placeholder="e.g. hi, Hi, Hey, hiii"
                 data-testid="input-keyword"
               />
+              <p className="text-xs text-muted-foreground">
+                Separate multiple keywords with commas — each gets its own rule with the same response.
+              </p>
+              {parsedKeywords.length > 1 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-xs text-muted-foreground">{parsedKeywords.length} keywords:</span>
+                  {parsedKeywords.map((kw, i) => (
+                    <Badge key={i} variant="secondary" className="text-xs">{kw}</Badge>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Match Type</Label>
@@ -819,11 +844,11 @@ function KeywordsTab() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
             <Button
-              onClick={() => createMutation.mutate(newKeyword)}
-              disabled={!newKeyword.keyword || createMutation.isPending}
+              onClick={handleCreate}
+              disabled={parsedKeywords.length === 0 || isCreating}
               data-testid="button-confirm-keyword"
             >
-              Add
+              {isCreating ? "Adding..." : parsedKeywords.length > 1 ? `Add ${parsedKeywords.length} Keywords` : "Add"}
             </Button>
           </DialogFooter>
         </DialogContent>
