@@ -284,25 +284,28 @@ export async function sendWhatsAppMessage(
   config: SailaConfig,
   recipientPhone: string,
   messageText: string,
-  fromPhoneNumber?: string
+  _fromPhoneNumber?: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   if (!config.wauper_api_key) {
     console.error("[Saila] No Wauper API key configured");
     return { success: false, error: "No Wauper API key configured" };
   }
 
-  const domain = config.wauper_domain || "https://live-mt-server.wati.io";
+  const domain = (config.wauper_domain || "https://crmapi.wauper.com").replace(/\/$/, "");
   const version = config.wauper_api_version || "v1";
 
   try {
     const cleanPhone = recipientPhone.replace(/\D/g, "");
-    const url = `${domain}/api/sendSessionMessage/${cleanPhone}`;
+    // Wauper Omni Channel API: POST /api/v1/messages
+    const url = `${domain}/api/${version}/messages`;
 
-    const body: Record<string, string> = { messageText };
-    if (fromPhoneNumber) {
-      const cleanFrom = fromPhoneNumber.replace(/\D/g, "");
-      body.channelPhoneNumber = cleanFrom;
-    }
+    const body = {
+      to: cleanPhone,
+      type: "text",
+      text: { body: messageText },
+    };
+
+    console.log(`[Saila] Sending to Wauper: POST ${url} → to=${cleanPhone}`);
 
     const response = await fetch(url, {
       method: "POST",
@@ -316,13 +319,14 @@ export async function sendWhatsAppMessage(
     if (!response.ok) {
       const errorText = await response.text();
       console.error("[Saila] Wauper send failed:", response.status, errorText);
-      return { success: false, error: `Wauper API error: ${response.status}` };
+      return { success: false, error: `Wauper API error: ${response.status} — ${errorText.slice(0, 200)}` };
     }
 
     const data = await response.json();
+    console.log("[Saila] Wauper send success:", JSON.stringify(data).slice(0, 200));
     return {
       success: true,
-      messageId: data.id || data.messageId || data.result?.id,
+      messageId: data.id || data.messageId || data.messages?.[0]?.id,
     };
   } catch (err: any) {
     console.error("[Saila] Wauper send error:", err);
