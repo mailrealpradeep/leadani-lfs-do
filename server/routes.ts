@@ -15,7 +15,7 @@ import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartO
 import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConversionDates } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
-import { validateLeadAgainstRules } from "@shared/validator";
+import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage } from "@shared/schema";
 import { evaluateCondition } from "./target-evaluator";
 import { notifyLeadAssigned, notifyLeadUpdated, notifyWebhookReceived, notifyUserJoined } from "./push-service";
@@ -13559,7 +13559,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
       
-      const { name, trigger_column_key, operator, trigger_value, required_fields, conditions, logical_operator } = req.body;
+      const { name, trigger_column_key, operator, trigger_value, required_fields, conditions, logical_operator, required_columns } = req.body;
       
       // Support new multi-condition format or legacy single condition format
       const hasNewFormat = conditions && Array.isArray(conditions) && conditions.length > 0;
@@ -13569,8 +13569,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(400).json({ error: "Rule name is required" });
       }
       
-      if (!required_fields || !Array.isArray(required_fields) || required_fields.length === 0) {
-        return res.status(400).json({ error: "At least one required field must be specified" });
+      // Allow rule if it has required_fields OR required_columns (supports optional-field rules)
+      const hasRequiredFields = required_fields && Array.isArray(required_fields) && required_fields.length > 0;
+      const hasRequiredColumns = required_columns && Array.isArray(required_columns) && required_columns.length > 0;
+      if (!hasRequiredFields && !hasRequiredColumns) {
+        return res.status(400).json({ error: "At least one required or optional field must be specified" });
       }
       
       if (!hasNewFormat && !hasLegacyFormat) {
@@ -13585,9 +13588,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         trigger_column_key: hasLegacyFormat ? trigger_column_key : (conditions?.[0]?.column_key || undefined),
         operator: hasLegacyFormat ? operator : (conditions?.[0]?.operator || undefined),
         trigger_value: hasLegacyFormat ? trigger_value : (conditions?.[0]?.value || undefined),
-        required_fields,
+        required_fields: required_fields || [],
         conditions: hasNewFormat ? conditions : undefined,
         logical_operator: (logical_operator || "and") as "and" | "or",
+        required_columns: required_columns || [],
       });
       
       // Audit log
@@ -13884,7 +13888,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // POST /api/company/global-validation-rules - Create global validation rule (Admin only)
   app.post("/api/company/global-validation-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
-      const { name, conditions, logical_operator, required_fields } = req.body;
+      const { name, conditions, logical_operator, required_fields, required_columns } = req.body;
       
       if (!name || !name.trim()) {
         return res.status(400).json({ error: "Rule name is required" });
@@ -13894,8 +13898,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(400).json({ error: "At least one condition is required" });
       }
       
-      if (!required_fields || !Array.isArray(required_fields) || required_fields.length === 0) {
-        return res.status(400).json({ error: "At least one required field must be specified" });
+      // Allow rule if it has required_fields OR required_columns (supports optional-field rules)
+      const hasGlobalRequiredFields = required_fields && Array.isArray(required_fields) && required_fields.length > 0;
+      const hasGlobalRequiredColumns = required_columns && Array.isArray(required_columns) && required_columns.length > 0;
+      if (!hasGlobalRequiredFields && !hasGlobalRequiredColumns) {
+        return res.status(400).json({ error: "At least one required or optional field must be specified" });
       }
       
       const rule = await storage.createValidationRule({
@@ -13904,7 +13911,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         name: name.trim(),
         conditions,
         logical_operator: logical_operator || "and",
-        required_fields,
+        required_fields: required_fields || [],
+        required_columns: required_columns || [],
         is_active: true,
         created_by_user_id: req.userId!,
       });
@@ -16030,7 +16038,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           if (nfdtColumn) {
             const leads = await storage.getLeadsBySheetId(sheet.id);
             const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
+            // Fetch validation rules once per sheet (avoid N+1)
+            const sheetValRules = await storage.getValidationRules(sheet.company_id, sheet.id);
             for (const lead of userLeads) {
+              // Skip leads where NFDT is declared optional by a matching validation rule
+              const optionalKeys = getOptionalFieldKeys(lead, sheetValRules);
+              if (optionalKeys.includes("next_followup_date")) continue;
               const customFields = lead.custom_fields || {};
               const nfdtValue = customFields[nfdtColumn.column_key];
               if (!nfdtValue || nfdtValue === "") {
@@ -16063,7 +16076,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           if (nfdtColumn) {
             const leads = await storage.getLeadsBySheetId(sheet.id);
             const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
+            // Fetch validation rules once per sheet (avoid N+1)
+            const sheetValRules2 = await storage.getValidationRules(sheet.company_id, sheet.id);
             for (const lead of userLeads) {
+              // Skip leads where NFDT is declared optional by a matching validation rule
+              const optionalKeys = getOptionalFieldKeys(lead, sheetValRules2);
+              if (optionalKeys.includes("next_followup_date")) continue;
               const customFields = lead.custom_fields || {};
               const nfdtValue = customFields[nfdtColumn.column_key];
               if (nfdtValue) {

@@ -54,6 +54,8 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
   const [logicalOperator, setLogicalOperator] = useState<"and" | "or">("and");
   const [requiredFields, setRequiredFields] = useState<string[]>([]);
   const [newRequiredField, setNewRequiredField] = useState("");
+  const [optionalFields, setOptionalFields] = useState<string[]>([]);
+  const [newOptionalField, setNewOptionalField] = useState("");
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
   const [ruleToDelete, setRuleToDelete] = useState<ValidationRule | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -81,11 +83,18 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
         ? "/api/company/global-validation-rules"
         : `/api/sheets/${sheetId}/validation-rules`;
 
+      // Build required_columns combining both required and optional fields
+      const required_columns = [
+        ...requiredFields.map(k => ({ column_key: k, is_required: true })),
+        ...optionalFields.map(k => ({ column_key: k, is_required: false })),
+      ];
+
       return await apiRequest("POST", endpoint, {
         name: ruleName,
         conditions: validationConditions,
         logical_operator: logicalOperator,
-        required_fields: requiredFields,
+        required_fields: requiredFields, // legacy: keep for backward compat
+        required_columns,
       });
     },
     onSuccess: () => {
@@ -134,10 +143,12 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
     setLogicalOperator("and");
     setRequiredFields([]);
     setNewRequiredField("");
+    setOptionalFields([]);
+    setNewOptionalField("");
   };
 
   const handleAddRequiredField = () => {
-    if (newRequiredField && !requiredFields.includes(newRequiredField)) {
+    if (newRequiredField && !requiredFields.includes(newRequiredField) && !optionalFields.includes(newRequiredField)) {
       setRequiredFields([...requiredFields, newRequiredField]);
       setNewRequiredField("");
     }
@@ -145,6 +156,17 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
 
   const handleRemoveRequiredField = (field: string) => {
     setRequiredFields(requiredFields.filter(f => f !== field));
+  };
+
+  const handleAddOptionalField = () => {
+    if (newOptionalField && !optionalFields.includes(newOptionalField) && !requiredFields.includes(newOptionalField)) {
+      setOptionalFields([...optionalFields, newOptionalField]);
+      setNewOptionalField("");
+    }
+  };
+
+  const handleRemoveOptionalField = (field: string) => {
+    setOptionalFields(optionalFields.filter(f => f !== field));
   };
 
   const toggleRuleExpanded = (ruleId: string) => {
@@ -189,11 +211,11 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
       }
     }
 
-    if (requiredFields.length === 0) {
+    if (requiredFields.length === 0 && optionalFields.length === 0) {
       toast({
         variant: "destructive",
         title: "Validation error",
-        description: "At least one required field must be added",
+        description: "At least one required or optional field must be added",
       });
       return;
     }
@@ -242,6 +264,24 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
     return `${colName} ${getOperatorLabel(rule.operator || "")} "${rule.trigger_value || ""}"`;
   };
 
+  const getRuleRequiredFields = (rule: ValidationRule): string[] => {
+    // Prefer required_columns with is_required: true; fall back to legacy required_fields
+    if (rule.required_columns && rule.required_columns.length > 0) {
+      const fromColumns = rule.required_columns.filter(c => c.is_required).map(c => c.column_key);
+      if (fromColumns.length > 0) return fromColumns;
+    }
+    return Array.isArray(rule.required_fields) ? rule.required_fields : [];
+  };
+
+  const getRuleOptionalFields = (rule: ValidationRule): string[] => {
+    if (!rule.required_columns || !Array.isArray(rule.required_columns)) return [];
+    return rule.required_columns.filter(c => c.is_required === false).map(c => c.column_key);
+  };
+
+  // Columns not already selected in the other list
+  const availableForRequired = columns.filter(c => !optionalFields.includes(c.column_key));
+  const availableForOptional = columns.filter(c => !requiredFields.includes(c.column_key));
+
   return (
     <div className="space-y-4">
       {/* Existing Rules List - Displayed Outside Dialog */}
@@ -249,78 +289,97 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
         <div className="space-y-2">
           <Label className="text-sm font-medium">Existing Rules ({rules.length})</Label>
           <div className="space-y-2">
-            {rules.map((rule) => (
-              <Collapsible
-                key={rule.id}
-                open={expandedRules.has(rule.id)}
-                onOpenChange={() => toggleRuleExpanded(rule.id)}
-              >
-                <div
-                  className="p-3 border rounded-lg bg-card"
-                  data-testid={`validation-rule-${rule.id}`}
+            {rules.map((rule) => {
+              const ruleRequired = getRuleRequiredFields(rule);
+              const ruleOptional = getRuleOptionalFields(rule);
+              return (
+                <Collapsible
+                  key={rule.id}
+                  open={expandedRules.has(rule.id)}
+                  onOpenChange={() => toggleRuleExpanded(rule.id)}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium flex items-center gap-2 flex-wrap">
-                        {rule.name}
-                        {rule.sheet_id === null && (
-                          <Badge variant="default" className="text-xs">
-                            Global
-                          </Badge>
-                        )}
-                        {rule.conditions && rule.conditions.length > 1 && (
-                          <Badge variant="secondary" className="text-xs">
-                            {rule.conditions.length} conditions
-                          </Badge>
-                        )}
-                        {rule.logical_operator && rule.conditions && rule.conditions.length > 1 && (
-                          <Badge variant="outline" className="text-xs">
-                            {rule.logical_operator.toUpperCase()}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-sm text-muted-foreground truncate">
-                        When: {formatConditionDisplay(rule)}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          {expandedRules.has(rule.id) ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
+                  <div
+                    className="p-3 border rounded-lg bg-card"
+                    data-testid={`validation-rule-${rule.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium flex items-center gap-2 flex-wrap">
+                          {rule.name}
+                          {rule.sheet_id === null && (
+                            <Badge variant="default" className="text-xs">
+                              Global
+                            </Badge>
                           )}
+                          {rule.conditions && rule.conditions.length > 1 && (
+                            <Badge variant="secondary" className="text-xs">
+                              {rule.conditions.length} conditions
+                            </Badge>
+                          )}
+                          {rule.logical_operator && rule.conditions && rule.conditions.length > 1 && (
+                            <Badge variant="outline" className="text-xs">
+                              {rule.logical_operator.toUpperCase()}
+                            </Badge>
+                          )}
+                          {ruleOptional.length > 0 && ruleRequired.length === 0 && (
+                            <Badge variant="outline" className="text-xs text-muted-foreground">
+                              Optional override
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-sm text-muted-foreground truncate">
+                          When: {formatConditionDisplay(rule)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <CollapsibleTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            {expandedRules.has(rule.id) ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </CollapsibleTrigger>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setRuleToDelete(rule);
+                            setDeleteDialogOpen(true);
+                          }}
+                          data-testid={`button-delete-rule-${rule.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </Button>
-                      </CollapsibleTrigger>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setRuleToDelete(rule);
-                          setDeleteDialogOpen(true);
-                        }}
-                        data-testid={`button-delete-rule-${rule.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  <CollapsibleContent className="mt-2 pt-2 border-t">
-                    <div className="text-sm space-y-1">
-                      <div>
-                        <span className="text-muted-foreground">Required fields: </span>
-                        {Array.isArray(rule.required_fields) 
-                          ? rule.required_fields.map(f => 
-                              columns.find(c => c.column_key === f)?.name || f
-                            ).join(", ")
-                          : "N/A"}
                       </div>
                     </div>
-                  </CollapsibleContent>
-                </div>
-              </Collapsible>
-            ))}
+                    <CollapsibleContent className="mt-2 pt-2 border-t">
+                      <div className="text-sm space-y-1">
+                        {ruleRequired.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Required fields: </span>
+                            {ruleRequired.map(f => columns.find(c => c.column_key === f)?.name || f).join(", ")}
+                          </div>
+                        )}
+                        {ruleOptional.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Optional overrides: </span>
+                            <span className="text-amber-600 dark:text-amber-400">
+                              {ruleOptional.map(f => columns.find(c => c.column_key === f)?.name || f).join(", ")}
+                            </span>
+                            <span className="text-muted-foreground text-xs ml-1">(not required when conditions match)</span>
+                          </div>
+                        )}
+                        {ruleRequired.length === 0 && ruleOptional.length === 0 && (
+                          <div className="text-muted-foreground">No fields configured</div>
+                        )}
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+              );
+            })}
           </div>
         </div>
       )}
@@ -367,6 +426,7 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
               showLogicalOperator={true}
             />
 
+            {/* Required Fields */}
             <div className="space-y-2">
               <Label>Required Fields (when conditions are met)</Label>
               <div className="flex gap-2">
@@ -375,7 +435,7 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
                     <SelectValue placeholder="Select field" />
                   </SelectTrigger>
                   <SelectContent>
-                    {columns.map((col) => (
+                    {availableForRequired.map((col) => (
                       <SelectItem key={col.column_key} value={col.column_key}>
                         {col.name}
                       </SelectItem>
@@ -401,6 +461,53 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
                     data-testid={`badge-required-field-${field}`}
                   >
                     {columns.find(c => c.column_key === field)?.name || field}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            {/* Optional Fields */}
+            <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+              <div>
+                <Label>Optional Field Overrides (when conditions are met)</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Fields listed here will NOT be required even if normally mandatory — for example, making Next Follow-up Date optional for Converted leads.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Select value={newOptionalField} onValueChange={setNewOptionalField}>
+                  <SelectTrigger data-testid="select-optional-field">
+                    <SelectValue placeholder="Select field" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableForOptional.map((col) => (
+                      <SelectItem key={col.column_key} value={col.column_key}>
+                        {col.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  onClick={handleAddOptionalField}
+                  variant="outline"
+                  data-testid="button-add-optional-field"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {optionalFields.map((field) => (
+                  <Badge
+                    key={field}
+                    variant="outline"
+                    className="cursor-pointer border-amber-500/50 text-amber-700 dark:text-amber-400"
+                    onClick={() => handleRemoveOptionalField(field)}
+                    data-testid={`badge-optional-field-${field}`}
+                  >
+                    {columns.find(c => c.column_key === field)?.name || field}
+                    <span className="ml-1 text-xs">(optional)</span>
                     <X className="h-3 w-3 ml-1" />
                   </Badge>
                 ))}

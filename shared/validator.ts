@@ -269,6 +269,47 @@ export function validateLead(
   };
 }
 
+/**
+ * Returns the column keys that are declared as "optional" (is_required: false)
+ * by any matching validation rule for the given lead.
+ * Used to waive normally-required fields (e.g. NFDT) when conditions are met.
+ */
+export function getOptionalFieldKeys(lead: Lead, rules: ValidationRule[]): string[] {
+  const optionalKeys: string[] = [];
+
+  for (const rule of rules) {
+    // Skip inactive rules
+    if (rule.is_active === false) continue;
+
+    // Skip rules with no optional columns
+    if (!rule.required_columns || !Array.isArray(rule.required_columns) || rule.required_columns.length === 0) continue;
+    const optionalCols = rule.required_columns.filter(c => c.is_required === false);
+    if (optionalCols.length === 0) continue;
+
+    // Evaluate conditions (same logic as validateLead)
+    let isTriggered = false;
+    if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+      const results = rule.conditions.map(condition => {
+        const leadValue = getLeadFieldValue(lead, condition.column_key);
+        return evaluateCondition(leadValue, condition.operator, condition.value, condition.value2);
+      });
+      const logicalOp = rule.logical_operator || "and";
+      isTriggered = logicalOp === "or" ? results.some(r => r) : results.every(r => r);
+    } else if (rule.trigger_column_key && rule.operator) {
+      const triggerValue = getLeadFieldValue(lead, rule.trigger_column_key);
+      isTriggered = evaluateCondition(triggerValue, rule.operator, rule.trigger_value);
+    }
+
+    if (isTriggered) {
+      for (const col of optionalCols) {
+        optionalKeys.push(col.column_key);
+      }
+    }
+  }
+
+  return Array.from(new Set(optionalKeys));
+}
+
 export function validateLeadAgainstRules(
   lead: Lead,
   rules: ValidationRule[]

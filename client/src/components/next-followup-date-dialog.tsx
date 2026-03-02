@@ -4,7 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
-import type { Lead, CustomColumn } from "@shared/schema";
+import type { Lead, CustomColumn, ValidationRule } from "@shared/schema";
+import { getOptionalFieldKeys } from "@shared/validator";
 import {
   Dialog,
   DialogContent,
@@ -35,7 +36,9 @@ import { Input } from "@/components/ui/input";
 import { Calendar as CalendarIcon, Clock } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 
-const createNextFollowupDateSchema = () => {
+const HARDCODED_OPTIONAL_STATUSES = ["Not Interested", "Invalid Data", "Lost"];
+
+const createNextFollowupDateSchema = (isNFDTOptionalByRule: boolean) => {
   return z.object({
     remark: z.string().min(1, "Discussion details are required"),
     update_via: z.enum(["call", "whatsapp", "visit"], {
@@ -44,11 +47,13 @@ const createNextFollowupDateSchema = () => {
     lead_status: z.string().optional(),
     next_followup_date: z.string().optional(),
   }).superRefine((data, ctx) => {
-    // Conditional validation: next_followup_date is required unless lead_status is one of the optional statuses
-    const optionalStatuses = ["Not Interested", "Invalid Data", "Lost"];
+    // Conditional validation: next_followup_date is required unless:
+    // 1. lead_status is one of the hardcoded optional statuses, OR
+    // 2. A validation rule declares NFDT optional for this lead
     const leadStatus = data.lead_status || "";
-    
-    if (!optionalStatuses.includes(leadStatus) && !data.next_followup_date) {
+    const isOptionalByStatus = HARDCODED_OPTIONAL_STATUSES.includes(leadStatus);
+
+    if (!isOptionalByStatus && !isNFDTOptionalByRule && !data.next_followup_date) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Next Followup Date is required",
@@ -58,8 +63,7 @@ const createNextFollowupDateSchema = () => {
   });
 };
 
-const baseNextFollowupDateSchema = createNextFollowupDateSchema();
-type NextFollowupDateFormData = z.infer<typeof baseNextFollowupDateSchema>;
+type NextFollowupDateFormData = z.infer<ReturnType<typeof createNextFollowupDateSchema>>;
 
 interface NextFollowupDateDialogProps {
   open: boolean;
@@ -90,10 +94,19 @@ export function NextFollowupDateDialog({
   const [isSaving, setIsSaving] = useState(false);
 
   // Fetch columns to get lead_status column and its dropdown options
-  // Use lead's sheet_id if sheetId prop is not provided
   const effectiveSheetId = sheetId || lead?.sheet_id;
   const { data: columns = [] } = useQuery<CustomColumn[]>({
     queryKey: effectiveSheetId ? ["/api/sheets", effectiveSheetId, "columns"] : ["/api/company/columns"],
+    enabled: open,
+  });
+
+  // Fetch validation rules (sheet-level + global) to determine if NFDT is optional
+  const { data: sheetRules = [] } = useQuery<ValidationRule[]>({
+    queryKey: ["/api/sheets", effectiveSheetId, "validation-rules"],
+    enabled: open && !!effectiveSheetId,
+  });
+  const { data: globalRules = [] } = useQuery<ValidationRule[]>({
+    queryKey: ["/api/company/global-validation-rules"],
     enabled: open,
   });
 
@@ -113,10 +126,18 @@ export function NextFollowupDateDialog({
     return lead?.custom_fields?.lead_status || "";
   }, [lead]);
 
-  // Create schema for validation
+  // Determine if NFDT is declared optional by any matching validation rule
+  const isNFDTOptionalByRule = useMemo(() => {
+    if (!lead) return false;
+    const allRules = [...sheetRules, ...globalRules];
+    const optionalKeys = getOptionalFieldKeys(lead, allRules);
+    return optionalKeys.includes("next_followup_date");
+  }, [lead, sheetRules, globalRules]);
+
+  // Recompute schema whenever rule-based optionality changes
   const nextFollowupDateSchema = useMemo(
-    () => createNextFollowupDateSchema(),
-    []
+    () => createNextFollowupDateSchema(isNFDTOptionalByRule),
+    [isNFDTOptionalByRule]
   );
 
   const normalizeDate = (value: any): Date | undefined => {
@@ -209,6 +230,11 @@ export function NextFollowupDateDialog({
     }
   }, [watchedLeadStatus, form]);
 
+  // Also re-trigger validation when rule-based optionality changes
+  useEffect(() => {
+    form.trigger("next_followup_date");
+  }, [isNFDTOptionalByRule, form]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
@@ -292,8 +318,8 @@ export function NextFollowupDateDialog({
               name="next_followup_date"
               render={({ field }) => {
                 const currentStatus = form.watch("lead_status");
-                const optionalStatuses = ["Not Interested", "Invalid Data", "Lost"];
-                const isOptional = currentStatus && optionalStatuses.includes(currentStatus);
+                const isOptionalByStatus = currentStatus ? HARDCODED_OPTIONAL_STATUSES.includes(currentStatus) : false;
+                const isOptional = isOptionalByStatus || isNFDTOptionalByRule;
                 
                 return (
                 <FormItem>
@@ -394,4 +420,3 @@ export function NextFollowupDateDialog({
     </Dialog>
   );
 }
-
