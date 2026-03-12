@@ -25285,6 +25285,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!updated) {
         return res.status(404).json({ error: "Config not found" });
       }
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(updated);
     } catch (error: any) {
       console.error("Error updating conversion config:", error);
@@ -25297,6 +25298,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     try {
       const { id } = req.params;
       await storage.deleteConversionConfig(id);
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting conversion config:", error);
@@ -25427,6 +25429,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         transitions_requiring_approval: transitions_requiring_approval || [],
         auto_approve_hours: auto_approve_hours || null,
       });
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(approval);
     } catch (error: any) {
       console.error("Error saving conversion approval:", error);
