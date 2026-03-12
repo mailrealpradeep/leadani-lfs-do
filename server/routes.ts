@@ -16,14 +16,24 @@ import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConver
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
-import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache } from "./counts-cache";
+import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache } from "./counts-cache";
 
 function invalidateCountsCacheForCompany(companyId: string): void {
   if (!companyId) return;
   hotLeadsCountCache.invalidateByPrefix(companyId);
   visionPipelineCache.invalidateByPrefix(companyId);
   visionProgressCache.invalidateByPrefix(companyId);
+  visionTeamCache.invalidateByPrefix(companyId);
+  visionConversionCache.invalidateByPrefix(companyId);
   customViewsCountCache.invalidateByPrefix(companyId);
+}
+
+function invalidateVisionCachesForCompany(companyId: string): void {
+  if (!companyId) return;
+  visionPipelineCache.invalidateByPrefix(companyId);
+  visionProgressCache.invalidateByPrefix(companyId);
+  visionTeamCache.invalidateByPrefix(companyId);
+  visionConversionCache.invalidateByPrefix(companyId);
 }
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage } from "@shared/schema";
 import { evaluateCondition } from "./target-evaluator";
@@ -23538,12 +23548,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       console.log('[Vision Board] isTeamView:', isTeamView);
       
       if (isTeamView && req.companyId) {
-        // Return team aggregates for admins/multi-sheet users
-        const teamData = await getTeamVisionBoardAggregates(req.companyId);
-        if (!teamData) {
-          return res.json({ mode: 'team', board_count: 0, aggregate: null });
-        }
-        return res.json(teamData);
+        const teamCacheKey = `${req.companyId}:team`;
+        const result = await visionTeamCache.getOrCompute(teamCacheKey, async () => {
+          const teamData = await getTeamVisionBoardAggregates(req.companyId!);
+          if (!teamData) {
+            return { mode: 'team', board_count: 0, aggregate: null };
+          }
+          return teamData;
+        });
+        return res.json(result);
       }
       
       // Personal view for single-sheet users
@@ -23655,6 +23668,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         });
         res.json(newBoard);
       }
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
     } catch (error: any) {
       console.error("Error saving vision board:", error);
       res.status(500).json({ error: error.message });
@@ -23676,6 +23690,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(404).json({ error: "Vision board not found" });
       }
       const updatedBoard = await storage.updateVisionBoard(id, req.body);
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(updatedBoard);
     } catch (error: any) {
       console.error("Error updating vision board:", error);
@@ -23698,6 +23713,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(404).json({ error: "Vision board not found" });
       }
       const updatedBoard = await storage.updateVisionBoard(id, req.body);
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(updatedBoard);
     } catch (error: any) {
       console.error("Error updating vision board:", error);
@@ -23720,6 +23736,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(404).json({ error: "Vision board not found" });
       }
       await storage.deleteVisionBoard(id);
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting vision board:", error);
@@ -23872,7 +23889,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(404).json({ error: "Vision board not found" });
       }
 
-      const progressCacheKey = `${req.companyId}:${req.userId}:progress:${visionBoardId}`;
+      const progressCacheKey = `${req.companyId}:${req.userId}:${visionBoardId}`;
       const cachedProgress = visionProgressCache.get(progressCacheKey);
       if (cachedProgress) {
         return res.json(cachedProgress);
@@ -24024,7 +24041,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      const cacheKey = `${req.companyId}:${req.userId}:pipeline`;
+      const cacheKey = `${req.companyId}:${req.userId}`;
       const result = await visionPipelineCache.getOrCompute(cacheKey, async () => {
         const metrics = await getUserPipelineMetrics(req.companyId, req.userId);
         
@@ -24067,6 +24084,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const { dateFilter, startDate, endDate } = req.query;
+      
+      const convCacheKey = `${req.companyId}:${req.userId}:conv:${dateFilter || 'last_30_days'}:${startDate || ''}:${endDate || ''}`;
+      const cachedConv = visionConversionCache.get(convCacheKey);
+      if (cachedConv) {
+        return res.json(cachedConv);
+      }
       
       // Get company for timezone
       const company = await storage.getCompany(req.companyId);
@@ -24382,11 +24405,13 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         color: s.color,
       }));
 
-      res.json({
+      const convResult = {
         company: companyData,
         sheets: sheetData,
         stages_config: stagesConfig,
-      });
+      };
+      visionConversionCache.set(convCacheKey, convResult);
+      res.json(convResult);
     } catch (error: any) {
       console.error("Error fetching conversion performance:", error);
       res.status(500).json({ error: error.message });
@@ -25226,6 +25251,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       if (existing) {
         const updated = await storage.updateConversionConfig(existing.id, { name, is_active });
+        invalidateVisionCachesForCompany(req.companyId);
         res.json(updated);
       } else {
         const created = await storage.createConversionConfig({
@@ -25247,6 +25273,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           sort_order: 0,
         });
         
+        invalidateVisionCachesForCompany(req.companyId);
         res.json(created);
       }
     } catch (error: any) {
@@ -25309,6 +25336,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         expected_conversion_percent: expected_conversion_percent || null,
         sort_order: sort_order ?? 0,
       });
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(stage);
     } catch (error: any) {
       console.error("Error creating conversion stage:", error);
@@ -25325,6 +25353,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!updated) {
         return res.status(404).json({ error: "Stage not found" });
       }
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(updated);
     } catch (error: any) {
       console.error("Error updating conversion stage:", error);
@@ -25337,6 +25366,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     try {
       const { id } = req.params;
       await storage.deleteConversionStage(id);
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting conversion stage:", error);
@@ -25349,6 +25379,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     try {
       const { config_id, stage_ids } = req.body;
       await storage.reorderConversionStages(config_id, stage_ids);
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error reordering conversion stages:", error);
@@ -25367,6 +25398,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         default_amount: default_amount || null,
         currency: currency || 'INR',
       });
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(value);
     } catch (error: any) {
       console.error("Error saving conversion value:", error);
@@ -25384,6 +25416,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         fixed_amount: fixed_amount || null,
         tier_rules: tier_rules || [],
       });
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(incentive);
     } catch (error: any) {
       console.error("Error saving conversion incentive:", error);
