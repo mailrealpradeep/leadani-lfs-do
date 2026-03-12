@@ -23777,9 +23777,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         description: req.body.description,
         earned_at: req.body.earned_at ? new Date(req.body.earned_at) : new Date(),
       });
-      if (req.companyId) {
-        visionProgressCache.invalidateByPrefix(req.companyId);
-      }
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(earning);
     } catch (error: any) {
       console.error("Error adding earning:", error);
@@ -23795,9 +23793,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!updatedEarning) {
         return res.status(404).json({ error: "Earning not found" });
       }
-      if (req.companyId) {
-        visionProgressCache.invalidateByPrefix(req.companyId);
-      }
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json(updatedEarning);
     } catch (error: any) {
       console.error("Error updating earning:", error);
@@ -23810,9 +23806,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     try {
       const { id } = req.params;
       await storage.deleteVisionBoardEarning(id);
-      if (req.companyId) {
-        visionProgressCache.invalidateByPrefix(req.companyId);
-      }
+      if (req.companyId) invalidateVisionCachesForCompany(req.companyId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting earning:", error);
