@@ -803,11 +803,22 @@ const signupLimiter = rateLimit({
 
 export async function registerRoutes(app: Express): Promise<Server> {
 
-  // Middleware: auto-invalidate counts cache on lead mutations
+  // Middleware: auto-invalidate counts cache on actual lead mutations only
+  // Excludes read-only POSTs: /api/leads/query, /api/leads/check-duplicate, /api/leads/:id/ai-rating
+  const LEAD_MUTATION_PATTERNS = [
+    /^\/api\/sheets\/[^/]+\/leads$/,
+    /^\/api\/leads\/[^/]+$/,
+    /^\/api\/leads\/[^/]+\/updates$/,
+    /^\/api\/leads\/[^/]+\/merge$/,
+    /^\/api\/leads\/bulk-merge$/,
+    /^\/api\/leads\/restore$/,
+    /^\/api\/leads\/transfer$/,
+    /^\/api\/leads\/transfer-request$/,
+  ];
   app.use((req: any, res: any, next: any) => {
     if (
       (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') &&
-      (req.path.match(/^\/api\/leads/) || req.path.match(/^\/api\/sheets\/[^/]+\/leads/))
+      LEAD_MUTATION_PATTERNS.some(p => p.test(req.path))
     ) {
       res.on('finish', () => {
         if (res.statusCode >= 200 && res.statusCode < 300 && req.companyId) {
