@@ -402,6 +402,16 @@ export function SpreadsheetGrid({
   const activeSheetIds = (hotLeadsMode || watchlistMode || customViewMode) ? [] : (isMultiSheetMode ? selectedSheetIds : []);
   const containerRef = useRef<HTMLDivElement>(null);
   const mobileContainerRef = useRef<HTMLDivElement>(null);
+
+  const badgeInvalidationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedInvalidateBadgeCounts = useCallback(() => {
+    if (badgeInvalidationTimer.current) clearTimeout(badgeInvalidationTimer.current);
+    badgeInvalidationTimer.current = setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-views-counts"] });
+      badgeInvalidationTimer.current = null;
+    }, 5000);
+  }, []);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [sortColumn, setSortColumn] = useState<string | null>("created_at");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
@@ -1669,10 +1679,10 @@ export function SpreadsheetGrid({
       // Always refetch after error or success to ensure server state is synced
       if (hotLeadsMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+        debouncedInvalidateBadgeCounts();
       } else if (customViewMode && customViewId) {
         queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "leads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/custom-views-counts"] });
+        debouncedInvalidateBadgeCounts();
       } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
@@ -1688,10 +1698,10 @@ export function SpreadsheetGrid({
     onSuccess: () => {
       if (hotLeadsMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+        debouncedInvalidateBadgeCounts();
       } else if (customViewMode && customViewId) {
         queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "leads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/custom-views-counts"] });
+        debouncedInvalidateBadgeCounts();
       } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
@@ -1713,10 +1723,10 @@ export function SpreadsheetGrid({
       // Invalidate both source and target sheets
       if (hotLeadsMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+        debouncedInvalidateBadgeCounts();
       } else if (customViewMode && customViewId) {
         queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "leads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/custom-views-counts"] });
+        debouncedInvalidateBadgeCounts();
       } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
@@ -1747,10 +1757,10 @@ export function SpreadsheetGrid({
     onSuccess: () => {
       if (hotLeadsMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+        debouncedInvalidateBadgeCounts();
       } else if (customViewMode && customViewId) {
         queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "leads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/custom-views-counts"] });
+        debouncedInvalidateBadgeCounts();
       } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
@@ -2015,7 +2025,7 @@ export function SpreadsheetGrid({
 
     const handleHotLeadUpdate = () => {
       queryClient.invalidateQueries({ queryKey: ["/api/hot-leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/hot-leads/count"] });
+      debouncedInvalidateBadgeCounts();
     };
 
     socket.on("lead.created", handleHotLeadUpdate);

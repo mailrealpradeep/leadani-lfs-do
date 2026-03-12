@@ -16,6 +16,13 @@ import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConver
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
+import { hotLeadsCountCache, customViewsCountCache } from "./counts-cache";
+
+function invalidateCountsCacheForCompany(companyId: string): void {
+  if (!companyId) return;
+  hotLeadsCountCache.invalidateByPrefix(companyId);
+  customViewsCountCache.invalidateByPrefix(companyId);
+}
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage } from "@shared/schema";
 import { evaluateCondition } from "./target-evaluator";
 import { notifyLeadAssigned, notifyLeadUpdated, notifyWebhookReceived, notifyUserJoined } from "./push-service";
@@ -795,6 +802,22 @@ const signupLimiter = rateLimit({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+
+  // Middleware: auto-invalidate counts cache on lead mutations
+  app.use((req: any, res: any, next: any) => {
+    if (
+      (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') &&
+      (req.path.match(/^\/api\/leads/) || req.path.match(/^\/api\/sheets\/[^/]+\/leads/))
+    ) {
+      res.on('finish', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300 && req.companyId) {
+          invalidateCountsCacheForCompany(req.companyId);
+        }
+      });
+    }
+    next();
+  });
+
   const httpServer = createServer(app);
   const io = new SocketIOServer(httpServer, {
     cors: {
@@ -857,6 +880,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Failed to ensure lead_transfer_requests table exists:", error);
       // Don't fail startup - table might be created manually later
+    }
+  }
+
+  // Create performance indexes on leads table (idempotent)
+  if (process.env.DATABASE_URL) {
+    try {
+      const { Pool: NeonPool, neonConfig: nc } = await import("@neondatabase/serverless");
+      const wsLib = await import("ws");
+      nc.webSocketConstructor = wsLib.default;
+      const idxPool = new NeonPool({ connectionString: process.env.DATABASE_URL });
+      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_id ON leads(sheet_id)`);
+      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_active ON leads(sheet_id) WHERE deleted_at IS NULL`);
+      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_owner ON leads(owner_user_id)`);
+      await idxPool.end();
+      console.log("[Perf] Lead indexes verified/created");
+    } catch (error) {
+      console.error("[Perf] Failed to create lead indexes:", error);
     }
   }
 
@@ -13975,6 +14015,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       // Emit socket event for real-time updates
       io.to(`company:${req.companyId}`).emit("hot_lead_config.updated", { companyId: req.companyId });
+      invalidateCountsCacheForCompany(req.companyId!);
       
       res.json(config);
     } catch (error: any) {
@@ -14042,39 +14083,43 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
-  // GET /api/hot-leads/count - Get count of hot leads (for sidebar badge)
+  // GET /api/hot-leads/count - Get count of hot leads (for sidebar badge) [CACHED]
   app.get("/api/hot-leads/count", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const config = await storage.getHotLeadConfig(req.companyId!);
+      const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}`;
+      const result = await hotLeadsCountCache.getOrCompute(cacheKey, async () => {
+        const config = await storage.getHotLeadConfig(req.companyId!);
+        
+        if (!config || !config.is_active || !config.conditions || config.conditions.length === 0) {
+          return { count: 0 };
+        }
+        
+        let sheets: Sheet[];
+        if (req.userRole === "super_admin") {
+          sheets = await storage.getAllSheets();
+        } else if (req.userRole === "company_admin") {
+          sheets = await storage.getSheetsByCompanyId(req.companyId!);
+        } else {
+          sheets = await storage.getSheetsByUserId(req.userId!);
+        }
+        
+        if (sheets.length === 0) {
+          return { count: 0 };
+        }
+        
+        let count = 0;
+        for (const sheet of sheets) {
+          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const hotLeads = leads.filter(lead => {
+            return evaluateHotLeadConditions(lead, config.conditions, config.logical_operator);
+          });
+          count += hotLeads.length;
+        }
+        
+        return { count };
+      });
       
-      if (!config || !config.is_active || !config.conditions || config.conditions.length === 0) {
-        return res.json({ count: 0 });
-      }
-      
-      // Get user's accessible sheets
-      let sheets: Sheet[];
-      if (req.userRole === "super_admin") {
-        sheets = await storage.getAllSheets();
-      } else if (req.userRole === "company_admin") {
-        sheets = await storage.getSheetsByCompanyId(req.companyId!);
-      } else {
-        sheets = await storage.getSheetsByUserId(req.userId!);
-      }
-      
-      if (sheets.length === 0) {
-        return res.json({ count: 0 });
-      }
-      
-      let count = 0;
-      for (const sheet of sheets) {
-        const leads = await storage.getLeadsBySheetId(sheet.id);
-        const hotLeads = leads.filter(lead => {
-          return evaluateHotLeadConditions(lead, config.conditions, config.logical_operator);
-        });
-        count += hotLeads.length;
-      }
-      
-      res.json({ count });
+      res.json(result);
     } catch (error: any) {
       console.error("Get hot leads count error:", error);
       res.status(500).json({ error: error.message });
@@ -14139,6 +14184,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         sheet_ids: sheet_ids ?? null,
       });
 
+      invalidateCountsCacheForCompany(req.companyId!);
       res.status(201).json(view);
     } catch (error: any) {
       console.error("Create custom view error:", error);
@@ -14170,6 +14216,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         ...(sheet_ids !== undefined && { sheet_ids }),
       });
 
+      invalidateCountsCacheForCompany(req.companyId!);
       res.json(updated);
     } catch (error: any) {
       console.error("Update custom view error:", error);
@@ -14189,6 +14236,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       await storage.deleteCustomView(req.params.id);
+      invalidateCountsCacheForCompany(req.companyId!);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Delete custom view error:", error);
@@ -14205,6 +14253,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       await storage.reorderCustomViews(req.companyId!, view_ids);
+      invalidateCountsCacheForCompany(req.companyId!);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Reorder custom views error:", error);
@@ -14317,50 +14366,52 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // GET /api/custom-views/counts - Get counts for all enabled custom views (for sidebar badges)
   app.get("/api/custom-views-counts", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const views = await storage.getCustomViews(req.companyId!);
-      const enabledViews = views.filter(v => v.is_enabled && v.show_badge);
+      const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}`;
+      const result = await customViewsCountCache.getOrCompute(cacheKey, async () => {
+        const views = await storage.getCustomViews(req.companyId!);
+        const enabledViews = views.filter(v => v.is_enabled && v.show_badge);
 
-      if (enabledViews.length === 0) {
-        return res.json({ counts: {} });
-      }
-
-      // Get user's accessible sheets
-      let sheets: Sheet[];
-      if (req.userRole === "super_admin") {
-        sheets = await storage.getAllSheets();
-      } else if (req.userRole === "company_admin") {
-        sheets = await storage.getSheetsByCompanyId(req.companyId!);
-      } else {
-        sheets = await storage.getSheetsByUserId(req.userId!);
-      }
-
-      if (sheets.length === 0) {
-        const counts: Record<string, number> = {};
-        enabledViews.forEach(v => counts[v.id] = 0);
-        return res.json({ counts });
-      }
-
-      // Calculate count for each view independently to avoid holding all leads in memory at once
-      const counts: Record<string, number> = {};
-      for (const view of enabledViews) {
-        if (!view.conditions || view.conditions.length === 0) {
-          counts[view.id] = 0;
-        } else {
-          // Filter to view's allowed sheets only
-          const viewSheets = view.sheet_ids && view.sheet_ids.length > 0
-            ? sheets.filter(s => view.sheet_ids!.includes(s.id))
-            : sheets;
-
-          let count = 0;
-          for (const sheet of viewSheets) {
-            const leads = await storage.getLeadsBySheetId(sheet.id);
-            count += leads.filter(lead => !lead.deleted_at && evaluateCustomViewConditions(lead, view.conditions)).length;
-          }
-          counts[view.id] = count;
+        if (enabledViews.length === 0) {
+          return { counts: {} };
         }
-      }
 
-      res.json({ counts });
+        let sheets: Sheet[];
+        if (req.userRole === "super_admin") {
+          sheets = await storage.getAllSheets();
+        } else if (req.userRole === "company_admin") {
+          sheets = await storage.getSheetsByCompanyId(req.companyId!);
+        } else {
+          sheets = await storage.getSheetsByUserId(req.userId!);
+        }
+
+        if (sheets.length === 0) {
+          const counts: Record<string, number> = {};
+          enabledViews.forEach(v => counts[v.id] = 0);
+          return { counts };
+        }
+
+        const counts: Record<string, number> = {};
+        for (const view of enabledViews) {
+          if (!view.conditions || view.conditions.length === 0) {
+            counts[view.id] = 0;
+          } else {
+            const viewSheets = view.sheet_ids && view.sheet_ids.length > 0
+              ? sheets.filter(s => view.sheet_ids!.includes(s.id))
+              : sheets;
+
+            let count = 0;
+            for (const sheet of viewSheets) {
+              const leads = await storage.getLeadsBySheetId(sheet.id);
+              count += leads.filter(lead => !lead.deleted_at && evaluateCustomViewConditions(lead, view.conditions)).length;
+            }
+            counts[view.id] = count;
+          }
+        }
+
+        return { counts };
+      });
+
+      res.json(result);
     } catch (error: any) {
       console.error("Get custom views counts error:", error);
       res.status(500).json({ error: error.message });

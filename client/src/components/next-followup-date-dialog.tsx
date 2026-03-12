@@ -127,12 +127,21 @@ export function NextFollowupDateDialog({
   }, [lead]);
 
   // Determine if NFDT is declared optional by any matching validation rule
+  // Use projected lead state that includes current form values (e.g. lead_status)
+  const watchedFormStatus = form.watch("lead_status");
   const isNFDTOptionalByRule = useMemo(() => {
     if (!lead) return false;
+    const projectedLead = {
+      ...lead,
+      custom_fields: {
+        ...(lead.custom_fields as Record<string, any> || {}),
+        ...(watchedFormStatus !== undefined ? { lead_status: watchedFormStatus } : {}),
+      },
+    };
     const allRules = [...sheetRules, ...globalRules];
-    const optionalKeys = getOptionalFieldKeys(lead, allRules);
+    const optionalKeys = getOptionalFieldKeys(projectedLead as any, allRules);
     return optionalKeys.includes("next_followup_date");
-  }, [lead, sheetRules, globalRules]);
+  }, [lead, sheetRules, globalRules, watchedFormStatus]);
 
   // Recompute schema whenever rule-based optionality changes
   const nextFollowupDateSchema = useMemo(
@@ -220,15 +229,12 @@ export function NextFollowupDateDialog({
     }
   };
 
-  // Watch lead_status to trigger validation when it changes
-  const watchedLeadStatus = form.watch("lead_status");
-  
   // Trigger validation when lead_status changes
   useEffect(() => {
-    if (watchedLeadStatus !== undefined) {
+    if (watchedFormStatus !== undefined) {
       form.trigger("next_followup_date");
     }
-  }, [watchedLeadStatus, form]);
+  }, [watchedFormStatus, form]);
 
   // Also re-trigger validation when rule-based optionality changes
   useEffect(() => {
