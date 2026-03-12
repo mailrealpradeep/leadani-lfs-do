@@ -16,11 +16,13 @@ import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConver
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
-import { hotLeadsCountCache, customViewsCountCache } from "./counts-cache";
+import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache } from "./counts-cache";
 
 function invalidateCountsCacheForCompany(companyId: string): void {
   if (!companyId) return;
   hotLeadsCountCache.invalidateByPrefix(companyId);
+  visionPipelineCache.invalidateByPrefix(companyId);
+  visionProgressCache.invalidateByPrefix(companyId);
   customViewsCountCache.invalidateByPrefix(companyId);
 }
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage } from "@shared/schema";
@@ -215,12 +217,11 @@ async function getUserPipelineMetrics(
     
     const sheetIds = nonPersonalSheets.map(s => s.id);
 
-    // Get ALL leads from user's sheets (no date filter for projected)
-    let allLeads: any[] = [];
-    for (const sheetId of sheetIds) {
-      const sheetLeads = await storage.getLeadsBySheetId(sheetId);
-      allLeads = allLeads.concat(sheetLeads.filter(l => !l.deleted_at));
-    }
+    // Get ALL leads from user's sheets in parallel (no date filter for projected)
+    const sheetLeadArrays = await Promise.all(
+      sheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
+    );
+    const allLeads: any[] = sheetLeadArrays.flat().filter(l => !l.deleted_at);
 
     // Stage-specific date filtering helper
     // Each stage uses the date relevant to when the lead entered that stage:
@@ -23119,23 +23120,25 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       return null;
     }
 
-    // Get earnings for all boards and calculate totals
-    let totalEarnings = 0;
-    let totalGoal = 0;
+    // Get earnings for all boards in parallel and calculate totals
     let boardCount = allBoards.length;
     
+    const boardEarningsArrays = await Promise.all(
+      allBoards.map(board => storage.getVisionBoardEarnings(board.id))
+    );
+    
+    let totalEarnings = 0;
+    let totalGoal = 0;
     const effortTotals = { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
     const allImages: string[] = [];
     
-    for (const board of allBoards) {
+    for (let i = 0; i < allBoards.length; i++) {
+      const board = allBoards[i];
       totalGoal += board.goal_amount;
       
-      // Get earnings for this board
-      const earnings = await storage.getVisionBoardEarnings(board.id);
-      const boardEarnings = earnings.reduce((sum, e) => sum + e.amount, 0);
+      const boardEarnings = boardEarningsArrays[i].reduce((sum, e) => sum + e.amount, 0);
       totalEarnings += boardEarnings;
       
-      // Sum effort targets
       if (board.effort_targets) {
         effortTotals.sales += board.effort_targets.sales || 0;
         effortTotals.visits += board.effort_targets.visits || 0;
@@ -23143,7 +23146,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         effortTotals.followups += board.effort_targets.followups || 0;
       }
       
-      // Collect images (limit to a few for carousel)
       if (board.images && Array.isArray(board.images)) {
         allImages.push(...board.images.slice(0, 2));
       }
@@ -23271,21 +23273,19 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       return result[0]?.count || 0;
     };
     
-    // Calculate team projected/actual incentives by summing all team members' incentives
+    // Calculate team projected/actual incentives in parallel
+    const dateFilter = { startDate: earliestStart, endDate: latestTarget };
+    const teamMetricsResults = await Promise.all(
+      allBoards.map(board => 
+        getUserPipelineMetrics(companyId, board.user_id, dateFilter).catch(() => null)
+      )
+    );
     let teamProjectedIncentive = 0;
     let teamActualIncentive = 0;
-    
-    // Calculate incentives for each team member using the shared helper
-    for (const board of allBoards) {
-      try {
-        const dateFilter = { startDate: earliestStart, endDate: latestTarget };
-        const metrics = await getUserPipelineMetrics(companyId, board.user_id, dateFilter);
-        if (metrics) {
-          teamProjectedIncentive += metrics.total_projected_incentive || 0;
-          teamActualIncentive += metrics.total_actual_incentive || 0;
-        }
-      } catch (err) {
-        // Skip this user's incentive calculation on error
+    for (const metrics of teamMetricsResults) {
+      if (metrics) {
+        teamProjectedIncentive += metrics.total_projected_incentive || 0;
+        teamActualIncentive += metrics.total_actual_incentive || 0;
       }
     }
     
@@ -23760,6 +23760,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         description: req.body.description,
         earned_at: req.body.earned_at ? new Date(req.body.earned_at) : new Date(),
       });
+      if (req.companyId) {
+        visionProgressCache.invalidateByPrefix(req.companyId);
+      }
       res.json(earning);
     } catch (error: any) {
       console.error("Error adding earning:", error);
@@ -23775,6 +23778,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!updatedEarning) {
         return res.status(404).json({ error: "Earning not found" });
       }
+      if (req.companyId) {
+        visionProgressCache.invalidateByPrefix(req.companyId);
+      }
       res.json(updatedEarning);
     } catch (error: any) {
       console.error("Error updating earning:", error);
@@ -23787,6 +23793,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     try {
       const { id } = req.params;
       await storage.deleteVisionBoardEarning(id);
+      if (req.companyId) {
+        visionProgressCache.invalidateByPrefix(req.companyId);
+      }
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting earning:", error);
@@ -23815,23 +23824,19 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json([]);
       }
       
-      // Fetch leads owned by user with "Converted" status
-      const allLeads: any[] = [];
-      for (const sheetId of accessibleSheetIds) {
-        const leads = await storage.getLeadsBySheetId(sheetId);
-        // Filter for user's leads with converted status
-        const userConvertedLeads = leads.filter((lead: any) => {
-          const isOwner = lead.owner_user_id === req.userId;
-          // Check both canonical status field AND custom_fields.lead_status
-          const canonicalStatus = (lead.status || '').toLowerCase();
-          const customStatus = (lead.custom_fields?.lead_status || '').toLowerCase();
-          const convertedStatuses = ['converted', 'closed', 'won', 'booked', 'sold'];
-          const isConverted = convertedStatuses.includes(canonicalStatus) || 
-                             convertedStatuses.includes(customStatus);
-          return isOwner && isConverted;
-        });
-        allLeads.push(...userConvertedLeads);
-      }
+      // Fetch leads owned by user with "Converted" status (parallel)
+      const sheetLeadArrays = await Promise.all(
+        accessibleSheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
+      );
+      const allLeads: any[] = sheetLeadArrays.flat().filter((lead: any) => {
+        const isOwner = lead.owner_user_id === req.userId;
+        const canonicalStatus = (lead.status || '').toLowerCase();
+        const customStatus = (lead.custom_fields?.lead_status || '').toLowerCase();
+        const convertedStatuses = ['converted', 'closed', 'won', 'booked', 'sold'];
+        const isConverted = convertedStatuses.includes(canonicalStatus) || 
+                           convertedStatuses.includes(customStatus);
+        return isOwner && isConverted;
+      });
       
       // Get vision board to check which leads already have earnings recorded
       const board = await storage.getVisionBoard(req.userId!);
@@ -23865,6 +23870,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const board = await storage.getVisionBoard(req.userId!);
       if (!board || board.id !== visionBoardId) {
         return res.status(404).json({ error: "Vision board not found" });
+      }
+
+      const progressCacheKey = `${req.companyId}:${req.userId}:progress:${visionBoardId}`;
+      const cachedProgress = visionProgressCache.get(progressCacheKey);
+      if (cachedProgress) {
+        return res.json(cachedProgress);
       }
 
       const earnings = await storage.getVisionBoardEarnings(visionBoardId);
@@ -23974,7 +23985,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
 
-      res.json({
+      const progressResult = {
         board,
         earnings: {
           total: totalEarned,
@@ -23993,7 +24004,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         },
         effort_targets: periodBreakdowns,
         effort_achieved: effortAchieved,
-      });
+      };
+
+      visionProgressCache.set(progressCacheKey, progressResult);
+
+      res.json(progressResult);
     } catch (error: any) {
       console.error("Error calculating progress:", error);
       res.status(500).json({ error: error.message });
@@ -24009,32 +24024,35 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      // Use shared helper (no date filter for this endpoint - shows all-time data)
-      const metrics = await getUserPipelineMetrics(req.companyId, req.userId);
-      
-      if (!metrics) {
-        return res.json({ projected_incentive: 0, actual_incentive: 0, stages: [] });
-      }
+      const cacheKey = `${req.companyId}:${req.userId}:pipeline`;
+      const result = await visionPipelineCache.getOrCompute(cacheKey, async () => {
+        const metrics = await getUserPipelineMetrics(req.companyId, req.userId);
+        
+        if (!metrics) {
+          return { projected_incentive: 0, actual_incentive: 0, stages: [] };
+        }
 
-      // Get currency from settings
-      const settings = await storage.getConversionSettingsComplete(req.companyId);
-      const currency = settings?.value?.currency || 'INR';
+        const settings = await storage.getConversionSettingsComplete(req.companyId);
+        const currency = settings?.value?.currency || 'INR';
 
-      res.json({
-        projected_incentive: metrics.total_projected_incentive,
-        actual_incentive: metrics.total_actual_incentive,
-        currency,
-        stages: metrics.stages.map(s => ({
-          stage_number: s.stage_number,
-          stage_name: s.stage_name,
-          color: s.color,
-          count: s.count,
-          incentives: s.incentives,
-          projected_incentive: s.projected_incentive,
-          is_final_stage: s.is_final_stage,
-          is_first_stage: s.is_first_stage,
-        })),
+        return {
+          projected_incentive: metrics.total_projected_incentive,
+          actual_incentive: metrics.total_actual_incentive,
+          currency,
+          stages: metrics.stages.map(s => ({
+            stage_number: s.stage_number,
+            stage_name: s.stage_name,
+            color: s.color,
+            count: s.count,
+            incentives: s.incentives,
+            projected_incentive: s.projected_incentive,
+            is_final_stage: s.is_final_stage,
+            is_first_stage: s.is_first_stage,
+          })),
+        };
       });
+
+      res.json(result);
     } catch (error: any) {
       console.error("Error fetching user pipeline for vision board:", error);
       res.status(500).json({ error: error.message });
@@ -24109,29 +24127,24 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // Check if user is admin (for company aggregate calculation)
       const isAdmin = req.userRole === 'super_admin' || req.userRole === 'company_admin';
 
-      // Get eligible users for company aggregate (only needed for admins)
+      // Get eligible users for company aggregate (only needed for admins) - parallel checks
       let eligibleUsers: any[] = [];
       if (isAdmin) {
         const allUsers = await storage.getUsersByCompanyId(req.companyId);
-        for (const user of allUsers) {
-          // Skip admin users
-          if (user.role === 'super_admin' || user.role === 'company_admin') {
-            continue;
-          }
-          
-          // Check for multi-sheet users
-          const isMultiSheet = await storage.isMultiSheetUser(user.id);
-          if (isMultiSheet) {
-            continue;
-          }
-          
-          // Only include single-sheet, non-admin users
-          const userSheets = await storage.getSheetsByUserId(user.id);
-          const nonPersonalUserSheets = userSheets.filter(s => !s.is_personal);
-          if (nonPersonalUserSheets.length > 0) {
-            eligibleUsers.push(user);
-          }
-        }
+        const nonAdminUsers = allUsers.filter(u => u.role !== 'super_admin' && u.role !== 'company_admin');
+        
+        const eligibilityChecks = await Promise.all(
+          nonAdminUsers.map(async (user) => {
+            const [isMultiSheet, userSheets] = await Promise.all([
+              storage.isMultiSheetUser(user.id),
+              storage.getSheetsByUserId(user.id),
+            ]);
+            if (isMultiSheet) return null;
+            const nonPersonalUserSheets = userSheets.filter(s => !s.is_personal);
+            return nonPersonalUserSheets.length > 0 ? user : null;
+          })
+        );
+        eligibleUsers = eligibilityChecks.filter(u => u !== null);
       }
 
       // Helper function to calculate conversion performance for a sheet

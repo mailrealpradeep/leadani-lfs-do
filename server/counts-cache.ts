@@ -59,6 +59,14 @@ export class CountsCache<T = any> {
     return promise;
   }
 
+  set(key: string, data: T): void {
+    this.cache.set(key, {
+      data,
+      expiresAt: Date.now() + this.ttlMs,
+      generation: this.getGeneration(key),
+    });
+  }
+
   invalidateByPrefix(prefix: string): void {
     const keysToInvalidate = new Set<string>();
     for (const key of this.cache.keys()) {
@@ -84,3 +92,5 @@ export class CountsCache<T = any> {
 
 export const hotLeadsCountCache = new CountsCache<{ count: number }>(60);
 export const customViewsCountCache = new CountsCache<{ counts: Record<string, number> }>(60);
+export const visionPipelineCache = new CountsCache<any>(120);
+export const visionProgressCache = new CountsCache<any>(120);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -2215,6 +2215,27 @@ export default function VisionBoardPage() {
   const [conversionDateFilter, setConversionDateFilter] = useState<"all_time" | "this_week" | "last_week" | "this_month" | "last_month" | "last_30_days" | "custom">("last_30_days");
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
+  const [conversionSectionVisible, setConversionSectionVisible] = useState(false);
+  const conversionObserverRef = useRef<IntersectionObserver | null>(null);
+  const conversionSectionRef = useCallback((node: HTMLDivElement | null) => {
+    if (conversionObserverRef.current) {
+      conversionObserverRef.current.disconnect();
+      conversionObserverRef.current = null;
+    }
+    if (node) {
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) {
+            setConversionSectionVisible(true);
+            observer.disconnect();
+          }
+        },
+        { rootMargin: '200px' }
+      );
+      observer.observe(node);
+      conversionObserverRef.current = observer;
+    }
+  }, []);
   
   // User filter state for Admin/Multi-sheet users
   // 'company' = company-wide vision, 'me' = personal, user ID = specific user
@@ -2551,7 +2572,7 @@ export default function VisionBoardPage() {
       if (!res.ok) throw new Error("Failed to fetch conversion performance");
       return res.json();
     },
-    enabled: !!user?.company_id,
+    enabled: !!user?.company_id && conversionSectionVisible,
   });
 
   // Group views by section in the specified order
@@ -3280,6 +3301,7 @@ export default function VisionBoardPage() {
             )}
 
             {/* Conversion Performance Table */}
+            <div ref={conversionSectionRef} />
             {(conversionPerformance || conversionPerformanceLoading || conversionPerformanceError) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
