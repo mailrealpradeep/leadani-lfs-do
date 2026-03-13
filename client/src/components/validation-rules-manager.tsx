@@ -279,8 +279,8 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
   };
 
   // Columns not already selected in the other list
-  const availableForRequired = columns.filter(c => !optionalFields.includes(c.column_key));
-  const availableForOptional = columns.filter(c => !requiredFields.includes(c.column_key));
+  const availableForRequired = columns.filter(c => !optionalFields.includes(c.column_key) && !requiredFields.includes(c.column_key));
+  const availableForOptional = columns.filter(c => !requiredFields.includes(c.column_key) && !optionalFields.includes(c.column_key));
 
   return (
     <div className="space-y-4">
