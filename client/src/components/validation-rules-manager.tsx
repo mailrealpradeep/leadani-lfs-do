@@ -430,7 +430,14 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
             <div className="space-y-2">
               <Label>Required Fields (when conditions are met)</Label>
               <div className="flex gap-2">
-                <Select value={newRequiredField} onValueChange={setNewRequiredField}>
+                <Select value={newRequiredField} onValueChange={(val) => {
+                  if (val && !requiredFields.includes(val) && !optionalFields.includes(val)) {
+                    setRequiredFields(prev => [...prev, val]);
+                    setNewRequiredField("");
+                  } else {
+                    setNewRequiredField(val);
+                  }
+                }}>
                   <SelectTrigger data-testid="select-required-field">
                     <SelectValue placeholder="Select field" />
                   </SelectTrigger>
@@ -476,7 +483,14 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
                 </p>
               </div>
               <div className="flex gap-2">
-                <Select value={newOptionalField} onValueChange={setNewOptionalField}>
+                <Select value={newOptionalField} onValueChange={(val) => {
+                  if (val && !optionalFields.includes(val) && !requiredFields.includes(val)) {
+                    setOptionalFields(prev => [...prev, val]);
+                    setNewOptionalField("");
+                  } else {
+                    setNewOptionalField(val);
+                  }
+                }}>
                   <SelectTrigger data-testid="select-optional-field">
                     <SelectValue placeholder="Select field" />
                   </SelectTrigger>
