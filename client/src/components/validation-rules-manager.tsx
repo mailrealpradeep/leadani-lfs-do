@@ -89,11 +89,16 @@ export function ValidationRulesManager({ sheetId, isGlobal = false }: Validation
         ...optionalFields.map(k => ({ column_key: k, is_required: false })),
       ];
 
+      const derivedLogicalOperator =
+        conditions.length > 1 && conditions[0]?.next_operator
+          ? conditions[0].next_operator
+          : logicalOperator;
+
       return await apiRequest("POST", endpoint, {
         name: ruleName,
         conditions: validationConditions,
-        logical_operator: logicalOperator,
-        required_fields: requiredFields, // legacy: keep for backward compat
+        logical_operator: derivedLogicalOperator,
+        required_fields: requiredFields,
         required_columns,
       });
     },
