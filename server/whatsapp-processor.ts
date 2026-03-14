@@ -610,7 +610,7 @@ async function createNewLead(
     processed_at: new Date()
   });
   
-  triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, lead.id).catch(() => {});
+  triggerSailaAI(companyId, log.sender_phone || normalizedPhone, senderName, log.display_phone_number || "", messageText, lead.id).catch(() => {});
 
   return {
     success: true,
