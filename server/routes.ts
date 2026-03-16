@@ -16,7 +16,7 @@ import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConver
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
-import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache } from "./counts-cache";
+import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache } from "./counts-cache";
 
 function invalidateCountsCacheForCompany(companyId: string): void {
   if (!companyId) return;
@@ -915,6 +915,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_id ON leads(sheet_id)`);
       await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_active ON leads(sheet_id) WHERE deleted_at IS NULL`);
       await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_owner ON leads(owner_user_id)`);
+      // PowerScore transaction indexes for leaderboard + stats queries
+      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_pst_company_created ON powerscore_transactions(company_id, created_at)`);
+      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_pst_user_created ON powerscore_transactions(user_id, created_at)`);
+      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_pst_voided_by ON powerscore_transactions(voided_by_transaction_id) WHERE voided_by_transaction_id IS NOT NULL`);
       await idxPool.end();
       console.log("[Perf] Lead indexes verified/created");
     } catch (error) {
@@ -22001,8 +22005,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
 
-      const leaderboard = await storage.getPowerScoreLeaderboard(req.companyId, startDate, endDate);
-      res.json({ leaderboard, period });
+      const cacheKey = `${req.companyId}:${period}`;
+      const result = await powerScoreLeaderboardCache.getOrComputeSwr(cacheKey, async () => {
+        const leaderboard = await storage.getPowerScoreLeaderboard(req.companyId, startDate, endDate);
+        return { leaderboard, period };
+      });
+      res.json(result);
     } catch (error: any) {
       console.error("Error fetching PowerScore leaderboard:", error);
       res.status(500).json({ error: error.message });
@@ -22013,10 +22021,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   app.get("/api/powerscore/my-stats", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const userId = req.userId!;
-      const company = req.companyId ? await storage.getCompany(req.companyId) : null;
-      const timezone = company?.settings?.timezone || 'Asia/Kolkata';
-      
-      const stats = await storage.getUserPowerScorePersonalStats(userId, timezone);
+      const stats = await powerScoreMyStatsCache.getOrComputeSwr(userId, async () => {
+        const company = req.companyId ? await storage.getCompany(req.companyId) : null;
+        const timezone = company?.settings?.timezone || 'Asia/Kolkata';
+        return storage.getUserPowerScorePersonalStats(userId, timezone);
+      });
       res.json(stats);
     } catch (error: any) {
       console.error("Error fetching PowerScore personal stats:", error);

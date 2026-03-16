@@ -138,3 +138,5 @@ export const visionPipelineCache = new CountsCache<any>(60);
 export const visionProgressCache = new CountsCache<any>(60);
 export const visionTeamCache = new CountsCache<any>(60);
 export const visionConversionCache = new CountsCache<any>(60);
+export const powerScoreLeaderboardCache = new CountsCache<any>(60);
+export const powerScoreMyStatsCache = new CountsCache<any>(30);
