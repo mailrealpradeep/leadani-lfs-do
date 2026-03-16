@@ -142,3 +142,6 @@ export const powerScoreLeaderboardCache = new CountsCache<any>(60);
 export const powerScoreMyStatsCache = new CountsCache<any>(30);
 export const customViewLeadsCache = new CountsCache<any>(45);
 export const sheetsCache = new CountsCache<any>(60);
+export const workingTargetsLeaderboardCache = new CountsCache<any>(120);
+export const attendanceTeamExitCache = new CountsCache<any>(60);
+export const attendanceMyExitCache = new CountsCache<any>(30);

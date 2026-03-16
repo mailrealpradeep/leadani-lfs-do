@@ -16,7 +16,7 @@ import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConver
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
-import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache, customViewLeadsCache, sheetsCache } from "./counts-cache";
+import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache, customViewLeadsCache, sheetsCache, workingTargetsLeaderboardCache, attendanceTeamExitCache, attendanceMyExitCache } from "./counts-cache";
 
 function invalidateCountsCacheForCompany(companyId: string): void {
   if (!companyId) return;
@@ -27,6 +27,9 @@ function invalidateCountsCacheForCompany(companyId: string): void {
   visionConversionCache.invalidateByPrefix(companyId);
   customViewsCountCache.invalidateByPrefix(companyId);
   customViewLeadsCache.invalidateAll();
+  workingTargetsLeaderboardCache.invalidateByPrefix(companyId);
+  attendanceTeamExitCache.invalidateByPrefix(companyId);
+  attendanceMyExitCache.invalidateAll();
 }
 
 function invalidateVisionCachesForCompany(companyId: string): void {
@@ -16731,120 +16734,55 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // Get current user's exit target progress (for attendance screen)
   app.get("/api/attendance/my-exit-progress", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      // First check new multi-condition system
-      const exitConditions = await storage.getActiveExitConditionsForUser(req.userId!, req.companyId!);
-      
-      if (exitConditions.length > 0) {
-        // Use new multi-condition system - return ALL conditions with their progress
-        const { evaluateWorkingTarget } = await import("./working-target-evaluator");
-        
-        const conditionsProgress: Array<{
-          conditionId: string;
-          targetId: string;
-          targetName: string;
-          targetDescription: string | null;
-          current: number;
-          target: number;
-          percentage: number;
-          minPercentage: number;
-          isAchieved: boolean;
-          details?: Record<string, any>;
-        }> = [];
-        
-        let allMet = true;
-        
-        for (const condition of exitConditions) {
-          const target = await storage.getWorkingTarget(condition.working_target_id);
-          if (!target || !target.is_active) continue;
-          
-          try {
-            const result = await evaluateWorkingTarget(target, req.userId!);
-            const percentage = Math.round(result.compliancePercentage ?? 0);
-            const meetsThreshold = percentage >= condition.min_percentage;
-            
-            if (!meetsThreshold) {
-              allMet = false;
-            }
-            
-            conditionsProgress.push({
-              conditionId: condition.id,
-              targetId: target.id,
-              targetName: target.name,
-              targetDescription: target.description,
-              current: result.currentValue ?? 0,
-              target: result.targetValue ?? 0,
-              percentage,
-              minPercentage: condition.min_percentage,
-              isAchieved: meetsThreshold,
-              details: result.details,
-            });
-          } catch (err) {
-            console.error("Error evaluating condition", condition.id, err);
+      const cacheKey = req.userId!;
+      const data = await attendanceMyExitCache.getOrComputeSwr(cacheKey, async () => {
+        const userId = req.userId!;
+        const companyId = req.companyId!;
+
+        // First check new multi-condition system
+        const exitConditions = await storage.getActiveExitConditionsForUser(userId, companyId);
+
+        if (exitConditions.length > 0) {
+          const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+          const conditionsProgress: Array<{
+            conditionId: string; targetId: string; targetName: string; targetDescription: string | null;
+            current: number; target: number; percentage: number; minPercentage: number; isAchieved: boolean; details?: Record<string, any>;
+          }> = [];
+          let allMet = true;
+          for (const condition of exitConditions) {
+            const target = await storage.getWorkingTarget(condition.working_target_id);
+            if (!target || !target.is_active) continue;
+            try {
+              const result = await evaluateWorkingTarget(target, userId);
+              const percentage = Math.round(result.compliancePercentage ?? 0);
+              const meetsThreshold = percentage >= condition.min_percentage;
+              if (!meetsThreshold) allMet = false;
+              conditionsProgress.push({ conditionId: condition.id, targetId: target.id, targetName: target.name, targetDescription: target.description, current: result.currentValue ?? 0, target: result.targetValue ?? 0, percentage, minPercentage: condition.min_percentage, isAchieved: meetsThreshold, details: result.details });
+            } catch (err) { console.error("Error evaluating condition", condition.id, err); }
           }
+          return { hasTarget: true, isMultiCondition: true, allConditionsMet: allMet, conditions: conditionsProgress };
         }
-        
-        // Return all conditions with their progress
-        return res.json({
-          hasTarget: true,
-          isMultiCondition: true,
-          allConditionsMet: allMet,
-          conditions: conditionsProgress,
-        });
-      }
-      
-      // Fall back to legacy system (single target)
-      const company = await storage.getCompany(req.companyId!);
-      if (!company?.attendance_exit_target_id) {
-        return res.json({ hasTarget: false });
-      }
-      
-      const target = await storage.getWorkingTarget(company.attendance_exit_target_id);
-      if (!target || !target.is_active) {
-        return res.json({ hasTarget: false });
-      }
-      
-      const { evaluateWorkingTarget } = await import("./working-target-evaluator");
-      const result = await evaluateWorkingTarget(target, req.userId!);
-      
-      // Guard against null/undefined values from evaluator
-      if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {
-        console.error("Invalid evaluator result for target", target.id, result);
-        return res.json({
-          hasTarget: true,
-          isMultiCondition: false,
-          conditions: [{
-            conditionId: 'legacy',
-            targetId: target.id,
-            targetName: target.name,
-            targetDescription: target.description,
-            current: 0,
-            target: 0,
-            percentage: 0,
-            minPercentage: 100,
-            isAchieved: false,
-          }],
-          allConditionsMet: false,
-        });
-      }
-      
-      const percentage = Math.round(result.compliancePercentage ?? 0);
-      res.json({
-        hasTarget: true,
-        isMultiCondition: false,
-        allConditionsMet: result.isAchieved ?? false,
-        conditions: [{
-          conditionId: 'legacy',
-          targetId: target.id,
-          targetName: target.name,
-          targetDescription: target.description,
-          current: result.currentValue ?? 0,
-          target: result.targetValue ?? 0,
-          percentage,
-          minPercentage: 100,
-          isAchieved: result.isAchieved ?? false,
-          details: result.details,
-        }],
+
+        // Fall back to legacy system (single target)
+        const company = await storage.getCompany(companyId);
+        if (!company?.attendance_exit_target_id) return { hasTarget: false };
+
+        const target = await storage.getWorkingTarget(company.attendance_exit_target_id);
+        if (!target || !target.is_active) return { hasTarget: false };
+
+        const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+        const result = await evaluateWorkingTarget(target, userId);
+
+        if (!result || typeof result.currentValue !== 'number' || typeof result.targetValue !== 'number') {
+          console.error("Invalid evaluator result for target", target.id, result);
+          return { hasTarget: true, isMultiCondition: false, conditions: [{ conditionId: 'legacy', targetId: target.id, targetName: target.name, targetDescription: target.description, current: 0, target: 0, percentage: 0, minPercentage: 100, isAchieved: false }], allConditionsMet: false };
+        }
+
+        const percentage = Math.round(result.compliancePercentage ?? 0);
+        return { hasTarget: true, isMultiCondition: false, allConditionsMet: result.isAchieved ?? false, conditions: [{ conditionId: 'legacy', targetId: target.id, targetName: target.name, targetDescription: target.description, current: result.currentValue ?? 0, target: result.targetValue ?? 0, percentage, minPercentage: 100, isAchieved: result.isAchieved ?? false, details: result.details }] };
       });
+
+      res.json(data);
     } catch (error: any) {
       console.error("Get exit progress error:", error);
       res.status(500).json({ error: error.message });
@@ -16857,152 +16795,80 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!req.companyId) {
         return res.status(403).json({ error: "Company context required" });
       }
-      
-      // Get all active users in company (exclude admins)
-      const users = await storage.getUsersByCompanyId(req.companyId);
-      const activeUsers = users.filter(u => u.is_active && u.role !== 'company_admin');
-      
-      if (activeUsers.length === 0) {
-        return res.json({
-          teamSize: 0,
-          usersWithProgress: 0,
-          averageProgress: 0,
-          completionRate: 0,
-          userProgress: [],
-        });
-      }
-      
-      const { evaluateWorkingTarget } = await import("./working-target-evaluator");
-      
-      // Collect exit progress for each user
-      const allUserProgress: {
-        userId: string;
-        userName: string;
-        conditions: Array<{
-          targetId: string;
-          targetName: string;
-          current: number;
-          target: number;
-          percentage: number;
-          minPercentage: number;
-          isAchieved: boolean;
-        }>;
-        averageProgress: number;
-        allConditionsMet: boolean;
-      }[] = [];
-      
-      for (const user of activeUsers) {
-        // Get exit conditions for this user
-        const exitConditions = await storage.getActiveExitConditionsForUser(user.id, req.companyId!);
-        
-        if (exitConditions.length === 0) {
-          // Check legacy system
-          const company = await storage.getCompany(req.companyId!);
-          if (!company?.attendance_exit_target_id) continue;
-          
-          const target = await storage.getWorkingTarget(company.attendance_exit_target_id);
-          if (!target || !target.is_active) continue;
-          
-          try {
-            const result = await evaluateWorkingTarget(target, user.id);
-            const percentage = Math.round(result.compliancePercentage ?? 0);
-            const currentValue = result.currentValue ?? 0;
-            const targetValue = result.targetValue ?? 0;
-            
-            allUserProgress.push({
-              userId: user.id,
-              userName: user.name || user.email,
-              conditions: [{
-                targetId: target.id,
-                targetName: target.name,
-                current: currentValue,
-                target: targetValue,
-                percentage,
-                minPercentage: 100, // Legacy system uses 100% threshold
-                isAchieved: result.isAchieved ?? false,
-              }],
-              averageProgress: percentage,
-              allConditionsMet: result.isAchieved ?? false,
-            });
-          } catch (e) {
-            console.error(`Error evaluating exit progress for user ${user.id}:`, e);
-          }
-          continue;
+
+      const cacheKey = req.companyId;
+      const result = await attendanceTeamExitCache.getOrComputeSwr(cacheKey, async () => {
+        const companyId = req.companyId!;
+        // Get all active users in company (exclude admins)
+        const users = await storage.getUsersByCompanyId(companyId);
+        const activeUsers = users.filter(u => u.is_active && u.role !== 'company_admin');
+
+        if (activeUsers.length === 0) {
+          return { teamSize: 0, usersWithProgress: 0, averageProgress: 0, completionRate: 0, completedUsers: 0, userProgress: [] };
         }
-        
-        // Process multi-condition system
-        const conditionsProgress: Array<{
-          targetId: string;
-          targetName: string;
-          current: number;
-          target: number;
-          percentage: number;
-          minPercentage: number;
-          isAchieved: boolean;
-        }> = [];
-        
-        let allMet = true;
-        
-        for (const condition of exitConditions) {
-          const target = await storage.getWorkingTarget(condition.working_target_id);
-          if (!target || !target.is_active) continue;
-          
-          try {
-            const result = await evaluateWorkingTarget(target, user.id);
-            const percentage = Math.round(result.compliancePercentage ?? 0);
-            const meetsThreshold = percentage >= condition.min_percentage;
-            const currentValue = result.currentValue ?? 0;
-            const targetValue = result.targetValue ?? 0;
-            
-            if (!meetsThreshold) {
-              allMet = false;
-            }
-            
-            conditionsProgress.push({
-              targetId: target.id,
-              targetName: target.name,
-              current: currentValue,
-              target: targetValue,
-              percentage,
-              minPercentage: condition.min_percentage,
-              isAchieved: meetsThreshold,
-            });
-          } catch (e) {
-            console.error(`Error evaluating condition ${condition.id} for user ${user.id}:`, e);
+
+        const { evaluateWorkingTarget } = await import("./working-target-evaluator");
+
+        const allUserProgress: {
+          userId: string;
+          userName: string;
+          conditions: Array<{ targetId: string; targetName: string; current: number; target: number; percentage: number; minPercentage: number; isAchieved: boolean }>;
+          averageProgress: number;
+          allConditionsMet: boolean;
+        }[] = [];
+
+        for (const user of activeUsers) {
+          const exitConditions = await storage.getActiveExitConditionsForUser(user.id, companyId);
+
+          if (exitConditions.length === 0) {
+            const company = await storage.getCompany(companyId);
+            if (!company?.attendance_exit_target_id) continue;
+            const target = await storage.getWorkingTarget(company.attendance_exit_target_id);
+            if (!target || !target.is_active) continue;
+            try {
+              const evalResult = await evaluateWorkingTarget(target, user.id);
+              const percentage = Math.round(evalResult.compliancePercentage ?? 0);
+              allUserProgress.push({
+                userId: user.id,
+                userName: user.name || user.email,
+                conditions: [{ targetId: target.id, targetName: target.name, current: evalResult.currentValue ?? 0, target: evalResult.targetValue ?? 0, percentage, minPercentage: 100, isAchieved: evalResult.isAchieved ?? false }],
+                averageProgress: percentage,
+                allConditionsMet: evalResult.isAchieved ?? false,
+              });
+            } catch (e) { console.error(`Error evaluating exit progress for user ${user.id}:`, e); }
+            continue;
+          }
+
+          const conditionsProgress: Array<{ targetId: string; targetName: string; current: number; target: number; percentage: number; minPercentage: number; isAchieved: boolean }> = [];
+          let allMet = true;
+
+          for (const condition of exitConditions) {
+            const target = await storage.getWorkingTarget(condition.working_target_id);
+            if (!target || !target.is_active) continue;
+            try {
+              const evalResult = await evaluateWorkingTarget(target, user.id);
+              const percentage = Math.round(evalResult.compliancePercentage ?? 0);
+              const meetsThreshold = percentage >= condition.min_percentage;
+              if (!meetsThreshold) allMet = false;
+              conditionsProgress.push({ targetId: target.id, targetName: target.name, current: evalResult.currentValue ?? 0, target: evalResult.targetValue ?? 0, percentage, minPercentage: condition.min_percentage, isAchieved: meetsThreshold });
+            } catch (e) { console.error(`Error evaluating condition ${condition.id} for user ${user.id}:`, e); }
+          }
+
+          if (conditionsProgress.length > 0) {
+            const avgProgress = Math.round(conditionsProgress.reduce((sum, c) => sum + c.percentage, 0) / conditionsProgress.length);
+            allUserProgress.push({ userId: user.id, userName: user.name || user.email, conditions: conditionsProgress, averageProgress: avgProgress, allConditionsMet: allMet });
           }
         }
-        
-        if (conditionsProgress.length > 0) {
-          const avgProgress = Math.round(conditionsProgress.reduce((sum, c) => sum + c.percentage, 0) / conditionsProgress.length);
-          allUserProgress.push({
-            userId: user.id,
-            userName: user.name || user.email,
-            conditions: conditionsProgress,
-            averageProgress: avgProgress,
-            allConditionsMet: allMet,
-          });
-        }
-      }
-      
-      // Calculate team aggregates
-      const usersWithProgress = allUserProgress.length;
-      const teamAverageProgress = usersWithProgress > 0
-        ? Math.round(allUserProgress.reduce((sum, u) => sum + u.averageProgress, 0) / usersWithProgress)
-        : 0;
-      
-      const completedUsers = allUserProgress.filter(u => u.allConditionsMet).length;
-      const completionRate = usersWithProgress > 0
-        ? Math.round((completedUsers / usersWithProgress) * 100)
-        : 0;
-      
-      res.json({
-        teamSize: activeUsers.length,
-        usersWithProgress,
-        completedUsers,
-        averageProgress: teamAverageProgress,
-        completionRate,
-        userProgress: allUserProgress,
+
+        const usersWithProgress = allUserProgress.length;
+        const teamAverageProgress = usersWithProgress > 0 ? Math.round(allUserProgress.reduce((sum, u) => sum + u.averageProgress, 0) / usersWithProgress) : 0;
+        const completedUsers = allUserProgress.filter(u => u.allConditionsMet).length;
+        const completionRate = usersWithProgress > 0 ? Math.round((completedUsers / usersWithProgress) * 100) : 0;
+
+        return { teamSize: activeUsers.length, usersWithProgress, completedUsers, averageProgress: teamAverageProgress, completionRate, userProgress: allUserProgress };
       });
+
+      res.json(result);
     } catch (error: any) {
       console.error("Get team exit progress error:", error);
       res.status(500).json({ error: error.message });
@@ -21184,11 +21050,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
       
       const preset = (req.query.preset as string) || 'today';
-      const customStart = req.query.start_date as string | undefined;
-      const customEnd = req.query.end_date as string | undefined;
+      const customStart = (req.query.start_date as string) || '';
+      const customEnd = (req.query.end_date as string) || '';
+      const cacheKey = `${req.companyId}:${preset}:${customStart}:${customEnd}`;
       
-      const { generateLeaderboard } = await import("./working-target-evaluator");
-      const leaderboard = await generateLeaderboard(req.companyId, preset, customStart, customEnd);
+      const leaderboard = await workingTargetsLeaderboardCache.getOrComputeSwr(cacheKey, async () => {
+        const { generateLeaderboard } = await import("./working-target-evaluator");
+        return generateLeaderboard(req.companyId!, preset, customStart || undefined, customEnd || undefined);
+      });
       
       res.json(leaderboard);
     } catch (error: any) {
@@ -24095,20 +23964,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const { dateFilter, startDate, endDate } = req.query;
-      
-      const convCacheKey = `${req.companyId}:${req.userId}:conv:${dateFilter || 'last_30_days'}:${startDate || ''}:${endDate || ''}`;
-      const cachedConv = visionConversionCache.get(convCacheKey);
-      if (cachedConv) {
-        return res.json(cachedConv);
-      }
-      
+
       // Get company for timezone
       const company = await storage.getCompany(req.companyId);
       if (!company) {
         return res.status(404).json({ error: "Company not found" });
       }
       const timezone = getCompanyTimezone(company);
-      
+
       // Get conversion settings
       const settings = await storage.getConversionSettingsComplete(req.companyId);
       if (!settings || !settings.config || settings.stages.length === 0) {
@@ -24116,6 +23979,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json({ company: null, sheets: [], stages_config: emptyStagesConfig });
       }
 
+      const convCacheKey = `${req.companyId}:${req.userId}:conv:${dateFilter || 'last_30_days'}:${String(startDate || '')}:${String(endDate || '')}`;
+      const convResult = await visionConversionCache.getOrComputeSwr(convCacheKey, async () => {
       // Define sortedStages at top level - accessible throughout the endpoint
       const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
 
@@ -24406,7 +24271,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Get stage colors from settings - validate sortedStages is not empty
       if (!sortedStages || sortedStages.length === 0) {
-        return res.json({ company: null, sheets: [], stages_config: [] });
+        return { company: null, sheets: [], stages_config: [] };
       }
       
       const stagesConfig = sortedStages.map(s => ({
@@ -24416,12 +24281,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         color: s.color,
       }));
 
-      const convResult = {
+      return {
         company: companyData,
         sheets: sheetData,
         stages_config: stagesConfig,
       };
-      visionConversionCache.set(convCacheKey, convResult);
+      }); // end getOrComputeSwr
       res.json(convResult);
     } catch (error: any) {
       console.error("Error fetching conversion performance:", error);
