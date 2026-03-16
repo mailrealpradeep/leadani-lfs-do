@@ -140,3 +140,5 @@ export const visionTeamCache = new CountsCache<any>(60);
 export const visionConversionCache = new CountsCache<any>(60);
 export const powerScoreLeaderboardCache = new CountsCache<any>(60);
 export const powerScoreMyStatsCache = new CountsCache<any>(30);
+export const customViewLeadsCache = new CountsCache<any>(45);
+export const sheetsCache = new CountsCache<any>(60);

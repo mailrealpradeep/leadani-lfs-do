@@ -8,7 +8,7 @@ neonConfig.webSocketConstructor = ws;
 
 const connectionString = process.env.DATABASE_URL!;
 
-const pool = new Pool({ connectionString, max: 20 });
+const pool = new Pool({ connectionString, max: 30 });
 export const db = drizzle(pool, { schema });
 
 // Export pool for raw SQL queries

@@ -16,7 +16,7 @@ import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConver
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
-import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache } from "./counts-cache";
+import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache, customViewLeadsCache, sheetsCache } from "./counts-cache";
 
 function invalidateCountsCacheForCompany(companyId: string): void {
   if (!companyId) return;
@@ -26,6 +26,7 @@ function invalidateCountsCacheForCompany(companyId: string): void {
   visionTeamCache.invalidateByPrefix(companyId);
   visionConversionCache.invalidateByPrefix(companyId);
   customViewsCountCache.invalidateByPrefix(companyId);
+  customViewLeadsCache.invalidateAll();
 }
 
 function invalidateVisionCachesForCompany(companyId: string): void {
@@ -227,10 +228,11 @@ async function getUserPipelineMetrics(
     
     const sheetIds = nonPersonalSheets.map(s => s.id);
 
-    // Get ALL leads from user's sheets in parallel (no date filter for projected)
-    const sheetLeadArrays = await Promise.all(
-      sheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
-    );
+    // Get ALL leads from user's sheets sequentially (avoid connection pool exhaustion)
+    const sheetLeadArrays: any[][] = [];
+    for (const sheetId of sheetIds) {
+      sheetLeadArrays.push(await storage.getLeadsBySheetId(sheetId));
+    }
     const allLeads: any[] = sheetLeadArrays.flat().filter(l => !l.deleted_at);
 
     // Stage-specific date filtering helper
@@ -14338,51 +14340,56 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // GET /api/custom-views/:id/leads - Get leads matching custom view conditions
   app.get("/api/custom-views/:id/leads", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const view = await storage.getCustomViewById(req.params.id);
-      if (!view) {
+      const viewId = req.params.id;
+      const cacheKey = `${viewId}:${req.userId}:${req.userRole}`;
+
+      const result = await customViewLeadsCache.getOrComputeSwr(cacheKey, async () => {
+        const view = await storage.getCustomViewById(viewId);
+        if (!view) return null;
+
+        // Get user's accessible sheets
+        let sheets: Sheet[];
+        if (req.userRole === "super_admin") {
+          sheets = await storage.getAllSheets();
+        } else if (req.userRole === "company_admin") {
+          sheets = await storage.getSheetsByCompanyId(req.companyId!);
+        } else {
+          sheets = await storage.getSheetsByUserId(req.userId!);
+        }
+
+        // Filter sheets by view's sheet_ids if specified (null = all sheets)
+        if (view.sheet_ids && view.sheet_ids.length > 0) {
+          sheets = sheets.filter(sheet => view.sheet_ids!.includes(sheet.id));
+        }
+
+        if (sheets.length === 0 || !view.conditions || view.conditions.length === 0) {
+          return { leads: [], sheets: [], count: 0, view };
+        }
+
+        const allMatchingLeads: (Lead & { sheet_name: string })[] = [];
+        const sheetsWithLeads: Sheet[] = [];
+
+        for (const sheet of sheets) {
+          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.conditions));
+          if (matchingLeads.length > 0) {
+            const leadsWithSheetName = matchingLeads.map(lead => ({
+              ...lead,
+              sheet_name: sheet.name
+            }));
+            allMatchingLeads.push(...leadsWithSheetName);
+            sheetsWithLeads.push(sheet);
+          }
+        }
+
+        return { leads: allMatchingLeads, sheets: sheetsWithLeads, count: allMatchingLeads.length, view };
+      });
+
+      if (!result) {
         return res.status(404).json({ error: "Custom view not found" });
       }
-      if (view.company_id !== req.companyId && req.userRole !== "super_admin") {
-        return res.status(403).json({ error: "Access denied" });
-      }
 
-      // Get user's accessible sheets
-      let sheets: Sheet[];
-      if (req.userRole === "super_admin") {
-        sheets = await storage.getAllSheets();
-      } else if (req.userRole === "company_admin") {
-        sheets = await storage.getSheetsByCompanyId(req.companyId!);
-      } else {
-        sheets = await storage.getSheetsByUserId(req.userId!);
-      }
-
-      // Filter sheets by view's sheet_ids if specified (null = all sheets)
-      if (view.sheet_ids && view.sheet_ids.length > 0) {
-        sheets = sheets.filter(sheet => view.sheet_ids!.includes(sheet.id));
-      }
-
-      if (sheets.length === 0 || !view.conditions || view.conditions.length === 0) {
-        return res.json({ leads: [], sheets: [], count: 0, view });
-      }
-
-      const allMatchingLeads: (Lead & { sheet_name: string })[] = [];
-      const sheetsWithLeads: Sheet[] = [];
-
-      for (const sheet of sheets) {
-        const leads = await storage.getLeadsBySheetId(sheet.id);
-        const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.conditions));
-        if (matchingLeads.length > 0) {
-          // Add sheet_name to each lead for display in the grid
-          const leadsWithSheetName = matchingLeads.map(lead => ({
-            ...lead,
-            sheet_name: sheet.name
-          }));
-          allMatchingLeads.push(...leadsWithSheetName);
-          sheetsWithLeads.push(sheet);
-        }
-      }
-
-      res.json({ leads: allMatchingLeads, sheets: sheetsWithLeads, count: allMatchingLeads.length, view });
+      res.json(result);
     } catch (error: any) {
       console.error("Get custom view leads error:", error);
       res.status(500).json({ error: error.message });
@@ -23844,10 +23851,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json([]);
       }
       
-      // Fetch leads owned by user with "Converted" status (parallel)
-      const sheetLeadArrays = await Promise.all(
-        accessibleSheetIds.map(sheetId => storage.getLeadsBySheetId(sheetId))
-      );
+      // Fetch leads owned by user with "Converted" status (sequential to avoid connection exhaustion)
+      const sheetLeadArrays: any[][] = [];
+      for (const sheetId of accessibleSheetIds) {
+        sheetLeadArrays.push(await storage.getLeadsBySheetId(sheetId));
+      }
       const allLeads: any[] = sheetLeadArrays.flat().filter((lead: any) => {
         const isOwner = lead.owner_user_id === req.userId;
         const canonicalStatus = (lead.status || '').toLowerCase();
