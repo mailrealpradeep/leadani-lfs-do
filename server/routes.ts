@@ -14109,7 +14109,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   app.get("/api/hot-leads/count", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}`;
-      const result = await hotLeadsCountCache.getOrCompute(cacheKey, async () => {
+      const result = await hotLeadsCountCache.getOrComputeSwr(cacheKey, async () => {
         const config = await storage.getHotLeadConfig(req.companyId!);
         
         if (!config || !config.is_active || !config.conditions || config.conditions.length === 0) {
@@ -14389,7 +14389,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   app.get("/api/custom-views-counts", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}`;
-      const result = await customViewsCountCache.getOrCompute(cacheKey, async () => {
+      const result = await customViewsCountCache.getOrComputeSwr(cacheKey, async () => {
         const views = await storage.getCustomViews(req.companyId!);
         const enabledViews = views.filter(v => v.is_enabled && v.show_badge);
 
@@ -23549,7 +23549,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       if (isTeamView && req.companyId) {
         const teamCacheKey = `${req.companyId}:team`;
-        const result = await visionTeamCache.getOrCompute(teamCacheKey, async () => {
+        const result = await visionTeamCache.getOrComputeSwr(teamCacheKey, async () => {
           const teamData = await getTeamVisionBoardAggregates(req.companyId!);
           if (!teamData) {
             return { mode: 'team', board_count: 0, aggregate: null };
@@ -24036,7 +24036,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const cacheKey = `${req.companyId}:${req.userId}`;
-      const result = await visionPipelineCache.getOrCompute(cacheKey, async () => {
+      const result = await visionPipelineCache.getOrComputeSwr(cacheKey, async () => {
         const metrics = await getUserPipelineMetrics(req.companyId, req.userId);
         
         if (!metrics) {
