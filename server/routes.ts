@@ -5186,22 +5186,22 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const sheets = await storage.getSheetsByCompanyId(req.companyId);
       const activeSheets = sheets.filter(s => !s.deleted_at);
       
-      // Build a map of sheet assignments per user
+      // Build explicit sheet assignments per user (only sheet_users table entries)
+      // This ensures Remove/Role buttons always work since only explicit assignments are shown
       const assignments = await Promise.all(
         users.map(async (user) => {
-          const userSheets = await storage.getSheetsByUserId(user.id);
+          const sheetAssignments: { sheet_id: string; sheet_name: string; role: string }[] = [];
           
-          // Get role for each sheet
-          const sheetAssignments = await Promise.all(
-            userSheets.map(async (sheet) => {
-              const sheetUser = await storage.getSheetUser(sheet.id, user.id);
-              return {
+          for (const sheet of activeSheets) {
+            const sheetUser = await storage.getSheetUser(sheet.id, user.id);
+            if (sheetUser) {
+              sheetAssignments.push({
                 sheet_id: sheet.id,
                 sheet_name: sheet.name,
-                role: sheetUser?.role || "viewer"
-              };
-            })
-          );
+                role: sheetUser.role
+              });
+            }
+          }
           
           return {
             user_id: user.id,

@@ -1666,6 +1666,16 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
   const users = assignmentsData?.users || [];
   const availableSheets = assignmentsData?.available_sheets || [];
 
+  // Keep selectedUser in sync when data refreshes after an add/remove
+  useEffect(() => {
+    if (selectedUser && users.length > 0) {
+      const updated = users.find(u => u.user_id === selectedUser.user_id);
+      if (updated) {
+        setSelectedUser(updated);
+      }
+    }
+  }, [users]);
+
   const addAssignmentMutation = useMutation({
     mutationFn: async ({ userId, sheetId, sheetName, role }: { userId: string; sheetId: string; sheetName: string; role: string }) => {
       return await apiRequest("POST", `/api/admin/assignments/${userId}`, { 
@@ -1922,7 +1932,7 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
 
             <ScrollArea className="flex-1 h-[300px]">
               <div className="space-y-2 pr-4">
-                {selectedUser && getUnassignedSheets(selectedUser).length === 0 && recentlyAddedSheets.size === 0 ? (
+                {selectedUser && getUnassignedSheets(selectedUser).filter(s => !recentlyAddedSheets.has(s.id)).length === 0 && recentlyAddedSheets.size === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     All sheets are already assigned to this user
                   </p>
@@ -1943,7 +1953,7 @@ function SheetAssignmentManager({ headless = false }: SheetAssignmentManagerProp
                         </div>
                       </div>
                     ))}
-                    {selectedUser && getUnassignedSheets(selectedUser).map((sheet) => (
+                    {selectedUser && getUnassignedSheets(selectedUser).filter(s => !recentlyAddedSheets.has(s.id)).map((sheet) => (
                       <div
                         key={sheet.id}
                         className="flex items-center justify-between gap-2 p-3 border rounded-lg hover-elevate"
