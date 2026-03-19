@@ -336,8 +336,8 @@ function RadarCard({
                 {addedByInitials}
               </AvatarFallback>
             </Avatar>
-            <span className="text-xs text-foreground/60 font-medium truncate">
-              {lead.added_by_name}
+            <span className="text-xs text-muted-foreground truncate">
+              Added by <span className="font-medium text-foreground/70">{lead.added_by_name}</span>
             </span>
           </div>
           <span className="text-xs text-muted-foreground shrink-0">
