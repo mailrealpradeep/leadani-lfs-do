@@ -219,7 +219,7 @@ function RadarCard({
               <div
                 className="flex items-start gap-1.5 rounded-md px-2 py-1.5
                   bg-muted/80 border border-border
-                  dark:bg-muted/60 dark:border-border/80"
+                  dark:bg-muted/50 dark:border-border/70"
                 data-testid={`text-radar-nextstep-${lead.id}`}
               >
                 <ArrowRight className="h-3 w-3 text-primary mt-0.5 shrink-0" />
@@ -255,8 +255,8 @@ function RadarCard({
                     data-testid={`text-radar-sitevisitby-${lead.id}`}
                     className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border transition-colors ${
                       siteVisitByValue
-                        ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/30 dark:border-primary/60 dark:text-primary-foreground"
-                        : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/50 dark:border-border/80"
+                        ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/25 dark:border-primary/50 dark:text-primary-foreground"
+                        : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/40 dark:border-border/60"
                     }`}
                   >
                     <User className="h-2.5 w-2.5 shrink-0" />
@@ -274,8 +274,8 @@ function RadarCard({
                       data-testid={`text-radar-sitevisit-${lead.id}`}
                       className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border transition-colors ${
                         isSet
-                          ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/30 dark:border-primary/60 dark:text-primary-foreground"
-                          : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/50 dark:border-border/80"
+                          ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/25 dark:border-primary/50 dark:text-primary-foreground"
+                          : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/40 dark:border-border/60"
                       }`}
                     >
                       <MapPin className="h-2.5 w-2.5 shrink-0" />
@@ -292,8 +292,8 @@ function RadarCard({
                       data-testid={`text-radar-officevisit-${lead.id}`}
                       className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border transition-colors ${
                         isSet
-                          ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/30 dark:border-primary/60 dark:text-primary-foreground"
-                          : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/50 dark:border-border/80"
+                          ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/25 dark:border-primary/50 dark:text-primary-foreground"
+                          : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/40 dark:border-border/60"
                       }`}
                     >
                       <Building2 className="h-2.5 w-2.5 shrink-0" />
@@ -324,7 +324,7 @@ function RadarCard({
               <div
                 className="rounded-md px-2.5 py-2
                   bg-muted/70 border border-border
-                  dark:bg-muted/50 dark:border-border/80"
+                  dark:bg-muted/40 dark:border-border/60"
                 data-testid={`text-radar-details-${lead.id}`}
               >
                 <p className="text-[11px] whitespace-pre-wrap text-foreground leading-relaxed">{lead.project_details}</p>
