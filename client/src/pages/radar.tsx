@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, Trash2, Pencil, Check, X, Phone, MapPin, Calendar, Building2, Zap, ArrowRight, Loader2 } from "lucide-react";
+import { Radar as RadarIcon, Trash2, Pencil, Check, X, Phone, MapPin, Calendar, Building2, Zap, ArrowRight, Loader2 } from "lucide-react";
 import type { RadarLeadWithLead } from "@shared/schema";
 
 function formatDate(val: string | null | undefined): string {
@@ -313,7 +313,7 @@ export default function RadarPage() {
       {/* Header */}
       <div className="border-b bg-background px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          <Eye className="h-5 w-5 text-muted-foreground" />
+          <RadarIcon className="h-5 w-5 text-muted-foreground" />
           <div>
             <h1 className="text-lg font-semibold leading-none">Radar</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Close-monitor leads for quick review</p>
@@ -338,7 +338,7 @@ export default function RadarPage() {
         ) : radarLeads.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 gap-4 text-center">
             <div className="rounded-full bg-muted p-4">
-              <Eye className="h-8 w-8 text-muted-foreground" />
+              <RadarIcon className="h-8 w-8 text-muted-foreground" />
             </div>
             <div>
               <p className="font-medium text-muted-foreground">No leads on Radar yet</p>

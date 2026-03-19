@@ -26017,7 +26017,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     try {
       const user = req.user!;
       let radarLeads;
-      if (user.role === 'admin' || user.role === 'super_admin') {
+      if (user.role === 'company_admin' || user.role === 'super_admin') {
         radarLeads = await storage.getRadarLeadsByCompany(user.company_id!);
       } else {
         const sheetUsers = await storage.getSheetUsersByUserId(user.id);
@@ -26036,7 +26036,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     try {
       const user = req.user!;
       let radarLeads;
-      if (user.role === 'admin' || user.role === 'super_admin') {
+      if (user.role === 'company_admin' || user.role === 'super_admin') {
         radarLeads = await storage.getRadarLeadsByCompany(user.company_id!);
       } else {
         const sheetUsers = await storage.getSheetUsersByUserId(user.id);
@@ -26093,6 +26093,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
       const { id } = req.params;
       const { current_status, next_step, expected_closure_date, site_visit_date, office_visit_date, project_details } = req.body;
+      // Pre-authorization: verify ownership before mutating
+      const existingEntry = await storage.getRadarLead(id);
+      if (!existingEntry) {
+        return res.status(404).json({ error: "Radar lead not found" });
+      }
+      if (existingEntry.company_id !== user.company_id) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
       const updated = await storage.updateRadarLead(id, {
         current_status,
         next_step,
@@ -26101,12 +26109,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         office_visit_date,
         project_details,
       });
-      if (!updated) {
-        return res.status(404).json({ error: "Radar lead not found" });
-      }
-      if (updated.company_id !== user.company_id) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
       res.json(updated);
     } catch (error: any) {
       console.error("Error updating radar lead:", error);
