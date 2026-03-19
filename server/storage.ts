@@ -892,6 +892,7 @@ export interface IStorage {
   updateRadarLead(id: string, updates: Partial<Pick<RadarLead, 'current_status' | 'next_step' | 'expected_closure_date' | 'site_visit_date' | 'office_visit_date' | 'project_details'>>): Promise<RadarLead | undefined>;
   deleteRadarLead(id: string): Promise<boolean>;
   deleteRadarLeadByLeadId(leadId: string): Promise<boolean>;
+  getRadarLead(id: string): Promise<RadarLead | undefined>;
   getRadarLeadByLeadId(leadId: string): Promise<RadarLead | undefined>;
 
   // =========================================================================
@@ -9315,6 +9316,14 @@ export class PgStorage implements IStorage {
       .where(eq(dbSchema.radar_leads.lead_id, leadId))
       .returning();
     return result.length > 0;
+  }
+
+  async getRadarLead(id: string): Promise<RadarLead | undefined> {
+    const result = await db.select()
+      .from(dbSchema.radar_leads)
+      .where(eq(dbSchema.radar_leads.id, id))
+      .limit(1);
+    return result[0];
   }
 
   async getRadarLeadByLeadId(leadId: string): Promise<RadarLead | undefined> {

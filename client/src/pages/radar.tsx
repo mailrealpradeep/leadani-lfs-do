@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -288,9 +288,9 @@ function RadarCard({
 }
 
 export default function RadarPage() {
-  const { user } = useAuth();
+  const { isCompanyAdmin, isSuperAdmin } = useAuth();
   const { toast } = useToast();
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isAdmin = isCompanyAdmin || isSuperAdmin;
 
   const { data: radarLeads = [], isLoading } = useQuery<RadarLeadWithLead[]>({
     queryKey: ["/api/radar"],

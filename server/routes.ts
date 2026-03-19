@@ -26054,12 +26054,22 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   app.post("/api/radar", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (user.role !== 'admin' && user.role !== 'super_admin') {
+      if (user.role !== 'company_admin' && user.role !== 'super_admin') {
         return res.status(403).json({ error: "Only admins can add leads to Radar" });
       }
       const { lead_id, sheet_id } = req.body;
       if (!lead_id || !sheet_id) {
         return res.status(400).json({ error: "lead_id and sheet_id are required" });
+      }
+      // Validate that the sheet belongs to the admin's company
+      const sheet = await storage.getSheet(sheet_id);
+      if (!sheet || sheet.company_id !== user.company_id) {
+        return res.status(403).json({ error: "Sheet not found or does not belong to your company" });
+      }
+      // Validate that the lead belongs to the specified sheet
+      const lead = await storage.getLead(lead_id);
+      if (!lead || lead.sheet_id !== sheet_id) {
+        return res.status(400).json({ error: "Lead not found or does not belong to the specified sheet" });
       }
       // Check duplicate
       const existing = await storage.getRadarLeadByLeadId(lead_id);
@@ -26078,7 +26088,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   app.patch("/api/radar/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (user.role !== 'admin' && user.role !== 'super_admin') {
+      if (user.role !== 'company_admin' && user.role !== 'super_admin') {
         return res.status(403).json({ error: "Only admins can update Radar leads" });
       }
       const { id } = req.params;
@@ -26094,6 +26104,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!updated) {
         return res.status(404).json({ error: "Radar lead not found" });
       }
+      if (updated.company_id !== user.company_id) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
       res.json(updated);
     } catch (error: any) {
       console.error("Error updating radar lead:", error);
@@ -26105,14 +26118,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   app.delete("/api/radar/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (user.role !== 'admin' && user.role !== 'super_admin') {
+      if (user.role !== 'company_admin' && user.role !== 'super_admin') {
         return res.status(403).json({ error: "Only admins can remove leads from Radar" });
       }
       const { id } = req.params;
-      const deleted = await storage.deleteRadarLead(id);
-      if (!deleted) {
+      const radarEntry = await storage.getRadarLead(id);
+      if (!radarEntry || radarEntry.company_id !== user.company_id) {
         return res.status(404).json({ error: "Radar lead not found" });
       }
+      await storage.deleteRadarLead(id);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting radar lead:", error);
@@ -26124,14 +26138,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   app.delete("/api/radar/by-lead/:leadId", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      if (user.role !== 'admin' && user.role !== 'super_admin') {
+      if (user.role !== 'company_admin' && user.role !== 'super_admin') {
         return res.status(403).json({ error: "Only admins can remove leads from Radar" });
       }
       const { leadId } = req.params;
-      const deleted = await storage.deleteRadarLeadByLeadId(leadId);
-      if (!deleted) {
+      const radarEntry = await storage.getRadarLeadByLeadId(leadId);
+      if (!radarEntry || radarEntry.company_id !== user.company_id) {
         return res.status(404).json({ error: "Radar lead not found" });
       }
+      await storage.deleteRadarLeadByLeadId(leadId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting radar lead by lead id:", error);
