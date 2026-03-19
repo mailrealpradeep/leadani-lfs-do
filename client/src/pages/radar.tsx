@@ -105,17 +105,17 @@ function RadarCard({
             >
               {lead.lead_name}
             </span>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
               {lead.lead_mobile && (
                 <span
-                  className="flex items-center gap-1 text-xs text-muted-foreground"
+                  className="flex items-center gap-1 text-xs text-muted-foreground shrink-0"
                   data-testid={`text-radar-mobile-${lead.id}`}
                 >
                   <Phone className="h-3 w-3 shrink-0" />
                   {lead.lead_mobile}
                 </span>
               )}
-              <Badge variant="secondary" className="text-[10px] py-0 px-1.5">
+              <Badge variant="secondary" className="text-[10px] py-0 px-1.5 shrink-0 truncate max-w-[120px]">
                 {lead.sheet_name}
               </Badge>
             </div>
