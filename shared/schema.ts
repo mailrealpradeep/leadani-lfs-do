@@ -5368,4 +5368,6 @@ export interface RadarLeadWithLead extends RadarLead {
   lead_custom_fields: Record<string, any>;
   sheet_name: string;
   added_by_name: string;
+  ai_rating: string | null;
+  ai_rating_summary: string | null;
 }

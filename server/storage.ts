@@ -9250,7 +9250,7 @@ export class PgStorage implements IStorage {
     const addedByIds = [...new Set(rows.map(r => r.added_by))];
 
     const [leadsData, sheetsData, usersData] = await Promise.all([
-      db.select({ id: dbSchema.leads.id, custom_fields: dbSchema.leads.custom_fields })
+      db.select({ id: dbSchema.leads.id, custom_fields: dbSchema.leads.custom_fields, ai_rating: dbSchema.leads.ai_rating, ai_rating_summary: dbSchema.leads.ai_rating_summary })
         .from(dbSchema.leads)
         .where(inArray(dbSchema.leads.id, leadIds)),
       db.select({ id: dbSchema.sheets.id, name: dbSchema.sheets.name })
@@ -9275,6 +9275,8 @@ export class PgStorage implements IStorage {
         lead_custom_fields: customFields,
         sheet_name: sheetsMap.get(row.sheet_id)?.name || '',
         added_by_name: usersMap.get(row.added_by)?.name || '',
+        ai_rating: lead?.ai_rating ?? null,
+        ai_rating_summary: lead?.ai_rating_summary ?? null,
       };
     });
   }

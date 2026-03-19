@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { LeadUpdateDialog } from "@/components/lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "@/components/lead-update-history-dialog";
@@ -17,6 +18,15 @@ import {
   Loader2, User, MessageSquarePlus, History,
 } from "lucide-react";
 import type { RadarLeadWithLead } from "@shared/schema";
+
+const AI_RATING_STYLES: Record<string, string> = {
+  Hot:     "bg-red-500/15 text-red-700 border-red-300 dark:bg-red-500/25 dark:text-red-300 dark:border-red-600/60",
+  Warm:    "bg-orange-500/15 text-orange-700 border-orange-300 dark:bg-orange-500/25 dark:text-orange-300 dark:border-orange-600/60",
+  Neutral: "bg-blue-500/15 text-blue-700 border-blue-300 dark:bg-blue-500/25 dark:text-blue-300 dark:border-blue-600/60",
+  Cold:    "bg-sky-500/10 text-sky-700 border-sky-300 dark:bg-sky-500/20 dark:text-sky-300 dark:border-sky-600/60",
+  Poor:    "bg-muted/60 text-muted-foreground border-border dark:bg-muted/40",
+  New:     "bg-muted/40 text-muted-foreground border-border dark:bg-muted/30",
+};
 
 function formatDate(val: string | null | undefined): string {
   if (!val) return "—";
@@ -99,12 +109,31 @@ function RadarCard({
         {/* ── Header ── */}
         <div className="pl-4 pr-2 pt-3 pb-2 flex flex-row items-start justify-between gap-2">
           <div className="flex flex-col gap-1 min-w-0 flex-1">
-            <span
-              className="text-base font-bold leading-snug text-foreground"
-              data-testid={`text-radar-name-${lead.id}`}
-            >
-              {lead.lead_name}
-            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className="text-base font-bold leading-snug text-foreground"
+                data-testid={`text-radar-name-${lead.id}`}
+              >
+                {lead.lead_name}
+              </span>
+              {lead.ai_rating && lead.ai_rating !== "New" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border cursor-default shrink-0 ${AI_RATING_STYLES[lead.ai_rating] ?? AI_RATING_STYLES["Neutral"]}`}
+                      data-testid={`text-radar-airating-${lead.id}`}
+                    >
+                      {lead.ai_rating}
+                    </span>
+                  </TooltipTrigger>
+                  {lead.ai_rating_summary && (
+                    <TooltipContent side="bottom" className="max-w-[220px] text-xs leading-relaxed">
+                      {lead.ai_rating_summary}
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              )}
+            </div>
             <div className="flex items-center gap-2 min-w-0">
               {lead.lead_mobile && (
                 <span
