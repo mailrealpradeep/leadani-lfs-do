@@ -93,7 +93,7 @@ function RadarCard({
     ? (lead.lead_custom_fields?.[siteVisitByKey] as string) || ""
     : "";
 
-  const chipBase = "flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] border";
+  const chipBase = "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs border";
   const chipSet = "bg-primary/15 border-primary/40 text-primary dark:bg-primary/25 dark:border-primary/50 dark:text-primary-foreground";
   const chipUnset = "bg-muted/60 border-border/70 text-muted-foreground dark:bg-muted/40 dark:border-border/60";
 
@@ -109,14 +109,14 @@ function RadarCard({
         {/* ── Header ── */}
         <div className="pl-4 pr-2 pt-3 pb-1.5 flex flex-row items-start justify-between gap-1">
           <div className="flex items-start gap-2 min-w-0 flex-1">
-            <Avatar className="h-8 w-8 shrink-0 mt-0.5">
-              <AvatarFallback className="bg-primary/20 text-primary text-[11px] font-bold dark:bg-primary/35 dark:text-primary-foreground">
+            <Avatar className="h-9 w-9 shrink-0 mt-0.5">
+              <AvatarFallback className="bg-primary/20 text-primary text-xs font-bold dark:bg-primary/35 dark:text-primary-foreground">
                 {getInitials(lead.lead_name || "?")}
               </AvatarFallback>
             </Avatar>
-            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <div className="flex flex-col gap-1 min-w-0 flex-1">
               <span
-                className="text-[13px] font-bold leading-tight text-foreground"
+                className="text-sm font-bold leading-tight text-foreground"
                 data-testid={`text-radar-name-${lead.id}`}
               >
                 {lead.lead_name}
@@ -124,14 +124,14 @@ function RadarCard({
               <div className="flex items-center gap-1.5 flex-wrap">
                 {lead.lead_mobile && (
                   <span
-                    className="flex items-center gap-0.5 text-[10px] text-muted-foreground"
+                    className="flex items-center gap-1 text-xs text-muted-foreground"
                     data-testid={`text-radar-mobile-${lead.id}`}
                   >
-                    <Phone className="h-2.5 w-2.5 shrink-0" />
+                    <Phone className="h-3 w-3 shrink-0" />
                     {lead.lead_mobile}
                   </span>
                 )}
-                <Badge variant="secondary" className="text-[9px] py-0 px-1.5 h-4">
+                <Badge variant="secondary" className="text-[10px] py-0 px-1.5">
                   {lead.sheet_name}
                 </Badge>
               </div>
@@ -173,7 +173,7 @@ function RadarCard({
         </div>
 
         {/* ── Body ── */}
-        <CardContent className="pl-4 pr-3 pb-3 pt-0 flex flex-col gap-2">
+        <CardContent className="pl-4 pr-3 pb-4 pt-0 flex flex-col gap-2.5">
 
           {editing ? (
             /* ─ Edit mode: compact inputs, placeholder as label ─ */
@@ -218,7 +218,7 @@ function RadarCard({
               {/* Status — amber pill, no label */}
               {lead.current_status ? (
                 <span
-                  className="inline-flex self-start items-center rounded-full px-2.5 py-[3px] text-[11px] font-medium
+                  className="inline-flex self-start items-center rounded-full px-3 py-1 text-xs font-medium
                     bg-amber-500/15 text-amber-700 border border-amber-300
                     dark:bg-amber-500/25 dark:text-amber-300 dark:border-amber-600/70"
                   data-testid={`text-radar-status-${lead.id}`}
@@ -226,7 +226,7 @@ function RadarCard({
                   {lead.current_status}
                 </span>
               ) : (
-                <span className="text-[10px] text-muted-foreground/60 italic" data-testid={`text-radar-status-${lead.id}`}>
+                <span className="text-xs text-muted-foreground/60 italic" data-testid={`text-radar-status-${lead.id}`}>
                   No status set
                 </span>
               )}
@@ -234,7 +234,7 @@ function RadarCard({
               {/* Project details — directly below status, subtle note style */}
               {lead.project_details && (
                 <p
-                  className="text-[11px] text-muted-foreground leading-relaxed pl-2.5 border-l-2 border-border/70 dark:border-border/50"
+                  className="text-xs text-muted-foreground leading-relaxed pl-3 border-l-2 border-border/70 dark:border-border/50"
                   data-testid={`text-radar-details-${lead.id}`}
                 >
                   {lead.project_details}
@@ -242,13 +242,13 @@ function RadarCard({
               )}
 
               {/* Key info chips — no label */}
-              <div className="flex flex-wrap gap-1" data-testid={`row-radar-keyinfo-${lead.id}`}>
+              <div className="flex flex-wrap gap-1.5" data-testid={`row-radar-keyinfo-${lead.id}`}>
                 {siteVisitByKey !== null && (
                   <div
                     data-testid={`text-radar-sitevisitby-${lead.id}`}
                     className={`${chipBase} ${siteVisitByValue ? chipSet : chipUnset}`}
                   >
-                    <User className="h-2.5 w-2.5 shrink-0" />
+                    <User className="h-3 w-3 shrink-0" />
                     <span>{siteVisitByValue || "—"}</span>
                   </div>
                 )}
@@ -256,14 +256,14 @@ function RadarCard({
                   data-testid={`text-radar-sitevisit-${lead.id}`}
                   className={`${chipBase} ${lead.site_visit_date ? chipSet : chipUnset}`}
                 >
-                  <MapPin className="h-2.5 w-2.5 shrink-0" />
+                  <MapPin className="h-3 w-3 shrink-0" />
                   <span>{formatDate(lead.site_visit_date)}</span>
                 </div>
                 <div
                   data-testid={`text-radar-officevisit-${lead.id}`}
                   className={`${chipBase} ${lead.office_visit_date ? chipSet : chipUnset}`}
                 >
-                  <Building2 className="h-2.5 w-2.5 shrink-0" />
+                  <Building2 className="h-3 w-3 shrink-0" />
                   <span>{formatDate(lead.office_visit_date)}</span>
                 </div>
               </div>
