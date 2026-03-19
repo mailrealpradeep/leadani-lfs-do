@@ -34,9 +34,25 @@ export default function Dashboard() {
       onImport: () => setIsImportOpen(true),
       onToggleColumns: () => setIsColumnVisibilityOpen(true),
       onViewDeletedLeads: () => setIsDeletedLeadsOpen(true),
-      onExport: () => {
+      onExport: async () => {
         if (selectedSheetId) {
-          window.open(`/api/sheets/${selectedSheetId}/export?format=csv`, "_blank");
+          const token = localStorage.getItem("auth_token");
+          const res = await fetch(`/api/sheets/${selectedSheetId}/export?format=csv`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (!res.ok) {
+            console.error("Export failed:", await res.text());
+            return;
+          }
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `leads-${selectedSheetId}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
         }
       },
     });
