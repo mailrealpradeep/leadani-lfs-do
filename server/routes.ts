@@ -26020,8 +26020,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (user.role === 'company_admin' || user.role === 'super_admin') {
         radarLeads = await storage.getRadarLeadsByCompany(user.company_id!);
       } else {
-        const sheetUsers = await storage.getSheetUsersByUserId(user.id);
-        const sheetIds = sheetUsers.map((su: any) => su.sheet_id);
+        const sheets = await storage.getSheetsByUserId(user.id);
+        const sheetIds = sheets.map((s: any) => s.id);
         radarLeads = await storage.getRadarLeadsBySheets(sheetIds);
       }
       res.json(radarLeads);
@@ -26039,8 +26039,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (user.role === 'company_admin' || user.role === 'super_admin') {
         radarLeads = await storage.getRadarLeadsByCompany(user.company_id!);
       } else {
-        const sheetUsers = await storage.getSheetUsersByUserId(user.id);
-        const sheetIds = sheetUsers.map((su: any) => su.sheet_id);
+        const sheets = await storage.getSheetsByUserId(user.id);
+        const sheetIds = sheets.map((s: any) => s.id);
         radarLeads = await storage.getRadarLeadsBySheets(sheetIds);
       }
       res.json(radarLeads.map((rl: any) => rl.lead_id));

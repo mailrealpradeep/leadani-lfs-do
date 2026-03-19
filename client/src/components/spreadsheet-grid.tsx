@@ -1444,10 +1444,9 @@ export function SpreadsheetGrid({
     },
   });
 
-  // Radar - monitored lead IDs for quick lookup
+  // Radar - monitored lead IDs for quick lookup (all users get indicators)
   const { data: radarLeadIds = [] } = useQuery<string[]>({
     queryKey: ["/api/radar/ids"],
-    enabled: isAdminUser,
   });
   const radarSet = useMemo(() => new Set(radarLeadIds), [radarLeadIds]);
 
