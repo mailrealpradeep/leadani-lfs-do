@@ -11,10 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { LeadUpdateDialog } from "@/components/lead-update-dialog";
+import { LeadUpdateHistoryDialog } from "@/components/lead-update-history-dialog";
 import {
   Radar as RadarIcon, Trash2, Pencil, Check, X,
-  Phone, MapPin, Calendar, Building2, Zap, ArrowRight,
-  Loader2, FileText, User,
+  Phone, MapPin, Building2, Zap, ArrowRight,
+  Loader2, FileText, User, MessageSquarePlus, History,
 } from "lucide-react";
 import type { RadarLeadWithLead } from "@shared/schema";
 
@@ -55,6 +57,8 @@ function RadarCard({
 }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [editState, setEditState] = useState<EditState>({
     current_status: lead.current_status || "",
     next_step: lead.next_step || "",
@@ -93,54 +97,53 @@ function RadarCard({
     ? (lead.lead_custom_fields?.[siteVisitByKey] as string) || ""
     : "";
 
-  const addedByInitials = getInitials(lead.added_by_name || "?");
-
   return (
-    <Card
-      data-testid={`card-radar-${lead.id}`}
-      className="flex flex-col overflow-hidden relative gap-0"
-    >
-      {/* Left accent bar */}
-      <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary z-10 pointer-events-none" />
+    <>
+      <Card
+        data-testid={`card-radar-${lead.id}`}
+        className="flex flex-col overflow-hidden relative gap-0"
+      >
+        {/* Left accent bar */}
+        <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary z-10 pointer-events-none" />
 
-      {/* ── Header ── */}
-      <div className="pl-4 pr-2 pt-3 pb-2 flex flex-row items-start justify-between gap-1">
-        <div className="flex items-start gap-2 min-w-0 flex-1">
-          <Avatar className="h-7 w-7 shrink-0 mt-0.5">
-            <AvatarFallback className="bg-primary/15 text-primary text-[10px] font-bold dark:bg-primary/25">
-              {getInitials(lead.lead_name || "?")}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <span
-              className="text-xs font-bold leading-tight text-foreground"
-              data-testid={`text-radar-name-${lead.id}`}
-            >
-              {lead.lead_name}
-            </span>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {lead.lead_mobile && (
-                <span
-                  className="flex items-center gap-0.5 text-[10px] text-muted-foreground"
-                  data-testid={`text-radar-mobile-${lead.id}`}
-                >
-                  <Phone className="h-2.5 w-2.5 shrink-0" />
-                  {lead.lead_mobile}
-                </span>
-              )}
-              <Badge variant="secondary" className="text-[9px] py-0 px-1 h-3.5">
-                {lead.sheet_name}
-              </Badge>
+        {/* ── Header ── */}
+        <div className="pl-4 pr-2 pt-3 pb-2 flex flex-row items-start justify-between gap-1">
+          <div className="flex items-start gap-2 min-w-0 flex-1">
+            <Avatar className="h-7 w-7 shrink-0 mt-0.5">
+              <AvatarFallback className="bg-primary/20 text-primary text-[10px] font-bold dark:bg-primary/35 dark:text-primary-foreground">
+                {getInitials(lead.lead_name || "?")}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+              <span
+                className="text-xs font-bold leading-tight text-foreground"
+                data-testid={`text-radar-name-${lead.id}`}
+              >
+                {lead.lead_name}
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {lead.lead_mobile && (
+                  <span
+                    className="flex items-center gap-0.5 text-[10px] text-muted-foreground"
+                    data-testid={`text-radar-mobile-${lead.id}`}
+                  >
+                    <Phone className="h-2.5 w-2.5 shrink-0" />
+                    {lead.lead_mobile}
+                  </span>
+                )}
+                <Badge variant="secondary" className="text-[9px] py-0 px-1 h-3.5">
+                  {lead.sheet_name}
+                </Badge>
+              </div>
             </div>
           </div>
-        </div>
 
-        {isAdmin && (
+          {/* Action buttons — update/history for all; edit/delete for admins */}
           <div className="flex items-center gap-0 shrink-0">
             {editing ? (
               <>
                 <Button size="icon" variant="ghost" onClick={handleSave} disabled={updateMutation.isPending} data-testid={`button-radar-save-${lead.id}`} title="Save">
-                  {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5 text-green-600" />}
+                  {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5 text-green-500" />}
                 </Button>
                 <Button size="icon" variant="ghost" onClick={handleCancel} disabled={updateMutation.isPending} data-testid={`button-radar-cancel-${lead.id}`} title="Cancel">
                   <X className="h-3.5 w-3.5 text-muted-foreground" />
@@ -148,192 +151,207 @@ function RadarCard({
               </>
             ) : (
               <>
-                <Button size="icon" variant="ghost" onClick={() => setEditing(true)} data-testid={`button-radar-edit-${lead.id}`} title="Edit">
-                  <Pencil className="h-3 w-3 text-muted-foreground" />
+                <Button size="icon" variant="ghost" onClick={() => setUpdateOpen(true)} data-testid={`button-radar-addupdate-${lead.id}`} title="Add Update">
+                  <MessageSquarePlus className="h-3 w-3 text-muted-foreground" />
                 </Button>
-                <Button size="icon" variant="ghost" onClick={() => onDelete(lead.id)} data-testid={`button-radar-delete-${lead.id}`} title="Remove from Radar">
-                  <Trash2 className="h-3 w-3 text-muted-foreground" />
+                <Button size="icon" variant="ghost" onClick={() => setHistoryOpen(true)} data-testid={`button-radar-history-${lead.id}`} title="View History">
+                  <History className="h-3 w-3 text-muted-foreground" />
                 </Button>
+                {isAdmin && (
+                  <>
+                    <Button size="icon" variant="ghost" onClick={() => setEditing(true)} data-testid={`button-radar-edit-${lead.id}`} title="Edit">
+                      <Pencil className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                    <Button size="icon" variant="ghost" onClick={() => onDelete(lead.id)} data-testid={`button-radar-delete-${lead.id}`} title="Remove from Radar">
+                      <Trash2 className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </div>
-        )}
-      </div>
-
-      {/* ── Body ── */}
-      <CardContent className="pl-4 pr-3 pb-3 pt-0 flex flex-col gap-2">
-
-        {/* Current Status */}
-        <div className="flex flex-col gap-1">
-          <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
-            <Zap className="h-2.5 w-2.5" /> Status
-          </span>
-          {editing ? (
-            <Input
-              value={editState.current_status}
-              onChange={e => setEditState(s => ({ ...s, current_status: e.target.value }))}
-              placeholder="e.g. Site visit done, negotiation ongoing"
-              data-testid={`input-radar-status-${lead.id}`}
-              className="text-xs h-7"
-            />
-          ) : lead.current_status ? (
-            <span
-              className="inline-flex self-start items-center rounded-full px-2.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
-              data-testid={`text-radar-status-${lead.id}`}
-            >
-              {lead.current_status}
-            </span>
-          ) : (
-            <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-status-${lead.id}`}>Not set</span>
-          )}
         </div>
 
-        {/* Next Step */}
-        <div className="flex flex-col gap-1">
-          <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
-            <ArrowRight className="h-2.5 w-2.5" /> Next Step
-          </span>
-          {editing ? (
-            <Input
-              value={editState.next_step}
-              onChange={e => setEditState(s => ({ ...s, next_step: e.target.value }))}
-              placeholder="e.g. Send revised quote by Monday"
-              data-testid={`input-radar-nextstep-${lead.id}`}
-              className="text-xs h-7"
-            />
-          ) : lead.next_step ? (
-            <div
-              className="flex items-start gap-1.5 rounded-md bg-muted/70 border border-border/60 px-2 py-1.5 dark:bg-muted/30"
-              data-testid={`text-radar-nextstep-${lead.id}`}
-            >
-              <ArrowRight className="h-3 w-3 text-primary mt-0.5 shrink-0" />
-              <span className="text-[11px] text-foreground leading-snug">{lead.next_step}</span>
-            </div>
-          ) : (
-            <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-nextstep-${lead.id}`}>Not set</span>
-          )}
-        </div>
+        {/* ── Body ── */}
+        <CardContent className="pl-4 pr-3 pb-3 pt-0 flex flex-col gap-2">
 
-        {/* Key dates + Site Visit By */}
-        {editing ? (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Key Dates</span>
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="flex flex-col gap-0.5">
-                <Label className="text-[9px] text-muted-foreground flex items-center gap-1"><MapPin className="h-2.5 w-2.5" /> Site Visit</Label>
-                <Input type="date" value={editState.site_visit_date} onChange={e => setEditState(s => ({ ...s, site_visit_date: e.target.value }))} data-testid={`input-radar-sitevisit-${lead.id}`} className="text-[10px] h-7" />
-              </div>
-              <div className="flex flex-col gap-0.5">
-                <Label className="text-[9px] text-muted-foreground flex items-center gap-1"><Building2 className="h-2.5 w-2.5" /> Office Visit</Label>
-                <Input type="date" value={editState.office_visit_date} onChange={e => setEditState(s => ({ ...s, office_visit_date: e.target.value }))} data-testid={`input-radar-officevisit-${lead.id}`} className="text-[10px] h-7" />
-              </div>
-            </div>
-          </div>
-        ) : (
+          {/* Current Status */}
           <div className="flex flex-col gap-1">
-            <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Key Info</span>
-            <div className="flex flex-wrap gap-1">
-              {/* Site Visit By - from custom column */}
-              {siteVisitByKey !== null && (
-                <div
-                  data-testid={`text-radar-sitevisitby-${lead.id}`}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border ${
-                    siteVisitByValue
-                      ? "bg-primary/10 border-primary/25 text-primary dark:bg-primary/15 dark:border-primary/35"
-                      : "bg-muted/50 border-border/50 text-muted-foreground"
-                  }`}
-                >
-                  <User className="h-2.5 w-2.5 shrink-0" />
-                  <span className="font-medium">Visit By</span>
-                  <span className={siteVisitByValue ? "font-semibold" : "opacity-60"}>
-                    {siteVisitByValue || "—"}
-                  </span>
-                </div>
-              )}
-              {/* Site Visit date */}
-              {(() => {
-                const isSet = !!lead.site_visit_date;
-                return (
-                  <div
-                    data-testid={`text-radar-sitevisit-${lead.id}`}
-                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border ${
-                      isSet
-                        ? "bg-primary/10 border-primary/25 text-primary dark:bg-primary/15 dark:border-primary/35"
-                        : "bg-muted/50 border-border/50 text-muted-foreground"
-                    }`}
-                  >
-                    <MapPin className="h-2.5 w-2.5 shrink-0" />
-                    <span className="font-medium">Site</span>
-                    <span className={isSet ? "font-semibold" : "opacity-60"}>{formatDate(lead.site_visit_date)}</span>
-                  </div>
-                );
-              })()}
-              {/* Office Visit date */}
-              {(() => {
-                const isSet = !!lead.office_visit_date;
-                return (
-                  <div
-                    data-testid={`text-radar-officevisit-${lead.id}`}
-                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border ${
-                      isSet
-                        ? "bg-primary/10 border-primary/25 text-primary dark:bg-primary/15 dark:border-primary/35"
-                        : "bg-muted/50 border-border/50 text-muted-foreground"
-                    }`}
-                  >
-                    <Building2 className="h-2.5 w-2.5 shrink-0" />
-                    <span className="font-medium">Office</span>
-                    <span className={isSet ? "font-semibold" : "opacity-60"}>{formatDate(lead.office_visit_date)}</span>
-                  </div>
-                );
-              })()}
-            </div>
+            <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
+              <Zap className="h-2.5 w-2.5" /> Status
+            </span>
+            {editing ? (
+              <Input
+                value={editState.current_status}
+                onChange={e => setEditState(s => ({ ...s, current_status: e.target.value }))}
+                placeholder="e.g. Site visit done, negotiation ongoing"
+                data-testid={`input-radar-status-${lead.id}`}
+                className="text-xs h-7"
+              />
+            ) : lead.current_status ? (
+              <span
+                className="inline-flex self-start items-center rounded-full px-2.5 py-0.5 text-[10px] font-medium
+                  bg-amber-500/15 text-amber-700 border border-amber-300
+                  dark:bg-amber-500/25 dark:text-amber-300 dark:border-amber-600/70"
+                data-testid={`text-radar-status-${lead.id}`}
+              >
+                {lead.current_status}
+              </span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-status-${lead.id}`}>Not set</span>
+            )}
           </div>
-        )}
 
-        {/* Project Details */}
-        <div className="flex flex-col gap-1">
-          <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
-            <FileText className="h-2.5 w-2.5" /> Project Details
-          </span>
+          {/* Next Step */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
+              <ArrowRight className="h-2.5 w-2.5" /> Next Step
+            </span>
+            {editing ? (
+              <Input
+                value={editState.next_step}
+                onChange={e => setEditState(s => ({ ...s, next_step: e.target.value }))}
+                placeholder="e.g. Send revised quote by Monday"
+                data-testid={`input-radar-nextstep-${lead.id}`}
+                className="text-xs h-7"
+              />
+            ) : lead.next_step ? (
+              <div
+                className="flex items-start gap-1.5 rounded-md px-2 py-1.5
+                  bg-muted/80 border border-border
+                  dark:bg-muted/60 dark:border-border/80"
+                data-testid={`text-radar-nextstep-${lead.id}`}
+              >
+                <ArrowRight className="h-3 w-3 text-primary mt-0.5 shrink-0" />
+                <span className="text-[11px] text-foreground leading-snug">{lead.next_step}</span>
+              </div>
+            ) : (
+              <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-nextstep-${lead.id}`}>Not set</span>
+            )}
+          </div>
+
+          {/* Key dates + Site Visit By */}
           {editing ? (
-            <Textarea
-              value={editState.project_details}
-              onChange={e => setEditState(s => ({ ...s, project_details: e.target.value }))}
-              placeholder="Budget, unit type, specific requirements..."
-              rows={2}
-              data-testid={`textarea-radar-details-${lead.id}`}
-              className="text-xs resize-none"
-            />
-          ) : lead.project_details ? (
-            <div
-              className="rounded-md bg-muted/60 border border-border/50 px-2.5 py-2 dark:bg-muted/25"
-              data-testid={`text-radar-details-${lead.id}`}
-            >
-              <p className="text-[11px] whitespace-pre-wrap text-foreground leading-relaxed">{lead.project_details}</p>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Key Dates</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <div className="flex flex-col gap-0.5">
+                  <Label className="text-[9px] text-muted-foreground flex items-center gap-1"><MapPin className="h-2.5 w-2.5" /> Site Visit</Label>
+                  <Input type="date" value={editState.site_visit_date} onChange={e => setEditState(s => ({ ...s, site_visit_date: e.target.value }))} data-testid={`input-radar-sitevisit-${lead.id}`} className="text-[10px] h-7" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <Label className="text-[9px] text-muted-foreground flex items-center gap-1"><Building2 className="h-2.5 w-2.5" /> Office Visit</Label>
+                  <Input type="date" value={editState.office_visit_date} onChange={e => setEditState(s => ({ ...s, office_visit_date: e.target.value }))} data-testid={`input-radar-officevisit-${lead.id}`} className="text-[10px] h-7" />
+                </div>
+              </div>
             </div>
           ) : (
-            <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-details-${lead.id}`}>Not set</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Key Info</span>
+              <div className="flex flex-wrap gap-1">
+                {/* Site Visit By - from custom column */}
+                {siteVisitByKey !== null && (
+                  <div
+                    data-testid={`text-radar-sitevisitby-${lead.id}`}
+                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border transition-colors ${
+                      siteVisitByValue
+                        ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/30 dark:border-primary/60 dark:text-primary-foreground"
+                        : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/50 dark:border-border/80"
+                    }`}
+                  >
+                    <User className="h-2.5 w-2.5 shrink-0" />
+                    <span className="font-medium">Visit By</span>
+                    <span className={siteVisitByValue ? "font-semibold" : "opacity-60"}>
+                      {siteVisitByValue || "—"}
+                    </span>
+                  </div>
+                )}
+                {/* Site Visit date */}
+                {(() => {
+                  const isSet = !!lead.site_visit_date;
+                  return (
+                    <div
+                      data-testid={`text-radar-sitevisit-${lead.id}`}
+                      className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border transition-colors ${
+                        isSet
+                          ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/30 dark:border-primary/60 dark:text-primary-foreground"
+                          : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/50 dark:border-border/80"
+                      }`}
+                    >
+                      <MapPin className="h-2.5 w-2.5 shrink-0" />
+                      <span className="font-medium">Site</span>
+                      <span className={isSet ? "font-semibold" : "opacity-60"}>{formatDate(lead.site_visit_date)}</span>
+                    </div>
+                  );
+                })()}
+                {/* Office Visit date */}
+                {(() => {
+                  const isSet = !!lead.office_visit_date;
+                  return (
+                    <div
+                      data-testid={`text-radar-officevisit-${lead.id}`}
+                      className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border transition-colors ${
+                        isSet
+                          ? "bg-primary/15 border-primary/40 text-primary dark:bg-primary/30 dark:border-primary/60 dark:text-primary-foreground"
+                          : "bg-muted/70 border-border text-muted-foreground dark:bg-muted/50 dark:border-border/80"
+                      }`}
+                    >
+                      <Building2 className="h-2.5 w-2.5 shrink-0" />
+                      <span className="font-medium">Office</span>
+                      <span className={isSet ? "font-semibold" : "opacity-60"}>{formatDate(lead.office_visit_date)}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
           )}
-        </div>
 
-        {/* Footer */}
-        <div className="pt-1.5 border-t border-border/60 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Avatar className="h-4 w-4 shrink-0">
-              <AvatarFallback className="bg-muted text-muted-foreground text-[8px] font-semibold">
-                {addedByInitials}
-              </AvatarFallback>
-            </Avatar>
-            <span className="text-[10px] text-muted-foreground truncate">
-              Added by <span className="font-medium text-foreground/70">{lead.added_by_name}</span>
+          {/* Project Details */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
+              <FileText className="h-2.5 w-2.5" /> Project Details
             </span>
+            {editing ? (
+              <Textarea
+                value={editState.project_details}
+                onChange={e => setEditState(s => ({ ...s, project_details: e.target.value }))}
+                placeholder="Budget, unit type, specific requirements..."
+                rows={2}
+                data-testid={`textarea-radar-details-${lead.id}`}
+                className="text-xs resize-none"
+              />
+            ) : lead.project_details ? (
+              <div
+                className="rounded-md px-2.5 py-2
+                  bg-muted/70 border border-border
+                  dark:bg-muted/50 dark:border-border/80"
+                data-testid={`text-radar-details-${lead.id}`}
+              >
+                <p className="text-[11px] whitespace-pre-wrap text-foreground leading-relaxed">{lead.project_details}</p>
+              </div>
+            ) : (
+              <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-details-${lead.id}`}>Not set</span>
+            )}
           </div>
-          <span className="text-[10px] text-muted-foreground shrink-0">
-            {new Date(lead.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-          </span>
-        </div>
-      </CardContent>
-    </Card>
+
+        </CardContent>
+      </Card>
+
+      {/* Lead Update Dialog */}
+      <LeadUpdateDialog
+        leadId={lead.lead_id}
+        sheetId={lead.sheet_id}
+        open={updateOpen}
+        onOpenChange={setUpdateOpen}
+      />
+
+      {/* Lead Update History Dialog */}
+      <LeadUpdateHistoryDialog
+        leadId={lead.lead_id}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+      />
+    </>
   );
 }
 
@@ -393,7 +411,6 @@ export default function RadarPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Sheet filter */}
           {sheetOptions.length > 0 && (
             <Select value={selectedSheet} onValueChange={setSelectedSheet}>
               <SelectTrigger className="h-8 text-xs w-44" data-testid="select-radar-sheet-filter">
