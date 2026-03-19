@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -9,11 +9,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Radar as RadarIcon, Trash2, Pencil, Check, X,
   Phone, MapPin, Calendar, Building2, Zap, ArrowRight,
-  Loader2, FileText,
+  Loader2, FileText, User,
 } from "lucide-react";
 import type { RadarLeadWithLead } from "@shared/schema";
 
@@ -36,33 +37,27 @@ function getInitials(name: string): string {
 interface EditState {
   current_status: string;
   next_step: string;
-  expected_closure_date: string;
   site_visit_date: string;
   office_visit_date: string;
   project_details: string;
 }
 
-const DATE_FIELDS = [
-  { key: "expected_closure_date" as const, label: "Closure", shortLabel: "Closure", icon: Calendar, testKey: "closure" },
-  { key: "site_visit_date" as const, label: "Site Visit", shortLabel: "Site", icon: MapPin, testKey: "sitevisit" },
-  { key: "office_visit_date" as const, label: "Office Visit", shortLabel: "Office", icon: Building2, testKey: "officevisit" },
-];
-
 function RadarCard({
   lead,
   isAdmin,
   onDelete,
+  siteVisitByKey,
 }: {
   lead: RadarLeadWithLead;
   isAdmin: boolean;
   onDelete: (id: string) => void;
+  siteVisitByKey: string | null;
 }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const [editState, setEditState] = useState<EditState>({
     current_status: lead.current_status || "",
     next_step: lead.next_step || "",
-    expected_closure_date: lead.expected_closure_date || "",
     site_visit_date: lead.site_visit_date || "",
     office_visit_date: lead.office_visit_date || "",
     project_details: lead.project_details || "",
@@ -87,13 +82,16 @@ function RadarCard({
     setEditState({
       current_status: lead.current_status || "",
       next_step: lead.next_step || "",
-      expected_closure_date: lead.expected_closure_date || "",
       site_visit_date: lead.site_visit_date || "",
       office_visit_date: lead.office_visit_date || "",
       project_details: lead.project_details || "",
     });
     setEditing(false);
   };
+
+  const siteVisitByValue: string = siteVisitByKey
+    ? (lead.lead_custom_fields?.[siteVisitByKey] as string) || ""
+    : "";
 
   const addedByInitials = getInitials(lead.added_by_name || "?");
 
@@ -102,91 +100,59 @@ function RadarCard({
       data-testid={`card-radar-${lead.id}`}
       className="flex flex-col overflow-hidden relative gap-0"
     >
-      {/* Colored left accent bar */}
+      {/* Left accent bar */}
       <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary z-10 pointer-events-none" />
 
       {/* ── Header ── */}
-      <div className="pl-5 pr-3 pt-4 pb-3 flex flex-row items-start justify-between gap-2">
-        {/* Avatar + name/phone */}
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          <Avatar className="h-9 w-9 shrink-0">
-            <AvatarFallback className="bg-primary/15 text-primary text-xs font-bold dark:bg-primary/25 dark:text-primary-foreground/90">
+      <div className="pl-4 pr-2 pt-3 pb-2 flex flex-row items-start justify-between gap-1">
+        <div className="flex items-start gap-2 min-w-0 flex-1">
+          <Avatar className="h-7 w-7 shrink-0 mt-0.5">
+            <AvatarFallback className="bg-primary/15 text-primary text-[10px] font-bold dark:bg-primary/25">
               {getInitials(lead.lead_name || "?")}
             </AvatarFallback>
           </Avatar>
-          <div className="flex flex-col gap-0.5 min-w-0 flex-1 pt-0.5">
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
             <span
-              className="text-sm font-bold leading-tight text-foreground"
+              className="text-xs font-bold leading-tight text-foreground"
               data-testid={`text-radar-name-${lead.id}`}
             >
               {lead.lead_name}
             </span>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {lead.lead_mobile && (
                 <span
-                  className="flex items-center gap-1 text-xs text-muted-foreground"
+                  className="flex items-center gap-0.5 text-[10px] text-muted-foreground"
                   data-testid={`text-radar-mobile-${lead.id}`}
                 >
-                  <Phone className="h-3 w-3 shrink-0" />
+                  <Phone className="h-2.5 w-2.5 shrink-0" />
                   {lead.lead_mobile}
                 </span>
               )}
-              <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4">
+              <Badge variant="secondary" className="text-[9px] py-0 px-1 h-3.5">
                 {lead.sheet_name}
               </Badge>
             </div>
           </div>
         </div>
 
-        {/* Action buttons */}
         {isAdmin && (
-          <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+          <div className="flex items-center gap-0 shrink-0">
             {editing ? (
               <>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={handleSave}
-                  disabled={updateMutation.isPending}
-                  data-testid={`button-radar-save-${lead.id}`}
-                  title="Save changes"
-                >
-                  {updateMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Check className="h-4 w-4 text-green-600" />
-                  )}
+                <Button size="icon" variant="ghost" onClick={handleSave} disabled={updateMutation.isPending} data-testid={`button-radar-save-${lead.id}`} title="Save">
+                  {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5 text-green-600" />}
                 </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={handleCancel}
-                  disabled={updateMutation.isPending}
-                  data-testid={`button-radar-cancel-${lead.id}`}
-                  title="Cancel"
-                >
-                  <X className="h-4 w-4 text-muted-foreground" />
+                <Button size="icon" variant="ghost" onClick={handleCancel} disabled={updateMutation.isPending} data-testid={`button-radar-cancel-${lead.id}`} title="Cancel">
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>
               </>
             ) : (
               <>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setEditing(true)}
-                  data-testid={`button-radar-edit-${lead.id}`}
-                  title="Edit Radar card"
-                >
-                  <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                <Button size="icon" variant="ghost" onClick={() => setEditing(true)} data-testid={`button-radar-edit-${lead.id}`} title="Edit">
+                  <Pencil className="h-3 w-3 text-muted-foreground" />
                 </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => onDelete(lead.id)}
-                  data-testid={`button-radar-delete-${lead.id}`}
-                  title="Remove from Radar"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                <Button size="icon" variant="ghost" onClick={() => onDelete(lead.id)} data-testid={`button-radar-delete-${lead.id}`} title="Remove from Radar">
+                  <Trash2 className="h-3 w-3 text-muted-foreground" />
                 </Button>
               </>
             )}
@@ -195,12 +161,12 @@ function RadarCard({
       </div>
 
       {/* ── Body ── */}
-      <CardContent className="pl-5 pr-4 pb-4 pt-0 flex flex-col gap-3">
+      <CardContent className="pl-4 pr-3 pb-3 pt-0 flex flex-col gap-2">
 
         {/* Current Status */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
-            <Zap className="h-3 w-3" /> Status
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
+            <Zap className="h-2.5 w-2.5" /> Status
           </span>
           {editing ? (
             <Input
@@ -208,26 +174,24 @@ function RadarCard({
               onChange={e => setEditState(s => ({ ...s, current_status: e.target.value }))}
               placeholder="e.g. Site visit done, negotiation ongoing"
               data-testid={`input-radar-status-${lead.id}`}
-              className="text-sm"
+              className="text-xs h-7"
             />
           ) : lead.current_status ? (
             <span
-              className="inline-flex self-start items-center rounded-full px-3 py-1 text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
+              className="inline-flex self-start items-center rounded-full px-2.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
               data-testid={`text-radar-status-${lead.id}`}
             >
               {lead.current_status}
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground italic" data-testid={`text-radar-status-${lead.id}`}>
-              Not set
-            </span>
+            <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-status-${lead.id}`}>Not set</span>
           )}
         </div>
 
         {/* Next Step */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
-            <ArrowRight className="h-3 w-3" /> Next Step
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
+            <ArrowRight className="h-2.5 w-2.5" /> Next Step
           </span>
           {editing ? (
             <Input
@@ -235,112 +199,136 @@ function RadarCard({
               onChange={e => setEditState(s => ({ ...s, next_step: e.target.value }))}
               placeholder="e.g. Send revised quote by Monday"
               data-testid={`input-radar-nextstep-${lead.id}`}
-              className="text-sm"
+              className="text-xs h-7"
             />
           ) : lead.next_step ? (
             <div
-              className="flex items-start gap-2 rounded-md bg-muted/70 border border-border/60 px-3 py-2 dark:bg-muted/30"
+              className="flex items-start gap-1.5 rounded-md bg-muted/70 border border-border/60 px-2 py-1.5 dark:bg-muted/30"
               data-testid={`text-radar-nextstep-${lead.id}`}
             >
-              <ArrowRight className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-              <span className="text-sm text-foreground leading-snug">{lead.next_step}</span>
+              <ArrowRight className="h-3 w-3 text-primary mt-0.5 shrink-0" />
+              <span className="text-[11px] text-foreground leading-snug">{lead.next_step}</span>
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground italic" data-testid={`text-radar-nextstep-${lead.id}`}>
-              Not set
-            </span>
+            <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-nextstep-${lead.id}`}>Not set</span>
           )}
         </div>
 
-        {/* Date fields */}
+        {/* Key dates + Site Visit By */}
         {editing ? (
-          <div className="flex flex-col gap-2">
-            <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Key Dates</span>
-            {DATE_FIELDS.map(({ key, label, icon: Icon, testKey }) => (
-              <div key={key} className="flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Icon className="h-3 w-3" /> {label}
-                </Label>
-                <Input
-                  type="date"
-                  value={editState[key]}
-                  onChange={e => setEditState(s => ({ ...s, [key]: e.target.value }))}
-                  data-testid={`input-radar-${testKey}-${lead.id}`}
-                  className="text-xs"
-                />
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Key Dates</span>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="flex flex-col gap-0.5">
+                <Label className="text-[9px] text-muted-foreground flex items-center gap-1"><MapPin className="h-2.5 w-2.5" /> Site Visit</Label>
+                <Input type="date" value={editState.site_visit_date} onChange={e => setEditState(s => ({ ...s, site_visit_date: e.target.value }))} data-testid={`input-radar-sitevisit-${lead.id}`} className="text-[10px] h-7" />
               </div>
-            ))}
+              <div className="flex flex-col gap-0.5">
+                <Label className="text-[9px] text-muted-foreground flex items-center gap-1"><Building2 className="h-2.5 w-2.5" /> Office Visit</Label>
+                <Input type="date" value={editState.office_visit_date} onChange={e => setEditState(s => ({ ...s, office_visit_date: e.target.value }))} data-testid={`input-radar-officevisit-${lead.id}`} className="text-[10px] h-7" />
+              </div>
+            </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Key Dates</span>
-            <div className="flex flex-wrap gap-1.5">
-              {DATE_FIELDS.map(({ key, shortLabel, icon: Icon, testKey }) => {
-                const val = lead[key as keyof RadarLeadWithLead] as string | null | undefined;
-                const isSet = !!val;
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Key Info</span>
+            <div className="flex flex-wrap gap-1">
+              {/* Site Visit By - from custom column */}
+              {siteVisitByKey !== null && (
+                <div
+                  data-testid={`text-radar-sitevisitby-${lead.id}`}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border ${
+                    siteVisitByValue
+                      ? "bg-primary/10 border-primary/25 text-primary dark:bg-primary/15 dark:border-primary/35"
+                      : "bg-muted/50 border-border/50 text-muted-foreground"
+                  }`}
+                >
+                  <User className="h-2.5 w-2.5 shrink-0" />
+                  <span className="font-medium">Visit By</span>
+                  <span className={siteVisitByValue ? "font-semibold" : "opacity-60"}>
+                    {siteVisitByValue || "—"}
+                  </span>
+                </div>
+              )}
+              {/* Site Visit date */}
+              {(() => {
+                const isSet = !!lead.site_visit_date;
                 return (
                   <div
-                    key={key}
-                    data-testid={`text-radar-${testKey}-${lead.id}`}
-                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs border transition-colors ${
+                    data-testid={`text-radar-sitevisit-${lead.id}`}
+                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border ${
                       isSet
                         ? "bg-primary/10 border-primary/25 text-primary dark:bg-primary/15 dark:border-primary/35"
                         : "bg-muted/50 border-border/50 text-muted-foreground"
                     }`}
                   >
-                    <Icon className="h-3 w-3 shrink-0" />
-                    <span className="font-medium">{shortLabel}</span>
-                    <span className={`${isSet ? "font-semibold" : "opacity-60"}`}>
-                      {formatDate(val)}
-                    </span>
+                    <MapPin className="h-2.5 w-2.5 shrink-0" />
+                    <span className="font-medium">Site</span>
+                    <span className={isSet ? "font-semibold" : "opacity-60"}>{formatDate(lead.site_visit_date)}</span>
                   </div>
                 );
-              })}
+              })()}
+              {/* Office Visit date */}
+              {(() => {
+                const isSet = !!lead.office_visit_date;
+                return (
+                  <div
+                    data-testid={`text-radar-officevisit-${lead.id}`}
+                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] border ${
+                      isSet
+                        ? "bg-primary/10 border-primary/25 text-primary dark:bg-primary/15 dark:border-primary/35"
+                        : "bg-muted/50 border-border/50 text-muted-foreground"
+                    }`}
+                  >
+                    <Building2 className="h-2.5 w-2.5 shrink-0" />
+                    <span className="font-medium">Office</span>
+                    <span className={isSet ? "font-semibold" : "opacity-60"}>{formatDate(lead.office_visit_date)}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
 
         {/* Project Details */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
-            <FileText className="h-3 w-3" /> Project Details
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
+            <FileText className="h-2.5 w-2.5" /> Project Details
           </span>
           {editing ? (
             <Textarea
               value={editState.project_details}
               onChange={e => setEditState(s => ({ ...s, project_details: e.target.value }))}
               placeholder="Budget, unit type, specific requirements..."
-              rows={3}
+              rows={2}
               data-testid={`textarea-radar-details-${lead.id}`}
-              className="text-sm resize-none"
+              className="text-xs resize-none"
             />
           ) : lead.project_details ? (
             <div
-              className="rounded-md bg-muted/60 border border-border/50 px-3 py-2.5 dark:bg-muted/25"
+              className="rounded-md bg-muted/60 border border-border/50 px-2.5 py-2 dark:bg-muted/25"
               data-testid={`text-radar-details-${lead.id}`}
             >
-              <p className="text-sm whitespace-pre-wrap text-foreground leading-relaxed">{lead.project_details}</p>
+              <p className="text-[11px] whitespace-pre-wrap text-foreground leading-relaxed">{lead.project_details}</p>
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground italic" data-testid={`text-radar-details-${lead.id}`}>
-              Not set
-            </span>
+            <span className="text-[10px] text-muted-foreground italic" data-testid={`text-radar-details-${lead.id}`}>Not set</span>
           )}
         </div>
 
         {/* Footer */}
-        <div className="pt-2 border-t border-border/60 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <Avatar className="h-5 w-5 shrink-0">
-              <AvatarFallback className="bg-muted text-muted-foreground text-[9px] font-semibold">
+        <div className="pt-1.5 border-t border-border/60 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Avatar className="h-4 w-4 shrink-0">
+              <AvatarFallback className="bg-muted text-muted-foreground text-[8px] font-semibold">
                 {addedByInitials}
               </AvatarFallback>
             </Avatar>
-            <span className="text-xs text-muted-foreground truncate">
+            <span className="text-[10px] text-muted-foreground truncate">
               Added by <span className="font-medium text-foreground/70">{lead.added_by_name}</span>
             </span>
           </div>
-          <span className="text-xs text-muted-foreground shrink-0">
+          <span className="text-[10px] text-muted-foreground shrink-0">
             {new Date(lead.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
           </span>
         </div>
@@ -353,10 +341,33 @@ export default function RadarPage() {
   const { isCompanyAdmin, isSuperAdmin } = useAuth();
   const { toast } = useToast();
   const isAdmin = isCompanyAdmin || isSuperAdmin;
+  const [selectedSheet, setSelectedSheet] = useState<string>("all");
 
   const { data: radarLeads = [], isLoading } = useQuery<RadarLeadWithLead[]>({
     queryKey: ["/api/radar"],
   });
+
+  const { data: companyColumns = [] } = useQuery<any[]>({
+    queryKey: ["/api/company/columns"],
+  });
+
+  const siteVisitByKey = useMemo<string | null>(() => {
+    if (!Array.isArray(companyColumns) || companyColumns.length === 0) return null;
+    const col = companyColumns.find((c: any) =>
+      c.name?.toLowerCase().trim() === "site visit by"
+    );
+    return col ? col.column_key : null;
+  }, [companyColumns]);
+
+  const sheetOptions = useMemo(() => {
+    const names = [...new Set(radarLeads.map(l => l.sheet_name).filter(Boolean))].sort();
+    return names;
+  }, [radarLeads]);
+
+  const filteredLeads = useMemo(() => {
+    if (selectedSheet === "all") return radarLeads;
+    return radarLeads.filter(l => l.sheet_name === selectedSheet);
+  }, [radarLeads, selectedSheet]);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => apiRequest("DELETE", `/api/radar/${id}`),
@@ -373,25 +384,41 @@ export default function RadarPage() {
   return (
     <div className="flex flex-col h-full overflow-auto">
       {/* Page Header */}
-      <div className="border-b bg-background px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
+      <div className="border-b bg-background px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5">
           <RadarIcon className="h-5 w-5 text-muted-foreground" />
           <div>
-            <h1 className="text-lg font-semibold leading-none">Radar</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Close-monitor leads for quick review</p>
+            <h1 className="text-base font-semibold leading-none">Radar</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">Close-monitor leads for quick review</p>
           </div>
         </div>
-        {isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : (
-          <Badge variant="secondary" data-testid="badge-radar-count">
-            {radarLeads.length} {radarLeads.length === 1 ? "lead" : "leads"}
-          </Badge>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Sheet filter */}
+          {sheetOptions.length > 0 && (
+            <Select value={selectedSheet} onValueChange={setSelectedSheet}>
+              <SelectTrigger className="h-8 text-xs w-44" data-testid="select-radar-sheet-filter">
+                <SelectValue placeholder="All users" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All users</SelectItem>
+                {sheetOptions.map(name => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : (
+            <Badge variant="secondary" data-testid="badge-radar-count">
+              {filteredLeads.length} {filteredLeads.length === 1 ? "lead" : "leads"}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {/* Body */}
-      <div className="flex-1 p-6">
+      <div className="flex-1 p-4">
         {isLoading ? (
           <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -405,24 +432,26 @@ export default function RadarPage() {
             <div>
               <p className="font-medium text-muted-foreground">No leads on Radar yet</p>
               {isAdmin ? (
-                <p className="text-sm text-muted-foreground mt-1">
-                  Right-click any lead in the spreadsheet and choose "Add to Radar"
-                </p>
+                <p className="text-sm text-muted-foreground mt-1">Right-click any lead in the spreadsheet and choose "Add to Radar"</p>
               ) : (
-                <p className="text-sm text-muted-foreground mt-1">
-                  Admins can add leads to Radar from the spreadsheet view
-                </p>
+                <p className="text-sm text-muted-foreground mt-1">Admins can add leads to Radar from the spreadsheet view</p>
               )}
             </div>
           </div>
+        ) : filteredLeads.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
+            <p className="text-sm text-muted-foreground">No leads for <span className="font-medium">{selectedSheet}</span></p>
+            <Button variant="outline" size="sm" onClick={() => setSelectedSheet("all")}>Clear filter</Button>
+          </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {radarLeads.map(lead => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {filteredLeads.map(lead => (
               <RadarCard
                 key={lead.id}
                 lead={lead}
                 isAdmin={isAdmin}
                 onDelete={(id) => deleteMutation.mutate(id)}
+                siteVisitByKey={siteVisitByKey}
               />
             ))}
           </div>
