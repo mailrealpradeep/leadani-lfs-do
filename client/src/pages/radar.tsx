@@ -2,14 +2,19 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Radar as RadarIcon, Trash2, Pencil, Check, X, Phone, MapPin, Calendar, Building2, Zap, ArrowRight, Loader2 } from "lucide-react";
+import {
+  Radar as RadarIcon, Trash2, Pencil, Check, X,
+  Phone, MapPin, Calendar, Building2, Zap, ArrowRight,
+  Loader2, FileText,
+} from "lucide-react";
 import type { RadarLeadWithLead } from "@shared/schema";
 
 function formatDate(val: string | null | undefined): string {
@@ -17,6 +22,15 @@ function formatDate(val: string | null | undefined): string {
   const d = new Date(val);
   if (isNaN(d.getTime())) return val;
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function getInitials(name: string): string {
+  return (name || "?")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0].toUpperCase())
+    .join("");
 }
 
 interface EditState {
@@ -27,6 +41,12 @@ interface EditState {
   office_visit_date: string;
   project_details: string;
 }
+
+const DATE_FIELDS = [
+  { key: "expected_closure_date" as const, label: "Closure", shortLabel: "Closure", icon: Calendar, testKey: "closure" },
+  { key: "site_visit_date" as const, label: "Site Visit", shortLabel: "Site", icon: MapPin, testKey: "sitevisit" },
+  { key: "office_visit_date" as const, label: "Office Visit", shortLabel: "Office", icon: Building2, testKey: "officevisit" },
+];
 
 function RadarCard({
   lead,
@@ -61,9 +81,7 @@ function RadarCard({
     },
   });
 
-  const handleSave = () => {
-    updateMutation.mutate(editState);
-  };
+  const handleSave = () => updateMutation.mutate(editState);
 
   const handleCancel = () => {
     setEditState({
@@ -77,26 +95,52 @@ function RadarCard({
     setEditing(false);
   };
 
+  const addedByInitials = getInitials(lead.added_by_name || "?");
+
   return (
-    <Card data-testid={`card-radar-${lead.id}`} className="flex flex-col gap-0">
-      {/* Card Header */}
-      <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-start justify-between gap-2 flex-wrap">
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <CardTitle className="text-base font-semibold truncate" data-testid={`text-radar-name-${lead.id}`}>
-            {lead.lead_name}
-          </CardTitle>
-          <div className="flex items-center gap-2 flex-wrap">
-            {lead.lead_mobile && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground" data-testid={`text-radar-mobile-${lead.id}`}>
-                <Phone className="h-3 w-3" />
-                {lead.lead_mobile}
-              </span>
-            )}
-            <Badge variant="secondary" className="text-xs">{lead.sheet_name}</Badge>
+    <Card
+      data-testid={`card-radar-${lead.id}`}
+      className="flex flex-col overflow-hidden relative gap-0"
+    >
+      {/* Colored left accent bar */}
+      <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary z-10 pointer-events-none" />
+
+      {/* ── Header ── */}
+      <div className="pl-5 pr-3 pt-4 pb-3 flex flex-row items-start justify-between gap-2">
+        {/* Avatar + name/phone */}
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <Avatar className="h-9 w-9 shrink-0">
+            <AvatarFallback className="bg-primary/15 text-primary text-xs font-bold dark:bg-primary/25 dark:text-primary-foreground/90">
+              {getInitials(lead.lead_name || "?")}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1 pt-0.5">
+            <span
+              className="text-sm font-bold leading-tight text-foreground"
+              data-testid={`text-radar-name-${lead.id}`}
+            >
+              {lead.lead_name}
+            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {lead.lead_mobile && (
+                <span
+                  className="flex items-center gap-1 text-xs text-muted-foreground"
+                  data-testid={`text-radar-mobile-${lead.id}`}
+                >
+                  <Phone className="h-3 w-3 shrink-0" />
+                  {lead.lead_mobile}
+                </span>
+              )}
+              <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4">
+                {lead.sheet_name}
+              </Badge>
+            </div>
           </div>
         </div>
+
+        {/* Action buttons */}
         {isAdmin && (
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-0.5 shrink-0 -mr-1">
             {editing ? (
               <>
                 <Button
@@ -133,7 +177,7 @@ function RadarCard({
                   data-testid={`button-radar-edit-${lead.id}`}
                   title="Edit Radar card"
                 >
-                  <Pencil className="h-4 w-4 text-muted-foreground" />
+                  <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>
                 <Button
                   size="icon"
@@ -142,20 +186,22 @@ function RadarCard({
                   data-testid={`button-radar-delete-${lead.id}`}
                   title="Remove from Radar"
                 >
-                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>
               </>
             )}
           </div>
         )}
-      </CardHeader>
+      </div>
 
-      <CardContent className="px-4 pb-4 flex flex-col gap-3">
+      {/* ── Body ── */}
+      <CardContent className="pl-5 pr-4 pb-4 pt-0 flex flex-col gap-3">
+
         {/* Current Status */}
-        <div className="flex flex-col gap-1">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1">
-            <Zap className="h-3 w-3" /> Current Status
-          </Label>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
+            <Zap className="h-3 w-3" /> Status
+          </span>
           {editing ? (
             <Input
               value={editState.current_status}
@@ -164,18 +210,25 @@ function RadarCard({
               data-testid={`input-radar-status-${lead.id}`}
               className="text-sm"
             />
+          ) : lead.current_status ? (
+            <span
+              className="inline-flex self-start items-center rounded-full px-3 py-1 text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
+              data-testid={`text-radar-status-${lead.id}`}
+            >
+              {lead.current_status}
+            </span>
           ) : (
-            <p className="text-sm" data-testid={`text-radar-status-${lead.id}`}>
-              {lead.current_status || <span className="text-muted-foreground italic">Not set</span>}
-            </p>
+            <span className="text-xs text-muted-foreground italic" data-testid={`text-radar-status-${lead.id}`}>
+              Not set
+            </span>
           )}
         </div>
 
         {/* Next Step */}
-        <div className="flex flex-col gap-1">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
             <ArrowRight className="h-3 w-3" /> Next Step
-          </Label>
+          </span>
           {editing ? (
             <Input
               value={editState.next_step}
@@ -184,79 +237,74 @@ function RadarCard({
               data-testid={`input-radar-nextstep-${lead.id}`}
               className="text-sm"
             />
+          ) : lead.next_step ? (
+            <div
+              className="flex items-start gap-2 rounded-md bg-muted/70 border border-border/60 px-3 py-2 dark:bg-muted/30"
+              data-testid={`text-radar-nextstep-${lead.id}`}
+            >
+              <ArrowRight className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+              <span className="text-sm text-foreground leading-snug">{lead.next_step}</span>
+            </div>
           ) : (
-            <p className="text-sm" data-testid={`text-radar-nextstep-${lead.id}`}>
-              {lead.next_step || <span className="text-muted-foreground italic">Not set</span>}
-            </p>
+            <span className="text-xs text-muted-foreground italic" data-testid={`text-radar-nextstep-${lead.id}`}>
+              Not set
+            </span>
           )}
         </div>
 
         {/* Date fields */}
-        <div className="grid grid-cols-3 gap-2">
-          {/* Expected Closure */}
-          <div className="flex flex-col gap-1">
-            <Label className="text-xs text-muted-foreground flex items-center gap-1">
-              <Calendar className="h-3 w-3" /> Closure Date
-            </Label>
-            {editing ? (
-              <Input
-                type="date"
-                value={editState.expected_closure_date}
-                onChange={e => setEditState(s => ({ ...s, expected_closure_date: e.target.value }))}
-                data-testid={`input-radar-closure-${lead.id}`}
-                className="text-xs"
-              />
-            ) : (
-              <p className="text-xs" data-testid={`text-radar-closure-${lead.id}`}>
-                {formatDate(lead.expected_closure_date)}
-              </p>
-            )}
+        {editing ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Key Dates</span>
+            {DATE_FIELDS.map(({ key, label, icon: Icon, testKey }) => (
+              <div key={key} className="flex flex-col gap-1">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Icon className="h-3 w-3" /> {label}
+                </Label>
+                <Input
+                  type="date"
+                  value={editState[key]}
+                  onChange={e => setEditState(s => ({ ...s, [key]: e.target.value }))}
+                  data-testid={`input-radar-${testKey}-${lead.id}`}
+                  className="text-xs"
+                />
+              </div>
+            ))}
           </div>
-
-          {/* Site Visit */}
-          <div className="flex flex-col gap-1">
-            <Label className="text-xs text-muted-foreground flex items-center gap-1">
-              <MapPin className="h-3 w-3" /> Site Visit
-            </Label>
-            {editing ? (
-              <Input
-                type="date"
-                value={editState.site_visit_date}
-                onChange={e => setEditState(s => ({ ...s, site_visit_date: e.target.value }))}
-                data-testid={`input-radar-sitevisit-${lead.id}`}
-                className="text-xs"
-              />
-            ) : (
-              <p className="text-xs" data-testid={`text-radar-sitevisit-${lead.id}`}>
-                {formatDate(lead.site_visit_date)}
-              </p>
-            )}
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Key Dates</span>
+            <div className="flex flex-wrap gap-1.5">
+              {DATE_FIELDS.map(({ key, shortLabel, icon: Icon, testKey }) => {
+                const val = lead[key as keyof RadarLeadWithLead] as string | null | undefined;
+                const isSet = !!val;
+                return (
+                  <div
+                    key={key}
+                    data-testid={`text-radar-${testKey}-${lead.id}`}
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs border transition-colors ${
+                      isSet
+                        ? "bg-primary/10 border-primary/25 text-primary dark:bg-primary/15 dark:border-primary/35"
+                        : "bg-muted/50 border-border/50 text-muted-foreground"
+                    }`}
+                  >
+                    <Icon className="h-3 w-3 shrink-0" />
+                    <span className="font-medium">{shortLabel}</span>
+                    <span className={`${isSet ? "font-semibold" : "opacity-60"}`}>
+                      {formatDate(val)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-
-          {/* Office Visit */}
-          <div className="flex flex-col gap-1">
-            <Label className="text-xs text-muted-foreground flex items-center gap-1">
-              <Building2 className="h-3 w-3" /> Office Visit
-            </Label>
-            {editing ? (
-              <Input
-                type="date"
-                value={editState.office_visit_date}
-                onChange={e => setEditState(s => ({ ...s, office_visit_date: e.target.value }))}
-                data-testid={`input-radar-officevisit-${lead.id}`}
-                className="text-xs"
-              />
-            ) : (
-              <p className="text-xs" data-testid={`text-radar-officevisit-${lead.id}`}>
-                {formatDate(lead.office_visit_date)}
-              </p>
-            )}
-          </div>
-        </div>
+        )}
 
         {/* Project Details */}
-        <div className="flex flex-col gap-1">
-          <Label className="text-xs text-muted-foreground">Project Details</Label>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1">
+            <FileText className="h-3 w-3" /> Project Details
+          </span>
           {editing ? (
             <Textarea
               value={editState.project_details}
@@ -266,19 +314,33 @@ function RadarCard({
               data-testid={`textarea-radar-details-${lead.id}`}
               className="text-sm resize-none"
             />
+          ) : lead.project_details ? (
+            <div
+              className="rounded-md bg-muted/60 border border-border/50 px-3 py-2.5 dark:bg-muted/25"
+              data-testid={`text-radar-details-${lead.id}`}
+            >
+              <p className="text-sm whitespace-pre-wrap text-foreground leading-relaxed">{lead.project_details}</p>
+            </div>
           ) : (
-            <p className="text-sm whitespace-pre-wrap" data-testid={`text-radar-details-${lead.id}`}>
-              {lead.project_details || <span className="text-muted-foreground italic">Not set</span>}
-            </p>
+            <span className="text-xs text-muted-foreground italic" data-testid={`text-radar-details-${lead.id}`}>
+              Not set
+            </span>
           )}
         </div>
 
-        {/* Footer meta */}
-        <div className="pt-1 border-t flex items-center justify-between flex-wrap gap-2">
-          <span className="text-xs text-muted-foreground">
-            Added by <span className="font-medium">{lead.added_by_name}</span>
-          </span>
-          <span className="text-xs text-muted-foreground">
+        {/* Footer */}
+        <div className="pt-2 border-t border-border/60 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Avatar className="h-5 w-5 shrink-0">
+              <AvatarFallback className="bg-muted text-muted-foreground text-[9px] font-semibold">
+                {addedByInitials}
+              </AvatarFallback>
+            </Avatar>
+            <span className="text-xs text-foreground/60 font-medium truncate">
+              {lead.added_by_name}
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">
             {new Date(lead.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
           </span>
         </div>
@@ -310,7 +372,7 @@ export default function RadarPage() {
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      {/* Header */}
+      {/* Page Header */}
       <div className="border-b bg-background px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <RadarIcon className="h-5 w-5 text-muted-foreground" />
