@@ -5333,3 +5333,39 @@ export const saila_bookings = pgTable('saila_bookings', {
 export type SailaBooking = typeof saila_bookings.$inferSelect;
 export type InsertSailaBooking = typeof saila_bookings.$inferInsert;
 export const insertSailaBookingSchema = createInsertSchema(saila_bookings).omit({ id: true, created_at: true, updated_at: true });
+
+// ============================================================================
+// RADAR LEADS (Admin-managed close monitor leads)
+// ============================================================================
+export const radar_leads = pgTable('radar_leads', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  added_by: varchar('added_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  current_status: text('current_status'),
+  next_step: text('next_step'),
+  expected_closure_date: varchar('expected_closure_date', { length: 20 }),
+  site_visit_date: varchar('site_visit_date', { length: 20 }),
+  office_visit_date: varchar('office_visit_date', { length: 20 }),
+  project_details: text('project_details'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type RadarLead = typeof radar_leads.$inferSelect;
+export type InsertRadarLeadData = typeof radar_leads.$inferInsert;
+
+export const insertRadarLeadSchema = createInsertSchema(radar_leads).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export interface RadarLeadWithLead extends RadarLead {
+  lead_name: string;
+  lead_mobile: string;
+  lead_custom_fields: Record<string, any>;
+  sheet_name: string;
+  added_by_name: string;
+}

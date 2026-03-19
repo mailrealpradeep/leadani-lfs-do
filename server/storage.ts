@@ -298,6 +298,9 @@ import type {
   SailaErrorLog,
   InsertSailaErrorLog,
   SailaActivityLogEntry,
+  RadarLead,
+  RadarLeadWithLead,
+  radar_leads,
 } from "@shared/schema";
 
 // Pagination result interface
@@ -879,6 +882,17 @@ export interface IStorage {
   addToWatchlist(userId: string, leadId: string): Promise<WatchlistLead>;
   removeFromWatchlist(userId: string, leadId: string): Promise<boolean>;
   isOnWatchlist(userId: string, leadId: string): Promise<boolean>;
+
+  // =========================================================================
+  // RADAR LEADS (Admin-managed close monitor leads)
+  // =========================================================================
+  createRadarLead(leadId: string, sheetId: string, companyId: string, addedBy: string): Promise<RadarLead>;
+  getRadarLeadsByCompany(companyId: string): Promise<RadarLeadWithLead[]>;
+  getRadarLeadsBySheets(sheetIds: string[]): Promise<RadarLeadWithLead[]>;
+  updateRadarLead(id: string, updates: Partial<Pick<RadarLead, 'current_status' | 'next_step' | 'expected_closure_date' | 'site_visit_date' | 'office_visit_date' | 'project_details'>>): Promise<RadarLead | undefined>;
+  deleteRadarLead(id: string): Promise<boolean>;
+  deleteRadarLeadByLeadId(leadId: string): Promise<boolean>;
+  getRadarLeadByLeadId(leadId: string): Promise<RadarLead | undefined>;
 
   // =========================================================================
   // POWERSCORE (Gamified Leaderboard System)
@@ -9215,6 +9229,100 @@ export class PgStorage implements IStorage {
         )
       );
     return result.length > 0;
+  }
+
+  // =========================================================================
+  // RADAR LEADS (Admin-managed close monitor leads)
+  // =========================================================================
+
+  async createRadarLead(leadId: string, sheetId: string, companyId: string, addedBy: string): Promise<RadarLead> {
+    const result = await db.insert(dbSchema.radar_leads)
+      .values({ lead_id: leadId, sheet_id: sheetId, company_id: companyId, added_by: addedBy })
+      .returning();
+    return result[0];
+  }
+
+  private async enrichRadarLeads(rows: RadarLead[]): Promise<RadarLeadWithLead[]> {
+    if (rows.length === 0) return [];
+    const leadIds = rows.map(r => r.lead_id);
+    const sheetIds = [...new Set(rows.map(r => r.sheet_id))];
+    const addedByIds = [...new Set(rows.map(r => r.added_by))];
+
+    const [leadsData, sheetsData, usersData] = await Promise.all([
+      db.select({ id: dbSchema.leads.id, custom_fields: dbSchema.leads.custom_fields })
+        .from(dbSchema.leads)
+        .where(inArray(dbSchema.leads.id, leadIds)),
+      db.select({ id: dbSchema.sheets.id, name: dbSchema.sheets.name })
+        .from(dbSchema.sheets)
+        .where(inArray(dbSchema.sheets.id, sheetIds)),
+      db.select({ id: dbSchema.users.id, name: dbSchema.users.name })
+        .from(dbSchema.users)
+        .where(inArray(dbSchema.users.id, addedByIds)),
+    ]);
+
+    const leadsMap = new Map(leadsData.map(l => [l.id, l]));
+    const sheetsMap = new Map(sheetsData.map(s => [s.id, s]));
+    const usersMap = new Map(usersData.map(u => [u.id, u]));
+
+    return rows.map(row => {
+      const lead = leadsMap.get(row.lead_id);
+      const customFields = (lead?.custom_fields || {}) as Record<string, any>;
+      return {
+        ...row,
+        lead_name: customFields['full_name'] || customFields['name'] || 'Unknown',
+        lead_mobile: customFields['mobile_no'] || customFields['mobile'] || '',
+        lead_custom_fields: customFields,
+        sheet_name: sheetsMap.get(row.sheet_id)?.name || '',
+        added_by_name: usersMap.get(row.added_by)?.name || '',
+      };
+    });
+  }
+
+  async getRadarLeadsByCompany(companyId: string): Promise<RadarLeadWithLead[]> {
+    const rows = await db.select()
+      .from(dbSchema.radar_leads)
+      .where(eq(dbSchema.radar_leads.company_id, companyId))
+      .orderBy(desc(dbSchema.radar_leads.created_at));
+    return this.enrichRadarLeads(rows);
+  }
+
+  async getRadarLeadsBySheets(sheetIds: string[]): Promise<RadarLeadWithLead[]> {
+    if (sheetIds.length === 0) return [];
+    const rows = await db.select()
+      .from(dbSchema.radar_leads)
+      .where(inArray(dbSchema.radar_leads.sheet_id, sheetIds))
+      .orderBy(desc(dbSchema.radar_leads.created_at));
+    return this.enrichRadarLeads(rows);
+  }
+
+  async updateRadarLead(id: string, updates: Partial<Pick<RadarLead, 'current_status' | 'next_step' | 'expected_closure_date' | 'site_visit_date' | 'office_visit_date' | 'project_details'>>): Promise<RadarLead | undefined> {
+    const result = await db.update(dbSchema.radar_leads)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(dbSchema.radar_leads.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteRadarLead(id: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.radar_leads)
+      .where(eq(dbSchema.radar_leads.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  async deleteRadarLeadByLeadId(leadId: string): Promise<boolean> {
+    const result = await db.delete(dbSchema.radar_leads)
+      .where(eq(dbSchema.radar_leads.lead_id, leadId))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getRadarLeadByLeadId(leadId: string): Promise<RadarLead | undefined> {
+    const result = await db.select()
+      .from(dbSchema.radar_leads)
+      .where(eq(dbSchema.radar_leads.lead_id, leadId))
+      .limit(1);
+    return result[0];
   }
 
   // =========================================================================

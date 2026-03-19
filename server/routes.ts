@@ -26007,6 +26007,139 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   }, cleanupInterval);
 
+
+  // ============================================================================
+  // RADAR LEADS (Admin-managed close monitor leads)
+  // ============================================================================
+
+  // GET all radar leads for the current user's company/sheets
+  app.get("/api/radar", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      let radarLeads;
+      if (user.role === 'admin' || user.role === 'super_admin') {
+        radarLeads = await storage.getRadarLeadsByCompany(user.company_id!);
+      } else {
+        const sheetUsers = await storage.getSheetUsersByUserId(user.id);
+        const sheetIds = sheetUsers.map((su: any) => su.sheet_id);
+        radarLeads = await storage.getRadarLeadsBySheets(sheetIds);
+      }
+      res.json(radarLeads);
+    } catch (error: any) {
+      console.error("Error fetching radar leads:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET radar lead IDs only (for spreadsheet grid indicator)
+  app.get("/api/radar/ids", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      let radarLeads;
+      if (user.role === 'admin' || user.role === 'super_admin') {
+        radarLeads = await storage.getRadarLeadsByCompany(user.company_id!);
+      } else {
+        const sheetUsers = await storage.getSheetUsersByUserId(user.id);
+        const sheetIds = sheetUsers.map((su: any) => su.sheet_id);
+        radarLeads = await storage.getRadarLeadsBySheets(sheetIds);
+      }
+      res.json(radarLeads.map((rl: any) => rl.lead_id));
+    } catch (error: any) {
+      console.error("Error fetching radar lead ids:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST add a lead to radar (admin only)
+  app.post("/api/radar", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ error: "Only admins can add leads to Radar" });
+      }
+      const { lead_id, sheet_id } = req.body;
+      if (!lead_id || !sheet_id) {
+        return res.status(400).json({ error: "lead_id and sheet_id are required" });
+      }
+      // Check duplicate
+      const existing = await storage.getRadarLeadByLeadId(lead_id);
+      if (existing) {
+        return res.status(409).json({ error: "Lead is already on Radar" });
+      }
+      const radarLead = await storage.createRadarLead(lead_id, sheet_id, user.company_id!, user.id);
+      res.status(201).json(radarLead);
+    } catch (error: any) {
+      console.error("Error adding radar lead:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // PATCH update radar lead card fields (admin only)
+  app.patch("/api/radar/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ error: "Only admins can update Radar leads" });
+      }
+      const { id } = req.params;
+      const { current_status, next_step, expected_closure_date, site_visit_date, office_visit_date, project_details } = req.body;
+      const updated = await storage.updateRadarLead(id, {
+        current_status,
+        next_step,
+        expected_closure_date,
+        site_visit_date,
+        office_visit_date,
+        project_details,
+      });
+      if (!updated) {
+        return res.status(404).json({ error: "Radar lead not found" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating radar lead:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // DELETE remove a lead from radar (admin only)
+  app.delete("/api/radar/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ error: "Only admins can remove leads from Radar" });
+      }
+      const { id } = req.params;
+      const deleted = await storage.deleteRadarLead(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Radar lead not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting radar lead:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // DELETE remove a lead from radar by lead_id (admin only, used by spreadsheet grid)
+  app.delete("/api/radar/by-lead/:leadId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = req.user!;
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ error: "Only admins can remove leads from Radar" });
+      }
+      const { leadId } = req.params;
+      const deleted = await storage.deleteRadarLeadByLeadId(leadId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Radar lead not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting radar lead by lead id:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+
   // ============================================================================
   // WHATSAPP CLOUD API - META EMBEDDED SIGNUP
   // ============================================================================

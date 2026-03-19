@@ -53,6 +53,7 @@ import {
   Lock,
   AlertTriangle,
   Sparkles,
+  Target,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -1438,6 +1439,36 @@ export function SpreadsheetGrid({
       toast({
         title: "Error",
         description: "Failed to update watchlist",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Radar - monitored lead IDs for quick lookup
+  const { data: radarLeadIds = [] } = useQuery<string[]>({
+    queryKey: ["/api/radar/ids"],
+    enabled: isAdminUser,
+  });
+  const radarSet = useMemo(() => new Set(radarLeadIds), [radarLeadIds]);
+
+  // Toggle radar mutation (admin only)
+  const toggleRadarMutation = useMutation({
+    mutationFn: async ({ leadId, sheetId, isOnRadar }: { leadId: string; sheetId: string; isOnRadar: boolean }) => {
+      if (isOnRadar) {
+        return await apiRequest("DELETE", `/api/radar/by-lead/${leadId}`);
+      } else {
+        return await apiRequest("POST", `/api/radar`, { lead_id: leadId, sheet_id: sheetId });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/radar/ids"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/radar"] });
+    },
+    onError: (error: any) => {
+      console.error("Failed to toggle radar:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update Radar",
         variant: "destructive",
       });
     },
@@ -4274,6 +4305,9 @@ export function SpreadsheetGrid({
                             {leadThought === "maybe" && (
                               <HelpCircle className="h-4 w-4 text-amber-500" />
                             )}
+                            {radarSet.has(lead.id) && (
+                              <Target className="h-3.5 w-3.5 text-blue-500 shrink-0" title="On Radar" />
+                            )}
                             <Checkbox
                               checked={selectedRows.has(lead.id)}
                               onCheckedChange={(checked) => {
@@ -4831,6 +4865,16 @@ export function SpreadsheetGrid({
                           >
                             View Details
                           </DropdownMenuItem>
+                          {isAdminUser && (
+                            <DropdownMenuItem
+                              onClick={() => toggleRadarMutation.mutate({ leadId: lead.id, sheetId: activeSheetId || '', isOnRadar: radarSet.has(lead.id) })}
+                              disabled={toggleRadarMutation.isPending}
+                              data-testid={`dropdown-radar-${lead.id}`}
+                            >
+                              <Target className={`h-4 w-4 mr-2 ${radarSet.has(lead.id) ? 'text-blue-500' : 'text-muted-foreground'}`} />
+                              {radarSet.has(lead.id) ? "Remove from Radar" : "Add to Radar"}
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             onClick={() => deleteLeadsMutation.mutate([lead.id])}
                             className="text-destructive"
@@ -4867,6 +4911,19 @@ export function SpreadsheetGrid({
                       >
                         <XCircle className="h-4 w-4 mr-2 text-muted-foreground" />
                         Clear Thought
+                      </ContextMenuItem>
+                    </>
+                  )}
+                  {isAdminUser && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        onClick={() => toggleRadarMutation.mutate({ leadId: lead.id, sheetId: activeSheetId || '', isOnRadar: radarSet.has(lead.id) })}
+                        disabled={toggleRadarMutation.isPending}
+                        data-testid={`context-radar-${lead.id}`}
+                      >
+                        <Target className={`h-4 w-4 mr-2 ${radarSet.has(lead.id) ? 'text-blue-500' : 'text-muted-foreground'}`} />
+                        {radarSet.has(lead.id) ? "Remove from Radar" : "Add to Radar"}
                       </ContextMenuItem>
                     </>
                   )}

@@ -394,6 +394,12 @@ export function AppSidebar() {
     //   testId: "link-hot-leads",
     //   badge: hotLeadsCount,
     // },
+    {
+      title: "Radar",
+      url: "/radar",
+      icon: Eye,
+      testId: "link-radar",
+    },
     // Webhooks - admin only
     ...((isCompanyAdmin || isSuperAdmin) ? [{
       title: "Webhooks",
