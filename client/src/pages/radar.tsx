@@ -231,6 +231,16 @@ function RadarCard({
                 </span>
               )}
 
+              {/* Project details — directly below status, subtle note style */}
+              {lead.project_details && (
+                <p
+                  className="text-[11px] text-muted-foreground leading-relaxed pl-2.5 border-l-2 border-border/70 dark:border-border/50"
+                  data-testid={`text-radar-details-${lead.id}`}
+                >
+                  {lead.project_details}
+                </p>
+              )}
+
               {/* Key info chips — no label */}
               <div className="flex flex-wrap gap-1" data-testid={`row-radar-keyinfo-${lead.id}`}>
                 {siteVisitByKey !== null && (
@@ -257,16 +267,6 @@ function RadarCard({
                   <span>{formatDate(lead.office_visit_date)}</span>
                 </div>
               </div>
-
-              {/* Project details — no label, subtle note style */}
-              {lead.project_details && (
-                <p
-                  className="text-[11px] text-muted-foreground leading-relaxed pl-2.5 border-l-2 border-border/70 dark:border-border/50"
-                  data-testid={`text-radar-details-${lead.id}`}
-                >
-                  {lead.project_details}
-                </p>
-              )}
             </>
           )}
 
@@ -394,7 +394,7 @@ export default function RadarPage() {
             <Button variant="outline" size="sm" onClick={() => setSelectedSheet("all")}>Clear filter</Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-start">
             {filteredLeads.map(lead => (
               <RadarCard
                 key={lead.id}
