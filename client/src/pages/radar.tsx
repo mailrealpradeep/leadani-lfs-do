@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { LeadUpdateDialog } from "@/components/lead-update-dialog";
@@ -24,15 +23,6 @@ function formatDate(val: string | null | undefined): string {
   const d = new Date(val);
   if (isNaN(d.getTime())) return val;
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-function getInitials(name: string): string {
-  return (name || "?")
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(w => w[0].toUpperCase())
-    .join("");
 }
 
 interface EditState {
@@ -107,34 +97,27 @@ function RadarCard({
         <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary z-10 pointer-events-none" />
 
         {/* ── Header ── */}
-        <div className="pl-4 pr-2 pt-3 pb-1.5 flex flex-row items-start justify-between gap-1">
-          <div className="flex items-start gap-2 min-w-0 flex-1">
-            <Avatar className="h-9 w-9 shrink-0 mt-0.5">
-              <AvatarFallback className="bg-primary/20 text-primary text-xs font-bold dark:bg-primary/35 dark:text-primary-foreground">
-                {getInitials(lead.lead_name || "?")}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex flex-col gap-1 min-w-0 flex-1">
-              <span
-                className="text-sm font-bold leading-tight text-foreground"
-                data-testid={`text-radar-name-${lead.id}`}
-              >
-                {lead.lead_name}
-              </span>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {lead.lead_mobile && (
-                  <span
-                    className="flex items-center gap-1 text-xs text-muted-foreground"
-                    data-testid={`text-radar-mobile-${lead.id}`}
-                  >
-                    <Phone className="h-3 w-3 shrink-0" />
-                    {lead.lead_mobile}
-                  </span>
-                )}
-                <Badge variant="secondary" className="text-[10px] py-0 px-1.5">
-                  {lead.sheet_name}
-                </Badge>
-              </div>
+        <div className="pl-4 pr-2 pt-3 pb-2 flex flex-row items-start justify-between gap-2">
+          <div className="flex flex-col gap-1 min-w-0 flex-1">
+            <span
+              className="text-base font-bold leading-snug text-foreground"
+              data-testid={`text-radar-name-${lead.id}`}
+            >
+              {lead.lead_name}
+            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {lead.lead_mobile && (
+                <span
+                  className="flex items-center gap-1 text-xs text-muted-foreground"
+                  data-testid={`text-radar-mobile-${lead.id}`}
+                >
+                  <Phone className="h-3 w-3 shrink-0" />
+                  {lead.lead_mobile}
+                </span>
+              )}
+              <Badge variant="secondary" className="text-[10px] py-0 px-1.5">
+                {lead.sheet_name}
+              </Badge>
             </div>
           </div>
 
