@@ -4866,7 +4866,7 @@ export function SpreadsheetGrid({
                           </DropdownMenuItem>
                           {isAdminUser && (
                             <DropdownMenuItem
-                              onClick={() => toggleRadarMutation.mutate({ leadId: lead.id, sheetId: activeSheetId || '', isOnRadar: radarSet.has(lead.id) })}
+                              onClick={() => toggleRadarMutation.mutate({ leadId: lead.id, sheetId: lead.sheet_id || activeSheetId || '', isOnRadar: radarSet.has(lead.id) })}
                               disabled={toggleRadarMutation.isPending}
                               data-testid={`dropdown-radar-${lead.id}`}
                             >
@@ -4917,7 +4917,7 @@ export function SpreadsheetGrid({
                     <>
                       <ContextMenuSeparator />
                       <ContextMenuItem
-                        onClick={() => toggleRadarMutation.mutate({ leadId: lead.id, sheetId: activeSheetId || '', isOnRadar: radarSet.has(lead.id) })}
+                        onClick={() => toggleRadarMutation.mutate({ leadId: lead.id, sheetId: lead.sheet_id || activeSheetId || '', isOnRadar: radarSet.has(lead.id) })}
                         disabled={toggleRadarMutation.isPending}
                         data-testid={`context-radar-${lead.id}`}
                       >
