@@ -26015,12 +26015,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // GET all radar leads for the current user's company/sheets
   app.get("/api/radar", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
+      const userId = req.userId!;
+      const userRole = req.userRole!;
+      const companyId = req.companyId!;
       let radarLeads;
-      if (user.role === 'company_admin' || user.role === 'super_admin') {
-        radarLeads = await storage.getRadarLeadsByCompany(user.company_id!);
+      if (userRole === 'company_admin' || userRole === 'super_admin') {
+        radarLeads = await storage.getRadarLeadsByCompany(companyId);
       } else {
-        const sheets = await storage.getSheetsByUserId(user.id);
+        const sheets = await storage.getSheetsByUserId(userId);
         const sheetIds = sheets.map((s: any) => s.id);
         radarLeads = await storage.getRadarLeadsBySheets(sheetIds);
       }
@@ -26034,12 +26036,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // GET radar lead IDs only (for spreadsheet grid indicator)
   app.get("/api/radar/ids", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
+      const userId = req.userId!;
+      const userRole = req.userRole!;
+      const companyId = req.companyId!;
       let radarLeads;
-      if (user.role === 'company_admin' || user.role === 'super_admin') {
-        radarLeads = await storage.getRadarLeadsByCompany(user.company_id!);
+      if (userRole === 'company_admin' || userRole === 'super_admin') {
+        radarLeads = await storage.getRadarLeadsByCompany(companyId);
       } else {
-        const sheets = await storage.getSheetsByUserId(user.id);
+        const sheets = await storage.getSheetsByUserId(userId);
         const sheetIds = sheets.map((s: any) => s.id);
         radarLeads = await storage.getRadarLeadsBySheets(sheetIds);
       }
@@ -26053,8 +26057,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // POST add a lead to radar (admin only)
   app.post("/api/radar", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
-      if (user.role !== 'company_admin' && user.role !== 'super_admin') {
+      const userId = req.userId!;
+      const userRole = req.userRole!;
+      const companyId = req.companyId!;
+      if (userRole !== 'company_admin' && userRole !== 'super_admin') {
         return res.status(403).json({ error: "Only admins can add leads to Radar" });
       }
       const { lead_id, sheet_id } = req.body;
@@ -26063,7 +26069,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
       // Validate that the sheet belongs to the admin's company
       const sheet = await storage.getSheet(sheet_id);
-      if (!sheet || sheet.company_id !== user.company_id) {
+      if (!sheet || sheet.company_id !== companyId) {
         return res.status(403).json({ error: "Sheet not found or does not belong to your company" });
       }
       // Validate that the lead belongs to the specified sheet
@@ -26076,7 +26082,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (existing) {
         return res.status(409).json({ error: "Lead is already on Radar" });
       }
-      const radarLead = await storage.createRadarLead(lead_id, sheet_id, user.company_id!, user.id);
+      const radarLead = await storage.createRadarLead(lead_id, sheet_id, companyId, userId);
       res.status(201).json(radarLead);
     } catch (error: any) {
       console.error("Error adding radar lead:", error);
@@ -26087,8 +26093,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // PATCH update radar lead card fields (admin only)
   app.patch("/api/radar/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
-      if (user.role !== 'company_admin' && user.role !== 'super_admin') {
+      const userRole = req.userRole!;
+      const companyId = req.companyId!;
+      if (userRole !== 'company_admin' && userRole !== 'super_admin') {
         return res.status(403).json({ error: "Only admins can update Radar leads" });
       }
       const { id } = req.params;
@@ -26098,7 +26105,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!existingEntry) {
         return res.status(404).json({ error: "Radar lead not found" });
       }
-      if (existingEntry.company_id !== user.company_id) {
+      if (existingEntry.company_id !== companyId) {
         return res.status(403).json({ error: "Forbidden" });
       }
       const updated = await storage.updateRadarLead(id, {
@@ -26119,13 +26126,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // DELETE remove a lead from radar (admin only)
   app.delete("/api/radar/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
-      if (user.role !== 'company_admin' && user.role !== 'super_admin') {
+      const userRole = req.userRole!;
+      const companyId = req.companyId!;
+      if (userRole !== 'company_admin' && userRole !== 'super_admin') {
         return res.status(403).json({ error: "Only admins can remove leads from Radar" });
       }
       const { id } = req.params;
       const radarEntry = await storage.getRadarLead(id);
-      if (!radarEntry || radarEntry.company_id !== user.company_id) {
+      if (!radarEntry || radarEntry.company_id !== companyId) {
         return res.status(404).json({ error: "Radar lead not found" });
       }
       await storage.deleteRadarLead(id);
@@ -26139,13 +26147,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // DELETE remove a lead from radar by lead_id (admin only, used by spreadsheet grid)
   app.delete("/api/radar/by-lead/:leadId", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const user = req.user!;
-      if (user.role !== 'company_admin' && user.role !== 'super_admin') {
+      const userRole = req.userRole!;
+      const companyId = req.companyId!;
+      if (userRole !== 'company_admin' && userRole !== 'super_admin') {
         return res.status(403).json({ error: "Only admins can remove leads from Radar" });
       }
       const { leadId } = req.params;
       const radarEntry = await storage.getRadarLeadByLeadId(leadId);
-      if (!radarEntry || radarEntry.company_id !== user.company_id) {
+      if (!radarEntry || radarEntry.company_id !== companyId) {
         return res.status(404).json({ error: "Radar lead not found" });
       }
       await storage.deleteRadarLeadByLeadId(leadId);
@@ -26155,7 +26164,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       res.status(500).json({ error: error.message });
     }
   });
-
 
   // ============================================================================
   // WHATSAPP CLOUD API - META EMBEDDED SIGNUP

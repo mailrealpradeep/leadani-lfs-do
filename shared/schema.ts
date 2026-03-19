@@ -5339,7 +5339,7 @@ export const insertSailaBookingSchema = createInsertSchema(saila_bookings).omit(
 // ============================================================================
 export const radar_leads = pgTable('radar_leads', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }).unique(),
   sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
   added_by: varchar('added_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
