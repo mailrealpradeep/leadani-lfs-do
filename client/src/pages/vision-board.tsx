@@ -2506,8 +2506,7 @@ export default function VisionBoardPage() {
       const url = quickActionsUserId !== "all"
         ? `/api/custom-views-counts?userId=${encodeURIComponent(quickActionsUserId)}`
         : "/api/custom-views-counts";
-      const res = await apiRequest("GET", url);
-      return res.json();
+      return apiRequest<{ counts: Record<string, number> }>("GET", url);
     },
     enabled: enabledViews.length > 0,
     refetchInterval: 60000,
