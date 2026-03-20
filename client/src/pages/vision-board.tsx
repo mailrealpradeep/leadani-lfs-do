@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useIsFetching } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Target, 
@@ -52,6 +52,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import type { VisionBoard, VisionBoardEarning, CompanyHoliday, VisionBoardMessage } from "@shared/schema";
 import { getCompanyTimezone } from "@/lib/timezone-utils";
@@ -2242,7 +2243,8 @@ export default function VisionBoardPage() {
   const isAdminOrMultiSheet = user?.role === 'company_admin' || user?.is_multi_sheet_user;
   const [selectedUserView, setSelectedUserView] = useState<string>(isAdminOrMultiSheet ? 'company' : 'me');
   const [quickActionsUserId, setQuickActionsUserId] = useState<string>("all");
-  
+  const isFetchingCount = useIsFetching();
+
   // Fetch all users for the dropdown (only for Admin/Multi-sheet users)
   const { data: allUsers = [] } = useQuery<Array<{ id: string; name: string; email: string }>>({
     queryKey: ["/api/company/users"],
@@ -2857,6 +2859,19 @@ export default function VisionBoardPage() {
   };
   const labels = getLabels();
 
+  // Refresh all vision board data
+  const handleRefreshAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/vision-board/admin/company-data"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/vision-board/admin/user-data"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/vision-board/my-pipeline"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/vision-board/closed-sales"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/vision-board/conversion-performance"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/vision-board/messages"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/custom-views"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/custom-views-counts"] });
+  };
+
   // Get selected user name for display
   const getSelectedUserName = () => {
     if (selectedUserView === 'company') return 'Company Vision';
@@ -2867,9 +2882,24 @@ export default function VisionBoardPage() {
 
   return (
     <div className="relative h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 pb-16">
-      {/* User Filter Dropdown for Admin/Multi-sheet users */}
-      {isAdminOrMultiSheet && (
-        <div className="absolute top-4 right-4 z-50">
+      {/* Top-right controls: Refresh button (all users) + User filter dropdown (admins) */}
+      <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleRefreshAll}
+              disabled={isFetchingCount > 0}
+              className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm shadow-lg h-9 w-9"
+              data-testid="button-vision-board-refresh"
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetchingCount > 0 ? "animate-spin" : ""}`} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Refresh all data</TooltipContent>
+        </Tooltip>
+        {isAdminOrMultiSheet && (
           <Select value={selectedUserView} onValueChange={setSelectedUserView}>
             <SelectTrigger 
               className="w-48 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm border-white/20 shadow-lg"
@@ -2903,8 +2933,8 @@ export default function VisionBoardPage() {
               ))}
             </SelectContent>
           </Select>
-        </div>
-      )}
+        )}
+      </div>
       
       {images.length > 0 ? (
         <div className="relative h-[40vh] min-h-[300px]">
