@@ -2218,6 +2218,7 @@ export default function VisionBoardPage() {
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   const [conversionSectionVisible, setConversionSectionVisible] = useState(false);
   const conversionObserverRef = useRef<IntersectionObserver | null>(null);
+  const hasInitiallyLoaded = useRef(false);
   const conversionSectionRef = useCallback((node: HTMLDivElement | null) => {
     if (conversionObserverRef.current) {
       conversionObserverRef.current.disconnect();
@@ -2594,19 +2595,22 @@ export default function VisionBoardPage() {
     return acc;
   }, {} as Record<string, CustomView[]>);
 
-  // Loading states
-  const isLoading = boardLoading || loadingAdminCompany || loadingAdminUser;
-  
-  if (isLoading) {
+  // Loading states — split initial page load from user-switch transitions
+  const isUserSwitching = loadingAdminCompany || loadingAdminUser;
+  const isInitialLoading = (boardLoading || isUserSwitching) && !hasInitiallyLoaded.current;
+
+  if (isInitialLoading) {
     return (
       <AnimatePresence>
         <VisionBoardPreloader />
       </AnimatePresence>
     );
   }
-  
+  // Mark as initially loaded so subsequent user-switch fetches never re-trigger the preloader
+  hasInitiallyLoaded.current = true;
+
   // Admin viewing Company Vision with no targets set
-  if (isCompanyView && !adminCompanyVision?.board) {
+  if (isCompanyView && !loadingAdminCompany && !adminCompanyVision?.board) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center p-4">
         <Card className="w-full max-w-lg mx-auto">
@@ -2634,7 +2638,7 @@ export default function VisionBoardPage() {
   
   // Viewing specific user with no admin targets set - only show empty state for admin viewing others
   // Regular users viewing themselves should fall back to personal board (handled below)
-  if (viewingUserId && !adminUserVision?.target && viewingUserId !== user?.id && isAdminOrMultiSheet) {
+  if (viewingUserId && !loadingAdminUser && !adminUserVision?.target && viewingUserId !== user?.id && isAdminOrMultiSheet) {
     const userName = allUsers.find(u => u.id === selectedUserView)?.name || 'This user';
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center p-4">
@@ -2882,6 +2886,16 @@ export default function VisionBoardPage() {
 
   return (
     <div className="relative h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 pb-16">
+      {/* Subtle inline spinner overlay during user-switch transitions (no full-page preloader) */}
+      {isUserSwitching && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/40 backdrop-blur-[1px]">
+          <div className="flex items-center gap-3 bg-background/80 backdrop-blur-sm rounded-lg px-6 py-4 shadow-lg border">
+            <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Loading...</span>
+          </div>
+        </div>
+      )}
+
       {/* Top-right controls: Refresh button (all users) + User filter dropdown (admins) */}
       <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
         <Tooltip>
