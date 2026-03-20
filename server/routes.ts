@@ -14418,10 +14418,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         if (targetUserId) {
           // Admin filtering to a specific user's sheets
           sheets = await storage.getSheetsByUserId(targetUserId);
-          // Scope to this company's sheets only
-          const companySheets = await storage.getSheetsByCompanyId(req.companyId!);
-          const companySheetIds = new Set(companySheets.map((s: any) => s.id));
-          sheets = sheets.filter((s: any) => companySheetIds.has(s.id));
+          // Scope to this company's sheets only (guard against cross-company access)
+          if (req.companyId) {
+            const companySheets = await storage.getSheetsByCompanyId(req.companyId);
+            const companySheetIds = new Set(companySheets.map((s: any) => s.id));
+            sheets = sheets.filter((s: any) => companySheetIds.has(s.id));
+          }
         } else if (req.userRole === "super_admin") {
           sheets = await storage.getAllSheets();
         } else if (req.userRole === "company_admin") {

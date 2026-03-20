@@ -3202,7 +3202,7 @@ export default function VisionBoardPage() {
               >
                 <div className="flex items-center justify-between gap-2 px-1">
                   <h3 className="text-sm font-medium text-muted-foreground">Quick Actions</h3>
-                  {isAdminOrMultiSheet && (
+                  {user?.role === 'company_admin' && (
                     <Select value={quickActionsUserId} onValueChange={setQuickActionsUserId}>
                       <SelectTrigger
                         className="h-7 text-xs w-[140px]"
