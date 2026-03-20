@@ -2890,7 +2890,6 @@ export default function VisionBoardPage() {
               size="icon"
               variant="ghost"
               onClick={handleRefreshAll}
-              disabled={isFetchingCount > 0}
               className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm shadow-lg h-9 w-9"
               data-testid="button-vision-board-refresh"
             >
