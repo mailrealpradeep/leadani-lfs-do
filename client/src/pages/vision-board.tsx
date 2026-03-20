@@ -2241,6 +2241,7 @@ export default function VisionBoardPage() {
   // 'company' = company-wide vision, 'me' = personal, user ID = specific user
   const isAdminOrMultiSheet = user?.role === 'company_admin' || user?.is_multi_sheet_user;
   const [selectedUserView, setSelectedUserView] = useState<string>(isAdminOrMultiSheet ? 'company' : 'me');
+  const [quickActionsUserId, setQuickActionsUserId] = useState<string>("all");
   
   // Fetch all users for the dropdown (only for Admin/Multi-sheet users)
   const { data: allUsers = [] } = useQuery<Array<{ id: string; name: string; email: string }>>({
@@ -2498,9 +2499,16 @@ export default function VisionBoardPage() {
 
   const enabledViews = customViews.filter(v => v.is_enabled);
 
-  // Fetch custom view counts
+  // Fetch custom view counts — with optional per-user filter for admins
   const { data: customViewsCounts } = useQuery<{ counts: Record<string, number> }>({
-    queryKey: ["/api/custom-views-counts"],
+    queryKey: ["/api/custom-views-counts", quickActionsUserId],
+    queryFn: async () => {
+      const url = quickActionsUserId !== "all"
+        ? `/api/custom-views-counts?userId=${encodeURIComponent(quickActionsUserId)}`
+        : "/api/custom-views-counts";
+      const res = await apiRequest("GET", url);
+      return res.json();
+    },
     enabled: enabledViews.length > 0,
     refetchInterval: 60000,
   });
@@ -3192,7 +3200,25 @@ export default function VisionBoardPage() {
                 transition={{ delay: 0.4 }}
                 className="mt-6 space-y-4"
               >
-                <h3 className="text-sm font-medium text-muted-foreground px-1">Quick Actions</h3>
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <h3 className="text-sm font-medium text-muted-foreground">Quick Actions</h3>
+                  {isAdminOrMultiSheet && (
+                    <Select value={quickActionsUserId} onValueChange={setQuickActionsUserId}>
+                      <SelectTrigger
+                        className="h-7 text-xs w-[140px]"
+                        data-testid="select-quick-actions-user-filter"
+                      >
+                        <SelectValue placeholder="All Users" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Users</SelectItem>
+                        {allUsers.map(u => (
+                          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {sectionOrder.map((section, sectionIdx) => {
                     const views = viewsBySection[section];

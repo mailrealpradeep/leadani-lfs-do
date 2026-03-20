@@ -14402,7 +14402,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // GET /api/custom-views/counts - Get counts for all enabled custom views (for sidebar badges)
   app.get("/api/custom-views-counts", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}`;
+      const targetUserId = (req.userRole === "company_admin" || req.userRole === "super_admin")
+        ? (req.query.userId as string | undefined) || null
+        : null;
+      const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}:${targetUserId ?? "all"}`;
       const result = await customViewsCountCache.getOrComputeSwr(cacheKey, async () => {
         const views = await storage.getCustomViews(req.companyId!);
         const enabledViews = views.filter(v => v.is_enabled && v.show_badge);
@@ -14412,7 +14415,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
 
         let sheets: Sheet[];
-        if (req.userRole === "super_admin") {
+        if (targetUserId) {
+          // Admin filtering to a specific user's sheets
+          sheets = await storage.getSheetsByUserId(targetUserId);
+          // Scope to this company's sheets only
+          const companySheets = await storage.getSheetsByCompanyId(req.companyId!);
+          const companySheetIds = new Set(companySheets.map((s: any) => s.id));
+          sheets = sheets.filter((s: any) => companySheetIds.has(s.id));
+        } else if (req.userRole === "super_admin") {
           sheets = await storage.getAllSheets();
         } else if (req.userRole === "company_admin") {
           sheets = await storage.getSheetsByCompanyId(req.companyId!);
