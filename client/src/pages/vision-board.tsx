@@ -2505,7 +2505,7 @@ export default function VisionBoardPage() {
     }>;
   }
   
-  const { data: myPipelineData, isLoading: isPipelineLoading } = useQuery<MyPipelineResponse>({
+  const { data: myPipelineData } = useQuery<MyPipelineResponse>({
     queryKey: ["/api/vision-board/my-pipeline"],
     enabled: !isTeamView && !!user?.id,
     staleTime: 0,
@@ -2816,11 +2816,14 @@ export default function VisionBoardPage() {
 
   if (!displayData && !boardLoading) return null;
 
-  const currency = displayData?.currency ?? 'INR';
+  // When boardLoading=true, displayData may be null (gcTime:0 cleared cache on remount).
+  // These fallbacks only activate during that window; all render uses are inside
+  // boardLoading ? <skeleton> : <real section> blocks so no fallback value ever renders.
+  const currency = displayData ? displayData.currency : 'INR';
   const currencySymbol = currencySymbols[currency] || currency;
-  const images = displayData?.images ?? [];
-  const currentTargets = displayData?.effortTargets ?? { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
-  const currentAchieved = displayData?.effortAchieved ?? { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+  const images = displayData ? displayData.images : ([] as Array<{url: string; caption: string}>);
+  const currentTargets = displayData ? displayData.effortTargets : { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+  const currentAchieved = displayData ? displayData.effortAchieved : { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
   
   // Calculate individual progress percentages for the 3 metrics (excluding Sales)
   const newLeadsProgress = currentTargets.leads_attended > 0 
@@ -3287,60 +3290,6 @@ export default function VisionBoardPage() {
           </motion.div>
           </div>
           
-          {/* My Pipeline Stages — only for personal (non-team) view */}
-          {!isTeamView && (isPipelineLoading || (myPipelineData?.stages && myPipelineData.stages.length > 0)) && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.35 }}
-              className="mt-6"
-            >
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                My Pipeline
-              </h3>
-              {isPipelineLoading ? (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[0, 1, 2, 3].map((i) => (
-                    <Card key={i} className="border-0 shadow-lg bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl">
-                      <CardContent className="p-4 space-y-2">
-                        <Skeleton className="h-3 w-20" />
-                        <Skeleton className="h-7 w-10" />
-                        <Skeleton className="h-3 w-16" />
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {myPipelineData!.stages.map((stage) => {
-                    const pipelineCurrency = myPipelineData!.currency;
-                    const pipelineCurrencySymbol = currencySymbols[pipelineCurrency] || pipelineCurrency;
-                    return (
-                      <Card
-                        key={stage.stage_number}
-                        className={cn(
-                          "border-0 shadow-lg bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl",
-                          stage.is_final_stage && "ring-1 ring-emerald-500/40"
-                        )}
-                      >
-                        <CardContent className="p-4">
-                          <p className="text-xs text-muted-foreground truncate mb-1">{stage.stage_name}</p>
-                          <p className="text-2xl font-bold">{stage.count}</p>
-                          {stage.projected_incentive > 0 && (
-                            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
-                              {pipelineCurrencySymbol}{stage.projected_incentive.toLocaleString('en-IN')}
-                            </p>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-            </motion.div>
-          )}
-
           {/* Row 2: Quick Actions (single column) */}
           {/* Custom Views Section Cards */}
             {Object.keys(viewsBySection).length > 0 && (
