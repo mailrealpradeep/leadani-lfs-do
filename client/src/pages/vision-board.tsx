@@ -554,11 +554,20 @@ function VisionBoardMessageCard({
 
 function VisionBoardMessages() {
   const { user } = useAuth();
-  const { data: messages = [] } = useQuery<VisionBoardMessage[]>({
+  const { data: messages = [], isLoading: messagesLoading } = useQuery<VisionBoardMessage[]>({
     queryKey: ["/api/vision-board/messages"],
     enabled: !!user?.company_id,
+    staleTime: 0,
+    gcTime: 0,
   });
   
+  if (messagesLoading) {
+    return (
+      <div className="mt-4 pt-4 border-t border-border/50">
+        <Skeleton className="h-4 w-3/4 mx-auto" />
+      </div>
+    );
+  }
   if (!messages || messages.length === 0) {
     return null;
   }
@@ -1266,6 +1275,8 @@ function UpdateIncentivesDialog({
       return response.json();
     },
     enabled: open,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   const addMutation = useMutation({
@@ -2210,6 +2221,26 @@ function VisionBoardPreloader() {
   );
 }
 
+let hasVisionBoardLoadedOnce = false;
+
+function VisionBoardSkeletonPage() {
+  return (
+    <div className="relative h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950">
+      <div className="h-[30vh] min-h-[200px] bg-gradient-to-br from-purple-600/60 via-pink-600/60 to-orange-500/60 animate-pulse" />
+      <div className="max-w-6xl mx-auto px-4 -mt-20 relative z-10 pb-12">
+        <div className="flex flex-col gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6">
+            <Skeleton className="h-80 rounded-xl shadow-xl" />
+            <Skeleton className="h-80 rounded-xl shadow-xl" />
+          </div>
+          <Skeleton className="h-48 rounded-xl shadow-xl" />
+          <Skeleton className="h-32 rounded-xl shadow-xl" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function VisionBoardPage() {
   const { user, company } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "yesterday" | "weekly" | "monthly" | "last_month" | "yearly">("daily");
@@ -2218,7 +2249,6 @@ export default function VisionBoardPage() {
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   const [conversionSectionVisible, setConversionSectionVisible] = useState(false);
   const conversionObserverRef = useRef<IntersectionObserver | null>(null);
-  const hasInitiallyLoaded = useRef(false);
   const conversionSectionRef = useCallback((node: HTMLDivElement | null) => {
     if (conversionObserverRef.current) {
       conversionObserverRef.current.disconnect();
@@ -2291,6 +2321,8 @@ export default function VisionBoardPage() {
       return res.json();
     },
     enabled: isCompanyView,
+    staleTime: 0,
+    gcTime: 0,
   });
   
   // Fetch admin-controlled user vision data (for specific user view or 'me')
@@ -2342,6 +2374,8 @@ export default function VisionBoardPage() {
       return res.json();
     },
     enabled: !!viewingUserId,
+    staleTime: 0,
+    gcTime: 0,
   });
   
   // Helper to scale yearly targets based on selected period
@@ -2448,6 +2482,8 @@ export default function VisionBoardPage() {
   
   const { data: apiResponse, isLoading: boardLoading } = useQuery<VisionBoardApiResponse>({
     queryKey: ["/api/vision-board"],
+    staleTime: 0,
+    gcTime: 0,
   });
 
   // Determine if this is team view or personal view
@@ -2460,11 +2496,15 @@ export default function VisionBoardPage() {
   const { data: progress, isLoading: progressLoading, refetch: refetchProgress } = useQuery<VisionBoardProgress>({
     queryKey: ["/api/vision-board", visionBoard?.id, "progress"],
     enabled: !!visionBoard?.id && !isTeamView,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   const { data: earnings } = useQuery<VisionBoardEarning[]>({
     queryKey: ["/api/vision-board", visionBoard?.id, "earnings"],
     enabled: !!visionBoard?.id && !isTeamView,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   // Fetch user's own pipeline data for projected incentive (Vision Board dual-ring)
@@ -2486,6 +2526,8 @@ export default function VisionBoardPage() {
   const { data: myPipelineData } = useQuery<MyPipelineResponse>({
     queryKey: ["/api/vision-board/my-pipeline"],
     enabled: !isTeamView && !!user?.id,
+    staleTime: 0,
+    gcTime: 0,
   });
   
   // Use projected incentive directly from API response
@@ -2583,6 +2625,8 @@ export default function VisionBoardPage() {
       return res.json();
     },
     enabled: !!user?.company_id && conversionSectionVisible,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   // Group views by section in the specified order
@@ -2597,7 +2641,7 @@ export default function VisionBoardPage() {
 
   // Loading states — split initial page load from user-switch transitions
   const isUserSwitching = loadingAdminCompany || loadingAdminUser;
-  const isInitialLoading = (boardLoading || isUserSwitching) && !hasInitiallyLoaded.current;
+  const isInitialLoading = (boardLoading || isUserSwitching) && !hasVisionBoardLoadedOnce;
 
   if (isInitialLoading) {
     return (
@@ -2606,8 +2650,18 @@ export default function VisionBoardPage() {
       </AnimatePresence>
     );
   }
-  // Mark as initially loaded so subsequent user-switch fetches never re-trigger the preloader
-  hasInitiallyLoaded.current = true;
+  // Mark as loaded so subsequent visits skip the full preloader
+  hasVisionBoardLoadedOnce = true;
+
+  // Re-visit skeleton: board or critical admin data still loading — show skeleton layout
+  // instead of flashing SetupWizard, empty states, or stale cached numbers
+  const isCriticalDataLoading =
+    boardLoading ||
+    (isCompanyView && loadingAdminCompany) ||
+    (!!viewingUserId && viewingUserId !== user?.id && isAdminOrMultiSheet && loadingAdminUser);
+  if (isCriticalDataLoading) {
+    return <VisionBoardSkeletonPage />;
+  }
 
   // Admin viewing Company Vision with no targets set
   if (isCompanyView && !loadingAdminCompany && !adminCompanyVision?.board) {
@@ -3170,6 +3224,14 @@ export default function VisionBoardPage() {
                 </div>
               </CardHeader>
               <CardContent className="pt-4">
+                {progressLoading ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Skeleton className="h-28 rounded-xl" />
+                    <Skeleton className="h-28 rounded-xl" />
+                    <Skeleton className="h-28 rounded-xl" />
+                    <Skeleton className="h-28 rounded-xl" />
+                  </div>
+                ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <EffortMetricCard
                     icon={Users}
@@ -3212,6 +3274,7 @@ export default function VisionBoardPage() {
                     selectedPeriod={selectedPeriod}
                   />
                 </div>
+                )}
                 
                 {/* Average Effort Meter Card - Full Width */}
                 <div className="mt-3">
