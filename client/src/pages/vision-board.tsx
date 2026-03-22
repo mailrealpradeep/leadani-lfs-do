@@ -558,6 +558,7 @@ function VisionBoardMessages() {
     queryKey: ["/api/vision-board/messages"],
     enabled: !!user?.company_id,
     staleTime: 0,
+    gcTime: 0,
   });
   
   if (messagesLoading) {
@@ -1275,6 +1276,7 @@ function UpdateIncentivesDialog({
     },
     enabled: open,
     staleTime: 0,
+    gcTime: 0,
   });
 
   const addMutation = useMutation({
@@ -2302,6 +2304,7 @@ export default function VisionBoardPage() {
     },
     enabled: isCompanyView,
     staleTime: 0,
+    gcTime: 0,
   });
   
   // Fetch admin-controlled user vision data (for specific user view or 'me')
@@ -2354,6 +2357,7 @@ export default function VisionBoardPage() {
     },
     enabled: !!viewingUserId,
     staleTime: 0,
+    gcTime: 0,
   });
   
   // Helper to scale yearly targets based on selected period
@@ -2461,6 +2465,7 @@ export default function VisionBoardPage() {
   const { data: apiResponse, isLoading: boardLoading } = useQuery<VisionBoardApiResponse>({
     queryKey: ["/api/vision-board"],
     staleTime: 0,
+    gcTime: 0,
   });
 
   // Determine if this is team view or personal view
@@ -2474,12 +2479,14 @@ export default function VisionBoardPage() {
     queryKey: ["/api/vision-board", visionBoard?.id, "progress"],
     enabled: !!visionBoard?.id && !isTeamView,
     staleTime: 0,
+    gcTime: 0,
   });
 
   const { data: earnings } = useQuery<VisionBoardEarning[]>({
     queryKey: ["/api/vision-board", visionBoard?.id, "earnings"],
     enabled: !!visionBoard?.id && !isTeamView,
     staleTime: 0,
+    gcTime: 0,
   });
 
   // Fetch user's own pipeline data for projected incentive (Vision Board dual-ring)
@@ -2502,6 +2509,7 @@ export default function VisionBoardPage() {
     queryKey: ["/api/vision-board/my-pipeline"],
     enabled: !isTeamView && !!user?.id,
     staleTime: 0,
+    gcTime: 0,
   });
   
   // Use projected incentive directly from API response
@@ -2600,6 +2608,7 @@ export default function VisionBoardPage() {
     },
     enabled: !!user?.company_id && conversionSectionVisible,
     staleTime: 0,
+    gcTime: 0,
   });
 
   // Group views by section in the specified order
@@ -2704,8 +2713,9 @@ export default function VisionBoardPage() {
     );
   }
 
-  // Personal view - show setup wizard if no board
-  if (!isTeamView && !visionBoard) {
+  // Personal view - show setup wizard if no board (boardLoading guard prevents false-positive
+  // flash when gcTime:0 clears visionBoard from cache before the fresh fetch resolves)
+  if (!boardLoading && !isTeamView && !visionBoard) {
     return <SetupWizard onComplete={() => queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] })} />;
   }
 
@@ -2804,13 +2814,13 @@ export default function VisionBoardPage() {
     startDate: visionBoard.start_date ? new Date(visionBoard.start_date) : new Date(visionBoard.created_at!),
   } : null;
 
-  if (!displayData) return null;
+  if (!displayData && !boardLoading) return null;
 
-  const currency = displayData.currency;
+  const currency = displayData?.currency ?? 'INR';
   const currencySymbol = currencySymbols[currency] || currency;
-  const images = displayData.images;
-  const currentTargets = displayData.effortTargets;
-  const currentAchieved = displayData.effortAchieved;
+  const images = displayData?.images ?? [];
+  const currentTargets = displayData?.effortTargets ?? { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+  const currentAchieved = displayData?.effortAchieved ?? { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
   
   // Calculate individual progress percentages for the 3 metrics (excluding Sales)
   const newLeadsProgress = currentTargets.leads_attended > 0 
