@@ -2505,7 +2505,7 @@ export default function VisionBoardPage() {
     }>;
   }
   
-  const { data: myPipelineData } = useQuery<MyPipelineResponse>({
+  const { data: myPipelineData, isLoading: isPipelineLoading } = useQuery<MyPipelineResponse>({
     queryKey: ["/api/vision-board/my-pipeline"],
     enabled: !isTeamView && !!user?.id,
     staleTime: 0,
@@ -3056,7 +3056,7 @@ export default function VisionBoardPage() {
                 <div className="mb-2">
                   <span className="text-sm font-medium text-muted-foreground">{labels.progressLabel}</span>
                 </div>
-                {boardLoading ? (
+                {(boardLoading || isPipelineLoading) ? (
                   <div className="flex flex-col items-center gap-4 py-4">
                     <Skeleton className="h-44 w-44 rounded-full" />
                     <Skeleton className="h-3 w-36" />
