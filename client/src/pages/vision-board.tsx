@@ -2845,7 +2845,7 @@ export default function VisionBoardPage() {
     weeklyOffDays,
     holidayDates,
     timezone,
-    displayData.startDate  // Pass Vision Board start date for yearly calculation
+    displayData?.startDate  // Pass Vision Board start date for yearly calculation
   );
   
   // Labels based on view type
