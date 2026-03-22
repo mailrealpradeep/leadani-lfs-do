@@ -2505,7 +2505,7 @@ export default function VisionBoardPage() {
     }>;
   }
   
-  const { data: myPipelineData } = useQuery<MyPipelineResponse>({
+  const { data: myPipelineData, isLoading: isPipelineLoading } = useQuery<MyPipelineResponse>({
     queryKey: ["/api/vision-board/my-pipeline"],
     enabled: !isTeamView && !!user?.id,
     staleTime: 0,
@@ -2713,7 +2713,10 @@ export default function VisionBoardPage() {
     );
   }
 
-  // Personal view - show setup wizard if no board (guard boardLoading to prevent flash on re-visits)
+  // Personal view - show setup wizard if no board.
+  // STRICTLY NECESSARY to guard !boardLoading: gcTime:0 clears visionBoard from cache on every
+  // navigation, so without this guard the setup wizard would flash on every re-visit
+  // before the fresh fetch resolves.
   if (!boardLoading && !isTeamView && !visionBoard) {
     return <SetupWizard onComplete={() => queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] })} />;
   }
@@ -2812,6 +2815,10 @@ export default function VisionBoardPage() {
     targetDate: new Date(visionBoard.target_date),
     startDate: visionBoard.start_date ? new Date(visionBoard.start_date) : new Date(visionBoard.created_at!),
   } : boardLoading || isUserSwitching ? {
+    // STRICTLY NECESSARY: gcTime:0 clears the board from cache on every navigation.
+    // Without this loading-defaults branch, displayData = null → `if (!displayData) return null`
+    // fires during every re-visit, which (a) blocks all section skeletons from rendering,
+    // and (b) hides the user-switch spinner overlay added in Task #17.
     goalAmount: 0,
     goalDescription: '',
     currency: 'INR',
@@ -2991,7 +2998,11 @@ export default function VisionBoardPage() {
       </div>
       
       {boardLoading ? (
-        <div className="h-[30vh] min-h-[200px] bg-gradient-to-br from-purple-600/50 via-pink-600/50 to-orange-500/50 animate-pulse" />
+        <div className="h-[30vh] min-h-[200px] bg-gradient-to-br from-purple-600/40 via-pink-600/40 to-orange-500/40 animate-pulse flex flex-col items-center justify-center gap-3">
+          <Skeleton className="h-4 w-32 bg-white/20" />
+          <Skeleton className="h-8 w-48 bg-white/30" />
+          <Skeleton className="h-4 w-40 bg-white/20" />
+        </div>
       ) : images.length > 0 ? (
         <div className="relative h-[40vh] min-h-[300px]">
           <ImageCarousel images={images} />
@@ -3297,6 +3308,60 @@ export default function VisionBoardPage() {
           </motion.div>
           </div>
           
+          {/* My Pipeline Stages — only for personal (non-team) view */}
+          {!isTeamView && (isPipelineLoading || (myPipelineData?.stages && myPipelineData.stages.length > 0)) && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+              className="mt-6"
+            >
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1 flex items-center gap-2">
+                <TrendingUp className="h-4 w-4" />
+                My Pipeline
+              </h3>
+              {isPipelineLoading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[0, 1, 2, 3].map((i) => (
+                    <Card key={i} className="border-0 shadow-lg bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl">
+                      <CardContent className="p-4 space-y-2">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-7 w-10" />
+                        <Skeleton className="h-3 w-16" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {myPipelineData!.stages.map((stage) => {
+                    const pipelineCurrency = myPipelineData!.currency;
+                    const pipelineCurrencySymbol = currencySymbols[pipelineCurrency] || pipelineCurrency;
+                    return (
+                      <Card
+                        key={stage.stage_number}
+                        className={cn(
+                          "border-0 shadow-lg bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl",
+                          stage.is_final_stage && "ring-1 ring-emerald-500/40"
+                        )}
+                      >
+                        <CardContent className="p-4">
+                          <p className="text-xs text-muted-foreground truncate mb-1">{stage.stage_name}</p>
+                          <p className="text-2xl font-bold">{stage.count}</p>
+                          {stage.projected_incentive > 0 && (
+                            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+                              {pipelineCurrencySymbol}{stage.projected_incentive.toLocaleString('en-IN')}
+                            </p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </motion.div>
+          )}
+
           {/* Row 2: Quick Actions (single column) */}
           {/* Custom Views Section Cards */}
             {Object.keys(viewsBySection).length > 0 && (
