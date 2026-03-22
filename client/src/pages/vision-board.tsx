@@ -558,7 +558,6 @@ function VisionBoardMessages() {
     queryKey: ["/api/vision-board/messages"],
     enabled: !!user?.company_id,
     staleTime: 0,
-    gcTime: 0,
   });
   
   if (messagesLoading) {
@@ -1276,7 +1275,6 @@ function UpdateIncentivesDialog({
     },
     enabled: open,
     staleTime: 0,
-    gcTime: 0,
   });
 
   const addMutation = useMutation({
@@ -2304,7 +2302,6 @@ export default function VisionBoardPage() {
     },
     enabled: isCompanyView,
     staleTime: 0,
-    gcTime: 0,
   });
   
   // Fetch admin-controlled user vision data (for specific user view or 'me')
@@ -2357,7 +2354,6 @@ export default function VisionBoardPage() {
     },
     enabled: !!viewingUserId,
     staleTime: 0,
-    gcTime: 0,
   });
   
   // Helper to scale yearly targets based on selected period
@@ -2465,7 +2461,6 @@ export default function VisionBoardPage() {
   const { data: apiResponse, isLoading: boardLoading } = useQuery<VisionBoardApiResponse>({
     queryKey: ["/api/vision-board"],
     staleTime: 0,
-    gcTime: 0,
   });
 
   // Determine if this is team view or personal view
@@ -2479,14 +2474,12 @@ export default function VisionBoardPage() {
     queryKey: ["/api/vision-board", visionBoard?.id, "progress"],
     enabled: !!visionBoard?.id && !isTeamView,
     staleTime: 0,
-    gcTime: 0,
   });
 
   const { data: earnings } = useQuery<VisionBoardEarning[]>({
     queryKey: ["/api/vision-board", visionBoard?.id, "earnings"],
     enabled: !!visionBoard?.id && !isTeamView,
     staleTime: 0,
-    gcTime: 0,
   });
 
   // Fetch user's own pipeline data for projected incentive (Vision Board dual-ring)
@@ -2509,7 +2502,6 @@ export default function VisionBoardPage() {
     queryKey: ["/api/vision-board/my-pipeline"],
     enabled: !isTeamView && !!user?.id,
     staleTime: 0,
-    gcTime: 0,
   });
   
   // Use projected incentive directly from API response
@@ -2608,7 +2600,6 @@ export default function VisionBoardPage() {
     },
     enabled: !!user?.company_id && conversionSectionVisible,
     staleTime: 0,
-    gcTime: 0,
   });
 
   // Group views by section in the specified order
@@ -2713,11 +2704,8 @@ export default function VisionBoardPage() {
     );
   }
 
-  // Personal view - show setup wizard if no board.
-  // STRICTLY NECESSARY to guard !boardLoading: gcTime:0 clears visionBoard from cache on every
-  // navigation, so without this guard the setup wizard would flash on every re-visit
-  // before the fresh fetch resolves.
-  if (!boardLoading && !isTeamView && !visionBoard) {
+  // Personal view - show setup wizard if no board
+  if (!isTeamView && !visionBoard) {
     return <SetupWizard onComplete={() => queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] })} />;
   }
 
@@ -2814,25 +2802,6 @@ export default function VisionBoardPage() {
     effortAchieved: progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(visionBoard.target_date),
     startDate: visionBoard.start_date ? new Date(visionBoard.start_date) : new Date(visionBoard.created_at!),
-  } : boardLoading || isUserSwitching ? {
-    // STRICTLY NECESSARY: gcTime:0 clears the board from cache on every navigation.
-    // Without this loading-defaults branch, displayData = null → `if (!displayData) return null`
-    // fires during every re-visit, which (a) blocks all section skeletons from rendering,
-    // and (b) hides the user-switch spinner overlay added in Task #17.
-    goalAmount: 0,
-    goalDescription: '',
-    currency: 'INR',
-    images: [] as Array<{url: string; caption: string}>,
-    progressPercent: 0,
-    earned: 0,
-    remaining: 0,
-    projectedIncentive: 0,
-    actualIncentive: 0,
-    projectedProgressPercent: 0,
-    effortTargets: { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
-    effortAchieved: { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
-    targetDate: new Date(),
-    startDate: new Date(),
   } : null;
 
   if (!displayData) return null;
