@@ -3218,7 +3218,7 @@ export default function VisionBoardPage() {
                 </div>
               </CardHeader>
               <CardContent className="pt-4">
-                {progressLoading ? (
+                {(boardLoading || progressLoading) ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Skeleton className="h-28 rounded-xl" />
                     <Skeleton className="h-28 rounded-xl" />
