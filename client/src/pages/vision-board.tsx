@@ -2223,24 +2223,6 @@ function VisionBoardPreloader() {
 
 let hasVisionBoardLoadedOnce = false;
 
-function VisionBoardSkeletonPage() {
-  return (
-    <div className="relative h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950">
-      <div className="h-[30vh] min-h-[200px] bg-gradient-to-br from-purple-600/60 via-pink-600/60 to-orange-500/60 animate-pulse" />
-      <div className="max-w-6xl mx-auto px-4 -mt-20 relative z-10 pb-12">
-        <div className="flex flex-col gap-6">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6">
-            <Skeleton className="h-80 rounded-xl shadow-xl" />
-            <Skeleton className="h-80 rounded-xl shadow-xl" />
-          </div>
-          <Skeleton className="h-48 rounded-xl shadow-xl" />
-          <Skeleton className="h-32 rounded-xl shadow-xl" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function VisionBoardPage() {
   const { user, company } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<"daily" | "yesterday" | "weekly" | "monthly" | "last_month" | "yearly">("daily");
@@ -2653,16 +2635,6 @@ export default function VisionBoardPage() {
   // Mark as loaded so subsequent visits skip the full preloader
   hasVisionBoardLoadedOnce = true;
 
-  // Re-visit skeleton: board or critical admin data still loading — show skeleton layout
-  // instead of flashing SetupWizard, empty states, or stale cached numbers
-  const isCriticalDataLoading =
-    boardLoading ||
-    (isCompanyView && loadingAdminCompany) ||
-    (!!viewingUserId && viewingUserId !== user?.id && isAdminOrMultiSheet && loadingAdminUser);
-  if (isCriticalDataLoading) {
-    return <VisionBoardSkeletonPage />;
-  }
-
   // Admin viewing Company Vision with no targets set
   if (isCompanyView && !loadingAdminCompany && !adminCompanyVision?.board) {
     return (
@@ -2741,8 +2713,8 @@ export default function VisionBoardPage() {
     );
   }
 
-  // Personal view - show setup wizard if no board
-  if (!isTeamView && !visionBoard) {
+  // Personal view - show setup wizard if no board (guard boardLoading to prevent flash on re-visits)
+  if (!boardLoading && !isTeamView && !visionBoard) {
     return <SetupWizard onComplete={() => queryClient.invalidateQueries({ queryKey: ["/api/vision-board"] })} />;
   }
 
@@ -2839,6 +2811,21 @@ export default function VisionBoardPage() {
     effortAchieved: progress?.effort_achieved?.[selectedPeriod] || { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
     targetDate: new Date(visionBoard.target_date),
     startDate: visionBoard.start_date ? new Date(visionBoard.start_date) : new Date(visionBoard.created_at!),
+  } : boardLoading || isUserSwitching ? {
+    goalAmount: 0,
+    goalDescription: '',
+    currency: 'INR',
+    images: [] as Array<{url: string; caption: string}>,
+    progressPercent: 0,
+    earned: 0,
+    remaining: 0,
+    projectedIncentive: 0,
+    actualIncentive: 0,
+    projectedProgressPercent: 0,
+    effortTargets: { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    effortAchieved: { sales: 0, visits: 0, leads_attended: 0, followups: 0 },
+    targetDate: new Date(),
+    startDate: new Date(),
   } : null;
 
   if (!displayData) return null;
@@ -3003,7 +2990,9 @@ export default function VisionBoardPage() {
         )}
       </div>
       
-      {images.length > 0 ? (
+      {boardLoading ? (
+        <div className="h-[30vh] min-h-[200px] bg-gradient-to-br from-purple-600/50 via-pink-600/50 to-orange-500/50 animate-pulse" />
+      ) : images.length > 0 ? (
         <div className="relative h-[40vh] min-h-[300px]">
           <ImageCarousel images={images} />
           <div className="absolute inset-0 flex items-center justify-center">
@@ -3074,6 +3063,17 @@ export default function VisionBoardPage() {
                 <div className="mb-2">
                   <span className="text-sm font-medium text-muted-foreground">{labels.progressLabel}</span>
                 </div>
+                {boardLoading ? (
+                  <div className="flex flex-col items-center gap-4 py-4">
+                    <Skeleton className="h-44 w-44 rounded-full" />
+                    <Skeleton className="h-3 w-36" />
+                    <Skeleton className="h-3 w-28" />
+                    <div className="w-full flex gap-2 mt-2">
+                      <Skeleton className="h-10 flex-1 rounded-lg" />
+                      <Skeleton className="h-10 flex-1 rounded-lg" />
+                    </div>
+                  </div>
+                ) : (
                 <div className="flex flex-col items-center">
                   {/* Unified dual-ring UI for both team and personal views */}
                   <DualRingProgress 
@@ -3175,6 +3175,7 @@ export default function VisionBoardPage() {
                   {/* Messages Section */}
                   <VisionBoardMessages />
                 </div>
+                )}
               </CardContent>
             </Card>
             
