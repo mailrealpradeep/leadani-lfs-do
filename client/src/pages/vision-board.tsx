@@ -2536,6 +2536,8 @@ export default function VisionBoardPage() {
       return apiRequest<{ counts: Record<string, number> }>("GET", url);
     },
     enabled: enabledViews.length > 0,
+    staleTime: 0,
+    gcTime: 0,
     refetchInterval: 60000,
   });
 
