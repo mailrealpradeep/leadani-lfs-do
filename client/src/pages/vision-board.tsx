@@ -3075,7 +3075,7 @@ export default function VisionBoardPage() {
                 <div className="mb-2">
                   <span className="text-sm font-medium text-muted-foreground">{labels.progressLabel}</span>
                 </div>
-                {(boardLoading || isPipelineLoading) ? (
+                {boardLoading ? (
                   <div className="flex flex-col items-center gap-4 py-4">
                     <Skeleton className="h-44 w-44 rounded-full" />
                     <Skeleton className="h-3 w-36" />
@@ -3090,7 +3090,7 @@ export default function VisionBoardPage() {
                   {/* Unified dual-ring UI for both team and personal views */}
                   <DualRingProgress 
                     actualProgress={displayData.progressPercent}
-                    projectedProgress={displayData.projectedProgressPercent}
+                    projectedProgress={isPipelineLoading ? 0 : displayData.projectedProgressPercent}
                     size={180}
                     outerStrokeWidth={8}
                     innerStrokeWidth={12}
@@ -3105,9 +3105,13 @@ export default function VisionBoardPage() {
                           {formatCurrency(displayData.earned || 0, currency)}
                         </p>
                         <p className="text-xs text-muted-foreground -mt-0.5">/</p>
-                        <p className="text-sm font-semibold text-amber-600 dark:text-amber-400" data-testid="text-projected-incentive">
-                          {formatCurrency(displayData.projectedIncentive || 0, currency)}
-                        </p>
+                        {isPipelineLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-amber-500 mx-auto" data-testid="text-projected-incentive" />
+                        ) : (
+                          <p className="text-sm font-semibold text-amber-600 dark:text-amber-400" data-testid="text-projected-incentive">
+                            {formatCurrency(displayData.projectedIncentive || 0, currency)}
+                          </p>
+                        )}
                       </motion.div>
                       <motion.p
                         initial={{ opacity: 0 }}
@@ -3116,7 +3120,7 @@ export default function VisionBoardPage() {
                         className="text-[10px] font-medium mt-1 bg-gradient-to-r from-emerald-600 to-amber-600 bg-clip-text text-transparent"
                         data-testid="text-motivational-message"
                       >
-                        {getMotivationalMessage(displayData.progressPercent || 0, displayData.projectedProgressPercent || 0)}
+                        {getMotivationalMessage(displayData.progressPercent || 0, isPipelineLoading ? 0 : (displayData.projectedProgressPercent || 0))}
                       </motion.p>
                     </div>
                   </DualRingProgress>
@@ -3126,10 +3130,14 @@ export default function VisionBoardPage() {
                     <div className="flex items-center gap-1.5" data-testid="legend-projected">
                       <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
                       <span className="text-muted-foreground">
-                        Projected {Math.round(displayData.projectedProgressPercent || 0)}% 
-                        <span className="font-medium text-amber-600 dark:text-amber-400" data-testid="card-projected">
-                          ({formatCurrency(displayData.projectedIncentive || 0, currency)})
-                        </span>
+                        {isPipelineLoading ? (
+                          <Loader2 className="inline h-3 w-3 animate-spin align-middle" />
+                        ) : (
+                          <>Projected {Math.round(displayData.projectedProgressPercent || 0)}% 
+                          <span className="font-medium text-amber-600 dark:text-amber-400" data-testid="card-projected">
+                            ({formatCurrency(displayData.projectedIncentive || 0, currency)})
+                          </span></>
+                        )}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5" data-testid="legend-actual">
@@ -3150,9 +3158,13 @@ export default function VisionBoardPage() {
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex-1 text-center py-1 px-2 rounded bg-amber-50 dark:bg-amber-950/30">
                           <p className="text-[10px] text-amber-600 dark:text-amber-400">Projected</p>
-                          <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
-                            {formatCurrency(Math.max(0, displayData.goalAmount - (displayData.projectedIncentive || 0)), currency)}
-                          </p>
+                          {isPipelineLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-amber-500 mx-auto my-0.5" />
+                          ) : (
+                            <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                              {formatCurrency(Math.max(0, displayData.goalAmount - (displayData.projectedIncentive || 0)), currency)}
+                            </p>
+                          )}
                         </div>
                         <div className="flex-1 text-center py-1 px-2 rounded bg-emerald-50 dark:bg-emerald-950/30">
                           <p className="text-[10px] text-emerald-600 dark:text-emerald-400">Actual</p>
@@ -3372,7 +3384,9 @@ export default function VisionBoardPage() {
                                   totalCount === 0 && "text-muted-foreground"
                                 )}>{config.title}</CardTitle>
                               </div>
-                              {totalCount > 0 ? (
+                              {isLoadingCounts ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />
+                              ) : totalCount > 0 ? (
                                 <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-foreground/10 px-2 text-xs font-medium">
                                   {totalCount}
                                 </span>
