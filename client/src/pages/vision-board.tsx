@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   ExternalLink,
   Activity,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { Link } from "wouter";
@@ -392,6 +393,7 @@ function EffortMetricCard({
   delay = 0,
   expectedPercent,
   selectedPeriod,
+  loading = false,
 }: {
   icon: React.ElementType;
   label: string;
@@ -401,6 +403,7 @@ function EffortMetricCard({
   delay?: number;
   expectedPercent?: number;
   selectedPeriod?: "daily" | "weekly" | "monthly" | "yearly";
+  loading?: boolean;
 }) {
   const progress = target > 0 ? Math.min(100, (achieved / target) * 100) : 0;
   
@@ -439,7 +442,9 @@ function EffortMetricCard({
               </div>
               <span className="text-sm font-medium text-muted-foreground">{label}</span>
             </div>
-            {expectedPercent !== undefined ? (
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : expectedPercent !== undefined ? (
               <div className="flex flex-col items-end gap-0.5">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-medium text-muted-foreground">Expected</span>
@@ -477,8 +482,12 @@ function EffortMetricCard({
           </div>
           
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold">{achieved}</span>
-            <span className="text-sm text-muted-foreground">/ {target}</span>
+            {loading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            ) : (
+              <span className="text-2xl font-bold">{achieved}</span>
+            )}
+            <span className="text-sm text-muted-foreground">/ {loading ? "—" : target}</span>
           </div>
           
           <div className="mt-3 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -2262,6 +2271,8 @@ export default function VisionBoardPage() {
   const { data: allUsers = [] } = useQuery<Array<{ id: string; name: string; email: string }>>({
     queryKey: ["/api/company/users"],
     enabled: !!isAdminOrMultiSheet && !!user?.company_id,
+    staleTime: 0,
+    gcTime: 0,
   });
   
   // Determine which user to view (for admin-controlled data)
@@ -2522,12 +2533,14 @@ export default function VisionBoardPage() {
   const { data: customViews = [] } = useQuery<CustomView[]>({
     queryKey: ["/api/custom-views"],
     enabled: !!user?.company_id,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   const enabledViews = customViews.filter(v => v.is_enabled);
 
   // Fetch custom view counts — with optional per-user filter for admins
-  const { data: customViewsCounts } = useQuery<{ counts: Record<string, number> }>({
+  const { data: customViewsCounts, isLoading: isLoadingCounts } = useQuery<{ counts: Record<string, number> }>({
     queryKey: ["/api/custom-views-counts", quickActionsUserId],
     queryFn: async () => {
       const url = quickActionsUserId !== "all"
@@ -2545,6 +2558,8 @@ export default function VisionBoardPage() {
   const { data: companySettings } = useQuery<{ settings: { timezone?: string; weekly_off_days?: number[] } }>({
     queryKey: ["/api/admin/company/settings"],
     enabled: !!user?.company_id,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   // Fetch company holidays for expected percentage calculation
@@ -2553,6 +2568,8 @@ export default function VisionBoardPage() {
   const { data: holidays = [] } = useQuery<CompanyHoliday[]>({
     queryKey: ["/api/holidays"],
     enabled: !!user?.company_id,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   // Fetch conversion performance data
@@ -3220,14 +3237,6 @@ export default function VisionBoardPage() {
                 </div>
               </CardHeader>
               <CardContent className="pt-4">
-                {(boardLoading || progressLoading) ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-28 rounded-xl" />
-                    <Skeleton className="h-28 rounded-xl" />
-                    <Skeleton className="h-28 rounded-xl" />
-                    <Skeleton className="h-28 rounded-xl" />
-                  </div>
-                ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <EffortMetricCard
                     icon={Users}
@@ -3238,6 +3247,7 @@ export default function VisionBoardPage() {
                     delay={0.1}
                     expectedPercent={expectedPercent}
                     selectedPeriod={selectedPeriod}
+                    loading={boardLoading || progressLoading}
                   />
                   <EffortMetricCard
                     icon={MessageSquare}
@@ -3248,6 +3258,7 @@ export default function VisionBoardPage() {
                     delay={0.2}
                     expectedPercent={expectedPercent}
                     selectedPeriod={selectedPeriod}
+                    loading={boardLoading || progressLoading}
                   />
                   <EffortMetricCard
                     icon={MapPin}
@@ -3258,6 +3269,7 @@ export default function VisionBoardPage() {
                     delay={0.3}
                     expectedPercent={expectedPercent}
                     selectedPeriod={selectedPeriod}
+                    loading={boardLoading || progressLoading}
                   />
                   <EffortMetricCard
                     icon={CheckCircle2}
@@ -3268,9 +3280,9 @@ export default function VisionBoardPage() {
                     delay={0.4}
                     expectedPercent={expectedPercent}
                     selectedPeriod={selectedPeriod}
+                    loading={boardLoading || progressLoading}
                   />
                 </div>
-                )}
                 
                 {/* Average Effort Meter Card - Full Width */}
                 <div className="mt-3">
@@ -3403,13 +3415,17 @@ export default function VisionBoardPage() {
                                         <span className="text-sm font-medium">{view.name}</span>
                                       </div>
                                       <div className="flex items-center gap-2">
-                                        {view.show_badge && count > 0 && (
-                                          <span className={cn(
-                                            "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-xs font-medium text-white",
-                                            badgeBgClass
-                                          )}>
-                                            {count}
-                                          </span>
+                                        {view.show_badge && (
+                                          isLoadingCounts ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />
+                                          ) : count > 0 ? (
+                                            <span className={cn(
+                                              "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-xs font-medium text-white",
+                                              badgeBgClass
+                                            )}>
+                                              {count}
+                                            </span>
+                                          ) : null
                                         )}
                                         <ExternalLink className="h-3.5 w-3.5 text-muted-foreground/50" />
                                       </div>

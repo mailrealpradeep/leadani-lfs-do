@@ -14405,8 +14405,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const targetUserId = (req.userRole === "company_admin" || req.userRole === "super_admin")
         ? (req.query.userId as string | undefined) || null
         : null;
-      const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}:${targetUserId ?? "all"}`;
-      const result = await customViewsCountCache.getOrComputeSwr(cacheKey, async () => {
+      const result = await (async () => {
         const views = await storage.getCustomViews(req.companyId!);
         const enabledViews = views.filter(v => v.is_enabled && v.show_badge);
 
@@ -14457,7 +14456,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
 
         return { counts };
-      });
+      })();
 
       res.json(result);
     } catch (error: any) {
@@ -23445,15 +23444,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       console.log('[Vision Board] isTeamView:', isTeamView);
       
       if (isTeamView && req.companyId) {
-        const teamCacheKey = `${req.companyId}:team`;
-        const result = await visionTeamCache.getOrComputeSwr(teamCacheKey, async () => {
-          const teamData = await getTeamVisionBoardAggregates(req.companyId!);
-          if (!teamData) {
-            return { mode: 'team', board_count: 0, aggregate: null };
-          }
-          return teamData;
-        });
-        return res.json(result);
+        const teamData = await getTeamVisionBoardAggregates(req.companyId!);
+        return res.json(teamData ?? { mode: 'team', board_count: 0, aggregate: null });
       }
       
       // Personal view for single-sheet users
@@ -23781,12 +23773,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(404).json({ error: "Vision board not found" });
       }
 
-      const progressCacheKey = `${req.companyId}:${req.userId}:${visionBoardId}`;
-      const cachedProgress = visionProgressCache.get(progressCacheKey);
-      if (cachedProgress) {
-        return res.json(cachedProgress);
-      }
-
       const earnings = await storage.getVisionBoardEarnings(visionBoardId);
       const totalEarned = earnings.reduce((sum, e) => sum + e.amount, 0);
       const progressPercent = board.goal_amount > 0 ? (totalEarned / board.goal_amount) * 100 : 0;
@@ -23915,8 +23901,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         effort_achieved: effortAchieved,
       };
 
-      visionProgressCache.set(progressCacheKey, progressResult);
-
       res.json(progressResult);
     } catch (error: any) {
       console.error("Error calculating progress:", error);
@@ -23933,35 +23917,30 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      const cacheKey = `${req.companyId}:${req.userId}`;
-      const result = await visionPipelineCache.getOrComputeSwr(cacheKey, async () => {
-        const metrics = await getUserPipelineMetrics(req.companyId, req.userId);
-        
-        if (!metrics) {
-          return { projected_incentive: 0, actual_incentive: 0, stages: [] };
-        }
+      const metrics = await getUserPipelineMetrics(req.companyId, req.userId);
 
-        const settings = await storage.getConversionSettingsComplete(req.companyId);
-        const currency = settings?.value?.currency || 'INR';
+      if (!metrics) {
+        return res.json({ projected_incentive: 0, actual_incentive: 0, stages: [] });
+      }
 
-        return {
-          projected_incentive: metrics.total_projected_incentive,
-          actual_incentive: metrics.total_actual_incentive,
-          currency,
-          stages: metrics.stages.map(s => ({
-            stage_number: s.stage_number,
-            stage_name: s.stage_name,
-            color: s.color,
-            count: s.count,
-            incentives: s.incentives,
-            projected_incentive: s.projected_incentive,
-            is_final_stage: s.is_final_stage,
-            is_first_stage: s.is_first_stage,
-          })),
-        };
+      const settings = await storage.getConversionSettingsComplete(req.companyId);
+      const currency = settings?.value?.currency || 'INR';
+
+      res.json({
+        projected_incentive: metrics.total_projected_incentive,
+        actual_incentive: metrics.total_actual_incentive,
+        currency,
+        stages: metrics.stages.map(s => ({
+          stage_number: s.stage_number,
+          stage_name: s.stage_name,
+          color: s.color,
+          count: s.count,
+          incentives: s.incentives,
+          projected_incentive: s.projected_incentive,
+          is_final_stage: s.is_final_stage,
+          is_first_stage: s.is_first_stage,
+        })),
       });
-
-      res.json(result);
     } catch (error: any) {
       console.error("Error fetching user pipeline for vision board:", error);
       res.status(500).json({ error: error.message });
@@ -23991,8 +23970,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json({ company: null, sheets: [], stages_config: emptyStagesConfig });
       }
 
-      const convCacheKey = `${req.companyId}:${req.userId}:conv:${dateFilter || 'last_30_days'}:${String(startDate || '')}:${String(endDate || '')}`;
-      const convResult = await visionConversionCache.getOrComputeSwr(convCacheKey, async () => {
+      const convResult = await (async () => {
       // Define sortedStages at top level - accessible throughout the endpoint
       const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
 
@@ -24298,7 +24276,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         sheets: sheetData,
         stages_config: stagesConfig,
       };
-      }); // end getOrComputeSwr
+      })();
       res.json(convResult);
     } catch (error: any) {
       console.error("Error fetching conversion performance:", error);
