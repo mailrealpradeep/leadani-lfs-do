@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -1362,6 +1362,10 @@ function ErrorLogTab() {
   const total = data?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  useEffect(() => {
+    if (totalPages > 0 && page > totalPages) setPage(totalPages);
+  }, [totalPages, page]);
+
   function handleStatusChange(val: string) {
     setStatusFilter(val);
     setPage(1);
@@ -1602,7 +1606,7 @@ function ErrorLogTab() {
 
       )}
 
-      {!isLoading && logs.length > 0 && totalPages > 1 && (
+      {!isLoading && total > 0 && (
         <div className="flex items-center justify-between px-1 pt-1 pb-1">
           <span className="text-xs text-muted-foreground">
             {total} total events · Page {page} of {totalPages}
@@ -1610,20 +1614,22 @@ function ErrorLogTab() {
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
-              size="icon"
+              size="sm"
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1 || isFetching}
               data-testid="button-log-prev"
             >
               <ChevronLeft className="h-4 w-4" />
+              Previous
             </Button>
             <Button
               variant="outline"
-              size="icon"
+              size="sm"
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={page === totalPages || isFetching}
               data-testid="button-log-next"
             >
+              Next
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
