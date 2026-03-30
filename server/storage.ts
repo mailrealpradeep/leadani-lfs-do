@@ -1201,6 +1201,7 @@ export interface IStorage {
   // Saila.AI - Call Commitments
   createSailaCallCommitment(data: InsertSailaCallCommitment): Promise<SailaCallCommitment>;
   getSailaCallCommitments(companyId: string, options?: { date?: string; status?: string; executive_phones?: string[] }): Promise<SailaCallCommitment[]>;
+  getSailaCallCommitmentById(id: string): Promise<SailaCallCommitment | undefined>;
   updateSailaCallCommitment(id: string, data: { status: string; notes?: string }): Promise<SailaCallCommitment | undefined>;
 }
 
@@ -3893,6 +3894,7 @@ export class MemStorage implements IStorage {
   async getSailaActivityLogs(_companyId: string, _options?: any): Promise<{ logs: SailaActivityLogEntry[]; total: number }> { return { logs: [], total: 0 }; }
   async createSailaCallCommitment(_data: InsertSailaCallCommitment): Promise<SailaCallCommitment> { throw new Error("Not implemented"); }
   async getSailaCallCommitments(_companyId: string, _options?: any): Promise<SailaCallCommitment[]> { return []; }
+  async getSailaCallCommitmentById(_id: string): Promise<SailaCallCommitment | undefined> { return undefined; }
   async updateSailaCallCommitment(_id: string, _data: { status: string; notes?: string }): Promise<SailaCallCommitment | undefined> { return undefined; }
 }
 
@@ -12822,6 +12824,14 @@ export class PgStorage implements IStorage {
       .from(dbSchema.saila_call_commitments)
       .where(and(...conditions))
       .orderBy(asc(dbSchema.saila_call_commitments.call_time_label), asc(dbSchema.saila_call_commitments.created_at));
+  }
+
+  async getSailaCallCommitmentById(id: string): Promise<SailaCallCommitment | undefined> {
+    const result = await db.select()
+      .from(dbSchema.saila_call_commitments)
+      .where(eq(dbSchema.saila_call_commitments.id, id))
+      .limit(1);
+    return result[0];
   }
 
   async updateSailaCallCommitment(id: string, data: { status: string; notes?: string }): Promise<SailaCallCommitment | undefined> {

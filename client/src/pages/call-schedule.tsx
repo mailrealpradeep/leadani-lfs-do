@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import {
   Phone,
   PhoneOff,
@@ -18,6 +19,7 @@ import {
   Clock,
   CalendarDays,
   User,
+  ExternalLink,
 } from "lucide-react";
 import type { SailaCallCommitment } from "@shared/schema";
 
@@ -50,11 +52,13 @@ function CommitmentCard({
   commitment,
   onMarkDone,
   onMarkMissed,
+  onViewLead,
   isUpdating,
 }: {
   commitment: SailaCallCommitment;
   onMarkDone: (id: string) => void;
   onMarkMissed: (id: string) => void;
+  onViewLead: (leadId: string) => void;
   isUpdating: boolean;
 }) {
   const customerLabel = commitment.sender_name || commitment.sender_phone;
@@ -93,15 +97,13 @@ function CommitmentCard({
             </div>
 
             <div className="space-y-1">
-              {commitment.sender_name && (
-                <a
-                  href={`tel:${commitment.sender_phone}`}
-                  className="block text-xs text-muted-foreground font-mono hover:text-foreground transition-colors"
-                  data-testid={`link-phone-${commitment.id}`}
-                >
-                  {commitment.sender_phone}
-                </a>
-              )}
+              <a
+                href={`tel:${commitment.sender_phone}`}
+                className="block text-xs text-muted-foreground font-mono hover:text-foreground transition-colors"
+                data-testid={`link-phone-${commitment.id}`}
+              >
+                {commitment.sender_phone}
+              </a>
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <User className="h-3 w-3 flex-shrink-0" />
                 <span>
@@ -112,32 +114,45 @@ function CommitmentCard({
               </div>
             </div>
 
-            {isPending && (
-              <div className="flex items-center gap-2 mt-3">
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              {isPending && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-green-600 border-green-200 dark:border-green-800 dark:text-green-400"
+                    onClick={() => onMarkDone(commitment.id)}
+                    disabled={isUpdating}
+                    data-testid={`button-done-${commitment.id}`}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                    Mark Done
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-red-600 border-red-200 dark:border-red-800 dark:text-red-400"
+                    onClick={() => onMarkMissed(commitment.id)}
+                    disabled={isUpdating}
+                    data-testid={`button-missed-${commitment.id}`}
+                  >
+                    <XCircle className="h-3.5 w-3.5 mr-1" />
+                    Mark Missed
+                  </Button>
+                </>
+              )}
+              {commitment.lead_id && (
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="text-green-600 border-green-200 dark:border-green-800 dark:text-green-400"
-                  onClick={() => onMarkDone(commitment.id)}
-                  disabled={isUpdating}
-                  data-testid={`button-done-${commitment.id}`}
+                  variant="ghost"
+                  onClick={() => onViewLead(commitment.lead_id!)}
+                  data-testid={`button-view-lead-${commitment.id}`}
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                  Mark Done
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                  View Lead
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-red-600 border-red-200 dark:border-red-800 dark:text-red-400"
-                  onClick={() => onMarkMissed(commitment.id)}
-                  disabled={isUpdating}
-                  data-testid={`button-missed-${commitment.id}`}
-                >
-                  <XCircle className="h-3.5 w-3.5 mr-1" />
-                  Mark Missed
-                </Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </CardContent>
@@ -146,10 +161,12 @@ function CommitmentCard({
 }
 
 export default function CallSchedulePage() {
-  const { user, isCompanyAdmin } = useAuth();
+  const { isCompanyAdmin } = useAuth();
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [statusFilter, setStatusFilter] = useState('all');
   const [executivePhoneFilter, setExecutivePhoneFilter] = useState('all');
+  const [drawerLeadId, setDrawerLeadId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const queryKey = ['/api/saila/call-commitments', { date: selectedDate, status: statusFilter, executive_phone: executivePhoneFilter }];
 
@@ -184,6 +201,11 @@ export default function CallSchedulePage() {
   const goToToday = () => setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
 
   const isToday = selectedDate === format(new Date(), 'yyyy-MM-dd');
+
+  const handleViewLead = (leadId: string) => {
+    setDrawerLeadId(leadId);
+    setDrawerOpen(true);
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -296,6 +318,7 @@ export default function CallSchedulePage() {
                   commitment={commitment}
                   onMarkDone={(id) => updateMutation.mutate({ id, status: 'completed' })}
                   onMarkMissed={(id) => updateMutation.mutate({ id, status: 'missed' })}
+                  onViewLead={handleViewLead}
                   isUpdating={updateMutation.isPending}
                 />
               ))
@@ -303,6 +326,13 @@ export default function CallSchedulePage() {
           </div>
         </div>
       </div>
+
+      <LeadDetailDrawer
+        leadId={drawerLeadId}
+        sheetId={null}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+      />
     </div>
   );
 }

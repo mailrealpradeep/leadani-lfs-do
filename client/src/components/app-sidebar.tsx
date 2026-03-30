@@ -123,6 +123,14 @@ export function AppSidebar() {
 
   const hotLeadsCount = hotLeadsData?.count || 0;
 
+  // Fetch call commitments pending count for today
+  const { data: callCommitmentCounts } = useQuery<{ pending: number; completed: number; missed: number }>({
+    queryKey: ["/api/saila/call-commitments/counts"],
+    enabled: !isSuperAdminAccount,
+    refetchInterval: 60000,
+  });
+  const callCommitmentPendingCount = callCommitmentCounts?.pending || 0;
+
   // Fetch custom views for sidebar
   interface CustomView {
     id: string;
@@ -405,6 +413,7 @@ export function AppSidebar() {
       url: "/call-schedule",
       icon: Phone,
       testId: "link-call-schedule",
+      badge: callCommitmentPendingCount,
     },
     // Webhooks - admin only
     ...((isCompanyAdmin || isSuperAdmin) ? [{

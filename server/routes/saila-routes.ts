@@ -374,7 +374,8 @@ export function registerSailaRoutes(app: Express): void {
   app.get("/api/saila/call-commitments", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const companyId = req.companyId;
-      if (!companyId) return res.status(400).json({ error: "No company" });
+      const userId = req.userId;
+      if (!companyId || !userId) return res.status(400).json({ error: "No company" });
 
       const dateParam = req.query.date as string | undefined;
       const statusParam = req.query.status as string | undefined;
@@ -383,7 +384,9 @@ export function registerSailaRoutes(app: Express): void {
       const today = format(new Date(), 'yyyy-MM-dd');
       const date = dateParam || today;
 
-      const isAdmin = req.userRole === 'company_admin' || req.userRole === 'super_admin';
+      const isAdminRole = req.userRole === 'company_admin' || req.userRole === 'super_admin';
+      const isMultiSheet = !isAdminRole ? await storage.isMultiSheetUser(userId) : false;
+      const isAdmin = isAdminRole || isMultiSheet;
 
       let executivePhones: string[] | undefined;
       if (isAdmin) {
@@ -392,7 +395,7 @@ export function registerSailaRoutes(app: Express): void {
         }
       } else {
         const allocations = await storage.getWhatsAppAllocations(companyId);
-        const userAllocations = allocations.filter(a => a.user_id === req.userId);
+        const userAllocations = allocations.filter(a => a.user_id === userId);
         if (userAllocations.length === 0) {
           return res.json([]);
         }
@@ -413,11 +416,34 @@ export function registerSailaRoutes(app: Express): void {
 
   app.patch("/api/saila/call-commitments/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      const companyId = req.companyId;
+      const userId = req.userId;
+      if (!companyId || !userId) return res.status(400).json({ error: "No company" });
+
       const { id } = req.params;
       const { status, notes } = req.body;
-      if (!status || !['completed', 'missed', 'pending'].includes(status)) {
-        return res.status(400).json({ error: "status must be completed, missed, or pending" });
+
+      if (!status || !['completed', 'missed'].includes(status)) {
+        return res.status(400).json({ error: "status must be completed or missed" });
       }
+
+      const existing = await storage.getSailaCallCommitmentById(id);
+      if (!existing || existing.company_id !== companyId) {
+        return res.status(404).json({ error: "Commitment not found" });
+      }
+
+      const isAdminRole = req.userRole === 'company_admin' || req.userRole === 'super_admin';
+      const isMultiSheet = !isAdminRole ? await storage.isMultiSheetUser(userId) : false;
+      const isAdmin = isAdminRole || isMultiSheet;
+
+      if (!isAdmin) {
+        const allocations = await storage.getWhatsAppAllocations(companyId);
+        const userPhones = allocations.filter(a => a.user_id === userId).map(a => a.display_phone_number);
+        if (!userPhones.includes(existing.executive_phone)) {
+          return res.status(403).json({ error: "Not authorized to update this commitment" });
+        }
+      }
+
       const updated = await storage.updateSailaCallCommitment(id, { status, notes });
       if (!updated) return res.status(404).json({ error: "Commitment not found" });
       res.json(updated);
@@ -429,14 +455,18 @@ export function registerSailaRoutes(app: Express): void {
   app.get("/api/saila/call-commitments/counts", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const companyId = req.companyId;
-      if (!companyId) return res.status(400).json({ error: "No company" });
+      const userId = req.userId;
+      if (!companyId || !userId) return res.status(400).json({ error: "No company" });
 
       const today = format(new Date(), 'yyyy-MM-dd');
-      const isAdmin = req.userRole === 'company_admin' || req.userRole === 'super_admin';
+      const isAdminRole = req.userRole === 'company_admin' || req.userRole === 'super_admin';
+      const isMultiSheet = !isAdminRole ? await storage.isMultiSheetUser(userId) : false;
+      const isAdmin = isAdminRole || isMultiSheet;
+
       let executivePhones: string[] | undefined;
       if (!isAdmin) {
         const allocations = await storage.getWhatsAppAllocations(companyId);
-        const userAllocations = allocations.filter(a => a.user_id === req.userId);
+        const userAllocations = allocations.filter(a => a.user_id === userId);
         if (userAllocations.length === 0) return res.json({ pending: 0, completed: 0, missed: 0 });
         executivePhones = userAllocations.map(a => a.display_phone_number);
       }
