@@ -138,7 +138,7 @@ function CommitmentCard({
                   Mark Done
                 </Button>
               )}
-              {status === 'pending' && (
+              {(status === 'pending' || status === 'missed') && (
                 <Button
                   size="sm"
                   variant="outline"
