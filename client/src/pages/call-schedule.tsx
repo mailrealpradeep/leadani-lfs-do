@@ -139,13 +139,13 @@ function CommitmentCard({
                   Mark Done
                 </Button>
               )}
-              {(status === 'pending' || isNoResponse) && (
+              {status === 'pending' && (
                 <Button
                   size="sm"
                   variant="outline"
                   className="text-blue-600 border-blue-200 dark:border-blue-800 dark:text-blue-400"
                   onClick={() => onNoResponse(commitment.id)}
-                  disabled={isUpdating || isNoResponse}
+                  disabled={isUpdating}
                   data-testid={`button-no-response-${commitment.id}`}
                 >
                   <PhoneOff className="h-3.5 w-3.5 mr-1" />
