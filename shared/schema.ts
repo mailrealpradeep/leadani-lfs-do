@@ -5399,3 +5399,45 @@ export const insertSailaCallCommitmentSchema = createInsertSchema(saila_call_com
   created_at: true,
   updated_at: true,
 });
+
+// ─── Saila Fixed Reply Mode ───────────────────────────────────────────────────
+
+export const saila_fixed_reply_config = pgTable('saila_fixed_reply_config', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  executive_phone: varchar('executive_phone', { length: 30 }).notNull(),
+  enabled: boolean('enabled').notNull().default(false),
+  message_template: text('message_template').notNull().default(''),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaFixedReplyConfig = typeof saila_fixed_reply_config.$inferSelect;
+export type InsertSailaFixedReplyConfig = typeof saila_fixed_reply_config.$inferInsert;
+export const insertSailaFixedReplyConfigSchema = createInsertSchema(saila_fixed_reply_config).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_greeting_slots = pgTable('saila_greeting_slots', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  hour_start: integer('hour_start').notNull(),
+  hour_end: integer('hour_end').notNull(),
+  greeting_text: varchar('greeting_text', { length: 255 }).notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type SailaGreetingSlot = typeof saila_greeting_slots.$inferSelect;
+export type InsertSailaGreetingSlot = typeof saila_greeting_slots.$inferInsert;
+export const insertSailaGreetingSlotSchema = createInsertSchema(saila_greeting_slots).omit({ id: true, created_at: true });
+
+export const saila_call_time_slots = pgTable('saila_call_time_slots', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  hour_start: integer('hour_start').notNull(),
+  hour_end: integer('hour_end').notNull(),
+  call_time_label: varchar('call_time_label', { length: 100 }).notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type SailaCallTimeSlot = typeof saila_call_time_slots.$inferSelect;
+export type InsertSailaCallTimeSlot = typeof saila_call_time_slots.$inferInsert;
+export const insertSailaCallTimeSlotSchema = createInsertSchema(saila_call_time_slots).omit({ id: true, created_at: true });
