@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
-import { useDashboard } from "@/components/dashboard-context";
 import { format, addDays, subDays, parseISO } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -162,21 +161,49 @@ function CommitmentCard({
 }
 
 export default function CallSchedulePage() {
-  const { isCompanyAdmin } = useAuth();
-  const { isMultiSheetMode } = useDashboard();
-  const isAdminView = isCompanyAdmin || isMultiSheetMode;
-  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const { isCompanyAdmin, isSuperAdmin } = useAuth();
+
+  const { data: companySettings } = useQuery<{ settings: { timezone?: string } }>({
+    queryKey: ["/api/company/settings"],
+  });
+  const companyTimezone = companySettings?.settings?.timezone || "Asia/Calcutta";
+
+  const { data: sheets = [] } = useQuery<{ id: string }[]>({
+    queryKey: ["/api/sheets"],
+  });
+  const isMultiSheetUser = sheets.length > 1;
+
+  const isAdminView = isCompanyAdmin || isSuperAdmin || isMultiSheetUser;
+
+  const todayInCompanyTz = useMemo(() => {
+    try {
+      return new Date().toLocaleDateString("en-CA", { timeZone: companyTimezone });
+    } catch {
+      return format(new Date(), 'yyyy-MM-dd');
+    }
+  }, [companyTimezone]);
+
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (todayInCompanyTz) {
+      setSelectedDate(prev => prev === null ? todayInCompanyTz : prev);
+    }
+  }, [todayInCompanyTz]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [executivePhoneFilter, setExecutivePhoneFilter] = useState('all');
   const [drawerLeadId, setDrawerLeadId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const queryKey = ['/api/saila/call-commitments', { date: selectedDate, status: statusFilter, executive_phone: executivePhoneFilter }];
+  const effectiveDate = selectedDate || todayInCompanyTz;
+
+  const queryKey = ['/api/saila/call-commitments', { date: effectiveDate, status: statusFilter, executive_phone: executivePhoneFilter }];
 
   const { data: commitments = [], isLoading } = useQuery<SailaCallCommitment[]>({
     queryKey,
+    enabled: !!effectiveDate,
     queryFn: async () => {
-      const params = new URLSearchParams({ date: selectedDate });
+      const params = new URLSearchParams({ date: effectiveDate });
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (executivePhoneFilter !== 'all') params.set('executive_phone', executivePhoneFilter);
       return apiRequest("GET", `/api/saila/call-commitments?${params.toString()}`);
@@ -199,11 +226,11 @@ export default function CallSchedulePage() {
     ? Array.from(new Set(commitments.flatMap(c => c.executive_phone ? [c.executive_phone] : [])))
     : [];
 
-  const goToPrevDay = () => setSelectedDate(d => format(subDays(parseISO(d), 1), 'yyyy-MM-dd'));
-  const goToNextDay = () => setSelectedDate(d => format(addDays(parseISO(d), 1), 'yyyy-MM-dd'));
-  const goToToday = () => setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
+  const goToPrevDay = () => setSelectedDate(format(subDays(parseISO(effectiveDate), 1), 'yyyy-MM-dd'));
+  const goToNextDay = () => setSelectedDate(format(addDays(parseISO(effectiveDate), 1), 'yyyy-MM-dd'));
+  const goToToday = () => setSelectedDate(todayInCompanyTz);
 
-  const isToday = selectedDate === format(new Date(), 'yyyy-MM-dd');
+  const isToday = effectiveDate === todayInCompanyTz;
 
   const handleViewLead = (leadId: string) => {
     setDrawerLeadId(leadId);
@@ -231,7 +258,7 @@ export default function CallSchedulePage() {
               </Button>
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-background text-sm font-medium min-w-[200px] justify-center">
                 <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                <span data-testid="text-selected-date">{formatDisplayDate(selectedDate)}</span>
+                <span data-testid="text-selected-date">{formatDisplayDate(effectiveDate)}</span>
               </div>
               <Button size="icon" variant="outline" onClick={goToNextDay} data-testid="button-next-day">
                 <ChevronRight className="h-4 w-4" />
