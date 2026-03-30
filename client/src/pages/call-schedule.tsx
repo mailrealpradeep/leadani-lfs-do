@@ -252,6 +252,7 @@ export default function CallSchedulePage() {
       apiRequest("PATCH", `/api/saila/call-commitments/${id}`, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/saila/call-commitments'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/saila/call-commitments/counts'] });
     },
   });
 
