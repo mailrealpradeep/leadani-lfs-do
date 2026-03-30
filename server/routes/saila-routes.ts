@@ -426,8 +426,8 @@ export function registerSailaRoutes(app: Express): void {
       const { id } = req.params;
       const { status, notes } = req.body;
 
-      if (!status || !['completed', 'missed'].includes(status)) {
-        return res.status(400).json({ error: "status must be completed or missed" });
+      if (!status || !['completed', 'missed', 'no_response'].includes(status)) {
+        return res.status(400).json({ error: "status must be completed, missed, or no_response" });
       }
 
       const existing = await storage.getSailaCallCommitmentById(id);
@@ -473,14 +473,15 @@ export function registerSailaRoutes(app: Express): void {
       if (!isAdmin) {
         const allocations = await storage.getWhatsAppAllocations(companyId);
         const userAllocations = allocations.filter(a => a.user_id === userId);
-        if (userAllocations.length === 0) return res.json({ pending: 0, completed: 0, missed: 0 });
+        if (userAllocations.length === 0) return res.json({ pending: 0, no_response: 0, completed: 0, missed: 0 });
         executivePhones = userAllocations.map(a => a.display_phone_number);
       }
 
       const all = await storage.getSailaCallCommitments(companyId, { date: today, executive_phones: executivePhones });
-      const counts = { pending: 0, completed: 0, missed: 0 };
+      const counts = { pending: 0, no_response: 0, completed: 0, missed: 0 };
       for (const c of all) {
         if (c.status === 'pending') counts.pending++;
+        else if (c.status === 'no_response') counts.no_response++;
         else if (c.status === 'completed') counts.completed++;
         else if (c.status === 'missed') counts.missed++;
       }

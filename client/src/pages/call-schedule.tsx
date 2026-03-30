@@ -45,6 +45,9 @@ function StatusBadge({ status }: { status: string }) {
   if (status === 'missed') {
     return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 no-default-active-elevate">Missed</Badge>;
   }
+  if (status === 'no_response') {
+    return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 no-default-active-elevate">No Response</Badge>;
+  }
   return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 no-default-active-elevate">Pending</Badge>;
 }
 
@@ -52,33 +55,41 @@ function CommitmentCard({
   commitment,
   onMarkDone,
   onMarkMissed,
+  onNoResponse,
   onViewLead,
   isUpdating,
 }: {
   commitment: SailaCallCommitment;
   onMarkDone: (id: string) => void;
   onMarkMissed: (id: string) => void;
+  onNoResponse: (id: string) => void;
   onViewLead: (leadId: string) => void;
   isUpdating: boolean;
 }) {
   const customerLabel = commitment.sender_name || commitment.sender_phone;
-  const isPending = commitment.status === 'pending';
+  const status = commitment.status;
+  const isCompleted = status === 'completed';
+  const isNoResponse = status === 'no_response';
+
+  const iconBg =
+    status === 'completed' ? 'bg-green-100 dark:bg-green-900/30' :
+    status === 'missed' ? 'bg-red-100 dark:bg-red-900/30' :
+    status === 'no_response' ? 'bg-blue-100 dark:bg-blue-900/30' :
+    'bg-amber-100 dark:bg-amber-900/30';
+
+  const iconColor =
+    status === 'completed' ? 'text-green-600 dark:text-green-400' :
+    status === 'missed' ? 'text-red-600 dark:text-red-400' :
+    status === 'no_response' ? 'text-blue-600 dark:text-blue-400' :
+    'text-amber-600 dark:text-amber-400';
 
   return (
     <Card data-testid={`card-commitment-${commitment.id}`}>
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           <div className="flex-shrink-0 mt-0.5">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
-              isPending ? 'bg-amber-100 dark:bg-amber-900/30' :
-              commitment.status === 'completed' ? 'bg-green-100 dark:bg-green-900/30' :
-              'bg-red-100 dark:bg-red-900/30'
-            }`}>
-              <Phone className={`h-4 w-4 ${
-                isPending ? 'text-amber-600 dark:text-amber-400' :
-                commitment.status === 'completed' ? 'text-green-600 dark:text-green-400' :
-                'text-red-600 dark:text-red-400'
-              }`} />
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center ${iconBg}`}>
+              <Phone className={`h-4 w-4 ${iconColor}`} />
             </div>
           </div>
 
@@ -88,7 +99,7 @@ function CommitmentCard({
                 <span className="font-medium text-sm truncate" data-testid={`text-customer-${commitment.id}`}>
                   {customerLabel}
                 </span>
-                <StatusBadge status={commitment.status} />
+                <StatusBadge status={status} />
               </div>
               <div className="flex items-center gap-1.5 text-primary font-semibold text-base">
                 <Clock className="h-4 w-4" />
@@ -115,31 +126,44 @@ function CommitmentCard({
             </div>
 
             <div className="flex items-center gap-2 mt-3 flex-wrap">
-              {isPending && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-green-600 border-green-200 dark:border-green-800 dark:text-green-400"
-                    onClick={() => onMarkDone(commitment.id)}
-                    disabled={isUpdating}
-                    data-testid={`button-done-${commitment.id}`}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                    Mark Done
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-red-600 border-red-200 dark:border-red-800 dark:text-red-400"
-                    onClick={() => onMarkMissed(commitment.id)}
-                    disabled={isUpdating}
-                    data-testid={`button-missed-${commitment.id}`}
-                  >
-                    <XCircle className="h-3.5 w-3.5 mr-1" />
-                    Mark Missed
-                  </Button>
-                </>
+              {!isCompleted && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-green-600 border-green-200 dark:border-green-800 dark:text-green-400"
+                  onClick={() => onMarkDone(commitment.id)}
+                  disabled={isUpdating}
+                  data-testid={`button-done-${commitment.id}`}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Mark Done
+                </Button>
+              )}
+              {(status === 'pending' || isNoResponse) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-blue-600 border-blue-200 dark:border-blue-800 dark:text-blue-400"
+                  onClick={() => onNoResponse(commitment.id)}
+                  disabled={isUpdating || isNoResponse}
+                  data-testid={`button-no-response-${commitment.id}`}
+                >
+                  <PhoneOff className="h-3.5 w-3.5 mr-1" />
+                  No Response
+                </Button>
+              )}
+              {status === 'pending' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-red-600 border-red-200 dark:border-red-800 dark:text-red-400"
+                  onClick={() => onMarkMissed(commitment.id)}
+                  disabled={isUpdating}
+                  data-testid={`button-missed-${commitment.id}`}
+                >
+                  <XCircle className="h-3.5 w-3.5 mr-1" />
+                  Mark Missed
+                </Button>
               )}
               {commitment.lead_id && (
                 <Button
@@ -210,7 +234,7 @@ export default function CallSchedulePage() {
     },
   });
 
-  const { data: dayCounts } = useQuery<{ pending: number; completed: number; missed: number }>({
+  const { data: dayCounts } = useQuery<{ pending: number; no_response: number; completed: number; missed: number }>({
     queryKey: ['/api/saila/call-commitments/counts', { date: effectiveDate }],
     enabled: !!effectiveDate,
     queryFn: async () => apiRequest("GET", `/api/saila/call-commitments/counts?date=${effectiveDate}`),
@@ -233,6 +257,7 @@ export default function CallSchedulePage() {
   });
 
   const pendingCount = dayCounts?.pending ?? commitments.filter(c => c.status === 'pending').length;
+  const noResponseCount = dayCounts?.no_response ?? commitments.filter(c => c.status === 'no_response').length;
   const completedCount = dayCounts?.completed ?? commitments.filter(c => c.status === 'completed').length;
   const missedCount = dayCounts?.missed ?? commitments.filter(c => c.status === 'missed').length;
 
@@ -285,11 +310,17 @@ export default function CallSchedulePage() {
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Card className="cursor-pointer" onClick={() => setStatusFilter(statusFilter === 'pending' ? 'all' : 'pending')} data-testid="card-pending-count">
               <CardContent className="p-3 text-center">
                 <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{isLoading ? '—' : pendingCount}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Pending</p>
+              </CardContent>
+            </Card>
+            <Card className="cursor-pointer" onClick={() => setStatusFilter(statusFilter === 'no_response' ? 'all' : 'no_response')} data-testid="card-no-response-count">
+              <CardContent className="p-3 text-center">
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{isLoading ? '—' : noResponseCount}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">No Response</p>
               </CardContent>
             </Card>
             <Card className="cursor-pointer" onClick={() => setStatusFilter(statusFilter === 'completed' ? 'all' : 'completed')} data-testid="card-completed-count">
@@ -314,6 +345,7 @@ export default function CallSchedulePage() {
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="no_response">No Response</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="missed">Missed</SelectItem>
               </SelectContent>
@@ -362,6 +394,7 @@ export default function CallSchedulePage() {
                   commitment={commitment}
                   onMarkDone={(id) => updateMutation.mutate({ id, status: 'completed' })}
                   onMarkMissed={(id) => updateMutation.mutate({ id, status: 'missed' })}
+                  onNoResponse={(id) => updateMutation.mutate({ id, status: 'no_response' })}
                   onViewLead={handleViewLead}
                   isUpdating={updateMutation.isPending}
                 />
