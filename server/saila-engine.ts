@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { getCompanyTimezone, getTodayDateString } from "./timezone-utils";
 import type {
   SailaConfig,
   SailaPhoneSetting,
@@ -400,7 +401,8 @@ export async function generateSailaResponse(
   executivePhone: string,
   executiveName: string,
   messageText: string,
-  leadId?: string
+  leadId?: string,
+  referralData?: Record<string, any>
 ): Promise<SailaResponse> {
   const config = await storage.getSailaConfig(companyId);
   if (!config || !config.enabled) {
@@ -470,6 +472,81 @@ export async function generateSailaResponse(
     message_type: "text",
     sent_status: "received",
   });
+
+  // ── Fixed Reply Mode ──────────────────────────────────────────────────────
+  // Trigger when: Fixed Reply enabled for this phone + message came from a Meta Ad
+  // (referralData non-null) + this is exactly the 2nd incoming message within 3 hours
+  if (referralData) {
+    const fixedReplyConfig = await storage.getSailaFixedReplyConfig(companyId, executivePhone);
+    if (fixedReplyConfig?.enabled && fixedReplyConfig.message_template) {
+      const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+      const recentIncoming = conversationHistory.filter(
+        m => m.direction === "incoming" && new Date(m.created_at) >= threeHoursAgo
+      );
+      // conversationHistory is fetched before this message was recorded,
+      // so recentIncoming.length === 1 means this IS the 2nd incoming message
+      if (recentIncoming.length === 1) {
+        const company = await storage.getCompany(companyId);
+        const timezone = getCompanyTimezone(company);
+        const currentHour = parseInt(
+          new Date().toLocaleString("en-GB", { timeZone: timezone, hour: "2-digit", hour12: false }),
+          10
+        );
+        const callTimeSlots = await storage.getSailaCallTimeSlots(companyId);
+        const callTimeSlot = callTimeSlots.find(s => currentHour >= s.hour_start && currentHour < s.hour_end);
+
+        if (!callTimeSlot) {
+          storage.createSailaErrorLog({
+            company_id: companyId,
+            sender_phone: senderPhone,
+            sender_name: senderName || null,
+            executive_phone: executivePhone,
+            message_text: messageText,
+            reason: "no_call_time_slot",
+            reason_detail: `Fixed Reply Mode: no call time slot configured for hour ${currentHour} (${timezone})`,
+          }).catch(() => {});
+          console.log(`[Saila] Fixed Reply: no call time slot for hour ${currentHour} — skipping`);
+          return { shouldRespond: false, responseText: "", confidenceScore: 0, source: "none" };
+        }
+
+        const greetingSlots = await storage.getSailaGreetingSlots(companyId);
+        const greetingSlot = greetingSlots.find(s => currentHour >= s.hour_start && currentHour < s.hour_end);
+        const greeting = greetingSlot?.greeting_text || "Hello";
+
+        const responseText = fixedReplyConfig.message_template
+          .replace(/\{greeting\}/g, greeting)
+          .replace(/\{call_time\}/g, callTimeSlot.call_time_label)
+          .replace(/\{executive_name\}/g, effectiveExecutiveName);
+
+        const response: SailaResponse = {
+          shouldRespond: true,
+          responseText,
+          confidenceScore: 100,
+          source: "keyword", // treated like keyword — bypasses LLM test mode suppression
+        };
+
+        await _finalizeAndSend(config, phoneSetting, conversation, senderPhone, executivePhone, conversationHistory, messageText, response, leadId);
+
+        // Create a call commitment so the executive sees it in Call Schedule
+        const todayStr = getTodayDateString(timezone);
+        storage.createSailaCallCommitment({
+          company_id: companyId,
+          lead_id: leadId || null,
+          sender_phone: senderPhone,
+          sender_name: senderName || null,
+          executive_phone: executivePhone,
+          executive_name: effectiveExecutiveName,
+          call_time_label: callTimeSlot.call_time_label,
+          call_date: todayStr,
+          status: "pending",
+        }).catch(err => console.error("[Saila] Failed to create call commitment:", err));
+
+        console.log(`[Saila] Fixed Reply sent to ${senderPhone} (hour ${currentHour}, call time: ${callTimeSlot.call_time_label})`);
+        return response;
+      }
+    }
+  }
+  // ── End Fixed Reply Mode ──────────────────────────────────────────────────
 
   // Fast path: keyword exact/starts_with (score >= 85) → respond immediately, skip LLM
   const keywordMatch = await matchKeyword(companyId, messageText);

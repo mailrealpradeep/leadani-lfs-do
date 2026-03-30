@@ -24,7 +24,8 @@ import {
 import type {
   SailaConfig, SailaPhoneSetting, SailaTemplate, SailaTemplateMessage,
   SailaKeyword, SailaMedia, SailaConversation, SailaConversationMessage,
-  SailaBooking, SailaActivityLogEntry
+  SailaBooking, SailaActivityLogEntry, SailaFixedReplyConfig,
+  SailaGreetingSlot, SailaCallTimeSlot
 } from "@shared/schema";
 
 function TestSendSection() {
@@ -1654,6 +1655,336 @@ function ErrorLogTab() {
   );
 }
 
+function FixedReplyTab() {
+  const { toast } = useToast();
+
+  const { data: phoneSettings = [] } = useQuery<SailaPhoneSetting[]>({ queryKey: ["/api/saila/phone-settings"] });
+  const { data: fixedReplyConfigs = [] } = useQuery<SailaFixedReplyConfig[]>({ queryKey: ["/api/saila/fixed-reply-config"] });
+  const { data: greetingSlots = [] } = useQuery<SailaGreetingSlot[]>({ queryKey: ["/api/saila/greeting-slots"] });
+  const { data: callTimeSlots = [] } = useQuery<SailaCallTimeSlot[]>({ queryKey: ["/api/saila/call-time-slots"] });
+
+  // Local state for editing phone templates
+  const [templates, setTemplates] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const c of fixedReplyConfigs) map[c.executive_phone] = c.message_template;
+    setTemplates(map);
+  }, [fixedReplyConfigs]);
+
+  // Add greeting slot form
+  const [newGreeting, setNewGreeting] = useState({ hour_start: "", hour_end: "", greeting_text: "" });
+  // Add call time slot form
+  const [newCallTime, setNewCallTime] = useState({ hour_start: "", hour_end: "", call_time_label: "" });
+
+  const upsertConfig = useMutation({
+    mutationFn: (data: { executive_phone: string; enabled: boolean; message_template: string }) =>
+      apiRequest("POST", "/api/saila/fixed-reply-config", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saila/fixed-reply-config"] });
+      toast({ title: "Saved", description: "Fixed reply settings updated." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const addGreetingSlot = useMutation({
+    mutationFn: (data: { hour_start: number; hour_end: number; greeting_text: string }) =>
+      apiRequest("POST", "/api/saila/greeting-slots", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saila/greeting-slots"] });
+      setNewGreeting({ hour_start: "", hour_end: "", greeting_text: "" });
+      toast({ title: "Added", description: "Greeting slot created." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteGreetingSlot = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/saila/greeting-slots/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saila/greeting-slots"] });
+      toast({ title: "Deleted", description: "Greeting slot removed." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const addCallTimeSlot = useMutation({
+    mutationFn: (data: { hour_start: number; hour_end: number; call_time_label: string }) =>
+      apiRequest("POST", "/api/saila/call-time-slots", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saila/call-time-slots"] });
+      setNewCallTime({ hour_start: "", hour_end: "", call_time_label: "" });
+      toast({ title: "Added", description: "Call time slot created." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteCallTimeSlot = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/saila/call-time-slots/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saila/call-time-slots"] });
+      toast({ title: "Deleted", description: "Call time slot removed." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const getConfig = (phone: string) => fixedReplyConfigs.find(c => c.executive_phone === phone);
+  const formatHour = (h: number) => {
+    if (h === 0) return "12 AM";
+    if (h < 12) return `${h} AM`;
+    if (h === 12) return "12 PM";
+    return `${h - 12} PM`;
+  };
+
+  return (
+    <div className="space-y-8 p-4">
+      {/* Section 1: Per-Phone Config */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <PhoneCall className="h-4 w-4" />
+            Per-Phone Fixed Reply Settings
+          </CardTitle>
+          <CardDescription>
+            When enabled, Saila sends a fixed template reply to Meta Ad contacts on their 2nd message (within 3 hours), instead of the AI response.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {phoneSettings.length === 0 && (
+            <p className="text-sm text-muted-foreground">No phones configured yet. Add phones in the Phones tab first.</p>
+          )}
+          {phoneSettings.map(phone => {
+            const cfg = getConfig(phone.display_phone_number);
+            const isEnabled = cfg?.enabled ?? false;
+            const template = templates[phone.display_phone_number] ?? cfg?.message_template ?? "";
+            return (
+              <Card key={phone.display_phone_number} className="border">
+                <CardContent className="pt-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <p className="font-medium text-sm">{phone.display_phone_number}</p>
+                      {phone.executive_name && <p className="text-xs text-muted-foreground">{phone.executive_name}</p>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm text-muted-foreground">Fixed Reply</Label>
+                      <Switch
+                        data-testid={`switch-fixed-reply-${phone.display_phone_number}`}
+                        checked={isEnabled}
+                        onCheckedChange={checked => upsertConfig.mutate({
+                          executive_phone: phone.display_phone_number,
+                          enabled: checked,
+                          message_template: template,
+                        })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Message Template</Label>
+                    <Textarea
+                      data-testid={`textarea-template-${phone.display_phone_number}`}
+                      rows={3}
+                      placeholder="{greeting}! I saw your enquiry. I will call you {call_time} to discuss. - {executive_name}"
+                      value={template}
+                      onChange={e => setTemplates(prev => ({ ...prev, [phone.display_phone_number]: e.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Placeholders: <code className="bg-muted px-1 rounded text-xs">{"{greeting}"}</code>{" "}
+                      <code className="bg-muted px-1 rounded text-xs">{"{call_time}"}</code>{" "}
+                      <code className="bg-muted px-1 rounded text-xs">{"{executive_name}"}</code>
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    data-testid={`button-save-template-${phone.display_phone_number}`}
+                    onClick={() => upsertConfig.mutate({
+                      executive_phone: phone.display_phone_number,
+                      enabled: isEnabled,
+                      message_template: template,
+                    })}
+                    disabled={upsertConfig.isPending}
+                  >
+                    <Save className="h-3 w-3 mr-1" /> Save Template
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      {/* Section 2: Greeting Slots */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4" />
+            Greeting Slots
+          </CardTitle>
+          <CardDescription>
+            Map time ranges (24h) to greeting phrases used in the <code className="bg-muted px-1 rounded text-xs">{"{greeting}"}</code> placeholder. Falls back to "Hello" if no slot matches.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {greetingSlots.length > 0 && (
+            <div className="rounded-md border divide-y">
+              {greetingSlots.map(slot => (
+                <div key={slot.id} className="flex items-center justify-between gap-2 px-4 py-3 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <Badge variant="secondary" className="shrink-0">{formatHour(slot.hour_start)} – {formatHour(slot.hour_end)}</Badge>
+                    <span className="text-sm">{slot.greeting_text}</span>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    data-testid={`button-delete-greeting-${slot.id}`}
+                    onClick={() => deleteGreetingSlot.mutate(slot.id)}
+                    disabled={deleteGreetingSlot.isPending}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          {greetingSlots.length === 0 && (
+            <p className="text-sm text-muted-foreground">No greeting slots yet. Add one below.</p>
+          )}
+          <div className="grid grid-cols-3 gap-2 items-end">
+            <div className="space-y-1">
+              <Label className="text-xs">From (hour 0–23)</Label>
+              <Input
+                data-testid="input-greeting-hour-start"
+                type="number" min={0} max={23}
+                placeholder="e.g. 6"
+                value={newGreeting.hour_start}
+                onChange={e => setNewGreeting(p => ({ ...p, hour_start: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">To (hour 1–24)</Label>
+              <Input
+                data-testid="input-greeting-hour-end"
+                type="number" min={1} max={24}
+                placeholder="e.g. 12"
+                value={newGreeting.hour_end}
+                onChange={e => setNewGreeting(p => ({ ...p, hour_end: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Greeting Text</Label>
+              <Input
+                data-testid="input-greeting-text"
+                placeholder="Good Morning"
+                value={newGreeting.greeting_text}
+                onChange={e => setNewGreeting(p => ({ ...p, greeting_text: e.target.value }))}
+              />
+            </div>
+          </div>
+          <Button
+            size="sm"
+            data-testid="button-add-greeting-slot"
+            onClick={() => {
+              const hs = parseInt(newGreeting.hour_start);
+              const he = parseInt(newGreeting.hour_end);
+              if (isNaN(hs) || isNaN(he) || !newGreeting.greeting_text) {
+                toast({ title: "Validation", description: "All fields are required.", variant: "destructive" });
+                return;
+              }
+              addGreetingSlot.mutate({ hour_start: hs, hour_end: he, greeting_text: newGreeting.greeting_text });
+            }}
+            disabled={addGreetingSlot.isPending}
+          >
+            <Plus className="h-3 w-3 mr-1" /> Add Greeting Slot
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Section 3: Call Time Slots */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Calendar className="h-4 w-4" />
+            Call Time Slots
+          </CardTitle>
+          <CardDescription>
+            Map time ranges (24h) to call time labels used in the <code className="bg-muted px-1 rounded text-xs">{"{call_time}"}</code> placeholder. If no slot matches the current hour, Saila skips the Fixed Reply silently.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {callTimeSlots.length > 0 && (
+            <div className="rounded-md border divide-y">
+              {callTimeSlots.map(slot => (
+                <div key={slot.id} className="flex items-center justify-between gap-2 px-4 py-3 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <Badge variant="secondary" className="shrink-0">{formatHour(slot.hour_start)} – {formatHour(slot.hour_end)}</Badge>
+                    <span className="text-sm">{slot.call_time_label}</span>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    data-testid={`button-delete-calltime-${slot.id}`}
+                    onClick={() => deleteCallTimeSlot.mutate(slot.id)}
+                    disabled={deleteCallTimeSlot.isPending}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          {callTimeSlots.length === 0 && (
+            <p className="text-sm text-muted-foreground">No call time slots yet. Add one below.</p>
+          )}
+          <div className="grid grid-cols-3 gap-2 items-end">
+            <div className="space-y-1">
+              <Label className="text-xs">From (hour 0–23)</Label>
+              <Input
+                data-testid="input-calltime-hour-start"
+                type="number" min={0} max={23}
+                placeholder="e.g. 9"
+                value={newCallTime.hour_start}
+                onChange={e => setNewCallTime(p => ({ ...p, hour_start: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">To (hour 1–24)</Label>
+              <Input
+                data-testid="input-calltime-hour-end"
+                type="number" min={1} max={24}
+                placeholder="e.g. 12"
+                value={newCallTime.hour_end}
+                onChange={e => setNewCallTime(p => ({ ...p, hour_end: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Call Time Label</Label>
+              <Input
+                data-testid="input-calltime-label"
+                placeholder="between 9 AM–12 PM"
+                value={newCallTime.call_time_label}
+                onChange={e => setNewCallTime(p => ({ ...p, call_time_label: e.target.value }))}
+              />
+            </div>
+          </div>
+          <Button
+            size="sm"
+            data-testid="button-add-calltime-slot"
+            onClick={() => {
+              const hs = parseInt(newCallTime.hour_start);
+              const he = parseInt(newCallTime.hour_end);
+              if (isNaN(hs) || isNaN(he) || !newCallTime.call_time_label) {
+                toast({ title: "Validation", description: "All fields are required.", variant: "destructive" });
+                return;
+              }
+              addCallTimeSlot.mutate({ hour_start: hs, hour_end: he, call_time_label: newCallTime.call_time_label });
+            }}
+            disabled={addCallTimeSlot.isPending}
+          >
+            <Plus className="h-3 w-3 mr-1" /> Add Call Time Slot
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function SailaAI() {
   const { isCompanyAdmin, isSuperAdmin } = useAuth();
 
@@ -1718,6 +2049,10 @@ export default function SailaAI() {
               <Activity className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Log</span>
             </TabsTrigger>
+            <TabsTrigger value="fixed-reply" className="text-xs sm:text-sm" data-testid="tab-fixed-reply">
+              <PhoneCall className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">Fixed Reply</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="settings"><SettingsTab /></TabsContent>
@@ -1728,6 +2063,7 @@ export default function SailaAI() {
           <TabsContent value="conversations"><ConversationsTab /></TabsContent>
           <TabsContent value="bookings"><BookingsTab /></TabsContent>
           <TabsContent value="error-log"><ErrorLogTab /></TabsContent>
+          <TabsContent value="fixed-reply"><FixedReplyTab /></TabsContent>
         </Tabs>
       </div>
     </ScrollArea>

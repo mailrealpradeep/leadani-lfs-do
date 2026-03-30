@@ -54,7 +54,8 @@ async function triggerSailaAI(
   senderName: string,
   displayPhoneNumber: string,
   messageText: string,
-  leadId?: string
+  leadId?: string,
+  referralData?: Record<string, any>
 ): Promise<void> {
   try {
     await generateSailaResponse(
@@ -64,7 +65,8 @@ async function triggerSailaAI(
       displayPhoneNumber,
       "",
       messageText,
-      leadId
+      leadId,
+      referralData
     );
   } catch (err) {
     console.error("[WhatsApp Processor] Saila.AI error (non-blocking):", err);
@@ -289,7 +291,7 @@ export async function processWhatsAppMessage(
           processed_at: new Date()
         });
         
-        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id).catch(() => {});
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData).catch(() => {});
 
         return {
           success: true,
@@ -299,7 +301,7 @@ export async function processWhatsAppMessage(
         };
       }
       
-      triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText).catch(() => {});
+      triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, undefined, referralData).catch(() => {});
 
       await storage.updateWhatsAppMessageLog(log.id, {
         outcome: "ignored_no_trigger",
@@ -321,7 +323,7 @@ export async function processWhatsAppMessage(
       
       if (!allocation) {
         const followupResult = await addFollowupToLead(existingLead.lead, log, messageText, senderName, matchedRule.id);
-        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id).catch(() => {});
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData).catch(() => {});
         return followupResult;
       }
 
@@ -330,11 +332,11 @@ export async function processWhatsAppMessage(
           console.log("[WhatsApp Processor] Lead already in same sheet (different owner) - adding follow-up instead of transfer request");
         }
         const followupResult = await addFollowupToLead(existingLead.lead, log, messageText, senderName, matchedRule.id);
-        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id).catch(() => {});
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData).catch(() => {});
         return followupResult;
       } else {
         const transferResult = await createTransferRequest(existingLead, allocation, log, messageText, senderName, matchedRule.id);
-        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id).catch(() => {});
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData).catch(() => {});
         return transferResult;
       }
     } else {

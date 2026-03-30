@@ -62,6 +62,7 @@ The system features a customizable grid interface with dynamic column management
 *   **AI Lead Rating**: AI-powered lead quality analysis using Sarvam AI, analyzing followup remarks to calculate engagement, sentiment, and progression scores. Features real-time Socket.io updates and a fallback pattern-based rating.
 *   **WhatsApp Integration**: Automated lead intake from WhatsApp Business API with trigger-based new lead detection, phone number allocation, configurable field mapping, default values, and duplicate detection with transfer requests. Includes Admin UI for configuration and message logs.
 *   **Call Schedule**: Executive view for Saila AI call commitments, displaying pending/completed/missed calls with inline status updates.
+*   **Saila Fixed Reply Mode**: Engine mode that intercepts Meta Ad contacts' 2nd message within 3 hours and sends a configurable template reply (with {greeting}, {call_time}, {executive_name} placeholders) instead of the AI response. Configurable per-phone via the Saila AI settings page. Includes company-wide Greeting Slots (hour range → greeting text) and Call Time Slots (hour range → call time label). Automatically creates Call Schedule entries. Silent skip if no call time slot matches (logged to activity log).
 *   **Radar (Close Monitor Lead View)**: Admin-managed card-based view for monitoring high-priority leads, allowing admins to add/remove leads from the spreadsheet grid and view/edit key fields.
 
 ### Security

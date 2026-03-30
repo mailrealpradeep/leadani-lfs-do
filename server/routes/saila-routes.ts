@@ -489,4 +489,103 @@ export function registerSailaRoutes(app: Express): void {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // ── Fixed Reply Mode ────────────────────────────────────────────────────────
+
+  // GET all per-phone fixed reply configs for the company
+  app.get("/api/saila/fixed-reply-config", authMiddleware, requireCompanyAdmin, async (req, res) => {
+    try {
+      const companyId = (req as AuthRequest).companyId!;
+      const configs = await storage.getSailaFixedReplyConfigs(companyId);
+      res.json(configs);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST upsert a per-phone fixed reply config
+  app.post("/api/saila/fixed-reply-config", authMiddleware, requireCompanyAdmin, async (req, res) => {
+    try {
+      const companyId = (req as AuthRequest).companyId!;
+      const { executive_phone, enabled, message_template } = req.body;
+      if (!executive_phone) return res.status(400).json({ error: "executive_phone is required" });
+      const config = await storage.upsertSailaFixedReplyConfig(companyId, executive_phone, {
+        enabled: !!enabled,
+        message_template: message_template || "",
+      });
+      res.json(config);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET all greeting slots for the company
+  app.get("/api/saila/greeting-slots", authMiddleware, requireCompanyAdmin, async (req, res) => {
+    try {
+      const companyId = (req as AuthRequest).companyId!;
+      res.json(await storage.getSailaGreetingSlots(companyId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST create a greeting slot
+  app.post("/api/saila/greeting-slots", authMiddleware, requireCompanyAdmin, async (req, res) => {
+    try {
+      const companyId = (req as AuthRequest).companyId!;
+      const { hour_start, hour_end, greeting_text } = req.body;
+      if (hour_start == null || hour_end == null || !greeting_text) {
+        return res.status(400).json({ error: "hour_start, hour_end, and greeting_text are required" });
+      }
+      const slot = await storage.createSailaGreetingSlot({ company_id: companyId, hour_start: Number(hour_start), hour_end: Number(hour_end), greeting_text });
+      res.status(201).json(slot);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // DELETE a greeting slot
+  app.delete("/api/saila/greeting-slots/:id", authMiddleware, requireCompanyAdmin, async (req, res) => {
+    try {
+      await storage.deleteSailaGreetingSlot(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET all call time slots for the company
+  app.get("/api/saila/call-time-slots", authMiddleware, requireCompanyAdmin, async (req, res) => {
+    try {
+      const companyId = (req as AuthRequest).companyId!;
+      res.json(await storage.getSailaCallTimeSlots(companyId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST create a call time slot
+  app.post("/api/saila/call-time-slots", authMiddleware, requireCompanyAdmin, async (req, res) => {
+    try {
+      const companyId = (req as AuthRequest).companyId!;
+      const { hour_start, hour_end, call_time_label } = req.body;
+      if (hour_start == null || hour_end == null || !call_time_label) {
+        return res.status(400).json({ error: "hour_start, hour_end, and call_time_label are required" });
+      }
+      const slot = await storage.createSailaCallTimeSlot({ company_id: companyId, hour_start: Number(hour_start), hour_end: Number(hour_end), call_time_label });
+      res.status(201).json(slot);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // DELETE a call time slot
+  app.delete("/api/saila/call-time-slots/:id", authMiddleware, requireCompanyAdmin, async (req, res) => {
+    try {
+      await storage.deleteSailaCallTimeSlot(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 }

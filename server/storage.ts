@@ -301,6 +301,15 @@ import type {
   SailaCallCommitment,
   InsertSailaCallCommitment,
   saila_call_commitments,
+  SailaFixedReplyConfig,
+  InsertSailaFixedReplyConfig,
+  saila_fixed_reply_config,
+  SailaGreetingSlot,
+  InsertSailaGreetingSlot,
+  saila_greeting_slots,
+  SailaCallTimeSlot,
+  InsertSailaCallTimeSlot,
+  saila_call_time_slots,
   RadarLead,
   RadarLeadWithLead,
   radar_leads,
@@ -1203,6 +1212,17 @@ export interface IStorage {
   getSailaCallCommitments(companyId: string, options?: { date?: string; status?: string; executive_phones?: string[] }): Promise<SailaCallCommitment[]>;
   getSailaCallCommitmentById(id: string): Promise<SailaCallCommitment | undefined>;
   updateSailaCallCommitment(id: string, data: { status: string; notes?: string }): Promise<SailaCallCommitment | undefined>;
+
+  // Saila.AI - Fixed Reply Mode
+  getSailaFixedReplyConfigs(companyId: string): Promise<SailaFixedReplyConfig[]>;
+  getSailaFixedReplyConfig(companyId: string, executivePhone: string): Promise<SailaFixedReplyConfig | undefined>;
+  upsertSailaFixedReplyConfig(companyId: string, executivePhone: string, data: { enabled: boolean; message_template: string }): Promise<SailaFixedReplyConfig>;
+  getSailaGreetingSlots(companyId: string): Promise<SailaGreetingSlot[]>;
+  createSailaGreetingSlot(data: InsertSailaGreetingSlot): Promise<SailaGreetingSlot>;
+  deleteSailaGreetingSlot(id: string): Promise<void>;
+  getSailaCallTimeSlots(companyId: string): Promise<SailaCallTimeSlot[]>;
+  createSailaCallTimeSlot(data: InsertSailaCallTimeSlot): Promise<SailaCallTimeSlot>;
+  deleteSailaCallTimeSlot(id: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -3896,6 +3916,17 @@ export class MemStorage implements IStorage {
   async getSailaCallCommitments(_companyId: string, _options?: any): Promise<SailaCallCommitment[]> { return []; }
   async getSailaCallCommitmentById(_id: string): Promise<SailaCallCommitment | undefined> { return undefined; }
   async updateSailaCallCommitment(_id: string, _data: { status: string; notes?: string }): Promise<SailaCallCommitment | undefined> { return undefined; }
+
+  // Saila.AI - Fixed Reply Mode
+  async getSailaFixedReplyConfigs(_companyId: string): Promise<SailaFixedReplyConfig[]> { return []; }
+  async getSailaFixedReplyConfig(_companyId: string, _executivePhone: string): Promise<SailaFixedReplyConfig | undefined> { return undefined; }
+  async upsertSailaFixedReplyConfig(_companyId: string, _executivePhone: string, _data: { enabled: boolean; message_template: string }): Promise<SailaFixedReplyConfig> { throw new Error("Not implemented"); }
+  async getSailaGreetingSlots(_companyId: string): Promise<SailaGreetingSlot[]> { return []; }
+  async createSailaGreetingSlot(_data: InsertSailaGreetingSlot): Promise<SailaGreetingSlot> { throw new Error("Not implemented"); }
+  async deleteSailaGreetingSlot(_id: string): Promise<void> {}
+  async getSailaCallTimeSlots(_companyId: string): Promise<SailaCallTimeSlot[]> { return []; }
+  async createSailaCallTimeSlot(_data: InsertSailaCallTimeSlot): Promise<SailaCallTimeSlot> { throw new Error("Not implemented"); }
+  async deleteSailaCallTimeSlot(_id: string): Promise<void> {}
 }
 
 // ============================================================================
@@ -12840,6 +12871,65 @@ export class PgStorage implements IStorage {
       .where(eq(dbSchema.saila_call_commitments.id, id))
       .returning();
     return result[0];
+  }
+
+  // Saila.AI - Fixed Reply Mode
+  async getSailaFixedReplyConfigs(companyId: string): Promise<SailaFixedReplyConfig[]> {
+    return db.select().from(dbSchema.saila_fixed_reply_config)
+      .where(eq(dbSchema.saila_fixed_reply_config.company_id, companyId))
+      .orderBy(asc(dbSchema.saila_fixed_reply_config.executive_phone));
+  }
+
+  async getSailaFixedReplyConfig(companyId: string, executivePhone: string): Promise<SailaFixedReplyConfig | undefined> {
+    const result = await db.select().from(dbSchema.saila_fixed_reply_config)
+      .where(
+        and(
+          eq(dbSchema.saila_fixed_reply_config.company_id, companyId),
+          eq(dbSchema.saila_fixed_reply_config.executive_phone, executivePhone)
+        )
+      );
+    return result[0];
+  }
+
+  async upsertSailaFixedReplyConfig(companyId: string, executivePhone: string, data: { enabled: boolean; message_template: string }): Promise<SailaFixedReplyConfig> {
+    const result = await db.insert(dbSchema.saila_fixed_reply_config)
+      .values({ company_id: companyId, executive_phone: executivePhone, ...data })
+      .onConflictDoUpdate({
+        target: [dbSchema.saila_fixed_reply_config.company_id, dbSchema.saila_fixed_reply_config.executive_phone],
+        set: { ...data, updated_at: new Date() },
+      })
+      .returning();
+    return result[0];
+  }
+
+  async getSailaGreetingSlots(companyId: string): Promise<SailaGreetingSlot[]> {
+    return db.select().from(dbSchema.saila_greeting_slots)
+      .where(eq(dbSchema.saila_greeting_slots.company_id, companyId))
+      .orderBy(asc(dbSchema.saila_greeting_slots.hour_start));
+  }
+
+  async createSailaGreetingSlot(data: InsertSailaGreetingSlot): Promise<SailaGreetingSlot> {
+    const result = await db.insert(dbSchema.saila_greeting_slots).values(data).returning();
+    return result[0];
+  }
+
+  async deleteSailaGreetingSlot(id: string): Promise<void> {
+    await db.delete(dbSchema.saila_greeting_slots).where(eq(dbSchema.saila_greeting_slots.id, id));
+  }
+
+  async getSailaCallTimeSlots(companyId: string): Promise<SailaCallTimeSlot[]> {
+    return db.select().from(dbSchema.saila_call_time_slots)
+      .where(eq(dbSchema.saila_call_time_slots.company_id, companyId))
+      .orderBy(asc(dbSchema.saila_call_time_slots.hour_start));
+  }
+
+  async createSailaCallTimeSlot(data: InsertSailaCallTimeSlot): Promise<SailaCallTimeSlot> {
+    const result = await db.insert(dbSchema.saila_call_time_slots).values(data).returning();
+    return result[0];
+  }
+
+  async deleteSailaCallTimeSlot(id: string): Promise<void> {
+    await db.delete(dbSchema.saila_call_time_slots).where(eq(dbSchema.saila_call_time_slots.id, id));
   }
 }
 

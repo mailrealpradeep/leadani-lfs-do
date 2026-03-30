@@ -5410,7 +5410,7 @@ export const saila_fixed_reply_config = pgTable('saila_fixed_reply_config', {
   message_template: text('message_template').notNull().default(''),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => [uniqueIndex('saila_fixed_reply_config_company_phone_idx').on(t.company_id, t.executive_phone)]);
 
 export type SailaFixedReplyConfig = typeof saila_fixed_reply_config.$inferSelect;
 export type InsertSailaFixedReplyConfig = typeof saila_fixed_reply_config.$inferInsert;
