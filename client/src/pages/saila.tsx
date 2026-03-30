@@ -1521,7 +1521,7 @@ function ErrorLogTab() {
               <tbody>
                 {logs.map((log, idx) => {
                   const isExpanded = expandedRow === log.id;
-                  const hasDetail = !!(log.send_error || log.keyword_matched || log.confidence_score || log.reason || log.incoming_message || log.response_text);
+                  const hasDetail = !!(log.send_error || log.keyword_matched || log.confidence_score != null || log.reason || log.incoming_message || log.response_text);
                   return (
                     <Fragment key={log.id}>
                       <tr
