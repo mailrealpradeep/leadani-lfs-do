@@ -12712,6 +12712,15 @@ export class PgStorage implements IStorage {
         sender_name: dbSchema.saila_conversations.sender_name,
         executive_phone: dbSchema.saila_conversations.executive_phone,
         executive_name: dbSchema.saila_conversations.executive_name,
+        incoming_message: sql<string | null>`(
+          SELECT m2.message_text
+          FROM saila_conversation_messages m2
+          WHERE m2.conversation_id = ${dbSchema.saila_conversation_messages.conversation_id}
+            AND m2.direction = 'incoming'
+            AND m2.created_at <= ${dbSchema.saila_conversation_messages.created_at}
+          ORDER BY m2.created_at DESC
+          LIMIT 1
+        )`,
       })
       .from(dbSchema.saila_conversation_messages)
       .innerJoin(dbSchema.saila_conversations, eq(dbSchema.saila_conversation_messages.conversation_id, dbSchema.saila_conversations.id))
@@ -12730,23 +12739,29 @@ export class PgStorage implements IStorage {
       .orderBy(desc(dbSchema.saila_error_logs.created_at));
 
     const combined: SailaActivityLogEntry[] = [
-      ...outgoingMessages.map(m => ({
-        id: m.id,
-        type: "response" as const,
-        time: m.created_at.toISOString(),
-        sender_phone: m.sender_phone,
-        sender_name: m.sender_name,
-        executive_phone: m.executive_phone,
-        executive_name: m.executive_name,
-        incoming_message: null,
-        response_text: m.message_text,
-        sent_status: (m.sent_status || "failed") as "sent" | "failed" | "skipped",
-        source: m.keyword_matched ? "keyword" : m.template_used ? "template" : (m.confidence_score && m.confidence_score > 0) ? "ai_llm" : "fallback",
-        confidence_score: m.confidence_score,
-        send_error: m.send_error,
-        reason: null,
-        keyword_matched: m.keyword_matched,
-      })),
+      ...outgoingMessages.map(m => {
+        const rawText = m.message_text || null;
+        const cleanedText = rawText
+          ? rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim() || null
+          : null;
+        return {
+          id: m.id,
+          type: "response" as const,
+          time: m.created_at.toISOString(),
+          sender_phone: m.sender_phone,
+          sender_name: m.sender_name,
+          executive_phone: m.executive_phone,
+          executive_name: m.executive_name,
+          incoming_message: m.incoming_message || null,
+          response_text: cleanedText,
+          sent_status: (m.sent_status || "failed") as "sent" | "failed" | "skipped",
+          source: m.keyword_matched ? "keyword" : m.template_used ? "template" : (m.confidence_score && m.confidence_score > 0) ? "ai_llm" : "fallback",
+          confidence_score: m.confidence_score,
+          send_error: m.send_error,
+          reason: null,
+          keyword_matched: m.keyword_matched,
+        };
+      }),
       ...errorLogs.map(e => ({
         id: e.id,
         type: "skipped" as const,
