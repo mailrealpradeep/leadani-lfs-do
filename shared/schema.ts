@@ -5371,3 +5371,31 @@ export interface RadarLeadWithLead extends RadarLead {
   ai_rating: string | null;
   ai_rating_summary: string | null;
 }
+
+// ============================================================================
+// SAILA CALL COMMITMENTS (created by Fixed Reply Mode, viewed by executives)
+// ============================================================================
+export const saila_call_commitments = pgTable('saila_call_commitments', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  sender_phone: varchar('sender_phone', { length: 30 }).notNull(),
+  sender_name: varchar('sender_name', { length: 255 }),
+  executive_phone: varchar('executive_phone', { length: 30 }).notNull(),
+  executive_name: varchar('executive_name', { length: 255 }),
+  call_time_label: varchar('call_time_label', { length: 50 }).notNull(),
+  call_date: varchar('call_date', { length: 20 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  notes: text('notes'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaCallCommitment = typeof saila_call_commitments.$inferSelect;
+export type InsertSailaCallCommitment = typeof saila_call_commitments.$inferInsert;
+
+export const insertSailaCallCommitmentSchema = createInsertSchema(saila_call_commitments).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});

@@ -60,6 +60,7 @@ import VisionBoard from "@/pages/vision-board";
 import ConversionSettings from "@/pages/conversion-settings";
 import SailaAI from "@/pages/saila";
 import Radar from "@/pages/radar";
+import CallSchedule from "@/pages/call-schedule";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -176,6 +177,9 @@ function Router() {
       </Route>
       <Route path="/radar">
         {() => <ProtectedRoute component={Radar} />}
+      </Route>
+      <Route path="/call-schedule">
+        {() => <ProtectedRoute component={CallSchedule} />}
       </Route>
       <Route path="/saila">
         {() => <ProtectedRoute component={SailaAI} adminOnly />}

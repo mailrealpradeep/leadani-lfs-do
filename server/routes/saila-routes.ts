@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { authMiddleware, requireCompanyAdmin, type AuthRequest } from "../middleware/auth";
 import { storage } from "../storage";
 import { sendWhatsAppMessage } from "../saila-engine";
+import { format } from "date-fns";
 
 export function registerSailaRoutes(app: Express): void {
   app.get("/api/saila/config", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
@@ -365,6 +366,89 @@ export function registerSailaRoutes(app: Express): void {
       } else {
         res.status(400).json({ success: false, error: result.error || "Send failed" });
       }
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/saila/call-commitments", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const companyId = req.companyId;
+      if (!companyId) return res.status(400).json({ error: "No company" });
+
+      const dateParam = req.query.date as string | undefined;
+      const statusParam = req.query.status as string | undefined;
+      const executivePhoneParam = req.query.executive_phone as string | undefined;
+
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const date = dateParam || today;
+
+      const isAdmin = req.userRole === 'company_admin' || req.userRole === 'super_admin';
+
+      let executivePhones: string[] | undefined;
+      if (isAdmin) {
+        if (executivePhoneParam) {
+          executivePhones = [executivePhoneParam];
+        }
+      } else {
+        const allocations = await storage.getWhatsAppAllocations(companyId);
+        const userAllocations = allocations.filter(a => a.user_id === req.userId);
+        if (userAllocations.length === 0) {
+          return res.json([]);
+        }
+        executivePhones = userAllocations.map(a => a.display_phone_number);
+      }
+
+      const commitments = await storage.getSailaCallCommitments(companyId, {
+        date,
+        status: statusParam,
+        executive_phones: executivePhones,
+      });
+
+      res.json(commitments);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/saila/call-commitments/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { status, notes } = req.body;
+      if (!status || !['completed', 'missed', 'pending'].includes(status)) {
+        return res.status(400).json({ error: "status must be completed, missed, or pending" });
+      }
+      const updated = await storage.updateSailaCallCommitment(id, { status, notes });
+      if (!updated) return res.status(404).json({ error: "Commitment not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/saila/call-commitments/counts", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const companyId = req.companyId;
+      if (!companyId) return res.status(400).json({ error: "No company" });
+
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const isAdmin = req.userRole === 'company_admin' || req.userRole === 'super_admin';
+      let executivePhones: string[] | undefined;
+      if (!isAdmin) {
+        const allocations = await storage.getWhatsAppAllocations(companyId);
+        const userAllocations = allocations.filter(a => a.user_id === req.userId);
+        if (userAllocations.length === 0) return res.json({ pending: 0, completed: 0, missed: 0 });
+        executivePhones = userAllocations.map(a => a.display_phone_number);
+      }
+
+      const all = await storage.getSailaCallCommitments(companyId, { date: today, executive_phones: executivePhones });
+      const counts = { pending: 0, completed: 0, missed: 0 };
+      for (const c of all) {
+        if (c.status === 'pending') counts.pending++;
+        else if (c.status === 'completed') counts.completed++;
+        else if (c.status === 'missed') counts.missed++;
+      }
+      res.json(counts);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

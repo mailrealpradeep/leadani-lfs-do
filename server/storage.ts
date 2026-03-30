@@ -298,6 +298,9 @@ import type {
   SailaErrorLog,
   InsertSailaErrorLog,
   SailaActivityLogEntry,
+  SailaCallCommitment,
+  InsertSailaCallCommitment,
+  saila_call_commitments,
   RadarLead,
   RadarLeadWithLead,
   radar_leads,
@@ -1194,6 +1197,11 @@ export interface IStorage {
   // Saila.AI - Error Logs & Activity
   createSailaErrorLog(data: InsertSailaErrorLog): Promise<SailaErrorLog>;
   getSailaActivityLogs(companyId: string, options?: { limit?: number; offset?: number; status?: string; executive_phone?: string }): Promise<{ logs: SailaActivityLogEntry[]; total: number }>;
+
+  // Saila.AI - Call Commitments
+  createSailaCallCommitment(data: InsertSailaCallCommitment): Promise<SailaCallCommitment>;
+  getSailaCallCommitments(companyId: string, options?: { date?: string; status?: string; executive_phones?: string[] }): Promise<SailaCallCommitment[]>;
+  updateSailaCallCommitment(id: string, data: { status: string; notes?: string }): Promise<SailaCallCommitment | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -3883,6 +3891,9 @@ export class MemStorage implements IStorage {
   async updateSailaBooking(_id: string, _data: Partial<InsertSailaBooking>): Promise<SailaBooking | undefined> { return undefined; }
   async createSailaErrorLog(_data: InsertSailaErrorLog): Promise<SailaErrorLog> { throw new Error("Not implemented"); }
   async getSailaActivityLogs(_companyId: string, _options?: any): Promise<{ logs: SailaActivityLogEntry[]; total: number }> { return { logs: [], total: 0 }; }
+  async createSailaCallCommitment(_data: InsertSailaCallCommitment): Promise<SailaCallCommitment> { throw new Error("Not implemented"); }
+  async getSailaCallCommitments(_companyId: string, _options?: any): Promise<SailaCallCommitment[]> { return []; }
+  async updateSailaCallCommitment(_id: string, _data: { status: string; notes?: string }): Promise<SailaCallCommitment | undefined> { return undefined; }
 }
 
 // ============================================================================
@@ -12784,6 +12795,41 @@ export class PgStorage implements IStorage {
     const total = combined.length;
     const paginated = combined.slice(offset, offset + limit);
     return { logs: paginated, total };
+  }
+
+  async createSailaCallCommitment(data: InsertSailaCallCommitment): Promise<SailaCallCommitment> {
+    const result = await db.insert(dbSchema.saila_call_commitments).values(data).returning();
+    return result[0];
+  }
+
+  async getSailaCallCommitments(
+    companyId: string,
+    options?: { date?: string; status?: string; executive_phones?: string[] }
+  ): Promise<SailaCallCommitment[]> {
+    const conditions: any[] = [eq(dbSchema.saila_call_commitments.company_id, companyId)];
+
+    if (options?.date) {
+      conditions.push(eq(dbSchema.saila_call_commitments.call_date, options.date));
+    }
+    if (options?.status && options.status !== 'all') {
+      conditions.push(eq(dbSchema.saila_call_commitments.status, options.status));
+    }
+    if (options?.executive_phones && options.executive_phones.length > 0) {
+      conditions.push(inArray(dbSchema.saila_call_commitments.executive_phone, options.executive_phones));
+    }
+
+    return db.select()
+      .from(dbSchema.saila_call_commitments)
+      .where(and(...conditions))
+      .orderBy(asc(dbSchema.saila_call_commitments.call_time_label), asc(dbSchema.saila_call_commitments.created_at));
+  }
+
+  async updateSailaCallCommitment(id: string, data: { status: string; notes?: string }): Promise<SailaCallCommitment | undefined> {
+    const result = await db.update(dbSchema.saila_call_commitments)
+      .set({ ...data, updated_at: new Date() })
+      .where(eq(dbSchema.saila_call_commitments.id, id))
+      .returning();
+    return result[0];
   }
 }
 

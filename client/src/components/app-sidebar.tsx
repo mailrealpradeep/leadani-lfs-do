@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, CheckCircle2, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon, Sparkles, GitBranchPlus, History, GitBranch, Key, Bot, Radar } from "lucide-react";
+import { Home, LayoutGrid, BarChart3, Settings, Users, Webhook, Plus, FileUp, Settings as SettingsIcon, Search, Download, Trash2, UsersRound, Clock, CheckSquare, Shield, Eye, EyeOff, Columns, Send, Activity, Trophy, Target, Rows, Crosshair, HelpCircle, MapPin, CheckCircle2, Flame, Star, Zap, Flag, Award, Heart, Bell, Bookmark, Check, TrendingUp, AlertTriangle, LucideIcon, Sparkles, GitBranchPlus, History, GitBranch, Key, Bot, Radar, Phone } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -399,6 +399,12 @@ export function AppSidebar() {
       url: "/radar",
       icon: Radar,
       testId: "link-radar",
+    },
+    {
+      title: "Call Schedule",
+      url: "/call-schedule",
+      icon: Phone,
+      testId: "link-call-schedule",
     },
     // Webhooks - admin only
     ...((isCompanyAdmin || isSuperAdmin) ? [{
