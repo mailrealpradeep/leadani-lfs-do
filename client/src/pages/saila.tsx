@@ -1521,7 +1521,7 @@ function ErrorLogTab() {
               <tbody>
                 {logs.map((log, idx) => {
                   const isExpanded = expandedRow === log.id;
-                  const hasDetail = !!(log.send_error || log.keyword_matched || log.confidence_score || log.reason);
+                  const hasDetail = !!(log.send_error || log.keyword_matched || log.confidence_score || log.reason || log.incoming_message || log.response_text);
                   return (
                     <Fragment key={log.id}>
                       <tr
@@ -1568,6 +1568,21 @@ function ErrorLogTab() {
                         <tr key={`${log.id}-expanded`} className={`border-b last:border-0 ${log.sent_status === "failed" ? "bg-red-500/5" : "bg-muted/10"}`}>
                           <td colSpan={8} className="px-6 py-3">
                             <div className="space-y-2 text-xs">
+                              {log.incoming_message && (
+                                <div>
+                                  <span className="font-medium text-muted-foreground block mb-0.5">Client Message:</span>
+                                  <p className="text-foreground whitespace-pre-wrap leading-relaxed">{log.incoming_message}</p>
+                                </div>
+                              )}
+                              {log.response_text && (
+                                <div>
+                                  <span className="font-medium text-muted-foreground block mb-0.5">Saila Response:</span>
+                                  <p className="text-foreground whitespace-pre-wrap leading-relaxed">{log.response_text}</p>
+                                </div>
+                              )}
+                              {(log.incoming_message || log.response_text) && (log.keyword_matched || log.confidence_score != null || log.send_error || log.reason) && (
+                                <div className="border-t pt-2" />
+                              )}
                               {log.keyword_matched && (
                                 <div>
                                   <span className="font-medium text-muted-foreground">Keyword matched: </span>
