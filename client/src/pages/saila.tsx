@@ -1405,6 +1405,7 @@ function ErrorLogTab() {
     if (src === "keyword") return <Badge variant="outline" className="text-xs text-blue-600 dark:text-blue-400 border-blue-500/40">Keyword</Badge>;
     if (src === "ai_llm") return <Badge variant="outline" className="text-xs text-violet-600 dark:text-violet-400 border-violet-500/40">AI</Badge>;
     if (src === "template") return <Badge variant="outline" className="text-xs text-emerald-600 dark:text-emerald-400 border-emerald-500/40">Template</Badge>;
+    if (src === "fixed_reply") return <Badge variant="outline" className="text-xs text-green-600 dark:text-green-400 border-green-500/40">Fixed Reply</Badge>;
     return <Badge variant="outline" className="text-xs text-muted-foreground">Fallback</Badge>;
   }
 
@@ -1415,6 +1416,7 @@ function ErrorLogTab() {
       saila_disabled: "Saila.AI off",
       phone_not_found: "Phone not configured",
       phone_disabled: "Phone toggled off",
+      no_call_time_slot: "No call time slot configured",
     };
     return labels[reason] || reason;
   }

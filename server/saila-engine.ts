@@ -15,7 +15,7 @@ export interface SailaResponse {
   shouldRespond: boolean;
   responseText: string;
   confidenceScore: number;
-  source: "template" | "keyword" | "sarvam_llm" | "fallback" | "none";
+  source: "template" | "keyword" | "sarvam_llm" | "fallback" | "none" | "fixed_reply";
   templateUsed?: string;
   keywordMatched?: string;
   mediaToSend?: { url: string; type: string; name: string }[];
@@ -522,7 +522,7 @@ export async function generateSailaResponse(
           shouldRespond: true,
           responseText,
           confidenceScore: 100,
-          source: "keyword", // treated like keyword — bypasses LLM test mode suppression
+          source: "fixed_reply",
         };
 
         await _finalizeAndSend(config, phoneSetting, conversation, senderPhone, executivePhone, conversationHistory, messageText, response, leadId);
@@ -675,8 +675,8 @@ async function _finalizeAndSend(
   }
 
   if (response.shouldRespond && response.responseText) {
-    // LLM Test Mode: suppress sending for non-keyword sources, but still store the generated response
-    const isKeywordSource = response.source === "keyword";
+    // LLM Test Mode: suppress sending for non-keyword/non-fixed-reply sources, but still store the generated response
+    const isKeywordSource = response.source === "keyword" || response.source === "fixed_reply";
     const suppressSend = config.llm_test_mode && !isKeywordSource;
 
     if (suppressSend) {
