@@ -69,7 +69,6 @@ function CommitmentCard({
   const customerLabel = commitment.sender_name || commitment.sender_phone;
   const status = commitment.status;
   const isCompleted = status === 'completed';
-  const isNoResponse = status === 'no_response';
 
   const iconBg =
     status === 'completed' ? 'bg-green-100 dark:bg-green-900/30' :
