@@ -461,9 +461,10 @@ export function registerSailaRoutes(app: Express): void {
       const userId = req.userId;
       if (!companyId || !userId) return res.status(400).json({ error: "No company" });
 
+      const dateParam = req.query.date as string | undefined;
       const company = await storage.getCompany(companyId);
       const timezone = getCompanyTimezone(company);
-      const today = getTodayDateString(timezone);
+      const today = dateParam || getTodayDateString(timezone);
       const isAdminRole = req.userRole === 'company_admin' || req.userRole === 'super_admin';
       const isMultiSheet = !isAdminRole ? await storage.isMultiSheetUser(userId) : false;
       const isAdmin = isAdminRole || isMultiSheet;

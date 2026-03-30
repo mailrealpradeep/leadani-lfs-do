@@ -210,6 +210,20 @@ export default function CallSchedulePage() {
     },
   });
 
+  const { data: dayCounts } = useQuery<{ pending: number; completed: number; missed: number }>({
+    queryKey: ['/api/saila/call-commitments/counts', { date: effectiveDate }],
+    enabled: !!effectiveDate,
+    queryFn: async () => apiRequest("GET", `/api/saila/call-commitments/counts?date=${effectiveDate}`),
+  });
+
+  const { data: allDayCommitments = [] } = useQuery<SailaCallCommitment[]>({
+    queryKey: ['/api/saila/call-commitments', { date: effectiveDate, _all: true }],
+    enabled: !!effectiveDate && isAdminView,
+    queryFn: async () => {
+      return apiRequest("GET", `/api/saila/call-commitments?date=${effectiveDate}`);
+    },
+  });
+
   const updateMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       apiRequest("PATCH", `/api/saila/call-commitments/${id}`, { status }),
@@ -218,12 +232,12 @@ export default function CallSchedulePage() {
     },
   });
 
-  const pendingCount = commitments.filter(c => c.status === 'pending').length;
-  const completedCount = commitments.filter(c => c.status === 'completed').length;
-  const missedCount = commitments.filter(c => c.status === 'missed').length;
+  const pendingCount = dayCounts?.pending ?? commitments.filter(c => c.status === 'pending').length;
+  const completedCount = dayCounts?.completed ?? commitments.filter(c => c.status === 'completed').length;
+  const missedCount = dayCounts?.missed ?? commitments.filter(c => c.status === 'missed').length;
 
   const uniquePhones = isAdminView
-    ? Array.from(new Set(commitments.flatMap(c => c.executive_phone ? [c.executive_phone] : [])))
+    ? Array.from(new Set(allDayCommitments.flatMap(c => c.executive_phone ? [c.executive_phone] : [])))
     : [];
 
   const goToPrevDay = () => setSelectedDate(format(subDays(parseISO(effectiveDate), 1), 'yyyy-MM-dd'));
