@@ -19,7 +19,7 @@ import {
   Plus, Trash2, Save, Edit, Bot, ArrowRight, ArrowLeft, Eye,
   Link as LinkIcon, Image, Video, FileUp, X, Check, Clock,
   PhoneCall, User, Sparkles, AlertTriangle, CheckCircle2, XCircle,
-  MinusCircle, RefreshCw, Activity, ChevronDown, ChevronRight
+  MinusCircle, RefreshCw, Activity, ChevronDown, ChevronRight, ChevronLeft
 } from "lucide-react";
 import type {
   SailaConfig, SailaPhoneSetting, SailaTemplate, SailaTemplateMessage,
@@ -1327,20 +1327,28 @@ function BookingsTab() {
   );
 }
 
+const PAGE_SIZE = 50;
+
 function ErrorLogTab() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [phoneFilter, setPhoneFilter] = useState("all");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const { data: phoneSettings } = useQuery<SailaPhoneSetting[]>({
     queryKey: ["/api/saila/phone-settings"],
   });
 
-  const queryKey = ["/api/saila/activity-logs", statusFilter, phoneFilter];
+  const queryKey = ["/api/saila/activity-logs", statusFilter, phoneFilter, page];
   const { data, isLoading, refetch, isFetching } = useQuery<{ logs: SailaActivityLogEntry[]; total: number }>({
     queryKey,
     queryFn: async () => {
-      const params = new URLSearchParams({ status: statusFilter === "all" ? "" : statusFilter, limit: "100" });
+      const offset = (page - 1) * PAGE_SIZE;
+      const params = new URLSearchParams({
+        status: statusFilter === "all" ? "" : statusFilter,
+        limit: String(PAGE_SIZE),
+        offset: String(offset),
+      });
       if (phoneFilter !== "all") params.set("executive_phone", phoneFilter);
       return apiRequest<{ logs: SailaActivityLogEntry[]; total: number }>(
         "GET",
@@ -1352,6 +1360,17 @@ function ErrorLogTab() {
 
   const logs = data?.logs || [];
   const total = data?.total || 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function handleStatusChange(val: string) {
+    setStatusFilter(val);
+    setPage(1);
+  }
+
+  function handlePhoneChange(val: string) {
+    setPhoneFilter(val);
+    setPage(1);
+  }
 
   const sentCount = logs.filter(l => l.sent_status === "sent").length;
   const failedCount = logs.filter(l => l.sent_status === "failed").length;
@@ -1438,7 +1457,7 @@ function ErrorLogTab() {
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={handleStatusChange}>
           <SelectTrigger className="w-40" data-testid="select-log-status">
             <SelectValue />
           </SelectTrigger>
@@ -1450,7 +1469,7 @@ function ErrorLogTab() {
           </SelectContent>
         </Select>
 
-        <Select value={phoneFilter} onValueChange={setPhoneFilter}>
+        <Select value={phoneFilter} onValueChange={handlePhoneChange}>
           <SelectTrigger className="w-48" data-testid="select-log-phone">
             <SelectValue placeholder="All business numbers" />
           </SelectTrigger>
@@ -1468,7 +1487,7 @@ function ErrorLogTab() {
           <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
         </Button>
 
-        <span className="text-xs text-muted-foreground ml-auto">{total} total events · auto-refreshes every 30s</span>
+        <span className="text-xs text-muted-foreground ml-auto">auto-refreshes every 30s</span>
       </div>
 
       {isLoading ? (
@@ -1489,7 +1508,8 @@ function ErrorLogTab() {
                   <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Time</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Customer</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Business #</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Response / Reason</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Client Message</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Saila Response</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Status</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Source</th>
                 </tr>
@@ -1497,7 +1517,7 @@ function ErrorLogTab() {
               <tbody>
                 {logs.map((log, idx) => {
                   const isExpanded = expandedRow === log.id;
-                  const hasDetail = !!(log.send_error || log.reason || log.incoming_message || log.keyword_matched || log.confidence_score);
+                  const hasDetail = !!(log.send_error || log.keyword_matched || log.confidence_score || log.reason);
                   return (
                     <Fragment key={log.id}>
                       <tr
@@ -1523,14 +1543,14 @@ function ErrorLogTab() {
                           {log.executive_phone}
                           {log.executive_name && <span className="ml-1 text-foreground">({log.executive_name})</span>}
                         </td>
-                        <td className="px-3 py-2.5 max-w-xs">
+                        <td className="px-3 py-2.5 max-w-[200px]">
+                          <p className="text-xs line-clamp-2 text-muted-foreground">{log.incoming_message || "—"}</p>
+                        </td>
+                        <td className="px-3 py-2.5 max-w-[200px]">
                           {log.type === "response" ? (
                             <p className="text-xs line-clamp-2">{log.response_text || "—"}</p>
                           ) : (
-                            <div>
-                              <p className="text-xs text-muted-foreground line-clamp-1">{log.incoming_message || "—"}</p>
-                              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{getReasonLabel(log.reason)}</p>
-                            </div>
+                            <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{getReasonLabel(log.reason)}</p>
                           )}
                         </td>
                         <td className="px-3 py-2.5 whitespace-nowrap">
@@ -1542,14 +1562,8 @@ function ErrorLogTab() {
                       </tr>
                       {isExpanded && hasDetail && (
                         <tr key={`${log.id}-expanded`} className={`border-b last:border-0 ${log.sent_status === "failed" ? "bg-red-500/5" : "bg-muted/10"}`}>
-                          <td colSpan={7} className="px-6 py-3">
+                          <td colSpan={8} className="px-6 py-3">
                             <div className="space-y-2 text-xs">
-                              {log.incoming_message && (
-                                <div>
-                                  <span className="font-medium text-muted-foreground">Customer message: </span>
-                                  <span>{log.incoming_message}</span>
-                                </div>
-                              )}
                               {log.keyword_matched && (
                                 <div>
                                   <span className="font-medium text-muted-foreground">Keyword matched: </span>
@@ -1583,6 +1597,35 @@ function ErrorLogTab() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+
+      )}
+
+      {!isLoading && logs.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between px-1 pt-1 pb-1">
+          <span className="text-xs text-muted-foreground">
+            {total} total events · Page {page} of {totalPages}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1 || isFetching}
+              data-testid="button-log-prev"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages || isFetching}
+              data-testid="button-log-next"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       )}
