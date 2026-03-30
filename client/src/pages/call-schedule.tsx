@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { useDashboard } from "@/components/dashboard-context";
 import { format, addDays, subDays, parseISO } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -162,6 +163,8 @@ function CommitmentCard({
 
 export default function CallSchedulePage() {
   const { isCompanyAdmin } = useAuth();
+  const { isMultiSheetMode } = useDashboard();
+  const isAdminView = isCompanyAdmin || isMultiSheetMode;
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [statusFilter, setStatusFilter] = useState('all');
   const [executivePhoneFilter, setExecutivePhoneFilter] = useState('all');
@@ -192,7 +195,7 @@ export default function CallSchedulePage() {
   const completedCount = commitments.filter(c => c.status === 'completed').length;
   const missedCount = commitments.filter(c => c.status === 'missed').length;
 
-  const uniquePhones = isCompanyAdmin
+  const uniquePhones = isAdminView
     ? Array.from(new Set(commitments.flatMap(c => c.executive_phone ? [c.executive_phone] : [])))
     : [];
 
@@ -275,7 +278,7 @@ export default function CallSchedulePage() {
               </SelectContent>
             </Select>
 
-            {isCompanyAdmin && (
+            {isAdminView && (
               <Select value={executivePhoneFilter} onValueChange={setExecutivePhoneFilter}>
                 <SelectTrigger className="w-[200px]" data-testid="select-executive-filter">
                   <SelectValue placeholder="All executives" />
