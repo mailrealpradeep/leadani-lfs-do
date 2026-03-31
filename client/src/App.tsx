@@ -61,6 +61,7 @@ import ConversionSettings from "@/pages/conversion-settings";
 import SailaAI from "@/pages/saila";
 import Radar from "@/pages/radar";
 import CallSchedule from "@/pages/call-schedule";
+import IncomingMessages from "@/pages/incoming-messages";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -180,6 +181,9 @@ function Router() {
       </Route>
       <Route path="/call-schedule">
         {() => <ProtectedRoute component={CallSchedule} />}
+      </Route>
+      <Route path="/incoming-messages">
+        {() => <ProtectedRoute component={IncomingMessages} adminOnly />}
       </Route>
       <Route path="/saila">
         {() => <ProtectedRoute component={SailaAI} adminOnly />}

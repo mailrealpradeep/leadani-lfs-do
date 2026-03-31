@@ -589,4 +589,44 @@ export function registerSailaRoutes(app: Express): void {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // GET incoming messages (admin table)
+  app.get("/api/saila/incoming-messages", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const companyId = req.companyId!;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const offset = parseInt(req.query.offset as string) || 0;
+      const unique = req.query.unique === "true";
+      const from_date = req.query.from_date as string | undefined;
+      const to_date = req.query.to_date as string | undefined;
+      const executive_phone = req.query.executive_phone as string | undefined;
+      const search = req.query.search as string | undefined;
+
+      const result = await storage.getSailaIncomingMessages(companyId, {
+        from_date, to_date, executive_phone, search, limit, offset, unique,
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET executive phones for filter dropdown
+  app.get("/api/saila/incoming-messages/executives", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const companyId = req.companyId!;
+      const { db } = await import("../db");
+      const { sql: drizzleSql } = await import("drizzle-orm");
+      const result = await db.execute(drizzleSql`
+        SELECT DISTINCT conv.executive_phone, conv.executive_name
+        FROM saila_conversations conv
+        WHERE conv.company_id = ${companyId}
+          AND conv.executive_phone IS NOT NULL
+        ORDER BY conv.executive_phone
+      `);
+      res.json(result.rows);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 }

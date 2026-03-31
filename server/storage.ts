@@ -1196,6 +1196,10 @@ export interface IStorage {
   // Saila.AI - Conversation Messages
   getSailaConversationMessages(conversationId: string): Promise<SailaConversationMessage[]>;
   createSailaConversationMessage(data: InsertSailaConversationMessage): Promise<SailaConversationMessage>;
+  getSailaIncomingMessages(companyId: string, options: {
+    from_date?: string; to_date?: string; executive_phone?: string;
+    search?: string; limit?: number; offset?: number; unique?: boolean;
+  }): Promise<{ rows: any[]; total: number }>;
 
   // Saila.AI - Bookings
   getSailaBookings(companyId: string, options?: { limit?: number; offset?: number; status?: string }): Promise<{ bookings: SailaBooking[]; total: number }>;
@@ -3906,6 +3910,7 @@ export class MemStorage implements IStorage {
   async updateSailaConversation(_id: string, _data: Partial<InsertSailaConversation>): Promise<SailaConversation | undefined> { return undefined; }
   async getSailaConversationMessages(_conversationId: string): Promise<SailaConversationMessage[]> { return []; }
   async createSailaConversationMessage(_data: InsertSailaConversationMessage): Promise<SailaConversationMessage> { throw new Error("Not implemented"); }
+  async getSailaIncomingMessages(_companyId: string, _options: any): Promise<{ rows: any[]; total: number }> { return { rows: [], total: 0 }; }
   async getSailaBookings(_companyId: string, _options?: any): Promise<{ bookings: SailaBooking[]; total: number }> { return { bookings: [], total: 0 }; }
   async getSailaBooking(_id: string): Promise<SailaBooking | undefined> { return undefined; }
   async createSailaBooking(_data: InsertSailaBooking): Promise<SailaBooking> { throw new Error("Not implemented"); }
@@ -12665,6 +12670,122 @@ export class PgStorage implements IStorage {
       .values(data)
       .returning();
     return result[0];
+  }
+
+  async getSailaIncomingMessages(companyId: string, options: {
+    from_date?: string; to_date?: string; executive_phone?: string;
+    search?: string; limit?: number; offset?: number; unique?: boolean;
+  }): Promise<{ rows: any[]; total: number }> {
+    const limitVal = options.limit ?? 50;
+    const offsetVal = options.offset ?? 0;
+    const searchLike = options.search ? `%${options.search.toLowerCase()}%` : null;
+
+    if (options.unique) {
+      let whereClause = sql`msg.direction = 'incoming'
+        AND conv.company_id = ${companyId}
+        AND msg.message_type = 'text'
+        AND msg.message_text IS NOT NULL
+        AND TRIM(msg.message_text) != ''`;
+
+      if (options.executive_phone) {
+        whereClause = sql`${whereClause} AND conv.executive_phone = ${options.executive_phone}`;
+      }
+      if (options.from_date) {
+        whereClause = sql`${whereClause} AND msg.created_at >= ${options.from_date}::date`;
+      }
+      if (options.to_date) {
+        whereClause = sql`${whereClause} AND msg.created_at < (${options.to_date}::date + interval '1 day')`;
+      }
+      if (searchLike) {
+        whereClause = sql`${whereClause} AND LOWER(msg.message_text) LIKE ${searchLike}`;
+      }
+
+      const countResult = await db.execute(sql`
+        SELECT COUNT(DISTINCT LOWER(TRIM(msg.message_text))) AS total
+        FROM saila_conversation_messages msg
+        JOIN saila_conversations conv ON msg.conversation_id = conv.id
+        WHERE ${whereClause}
+      `);
+      const total = Number((countResult.rows as any[])[0]?.total ?? 0);
+
+      const rowsResult = await db.execute(sql`
+        SELECT
+          LOWER(TRIM(msg.message_text)) AS message_text_normalized,
+          MIN(msg.message_text) AS message_text,
+          COUNT(*) AS times_received,
+          MAX(msg.created_at) AS most_recent_at
+        FROM saila_conversation_messages msg
+        JOIN saila_conversations conv ON msg.conversation_id = conv.id
+        WHERE ${whereClause}
+        GROUP BY LOWER(TRIM(msg.message_text))
+        ORDER BY times_received DESC
+        LIMIT ${limitVal} OFFSET ${offsetVal}
+      `);
+
+      return { rows: rowsResult.rows as any[], total };
+    } else {
+      let whereClause = sql`msg.direction = 'incoming' AND conv.company_id = ${companyId}`;
+
+      if (options.executive_phone) {
+        whereClause = sql`${whereClause} AND conv.executive_phone = ${options.executive_phone}`;
+      }
+      if (options.from_date) {
+        whereClause = sql`${whereClause} AND msg.created_at >= ${options.from_date}::date`;
+      }
+      if (options.to_date) {
+        whereClause = sql`${whereClause} AND msg.created_at < (${options.to_date}::date + interval '1 day')`;
+      }
+      if (searchLike) {
+        whereClause = sql`${whereClause} AND (
+          LOWER(COALESCE(msg.message_text, '')) LIKE ${searchLike} OR
+          conv.sender_phone LIKE ${searchLike} OR
+          LOWER(COALESCE(l.custom_fields->>'name', '')) LIKE ${searchLike}
+        )`;
+      }
+
+      const countResult = await db.execute(sql`
+        SELECT COUNT(*) AS total
+        FROM saila_conversation_messages msg
+        JOIN saila_conversations conv ON msg.conversation_id = conv.id
+        LEFT JOIN leads l ON conv.lead_id = l.id
+        WHERE ${whereClause}
+      `);
+      const total = Number((countResult.rows as any[])[0]?.total ?? 0);
+
+      const rowsResult = await db.execute(sql`
+        SELECT
+          msg.id,
+          msg.message_text,
+          msg.message_type,
+          msg.created_at AS message_date_time,
+          conv.id AS conversation_id,
+          conv.lead_id,
+          conv.sender_phone,
+          conv.sender_name,
+          conv.executive_phone,
+          conv.executive_name,
+          COALESCE(l.custom_fields->>'name', '') AS lead_name,
+          s.name AS sheet_name,
+          (
+            SELECT msg2.message_text
+            FROM saila_conversation_messages msg2
+            WHERE msg2.conversation_id = msg.conversation_id
+              AND msg2.direction = 'outgoing'
+              AND msg2.created_at > msg.created_at
+            ORDER BY msg2.created_at ASC
+            LIMIT 1
+          ) AS saila_reply
+        FROM saila_conversation_messages msg
+        JOIN saila_conversations conv ON msg.conversation_id = conv.id
+        LEFT JOIN leads l ON conv.lead_id = l.id
+        LEFT JOIN sheets s ON l.sheet_id = s.id
+        WHERE ${whereClause}
+        ORDER BY msg.created_at DESC
+        LIMIT ${limitVal} OFFSET ${offsetVal}
+      `);
+
+      return { rows: rowsResult.rows as any[], total };
+    }
   }
 
   async getSailaBookings(companyId: string, options?: { limit?: number; offset?: number; status?: string }): Promise<{ bookings: SailaBooking[]; total: number }> {
