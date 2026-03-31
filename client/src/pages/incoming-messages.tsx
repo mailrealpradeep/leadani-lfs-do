@@ -3,7 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
-import { format, subDays } from "date-fns";
+import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { useToast } from "@/hooks/use-toast";
 import {
   MessageSquare, Search, Copy, ExternalLink, Filter,
-  ChevronDown, Inbox, RefreshCw
+  Inbox, RefreshCw
 } from "lucide-react";
 
 const PAGE_SIZE = 50;
@@ -64,9 +64,8 @@ export default function IncomingMessagesPage() {
   const { toast } = useToast();
 
   const today = format(new Date(), "yyyy-MM-dd");
-  const thirtyDaysAgo = format(subDays(new Date(), 30), "yyyy-MM-dd");
 
-  const [fromDate, setFromDate] = useState(thirtyDaysAgo);
+  const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
   const [executivePhone, setExecutivePhone] = useState("all");
   const [search, setSearch] = useState("");
@@ -165,7 +164,7 @@ export default function IncomingMessagesPage() {
                 data-testid="button-toggle-unique"
               >
                 <Filter className="h-3.5 w-3.5 mr-1.5" />
-                {uniqueMode ? "Unique Mode" : "All Messages"}
+                {uniqueMode ? "Unique Messages" : "All Messages"}
               </Button>
               <Button
                 size="icon"
@@ -275,6 +274,8 @@ export default function IncomingMessagesPage() {
   );
 }
 
+const NORMAL_COLS = 9;
+
 function NormalTable({ rows, isLoading, onViewLead }: { rows: any[]; isLoading: boolean; onViewLead: (id: string) => void }) {
   if (isLoading) {
     return (
@@ -283,19 +284,21 @@ function NormalTable({ rows, isLoading, onViewLead }: { rows: any[]; isLoading: 
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/50 border-b">
-                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground w-36">Date/Time</th>
-                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Sender</th>
+                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Date/Time</th>
+                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Mob No</th>
+                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Sender Name</th>
                 <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Message</th>
                 <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Saila Reply</th>
-                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Executive</th>
-                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Lead</th>
-                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground w-10"></th>
+                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Executive</th>
+                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Lead Name</th>
+                <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Sheet</th>
+                <th className="px-3 py-2.5 w-10"></th>
               </tr>
             </thead>
             <tbody>
               {Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} className="border-b">
-                  {Array.from({ length: 7 }).map((__, j) => (
+                  {Array.from({ length: NORMAL_COLS }).map((__, j) => (
                     <td key={j} className="px-3 py-2.5"><Skeleton className="h-3.5 w-full" /></td>
                   ))}
                 </tr>
@@ -323,12 +326,14 @@ function NormalTable({ rows, isLoading, onViewLead }: { rows: any[]; isLoading: 
           <thead>
             <tr className="bg-muted/50 border-b">
               <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Date/Time</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Sender</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Mob No</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Sender Name</th>
               <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Message</th>
               <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Saila Reply</th>
               <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Executive</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Lead</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground w-10"></th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Lead Name</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Sheet</th>
+              <th className="px-3 py-2.5 w-10"></th>
             </tr>
           </thead>
           <tbody>
@@ -342,14 +347,14 @@ function NormalTable({ rows, isLoading, onViewLead }: { rows: any[]; isLoading: 
                   {formatDateTime(row.message_date_time)}
                 </td>
                 <td className="px-3 py-2.5">
-                  <div className="text-xs font-mono leading-tight">{row.sender_phone}</div>
-                  {row.sender_name && (
-                    <div className="text-xs text-muted-foreground truncate max-w-[120px]">{row.sender_name}</div>
-                  )}
+                  <span className="text-xs font-mono">{row.sender_phone || "—"}</span>
+                </td>
+                <td className="px-3 py-2.5">
+                  <span className="text-xs truncate max-w-[110px] block">{row.sender_name || "—"}</span>
                 </td>
                 <td className="px-3 py-2.5 max-w-[240px]">
                   {row.message_type !== "text" ? (
-                    <Badge variant="outline" className="text-xs capitalize">{row.message_type}</Badge>
+                    <span className="text-xs text-muted-foreground">(Media)</span>
                   ) : (
                     <p className="text-xs leading-snug" title={row.message_text || ""}>
                       {truncate(row.message_text || "", 120)}
@@ -366,22 +371,22 @@ function NormalTable({ rows, isLoading, onViewLead }: { rows: any[]; isLoading: 
                   )}
                 </td>
                 <td className="px-3 py-2.5">
-                  <div className="text-xs font-mono leading-tight">{row.executive_phone || "—"}</div>
-                  {row.executive_name && (
-                    <div className="text-xs text-muted-foreground">{row.executive_name}</div>
-                  )}
+                  <div>
+                    <div className="text-xs font-mono leading-tight">{row.executive_phone || "—"}</div>
+                    {row.executive_name && (
+                      <div className="text-xs text-muted-foreground">{row.executive_name}</div>
+                    )}
+                  </div>
                 </td>
                 <td className="px-3 py-2.5">
-                  {row.lead_name ? (
-                    <div>
-                      <p className="text-xs font-medium truncate max-w-[110px]">{row.lead_name}</p>
-                      {row.sheet_name && (
-                        <p className="text-xs text-muted-foreground truncate max-w-[110px]">{row.sheet_name}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-muted-foreground/50">No lead</span>
-                  )}
+                  <span className="text-xs truncate max-w-[110px] block">
+                    {row.lead_name || <span className="text-muted-foreground/50">—</span>}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5">
+                  <span className="text-xs text-muted-foreground truncate max-w-[90px] block">
+                    {row.sheet_name || "—"}
+                  </span>
                 </td>
                 <td className="px-3 py-2.5">
                   {row.lead_id && (
