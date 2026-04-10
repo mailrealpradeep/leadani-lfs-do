@@ -4736,6 +4736,7 @@ export const whatsapp_allocations = pgTable('whatsapp_allocations', {
   user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
   enabled: boolean('enabled').notNull().default(true),
+  catch_all_enabled: boolean('catch_all_enabled').notNull().default(false),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 });

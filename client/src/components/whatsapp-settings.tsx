@@ -60,6 +60,7 @@ interface WhatsAppAllocation {
   user_id: string;
   sheet_id: string;
   enabled: boolean;
+  catch_all_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -910,19 +911,32 @@ export function WhatsAppSettings() {
                       <TableHead>Assigned User</TableHead>
                       <TableHead>Target Sheet</TableHead>
                       <TableHead>Enabled</TableHead>
+                      <TableHead>
+                        <div className="flex items-center gap-1">
+                          Catch-All
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <AlertCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[260px]">
+                              When enabled, every incoming message from this number that has no trigger match and no existing lead will automatically create a new lead.
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TableHead>
                       <TableHead className="w-[50px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {allocationsLoading ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                           Loading allocations...
                         </TableCell>
                       </TableRow>
                     ) : allocations.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                           No phone allocations configured. Add one above to start receiving WhatsApp leads.
                         </TableCell>
                       </TableRow>
@@ -939,6 +953,15 @@ export function WhatsAppSettings() {
                                 updateAllocationMutation.mutate({ id: allocation.id, updates: { enabled: checked } })
                               }
                               data-testid={`toggle-allocation-${allocation.id}`}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Switch
+                              checked={allocation.catch_all_enabled ?? false}
+                              onCheckedChange={(checked) =>
+                                updateAllocationMutation.mutate({ id: allocation.id, updates: { catch_all_enabled: checked } })
+                              }
+                              data-testid={`toggle-catch-all-${allocation.id}`}
                             />
                           </TableCell>
                           <TableCell>

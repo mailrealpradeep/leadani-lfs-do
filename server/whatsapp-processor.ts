@@ -300,6 +300,15 @@ export async function processWhatsAppMessage(
           leadId: existingLead.lead.id
         };
       }
+
+      // No existing lead — check if the allocation for this phone has catch-all enabled
+      const catchAllAllocation = await findAllocationByPhone(companyId, displayPhoneNumber);
+      if (catchAllAllocation?.catch_all_enabled) {
+        console.log("[WhatsApp Processor] No trigger match, no existing lead, but catch-all enabled — creating new lead");
+        const createResult = await createNewLead(companyId, catchAllAllocation, log, normalizedPhone, messageText, senderName, null);
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, createResult.leadId, referralData).catch(() => {});
+        return createResult;
+      }
       
       triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, undefined, referralData).catch(() => {});
 
@@ -529,7 +538,7 @@ async function createNewLead(
   normalizedPhone: string,
   messageText: string,
   senderName: string,
-  matchedRuleId: string
+  matchedRuleId: string | null
 ): Promise<ProcessedMessageResult> {
   const fieldMappings = await storage.getWhatsAppFieldMappings(companyId);
   const defaultValues = await storage.getWhatsAppDefaultValues(companyId);
@@ -606,9 +615,9 @@ async function createNewLead(
   
   await storage.updateWhatsAppMessageLog(log.id, {
     outcome: "new_lead_created",
-    trigger_matched: true,
+    trigger_matched: matchedRuleId !== null,
     matched_rule_id: matchedRuleId,
-    outcome_details: { lead_id: lead.id, action: "new_lead_created" },
+    outcome_details: { lead_id: lead.id, action: "new_lead_created", catch_all: matchedRuleId === null },
     processed_at: new Date()
   });
   
@@ -632,6 +641,27 @@ export async function processPendingWhatsAppMessages(companyId: string): Promise
   const { logs: pendingConfigLogs } = await storage.getWhatsAppMessageLogs(companyId, { limit: 1000, status: 'pending_configuration' });
   
   const allPendingLogs = [...pendingLogs, ...pendingConfigLogs];
+
+  // Check if any allocation for this company has catch-all enabled
+  // If so, also retry previously-ignored "ignored_no_trigger" logs for phones covered by catch-all allocations
+  const allocations = await storage.getWhatsAppAllocations(companyId);
+  const catchAllPhones = new Set(
+    allocations
+      .filter(a => a.enabled && a.catch_all_enabled)
+      .map(a => normalizePhoneNumber(a.display_phone_number))
+  );
+
+  if (catchAllPhones.size > 0) {
+    const { logs: ignoredLogs } = await storage.getWhatsAppMessageLogs(companyId, { limit: 1000, outcome: 'ignored_no_trigger' });
+    for (const log of ignoredLogs) {
+      const normalizedDisplay = normalizePhoneNumber(log.display_phone_number);
+      if (catchAllPhones.has(normalizedDisplay)) {
+        // Reset status to pending so processWhatsAppMessage can re-evaluate
+        await storage.updateWhatsAppMessageLog(log.id, { outcome: 'pending' as any, processed_at: null as any });
+        allPendingLogs.push({ ...log, outcome: 'pending' as any });
+      }
+    }
+  }
   
   const results: ProcessedMessageResult[] = [];
   
