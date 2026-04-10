@@ -634,10 +634,10 @@ export async function processPendingWhatsAppMessages(companyId: string): Promise
   processed: number;
   results: ProcessedMessageResult[];
 }> {
-  // Get pending logs (status = 'pending') - these are messages that haven't been processed yet
-  const { logs: pendingLogs } = await storage.getWhatsAppMessageLogs(companyId, { limit: 1000, status: 'pending' });
+  // Get pending logs (outcome = 'pending') - these are messages that haven't been processed yet
+  const { logs: pendingLogs } = await storage.getWhatsAppMessageLogs(companyId, { limit: 1000, outcome: 'pending' });
   // Also get pending_configuration logs (waiting for config but need to be retried)
-  const { logs: pendingConfigLogs } = await storage.getWhatsAppMessageLogs(companyId, { limit: 1000, status: 'pending_configuration' });
+  const { logs: pendingConfigLogs } = await storage.getWhatsAppMessageLogs(companyId, { limit: 1000, outcome: 'pending_configuration' });
   
   const allPendingLogs = [...pendingLogs, ...pendingConfigLogs];
 

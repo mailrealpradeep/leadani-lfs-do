@@ -1137,7 +1137,6 @@ export interface IStorage {
     offset?: number;
     businessNumber?: string;
     outcome?: string;
-    status?: string;
     search?: string;
     fromDate?: Date;
     toDate?: Date;
@@ -3870,7 +3869,7 @@ export class MemStorage implements IStorage {
   async deleteWhatsAppDefaultValue(_id: string): Promise<boolean> { return false; }
   async getWhatsAppTransferSettings(_companyId: string): Promise<WhatsAppTransferSettingsRecord | undefined> { return undefined; }
   async upsertWhatsAppTransferSettings(_companyId: string, _settings: Partial<InsertWhatsAppTransferSettingsData>): Promise<WhatsAppTransferSettingsRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
-  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; status?: string; search?: string; fromDate?: Date; toDate?: Date; uniqueByPhone?: boolean; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
+  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; search?: string; fromDate?: Date; toDate?: Date; uniqueByPhone?: boolean; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppMessageLog(_id: string, _updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
@@ -12306,7 +12305,6 @@ export class PgStorage implements IStorage {
     offset?: number;
     businessNumber?: string;
     outcome?: string;
-    status?: string;
     search?: string;
     fromDate?: Date;
     toDate?: Date;
@@ -12325,10 +12323,6 @@ export class PgStorage implements IStorage {
     
     if (options?.outcome) {
       conditions.push(eq(dbSchema.whatsapp_message_logs.outcome, options.outcome));
-    }
-    
-    if (options?.status) {
-      conditions.push(eq(dbSchema.whatsapp_message_logs.status, options.status));
     }
     
     if (options?.search) {
