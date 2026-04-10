@@ -7576,6 +7576,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const search = req.query.search as string | undefined;
       const fromDate = req.query.fromDate ? new Date(req.query.fromDate as string) : undefined;
       const toDate = req.query.toDate ? new Date(req.query.toDate as string) : undefined;
+      const uniqueByPhone = req.query.uniqueByPhone === "true";
       
       const result = await storage.getWhatsAppMessageLogs(req.companyId, { 
         limit, 
@@ -7584,7 +7585,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         outcome,
         search,
         fromDate,
-        toDate
+        toDate,
+        uniqueByPhone,
       });
       res.json(result);
     } catch (error: any) {

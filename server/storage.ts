@@ -1141,6 +1141,7 @@ export interface IStorage {
     search?: string;
     fromDate?: Date;
     toDate?: Date;
+    uniqueByPhone?: boolean;
   }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }>;
   getWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined>;
   createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord>;
@@ -3869,7 +3870,7 @@ export class MemStorage implements IStorage {
   async deleteWhatsAppDefaultValue(_id: string): Promise<boolean> { return false; }
   async getWhatsAppTransferSettings(_companyId: string): Promise<WhatsAppTransferSettingsRecord | undefined> { return undefined; }
   async upsertWhatsAppTransferSettings(_companyId: string, _settings: Partial<InsertWhatsAppTransferSettingsData>): Promise<WhatsAppTransferSettingsRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
-  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; status?: string; search?: string; fromDate?: Date; toDate?: Date; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
+  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; status?: string; search?: string; fromDate?: Date; toDate?: Date; uniqueByPhone?: boolean; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppMessageLog(_id: string, _updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
@@ -12309,11 +12310,13 @@ export class PgStorage implements IStorage {
     search?: string;
     fromDate?: Date;
     toDate?: Date;
+    uniqueByPhone?: boolean;
   }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> {
     const limitVal = options?.limit ?? 25;
     const offsetVal = options?.offset ?? 0;
+    const uniqueByPhone = options?.uniqueByPhone ?? false;
     
-    // Build conditions array
+    // Build WHERE clause fragments as SQL strings for use in both raw and ORM queries
     const conditions: any[] = [eq(dbSchema.whatsapp_message_logs.company_id, companyId)];
     
     if (options?.businessNumber) {
@@ -12351,6 +12354,33 @@ export class PgStorage implements IStorage {
     }
     
     const whereClause = and(...conditions);
+
+    if (uniqueByPhone) {
+      // Build a parameterized WHERE clause string for the raw SQL query
+      // We use Drizzle's sql template tag to build the conditions safely
+      const conditionsSql = and(...conditions);
+
+      // Use raw SQL with DISTINCT ON to get first message per unique phone
+      const logsResult = await db.execute(sql`
+        SELECT DISTINCT ON (sender_phone) *
+        FROM whatsapp_message_logs
+        WHERE ${conditionsSql}
+        ORDER BY sender_phone, processed_at ASC
+        LIMIT ${limitVal} OFFSET ${offsetVal}
+      `);
+
+      const countResult = await db.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM (
+          SELECT DISTINCT sender_phone
+          FROM whatsapp_message_logs
+          WHERE ${conditionsSql}
+        ) AS unique_phones
+      `);
+
+      const total = (countResult.rows[0] as any)?.count ?? 0;
+      return { logs: logsResult.rows as WhatsAppMessageLogRecord[], total };
+    }
     
     // Get total count
     const countResult = await db.select({ count: sql<number>`count(*)::int` })
