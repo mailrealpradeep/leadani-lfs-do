@@ -12378,7 +12378,8 @@ export class PgStorage implements IStorage {
         ) AS unique_phones
       `);
 
-      const total = (countResult.rows[0] as any)?.count ?? 0;
+      const countRow = countResult.rows[0] as { count: number } | undefined;
+      const total = countRow?.count ?? 0;
       return { logs: logsResult.rows as WhatsAppMessageLogRecord[], total };
     }
     
