@@ -7272,7 +7272,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!req.companyId) {
         return res.status(403).json({ error: "Must belong to a company" });
       }
-      const { display_phone_number, user_id, sheet_id, enabled } = req.body;
+      const { display_phone_number, user_id, sheet_id, enabled, catch_all_enabled } = req.body;
       
       if (!display_phone_number || !user_id || !sheet_id) {
         return res.status(400).json({ error: "display_phone_number, user_id, and sheet_id are required" });
@@ -7284,6 +7284,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         user_id,
         sheet_id,
         enabled: enabled !== false,
+        catch_all_enabled: catch_all_enabled === true,
       });
       res.json(allocation);
     } catch (error: any) {

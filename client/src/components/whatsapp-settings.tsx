@@ -562,9 +562,12 @@ export function WhatsAppSettings() {
     setItemToDelete(null);
   };
 
-  const getOutcomeBadge = (outcome: string) => {
+  const getOutcomeBadge = (outcome: string, outcomeDetails?: Record<string, any> | null) => {
     switch (outcome) {
       case "new_lead_created":
+        if (outcomeDetails?.via === 'catch_all') {
+          return <Badge variant="default" className="bg-emerald-600">Catch-All Lead</Badge>;
+        }
         return <Badge variant="default" className="bg-green-500">New Lead Created</Badge>;
       case "transfer_request_created":
         return <Badge variant="secondary">Transfer Request</Badge>;
@@ -1457,7 +1460,7 @@ export function WhatsAppSettings() {
                               <span className="text-muted-foreground italic">[{log.message_type}]</span>
                             )}
                           </TableCell>
-                          <TableCell>{getOutcomeBadge(log.outcome)}</TableCell>
+                          <TableCell>{getOutcomeBadge(log.outcome, log.outcome_details)}</TableCell>
                         </TableRow>
                       ))
                     )}
