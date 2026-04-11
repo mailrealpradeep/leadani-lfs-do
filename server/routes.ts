@@ -25158,29 +25158,36 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         });
       }
 
-      // Build CASE expression using raw SQL for the slot boundaries (they are server-computed integers,
-      // not user input) and parameterize only the timezone and slot labels to prevent injection.
-      // The CTE ensures COUNT(DISTINCT lead_id) is per slot, not per hour —
-      // preventing double-counting when the same lead is touched in multiple hours within one slot.
-      const caseWhenClauses = slots.map(s =>
-        `WHEN EXTRACT(HOUR FROM created_at AT TIME ZONE '${timezone.replace(/'/g, "''")}')::int >= ${s.start} AND EXTRACT(HOUR FROM created_at AT TIME ZONE '${timezone.replace(/'/g, "''")}')::int < ${s.end} THEN '${s.label.replace(/'/g, "''")}'`
-      ).join(" ");
-      const slotCaseSql = `CASE ${caseWhenClauses} ELSE NULL END`;
-      const userIdList = targetUserIds.map(id => `'${id}'`).join(",");
+      // Build the slot CASE expression parts using Drizzle sql tag.
+      // - Slot start/end (0-24) and labels are server-hardcoded in getWorkReportSlots() — not user input.
+      // - Timezone comes from company DB settings — not direct user input.
+      // - User IDs are loaded from the company's own user list — validated before use.
+      // The CTE ensures COUNT(DISTINCT lead_id) is computed per slot (not per hour),
+      // preventing double-counting a lead touched in multiple hours within one multi-hour slot.
+      //
+      // slot.start and slot.end are integers 0-24 from server-hardcoded getWorkReportSlots().
+      // We use sql.raw() only for these integer bounds (server constants) and bind all other values.
+      const slotWhenParts = slots.map(s =>
+        sql`WHEN EXTRACT(HOUR FROM lu.created_at AT TIME ZONE ${timezone})::int >= ${sql.raw(String(s.start))} AND EXTRACT(HOUR FROM lu.created_at AT TIME ZONE ${timezone})::int < ${sql.raw(String(s.end))} THEN ${s.label}`
+      );
+      const slotCaseFragment = sql`CASE ${sql.join(slotWhenParts, sql` `)} ELSE NULL END`;
 
-      // Single SQL query: CTE materializes slot bucket per row, outer query aggregates distinct leads
-      const aggRows = await db.execute(sql.raw(`
+      // Parameterize user IDs using Drizzle's sql template (each ID is a bound parameter)
+      const userIdParams = sql.join(targetUserIds.map(id => sql`${id}`), sql`, `);
+
+      // Single query: CTE buckets each update into its slot, outer query counts distinct leads per (user, slot)
+      const aggRows = await db.execute(sql`
         WITH bucketed AS (
           SELECT
-            created_by_user_id AS user_id,
-            lead_id,
-            ${slotCaseSql} AS slot_label
-          FROM lead_updates
+            lu.created_by_user_id AS user_id,
+            lu.lead_id,
+            ${slotCaseFragment} AS slot_label
+          FROM lead_updates lu
           WHERE
-            created_by_user_id = ANY(ARRAY[${userIdList}])
-            AND created_at >= '${dayStart.toISOString()}'
-            AND created_at <= '${dayEnd.toISOString()}'
-            AND created_by_user_id IS NOT NULL
+            lu.created_by_user_id = ANY(ARRAY[${userIdParams}])
+            AND lu.created_at >= ${dayStart}
+            AND lu.created_at <= ${dayEnd}
+            AND lu.created_by_user_id IS NOT NULL
         )
         SELECT
           user_id,
@@ -25189,7 +25196,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         FROM bucketed
         WHERE slot_label IS NOT NULL
         GROUP BY user_id, slot_label
-      `));
+      `);
 
       // Map aggregated data: userId → slotLabel → uniqueLeads
       const aggMap = new Map<string, Map<string, number>>();

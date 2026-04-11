@@ -3096,6 +3096,7 @@ export default function VisionBoardPage() {
                     <input
                       type="date"
                       value={workReportDate}
+                      max={new Date().toISOString().split("T")[0]}
                       onChange={e => setWorkReportDate(e.target.value)}
                       className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground"
                       data-testid="input-work-report-date"
