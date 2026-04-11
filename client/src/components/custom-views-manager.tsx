@@ -170,6 +170,8 @@ const OPERATORS_BY_TYPE: Record<string, Array<{ value: string; label: string }>>
   date: [
     { value: "is_today", label: "Is today" },
     { value: "is_tomorrow", label: "Is tomorrow" },
+    { value: "is_yesterday", label: "Is yesterday" },
+    { value: "is_before_yesterday", label: "Is before yesterday" },
     { value: "is_before_today", label: "Is before today" },
     { value: "is_after_today", label: "Is after today" },
     { value: "is_this_week", label: "Is this week" },
@@ -179,6 +181,8 @@ const OPERATORS_BY_TYPE: Record<string, Array<{ value: string; label: string }>>
   datetime: [
     { value: "is_today", label: "Is today" },
     { value: "is_tomorrow", label: "Is tomorrow" },
+    { value: "is_yesterday", label: "Is yesterday" },
+    { value: "is_before_yesterday", label: "Is before yesterday" },
     { value: "is_before_today", label: "Is before today" },
     { value: "is_after_today", label: "Is after today" },
     { value: "is_this_week", label: "Is this week" },
@@ -204,6 +208,8 @@ const NO_VALUE_OPERATORS = [
   "is_not_empty", 
   "is_today", 
   "is_tomorrow",
+  "is_yesterday",
+  "is_before_yesterday",
   "is_before_today", 
   "is_after_today",
   "is_this_week",

@@ -203,6 +203,21 @@ function evaluateCondition(condition: HighlightingCondition, lead: Lead, timezon
       tomorrow.setDate(tomorrow.getDate() + 1);
       return isSameDayInTimezone(dateValue, tomorrow, timezone);
     }
+
+    case "is_yesterday": {
+      const dateValue = parseDate(fieldValue);
+      if (!dateValue) return false;
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      return isSameDayInTimezone(dateValue, yesterday, timezone);
+    }
+
+    case "is_before_yesterday": {
+      const dateValue = parseDate(fieldValue);
+      if (!dateValue) return false;
+      const yesterday = getStartOfDayInTimezone(new Date(new Date().getTime() - 24 * 60 * 60 * 1000), timezone);
+      return getStartOfDayInTimezone(dateValue, timezone).getTime() < yesterday.getTime();
+    }
     
     case "is_before_today": {
       const dateValue = parseDate(fieldValue);
