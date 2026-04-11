@@ -183,6 +183,12 @@ interface CustomViewLeadsResponse {
   view: any;
 }
 
+interface WorkReportLeadsResponse {
+  leads: (Lead & { sheet_name: string; sheet_id: string })[];
+  sheets: Array<{ id: string; name: string; company_id: string }>;
+  count: number;
+}
+
 interface HotLeadsResponse {
   leads: (Lead & { sheet_name: string; sheet_id: string })[];
   count: number;
@@ -1055,7 +1061,7 @@ export function SpreadsheetGrid({
     isLoading: isLoadingWorkReport,
     isFetching: isFetchingWorkReport,
     refetch: refetchWorkReport,
-  } = useQuery<CustomViewLeadsResponse>({
+  } = useQuery<WorkReportLeadsResponse>({
     queryKey: workReportQueryKey ?? ["/api/work-report/slot-leads/__disabled__"],
     queryFn: async () => {
       if (!workReportParams) throw new Error("No params");
@@ -1200,7 +1206,7 @@ export function SpreadsheetGrid({
       filtered = filtered.filter(lead => {
         const name = lead.custom_fields?.full_name?.toString().toLowerCase() || "";
         const mobile = lead.custom_fields?.mobile_no?.toString().toLowerCase() || "";
-        const sheetName = (lead as any).sheet_name?.toLowerCase() || "";
+        const sheetName = lead.sheet_name?.toLowerCase() || "";
         return name.includes(searchLower) || mobile.includes(searchLower) || sheetName.includes(searchLower);
       });
     }
@@ -1210,13 +1216,13 @@ export function SpreadsheetGrid({
   const workReportSheetNames = useMemo(() => {
     if (!workReportLeadsData?.leads) return {};
     const names: Record<string, string> = {};
-    workReportLeadsData.leads.forEach((lead: any) => {
+    workReportLeadsData.leads.forEach((lead) => {
       if (lead.sheet_id && lead.sheet_name) {
         names[lead.sheet_id] = lead.sheet_name;
       }
     });
     // Also check sheets array
-    workReportLeadsData.sheets?.forEach((sheet: any) => {
+    workReportLeadsData.sheets?.forEach((sheet) => {
       if (sheet.id && sheet.name) {
         names[sheet.id] = sheet.name;
       }

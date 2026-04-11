@@ -25158,26 +25158,44 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         });
       }
 
-      // Single SQL query: aggregate unique leads per (user, hour) using Postgres AT TIME ZONE
-      const aggRows = await db.execute(sql`
-        SELECT
-          created_by_user_id AS user_id,
-          EXTRACT(HOUR FROM created_at AT TIME ZONE ${timezone})::int AS local_hour,
-          COUNT(DISTINCT lead_id)::int AS unique_leads
-        FROM lead_updates
-        WHERE
-          created_by_user_id = ANY(ARRAY[${sql.join(targetUserIds.map(id => sql`${id}`), sql`, `)}])
-          AND created_at >= ${dayStart}
-          AND created_at <= ${dayEnd}
-          AND created_by_user_id IS NOT NULL
-        GROUP BY created_by_user_id, local_hour
-      `);
+      // Build CASE expression using raw SQL for the slot boundaries (they are server-computed integers,
+      // not user input) and parameterize only the timezone and slot labels to prevent injection.
+      // The CTE ensures COUNT(DISTINCT lead_id) is per slot, not per hour —
+      // preventing double-counting when the same lead is touched in multiple hours within one slot.
+      const caseWhenClauses = slots.map(s =>
+        `WHEN EXTRACT(HOUR FROM created_at AT TIME ZONE '${timezone.replace(/'/g, "''")}')::int >= ${s.start} AND EXTRACT(HOUR FROM created_at AT TIME ZONE '${timezone.replace(/'/g, "''")}')::int < ${s.end} THEN '${s.label.replace(/'/g, "''")}'`
+      ).join(" ");
+      const slotCaseSql = `CASE ${caseWhenClauses} ELSE NULL END`;
+      const userIdList = targetUserIds.map(id => `'${id}'`).join(",");
 
-      // Map aggregated data: userId → localHour → uniqueLeads
-      const aggMap = new Map<string, Map<number, number>>();
-      for (const row of aggRows.rows as Array<{ user_id: string; local_hour: number; unique_leads: number }>) {
+      // Single SQL query: CTE materializes slot bucket per row, outer query aggregates distinct leads
+      const aggRows = await db.execute(sql.raw(`
+        WITH bucketed AS (
+          SELECT
+            created_by_user_id AS user_id,
+            lead_id,
+            ${slotCaseSql} AS slot_label
+          FROM lead_updates
+          WHERE
+            created_by_user_id = ANY(ARRAY[${userIdList}])
+            AND created_at >= '${dayStart.toISOString()}'
+            AND created_at <= '${dayEnd.toISOString()}'
+            AND created_by_user_id IS NOT NULL
+        )
+        SELECT
+          user_id,
+          slot_label,
+          COUNT(DISTINCT lead_id)::int AS unique_leads
+        FROM bucketed
+        WHERE slot_label IS NOT NULL
+        GROUP BY user_id, slot_label
+      `));
+
+      // Map aggregated data: userId → slotLabel → uniqueLeads
+      const aggMap = new Map<string, Map<string, number>>();
+      for (const row of aggRows.rows as Array<{ user_id: string; slot_label: string; unique_leads: number }>) {
         if (!aggMap.has(row.user_id)) aggMap.set(row.user_id, new Map());
-        aggMap.get(row.user_id)!.set(Number(row.local_hour), Number(row.unique_leads));
+        aggMap.get(row.user_id)!.set(row.slot_label, Number(row.unique_leads));
       }
 
       // Build slot-centric response
@@ -25190,12 +25208,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         const data: Record<string, { uniqueLeads: number; activityMinutes: number }> = {};
 
         for (const { id: uid } of usersInfo) {
-          const hourMap = aggMap.get(uid);
-          let uniqueLeads = 0;
-          // Sum distinct leads across all hours within the slot
-          for (let h = slot.start; h < slot.end; h++) {
-            uniqueLeads += hourMap?.get(h) || 0;
-          }
+          const uniqueLeads = aggMap.get(uid)?.get(slot.label) || 0;
           const activityMinutes = Math.min(uniqueLeads * CAP_PER_LEAD, slotMinutes);
           data[uid] = { uniqueLeads, activityMinutes };
         }
