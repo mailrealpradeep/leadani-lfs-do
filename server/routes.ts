@@ -25168,7 +25168,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // slot.start and slot.end are integers 0-24 from server-hardcoded getWorkReportSlots().
       // We use sql.raw() only for these integer bounds (server constants) and bind all other values.
       const slotWhenParts = slots.map(s =>
-        sql`WHEN EXTRACT(HOUR FROM lu.created_at AT TIME ZONE ${timezone})::int >= ${sql.raw(String(s.start))} AND EXTRACT(HOUR FROM lu.created_at AT TIME ZONE ${timezone})::int < ${sql.raw(String(s.end))} THEN ${s.label}`
+        sql`WHEN EXTRACT(HOUR FROM lu.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::int >= ${sql.raw(String(s.start))} AND EXTRACT(HOUR FROM lu.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::int < ${sql.raw(String(s.end))} THEN ${s.label}`
       );
       const slotCaseFragment = sql`CASE ${sql.join(slotWhenParts, sql` `)} ELSE NULL END`;
 
