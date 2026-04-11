@@ -3779,8 +3779,7 @@ export default function VisionBoardPage() {
             )}
             
           {/* Work Report Section */}
-          {(isAdminOrMultiSheet || true) && (
-            <motion.div
+          <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.55 }}
@@ -3838,72 +3837,117 @@ export default function VisionBoardPage() {
                       No activity found for {workReportDate}
                     </div>
                   ) : (
+                    // Slots as rows, Users as columns
+                    // First column (Time Slot) is sticky for mobile horizontal scroll
                     <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-slate-50/80 dark:bg-slate-700/40">
-                            <TableHead className="whitespace-nowrap font-semibold text-xs px-3">Executive</TableHead>
-                            {workReportData.slots.map(slot => (
-                              <TableHead key={slot} className="whitespace-nowrap text-center text-xs px-2">{slot}</TableHead>
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50/80 dark:bg-slate-700/40">
+                            {/* Sticky time-slot header cell */}
+                            <th className="sticky left-0 z-10 bg-slate-50/95 dark:bg-slate-700/95 backdrop-blur-sm whitespace-nowrap font-semibold px-3 py-2 text-left border-b border-r border-border/30 min-w-[90px]">
+                              Time Slot
+                            </th>
+                            {workReportData.users.map(u => (
+                              <th key={u.user_id} className="whitespace-nowrap font-medium px-2 py-2 text-center border-b border-border/30 min-w-[72px] max-w-[100px]">
+                                <span className="block truncate max-w-[90px]" title={u.user_name}>
+                                  {u.user_name.split(" ")[0]}
+                                </span>
+                              </th>
                             ))}
-                            <TableHead className="whitespace-nowrap text-center text-xs px-2 font-semibold">Total</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {workReportData.users.map(row => (
-                            <TableRow key={row.user_id} className="hover-elevate">
-                              <TableCell className="font-medium text-xs whitespace-nowrap px-3">
-                                {row.user_name}
-                              </TableCell>
-                              {workReportData.slots.map(slot => {
-                                const slotData = row.slots[slot];
-                                const leads = slotData?.leads_attended || 0;
-                                const mins = slotData?.minutes || 0;
-                                const slotDetail = workReportData.slotDetails?.find(s => s.label === slot);
-                                const slotHour = slotDetail?.start ?? 0;
-                                const slotEndHour = slotDetail?.end ?? slotHour + 1;
-                                const searchParams = new URLSearchParams({
-                                  date: workReportDate,
-                                  slotStart: String(slotHour),
-                                  slotEnd: String(slotEndHour),
-                                  userId: row.user_id,
-                                  slotLabel: slot,
-                                  userName: row.user_name,
-                                });
-                                return (
-                                  <TableCell key={slot} className="text-center px-2">
-                                    {leads > 0 ? (
-                                      <Link href={`/work-report-view?${searchParams.toString()}`}>
-                                        <button
-                                          className="inline-flex flex-col items-center gap-0.5 cursor-pointer hover-elevate rounded px-1.5 py-0.5 min-w-[44px]"
-                                          data-testid={`cell-work-report-${row.user_id}-${slot}`}
-                                        >
-                                          <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{leads}</span>
-                                          <span className="text-[10px] text-muted-foreground">{mins}m</span>
-                                        </button>
-                                      </Link>
-                                    ) : (
-                                      <span className="text-xs text-muted-foreground/40">—</span>
-                                    )}
-                                  </TableCell>
-                                );
-                              })}
-                              <TableCell className="text-center px-2">
-                                <div className="inline-flex flex-col items-center gap-0.5">
-                                  <span className="text-xs font-bold">{row.total_leads}</span>
-                                  <span className="text-[10px] text-muted-foreground">{row.total_minutes}m</span>
+                            <th className="whitespace-nowrap font-semibold px-2 py-2 text-center border-b border-border/30 min-w-[60px] text-slate-600 dark:text-slate-300">
+                              Total
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {workReportData.slots.map((slot, slotIdx) => {
+                            const slotDetail = workReportData.slotDetails?.find(s => s.label === slot);
+                            const slotHour = slotDetail?.start ?? 0;
+                            const slotEndHour = slotDetail?.end ?? slotHour + 1;
+                            // Row total: sum of all users' leads in this slot
+                            const rowTotal = workReportData.users.reduce((sum, u) => sum + (u.slots[slot]?.leads_attended || 0), 0);
+                            const rowMins = workReportData.users.reduce((sum, u) => sum + (u.slots[slot]?.minutes || 0), 0);
+                            const isEven = slotIdx % 2 === 0;
+                            return (
+                              <tr key={slot} className={isEven ? "bg-white/60 dark:bg-slate-800/40" : "bg-slate-50/40 dark:bg-slate-800/10"}>
+                                {/* Sticky time-slot label */}
+                                <td className={`sticky left-0 z-10 font-medium px-3 py-1.5 whitespace-nowrap border-r border-border/30 ${isEven ? "bg-white/95 dark:bg-slate-800/95" : "bg-slate-50/95 dark:bg-slate-800/60"} backdrop-blur-sm`}>
+                                  {slot}
+                                </td>
+                                {workReportData.users.map(u => {
+                                  const slotData = u.slots[slot];
+                                  const leads = slotData?.leads_attended || 0;
+                                  const mins = slotData?.minutes || 0;
+                                  const searchParams = new URLSearchParams({
+                                    date: workReportDate,
+                                    slotStart: String(slotHour),
+                                    slotEnd: String(slotEndHour),
+                                    userId: u.user_id,
+                                    slotLabel: slot,
+                                    userName: u.user_name,
+                                  });
+                                  return (
+                                    <td key={u.user_id} className="text-center px-2 py-1">
+                                      {leads > 0 ? (
+                                        <Link href={`/work-report-view?${searchParams.toString()}`}>
+                                          <button
+                                            className="inline-flex flex-col items-center gap-0 cursor-pointer hover-elevate rounded px-1.5 py-0.5 min-w-[40px]"
+                                            data-testid={`cell-work-report-${u.user_id}-${slot}`}
+                                          >
+                                            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{leads}</span>
+                                            <span className="text-[9px] text-muted-foreground">{mins}m</span>
+                                          </button>
+                                        </Link>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground/30">—</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                                <td className="text-center px-2 py-1">
+                                  {rowTotal > 0 ? (
+                                    <div className="inline-flex flex-col items-center gap-0">
+                                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{rowTotal}</span>
+                                      <span className="text-[9px] text-muted-foreground">{rowMins}m</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground/30">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {/* Totals row */}
+                          <tr className="bg-slate-100/80 dark:bg-slate-700/60 font-semibold border-t border-border/40">
+                            <td className="sticky left-0 z-10 bg-slate-100/95 dark:bg-slate-700/95 backdrop-blur-sm px-3 py-2 text-xs whitespace-nowrap border-r border-border/30">
+                              Total
+                            </td>
+                            {workReportData.users.map(u => (
+                              <td key={u.user_id} className="text-center px-2 py-2">
+                                <div className="inline-flex flex-col items-center gap-0">
+                                  <span className="text-xs font-bold">{u.total_leads}</span>
+                                  <span className="text-[9px] text-muted-foreground">{u.total_minutes}m</span>
                                 </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                              </td>
+                            ))}
+                            <td className="text-center px-2 py-2">
+                              <div className="inline-flex flex-col items-center gap-0">
+                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
+                                  {workReportData.users.reduce((s, u) => s + u.total_leads, 0)}
+                                </span>
+                                <span className="text-[9px] text-muted-foreground">
+                                  {workReportData.users.reduce((s, u) => s + u.total_minutes, 0)}m
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </CardContent>
               </Card>
             </motion.div>
-          )}
 
           {/* Row 3: Goal Timeline (single column) */}
           {!isTeamView && progress && (

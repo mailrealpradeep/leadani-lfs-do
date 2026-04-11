@@ -25127,8 +25127,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       // Parse date range for the report day in UTC
-      const dayStart = getStartOfDayInTimezone(reportDate, timezone);
-      const dayEnd = getEndOfDayInTimezone(reportDate, timezone);
+      const dayStart = getStartOfDayInTimezone(new Date(reportDate + "T12:00:00Z"), timezone);
+      const dayEnd = getEndOfDayInTimezone(new Date(reportDate + "T12:00:00Z"), timezone);
 
       // Determine which users to include
       const isAdmin = req.userRole === "company_admin";
@@ -25256,8 +25256,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const company = await storage.getCompany(req.companyId);
       const timezone = (company?.settings?.timezone) || "UTC";
 
-      const dayStart = getStartOfDayInTimezone(date, timezone);
-      const dayEnd = getEndOfDayInTimezone(date, timezone);
+      const dayStart = getStartOfDayInTimezone(new Date(date + "T12:00:00Z"), timezone);
+      const dayEnd = getEndOfDayInTimezone(new Date(date + "T12:00:00Z"), timezone);
 
       const slotStartHour = parseInt(slotStart, 10);
       const slotEndHour = parseInt(slotEnd, 10);
