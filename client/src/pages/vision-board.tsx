@@ -2265,6 +2265,13 @@ export default function VisionBoardPage() {
   const isAdminOrMultiSheet = user?.role === 'company_admin' || user?.is_multi_sheet_user;
   const [selectedUserView, setSelectedUserView] = useState<string>(isAdminOrMultiSheet ? 'company' : 'me');
   const [quickActionsUserId, setQuickActionsUserId] = useState<string>("all");
+
+  // Work Report state
+  const [workReportDate, setWorkReportDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const [workReportUserFilter, setWorkReportUserFilter] = useState<string>("all");
   const isFetchingCount = useIsFetching();
 
   // Fetch all users for the dropdown (only for Admin/Multi-sheet users)
@@ -2273,6 +2280,43 @@ export default function VisionBoardPage() {
     enabled: !!isAdminOrMultiSheet && !!user?.company_id,
     staleTime: 0,
     gcTime: 0,
+  });
+
+  // Work Report query
+  interface WorkReportUserRow {
+    user_id: string;
+    user_name: string;
+    user_email: string;
+    slots: Record<string, { leads_attended: number; minutes: number }>;
+    total_leads: number;
+    total_minutes: number;
+  }
+  interface WorkReportResponse {
+    date: string;
+    slots: string[];
+    slotDetails: Array<{ label: string; start: number; end: number }>;
+    users: WorkReportUserRow[];
+  }
+  const workReportQueryKey = ["/api/work-report", workReportDate, workReportUserFilter];
+  const {
+    data: workReportData,
+    isLoading: workReportLoading,
+    refetch: refetchWorkReport,
+  } = useQuery<WorkReportResponse>({
+    queryKey: workReportQueryKey,
+    queryFn: async () => {
+      const token = localStorage.getItem("auth_token");
+      const urlParams = new URLSearchParams({ date: workReportDate });
+      if (workReportUserFilter !== "all") urlParams.append("userId", workReportUserFilter);
+      const res = await fetch(`/api/work-report?${urlParams}`, {
+        credentials: "include",
+        headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+      });
+      if (!res.ok) throw new Error("Failed to fetch work report");
+      return res.json();
+    },
+    enabled: !!user?.company_id,
+    staleTime: 60_000,
   });
   
   // Determine which user to view (for admin-controlled data)
@@ -2923,6 +2967,7 @@ export default function VisionBoardPage() {
     queryClient.invalidateQueries({ queryKey: ["/api/vision-board/messages"] });
     queryClient.invalidateQueries({ queryKey: ["/api/custom-views"] });
     queryClient.invalidateQueries({ queryKey: ["/api/custom-views-counts"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/work-report"] });
   };
 
   // Get selected user name for display
@@ -3733,6 +3778,133 @@ export default function VisionBoardPage() {
               </motion.div>
             )}
             
+          {/* Work Report Section */}
+          {(isAdminOrMultiSheet || true) && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.55 }}
+            >
+              <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl overflow-hidden">
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Clock className="h-5 w-5 text-blue-500" />
+                      Time-wise Work Report
+                    </CardTitle>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {isAdminOrMultiSheet && allUsers.length > 0 && (
+                        <Select value={workReportUserFilter} onValueChange={setWorkReportUserFilter}>
+                          <SelectTrigger className="w-36 h-8 text-xs" data-testid="select-work-report-user">
+                            <SelectValue placeholder="All Users" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Users</SelectItem>
+                            {allUsers.map(u => (
+                              <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <input
+                        type="date"
+                        value={workReportDate}
+                        onChange={e => setWorkReportDate(e.target.value)}
+                        className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground"
+                        data-testid="input-work-report-date"
+                      />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => refetchWorkReport()}
+                        aria-label="Refresh work report"
+                        data-testid="button-refresh-work-report"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${workReportLoading ? "animate-spin" : ""}`} />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {workReportLoading ? (
+                    <div className="p-6 space-y-2">
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-6 w-full" />
+                      <Skeleton className="h-6 w-full" />
+                      <Skeleton className="h-6 w-full" />
+                    </div>
+                  ) : !workReportData || workReportData.users.length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm">
+                      No activity found for {workReportDate}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50/80 dark:bg-slate-700/40">
+                            <TableHead className="whitespace-nowrap font-semibold text-xs px-3">Executive</TableHead>
+                            {workReportData.slots.map(slot => (
+                              <TableHead key={slot} className="whitespace-nowrap text-center text-xs px-2">{slot}</TableHead>
+                            ))}
+                            <TableHead className="whitespace-nowrap text-center text-xs px-2 font-semibold">Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {workReportData.users.map(row => (
+                            <TableRow key={row.user_id} className="hover-elevate">
+                              <TableCell className="font-medium text-xs whitespace-nowrap px-3">
+                                {row.user_name}
+                              </TableCell>
+                              {workReportData.slots.map(slot => {
+                                const slotData = row.slots[slot];
+                                const leads = slotData?.leads_attended || 0;
+                                const mins = slotData?.minutes || 0;
+                                const slotDetail = workReportData.slotDetails?.find(s => s.label === slot);
+                                const slotHour = slotDetail?.start ?? 0;
+                                const slotEndHour = slotDetail?.end ?? slotHour + 1;
+                                const searchParams = new URLSearchParams({
+                                  date: workReportDate,
+                                  slotStart: String(slotHour),
+                                  slotEnd: String(slotEndHour),
+                                  userId: row.user_id,
+                                  slotLabel: slot,
+                                  userName: row.user_name,
+                                });
+                                return (
+                                  <TableCell key={slot} className="text-center px-2">
+                                    {leads > 0 ? (
+                                      <Link href={`/work-report-view?${searchParams.toString()}`}>
+                                        <button
+                                          className="inline-flex flex-col items-center gap-0.5 cursor-pointer hover-elevate rounded px-1.5 py-0.5 min-w-[44px]"
+                                          data-testid={`cell-work-report-${row.user_id}-${slot}`}
+                                        >
+                                          <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{leads}</span>
+                                          <span className="text-[10px] text-muted-foreground">{mins}m</span>
+                                        </button>
+                                      </Link>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground/40">—</span>
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
+                              <TableCell className="text-center px-2">
+                                <div className="inline-flex flex-col items-center gap-0.5">
+                                  <span className="text-xs font-bold">{row.total_leads}</span>
+                                  <span className="text-[10px] text-muted-foreground">{row.total_minutes}m</span>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
           {/* Row 3: Goal Timeline (single column) */}
           {!isTeamView && progress && (
             <motion.div

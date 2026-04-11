@@ -62,6 +62,7 @@ import SailaAI from "@/pages/saila";
 import Radar from "@/pages/radar";
 import CallSchedule from "@/pages/call-schedule";
 import IncomingMessages from "@/pages/incoming-messages";
+import WorkReportView from "@/pages/work-report-view";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -184,6 +185,9 @@ function Router() {
       </Route>
       <Route path="/incoming-messages">
         {() => <ProtectedRoute component={IncomingMessages} adminOnly />}
+      </Route>
+      <Route path="/work-report-view">
+        {() => <ProtectedRoute component={WorkReportView} />}
       </Route>
       <Route path="/saila">
         {() => <ProtectedRoute component={SailaAI} adminOnly />}

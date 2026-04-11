@@ -64,6 +64,7 @@ The system features a customizable grid interface with dynamic column management
 *   **Call Schedule**: Executive view for Saila AI call commitments, displaying pending/completed/missed calls with inline status updates.
 *   **Saila Fixed Reply Mode**: Engine mode that intercepts Meta Ad contacts' 2nd message within 3 hours and sends a configurable template reply (with {greeting}, {call_time}, {executive_name} placeholders) instead of the AI response. Configurable per-phone via the Saila AI settings page. Includes company-wide Greeting Slots (hour range → greeting text) and Call Time Slots (hour range → call time label). Automatically creates Call Schedule entries. Silent skip if no call time slot matches (logged to activity log).
 *   **Radar (Close Monitor Lead View)**: Admin-managed card-based view for monitoring high-priority leads, allowing admins to add/remove leads from the spreadsheet grid and view/edit key fields.
+*   **Time-wise Work Report**: Grid in Vision Board showing each executive's lead activity across hourly time slots, with capped minute calculations (4 min/lead, capped at slot duration). Clicking a cell navigates to a drill-down view that renders the full SpreadsheetGrid for that slot's leads. Backend endpoints at `/api/work-report` (summary) and `/api/work-report/slot-leads` (drill-down leads). Accessible to all users with admin user-filter option.
 
 ### Security
 

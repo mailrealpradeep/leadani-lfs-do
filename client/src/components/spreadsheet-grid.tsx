@@ -169,6 +169,7 @@ interface SpreadsheetGridProps {
   hotLeadsMode?: boolean;
   watchlistMode?: boolean;
   customViewId?: string; // For custom view mode
+  workReportParams?: { date: string; slotStart: number; slotEnd: number; userId?: string }; // For work report mode
 }
 
 interface WatchlistLeadsResponse {
@@ -371,9 +372,11 @@ export function SpreadsheetGrid({
   hotLeadsMode = false,
   watchlistMode = false,
   customViewId,
+  workReportParams,
 }: SpreadsheetGridProps) {
   // Custom view mode operates similarly to hot leads mode
   const customViewMode = !!customViewId;
+  const workReportMode = !!workReportParams;
   const { toast } = useToast();
   const { isCompanyAdmin, isSuperAdmin } = useAuth();
   const isAdminUser = isCompanyAdmin || isSuperAdmin;
@@ -395,12 +398,12 @@ export function SpreadsheetGrid({
     setColumnVisibilityConfig,
   } = useDashboard();
   
-  // Hot leads mode, watchlist mode, and custom view mode act like multi-mode (shows sheet column, uses company columns)
+  // Hot leads mode, watchlist mode, custom view mode, and work report mode act like multi-mode (shows sheet column, uses company columns)
   // But these modes don't rely on selectedSheetIds - they use their own data source
-  const isMultiMode = hotLeadsMode || watchlistMode || customViewMode || (isMultiSheetMode && selectedSheetIds.length > 0);
+  const isMultiMode = hotLeadsMode || watchlistMode || customViewMode || workReportMode || (isMultiSheetMode && selectedSheetIds.length > 0);
   const activeSheetId = sheetId || "";
-  // For hot leads/watchlist/custom view mode, we don't need activeSheetIds - data comes from their own APIs
-  const activeSheetIds = (hotLeadsMode || watchlistMode || customViewMode) ? [] : (isMultiSheetMode ? selectedSheetIds : []);
+  // For hot leads/watchlist/custom view/work report mode, we don't need activeSheetIds - data comes from their own APIs
+  const activeSheetIds = (hotLeadsMode || watchlistMode || customViewMode || workReportMode) ? [] : (isMultiSheetMode ? selectedSheetIds : []);
   const containerRef = useRef<HTMLDivElement>(null);
   const mobileContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1042,6 +1045,37 @@ export function SpreadsheetGrid({
     enabled: customViewMode && !!customViewId,
   });
 
+  // Work report mode data fetching
+  const workReportQueryKey = workReportParams
+    ? ["/api/work-report/slot-leads", workReportParams.date, workReportParams.slotStart, workReportParams.slotEnd, workReportParams.userId]
+    : null;
+
+  const {
+    data: workReportLeadsData,
+    isLoading: isLoadingWorkReport,
+    isFetching: isFetchingWorkReport,
+    refetch: refetchWorkReport,
+  } = useQuery<CustomViewLeadsResponse>({
+    queryKey: workReportQueryKey ?? ["/api/work-report/slot-leads/__disabled__"],
+    queryFn: async () => {
+      if (!workReportParams) throw new Error("No params");
+      const params = new URLSearchParams({
+        date: workReportParams.date,
+        slotStart: String(workReportParams.slotStart),
+        slotEnd: String(workReportParams.slotEnd),
+      });
+      if (workReportParams.userId) params.append("userId", workReportParams.userId);
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch(`/api/work-report/slot-leads?${params}`, {
+        credentials: "include",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch slot leads");
+      return res.json();
+    },
+    enabled: workReportMode && !!workReportParams,
+  });
+
   // Process custom view data with client-side filtering/sorting
   const customViewProcessed = useMemo(() => {
     if (!customViewData?.leads) return [];
@@ -1157,6 +1191,39 @@ export function SpreadsheetGrid({
     return names;
   }, [customViewData?.leads]);
 
+  // Work report processed leads (mirrors custom view processing)
+  const workReportProcessed = useMemo(() => {
+    if (!workReportLeadsData?.leads) return [];
+    let filtered = [...workReportLeadsData.leads];
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      filtered = filtered.filter(lead => {
+        const name = lead.custom_fields?.full_name?.toString().toLowerCase() || "";
+        const mobile = lead.custom_fields?.mobile_no?.toString().toLowerCase() || "";
+        const sheetName = (lead as any).sheet_name?.toLowerCase() || "";
+        return name.includes(searchLower) || mobile.includes(searchLower) || sheetName.includes(searchLower);
+      });
+    }
+    return filtered;
+  }, [workReportLeadsData?.leads, searchQuery]);
+
+  const workReportSheetNames = useMemo(() => {
+    if (!workReportLeadsData?.leads) return {};
+    const names: Record<string, string> = {};
+    workReportLeadsData.leads.forEach((lead: any) => {
+      if (lead.sheet_id && lead.sheet_name) {
+        names[lead.sheet_id] = lead.sheet_name;
+      }
+    });
+    // Also check sheets array
+    workReportLeadsData.sheets?.forEach((sheet: any) => {
+      if (sheet.id && sheet.name) {
+        names[sheet.id] = sheet.name;
+      }
+    });
+    return names;
+  }, [workReportLeadsData]);
+
   // Update pagination state for display purposes (infinite scroll mode)
   // Use ref to track previous values and prevent unnecessary updates that cause infinite loops
   const prevPaginationRef = useRef({ total: 0, mode: "" });
@@ -1178,6 +1245,10 @@ export function SpreadsheetGrid({
       newTotal = customViewProcessed.length;
       newMode = "customView";
       newLimit = customViewProcessed.length || 50;
+    } else if (workReportMode) {
+      newTotal = workReportProcessed.length;
+      newMode = "workReport";
+      newLimit = workReportProcessed.length || 50;
     } else if (isMultiMode && multiSheetTotal > 0) {
       newTotal = multiSheetTotal;
       newMode = "multiSheet";
@@ -1200,7 +1271,7 @@ export function SpreadsheetGrid({
         totalPages: newTotalPages,
       });
     }
-  }, [multiSheetTotal, singleSheetTotal, isMultiMode, hotLeadsMode, watchlistMode, customViewMode, hotLeadsProcessed.length, watchlistProcessed.length, customViewProcessed.length, setPagination]);
+  }, [multiSheetTotal, singleSheetTotal, isMultiMode, hotLeadsMode, watchlistMode, customViewMode, workReportMode, hotLeadsProcessed.length, watchlistProcessed.length, customViewProcessed.length, workReportProcessed.length, setPagination]);
 
   // Reset to page 1 when sheet selection, search, filters, or sort changes
   // Use JSON.stringify for stable dependency reference of columnFilters
@@ -1239,34 +1310,40 @@ export function SpreadsheetGrid({
     };
   }, [activeSheetId, activeSheetIds.length, searchQuery, columnFiltersKey, sortColumn, sortDirection, thoughtFilter, pagination.page, pagination.limit, setPagination]);
 
-  // Unified data access - using infinite scroll data, hot leads data, watchlist data, or custom view data
+  // Unified data access - using infinite scroll data, hot leads data, watchlist data, custom view data, or work report data
   const leads = hotLeadsMode 
     ? hotLeadsProcessed 
     : watchlistMode
       ? watchlistProcessed
       : customViewMode
         ? customViewProcessed
-        : (isMultiMode ? multiSheetLeads : singleSheetLeads);
+        : workReportMode
+          ? workReportProcessed
+          : (isMultiMode ? multiSheetLeads : singleSheetLeads);
   const customColumns = isMultiMode ? companyColumns : singleSheetColumns;
   const sheetNamesMap = hotLeadsMode 
     ? hotLeadsSheetNames 
     : watchlistMode 
       ? watchlistSheetNames
       : customViewMode 
-        ? customViewSheetNames 
-        : multiSheetNames;
+        ? customViewSheetNames
+        : workReportMode
+          ? workReportSheetNames
+          : multiSheetNames;
   
-  // Unified infinite scroll helpers (hot leads/watchlist/custom view mode doesn't use infinite scroll)
-  const hasNextPage = (hotLeadsMode || watchlistMode || customViewMode) ? false : (isMultiMode ? hasNextMultiPage : hasNextSinglePage);
-  const isFetchingNextPage = (hotLeadsMode || watchlistMode || customViewMode) ? false : (isMultiMode ? isFetchingNextMultiPage : isFetchingNextSinglePage);
-  const fetchNextPage = (hotLeadsMode || watchlistMode || customViewMode) ? (() => Promise.resolve()) : (isMultiMode ? fetchNextMultiPage : fetchNextSinglePage);
+  // Unified infinite scroll helpers (hot leads/watchlist/custom view/work report mode doesn't use infinite scroll)
+  const hasNextPage = (hotLeadsMode || watchlistMode || customViewMode || workReportMode) ? false : (isMultiMode ? hasNextMultiPage : hasNextSinglePage);
+  const isFetchingNextPage = (hotLeadsMode || watchlistMode || customViewMode || workReportMode) ? false : (isMultiMode ? isFetchingNextMultiPage : isFetchingNextSinglePage);
+  const fetchNextPage = (hotLeadsMode || watchlistMode || customViewMode || workReportMode) ? (() => Promise.resolve()) : (isMultiMode ? fetchNextMultiPage : fetchNextSinglePage);
   const totalLeads = hotLeadsMode 
     ? hotLeadsProcessed.length 
     : watchlistMode
       ? watchlistProcessed.length
       : customViewMode 
-        ? customViewProcessed.length 
-        : (isMultiMode ? multiSheetTotal : singleSheetTotal);
+        ? customViewProcessed.length
+        : workReportMode
+          ? workReportProcessed.length
+          : (isMultiMode ? multiSheetTotal : singleSheetTotal);
 
 
   const { data: allSheets = [] } = useQuery<any[]>({
@@ -1350,7 +1427,7 @@ export function SpreadsheetGrid({
   });
 
   // Combined column preferences based on mode
-  const columnPreferences = customViewMode ? customViewColumnPreferences : sheetColumnPreferences;
+  const columnPreferences = (customViewMode || workReportMode) ? customViewColumnPreferences : sheetColumnPreferences;
 
   // Save column width preferences mutation (only in single-sheet mode)
   const saveSheetColumnPreferencesMutation = useMutation({
@@ -1553,18 +1630,22 @@ export function SpreadsheetGrid({
     ? isFetchingHotLeads
     : customViewMode
       ? isFetchingCustomView
-      : isMultiMode 
-        ? isFetchingMultiLeads
-        : isFetchingSingleLeads;
+      : workReportMode
+        ? isFetchingWorkReport
+        : isMultiMode 
+          ? isFetchingMultiLeads
+          : isFetchingSingleLeads;
   
   // Legacy isLoading for backward compatibility with other parts of the component
   const isLoading = hotLeadsMode
     ? (isLoadingHotLeads || isLoadingCompanyColumns)
     : customViewMode
       ? (isLoadingCustomView || isLoadingCompanyColumns)
-      : isMultiMode 
-        ? (isLoadingMultiLeads || isLoadingCompanyColumns)
-        : (isLoadingSingleLeads || isLoadingSingleColumns);
+      : workReportMode
+        ? (isLoadingWorkReport || isLoadingCompanyColumns)
+        : isMultiMode 
+          ? (isLoadingMultiLeads || isLoadingCompanyColumns)
+          : (isLoadingSingleLeads || isLoadingSingleColumns);
 
   const updateLeadMutation = useMutation({
     mutationFn: async ({ leadId, customFields }: { leadId: string; customFields: Record<string, any> }) => {
@@ -1713,6 +1794,8 @@ export function SpreadsheetGrid({
       } else if (customViewMode && customViewId) {
         queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "leads"] });
         debouncedInvalidateBadgeCounts();
+      } else if (workReportMode && workReportQueryKey) {
+        queryClient.invalidateQueries({ queryKey: workReportQueryKey });
       } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
@@ -1732,6 +1815,8 @@ export function SpreadsheetGrid({
       } else if (customViewMode && customViewId) {
         queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "leads"] });
         debouncedInvalidateBadgeCounts();
+      } else if (workReportMode && workReportQueryKey) {
+        queryClient.invalidateQueries({ queryKey: workReportQueryKey });
       } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
@@ -1757,6 +1842,8 @@ export function SpreadsheetGrid({
       } else if (customViewMode && customViewId) {
         queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "leads"] });
         debouncedInvalidateBadgeCounts();
+      } else if (workReportMode && workReportQueryKey) {
+        queryClient.invalidateQueries({ queryKey: workReportQueryKey });
       } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
@@ -1791,6 +1878,8 @@ export function SpreadsheetGrid({
       } else if (customViewMode && customViewId) {
         queryClient.invalidateQueries({ queryKey: ["/api/custom-views", customViewId, "leads"] });
         debouncedInvalidateBadgeCounts();
+      } else if (workReportMode && workReportQueryKey) {
+        queryClient.invalidateQueries({ queryKey: workReportQueryKey });
       } else if (isMultiMode) {
         queryClient.invalidateQueries({ queryKey: ["/api/leads/query-infinite"] });
       } else {
@@ -3385,6 +3474,7 @@ export function SpreadsheetGrid({
             ["/api/sheets", activeSheetId, "leads-infinite"],
             ["/api/leads/query-infinite"],
             ...(customViewId ? [["/api/custom-views", customViewId, "leads"]] : []),
+            ...(workReportQueryKey ? [workReportQueryKey] : []),
           ]}
           hotLeadsMode={hotLeadsMode}
           customViewMode={customViewMode}

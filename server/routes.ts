@@ -25092,6 +25092,237 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // ============================================================================
+  // WORK REPORT - Time-wise work summary (lead updates per time slot per user)
+  // ============================================================================
+
+  // Define fixed time slots
+  function getWorkReportSlots(): Array<{ label: string; start: number; end: number }> {
+    const slots = [{ label: "12am–9am", start: 0, end: 9 }];
+    for (let h = 9; h < 21; h++) {
+      const startLabel = h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
+      const endLabel = (h + 1) < 12 ? `${h + 1}am` : (h + 1) === 12 ? "12pm" : `${h + 1 - 12}pm`;
+      slots.push({ label: `${startLabel}–${endLabel}`, start: h, end: h + 1 });
+    }
+    slots.push({ label: "9pm–12am", start: 21, end: 24 });
+    return slots;
+  }
+
+  // GET /api/work-report - summary grid (slots × users)
+  app.get("/api/work-report", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { date, userId: queryUserId } = req.query as { date?: string; userId?: string };
+      const company = await storage.getCompany(req.companyId);
+      const timezone = (company?.settings?.timezone) || "UTC";
+
+      // Determine the date to report on (default = today in company timezone)
+      let reportDate: string;
+      if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        reportDate = date;
+      } else {
+        reportDate = getTodayDateString(timezone);
+      }
+
+      // Parse date range for the report day in UTC
+      const dayStart = getStartOfDayInTimezone(reportDate, timezone);
+      const dayEnd = getEndOfDayInTimezone(reportDate, timezone);
+
+      // Determine which users to include
+      const isAdmin = req.userRole === "company_admin";
+      let targetUserIds: string[];
+
+      if (isAdmin && !queryUserId) {
+        // Admin gets all company users
+        const users = await storage.getUsersByCompanyId(req.companyId);
+        targetUserIds = users.filter(u => u.is_active).map(u => u.id);
+      } else if (queryUserId && (isAdmin || queryUserId === req.userId)) {
+        targetUserIds = [queryUserId];
+      } else {
+        targetUserIds = [req.userId];
+      }
+
+      // Fetch all lead updates in the date range for targeted users
+      const updates = await db
+        .select({
+          id: dbSchema.lead_updates.id,
+          lead_id: dbSchema.lead_updates.lead_id,
+          created_by_user_id: dbSchema.lead_updates.created_by_user_id,
+          created_at: dbSchema.lead_updates.created_at,
+        })
+        .from(dbSchema.lead_updates)
+        .where(
+          and(
+            isNotNull(dbSchema.lead_updates.created_by_user_id),
+            inArray(dbSchema.lead_updates.created_by_user_id, targetUserIds),
+            gte(dbSchema.lead_updates.created_at, dayStart),
+            lte(dbSchema.lead_updates.created_at, dayEnd)
+          )
+        );
+
+      // Load all active users for name mapping
+      const allUsers = await storage.getUsersByCompanyId(req.companyId);
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+      const slots = getWorkReportSlots();
+      const CAP_PER_LEAD = 4; // minutes per lead per slot
+      const SLOT_CAPS: Record<string, number> = {};
+      slots.forEach(s => {
+        SLOT_CAPS[s.label] = (s.end - s.start) * 60; // minutes in slot
+      });
+
+      // Build slot map: slotLabel → userId → Set<leadId>
+      const slotUserLeads: Map<string, Map<string, Set<string>>> = new Map();
+      slots.forEach(s => slotUserLeads.set(s.label, new Map()));
+
+      for (const upd of updates) {
+        if (!upd.created_by_user_id) continue;
+        // Convert created_at to company timezone hour
+        const localHour = parseInt(formatInTimeZone(upd.created_at, timezone, "H"), 10);
+        const slot = slots.find(s => localHour >= s.start && localHour < s.end);
+        if (!slot) continue;
+
+        const slotMap = slotUserLeads.get(slot.label)!;
+        if (!slotMap.has(upd.created_by_user_id)) slotMap.set(upd.created_by_user_id, new Set());
+        slotMap.get(upd.created_by_user_id)!.add(upd.lead_id);
+      }
+
+      // Build result: for each user, for each slot: leads_attended + minutes
+      const userRows = targetUserIds
+        .map(uid => {
+          const user = userMap.get(uid);
+          if (!user) return null;
+          const slotData: Record<string, { leads_attended: number; minutes: number }> = {};
+          let totalLeads = 0;
+          let totalMinutes = 0;
+
+          for (const slot of slots) {
+            const leads = slotUserLeads.get(slot.label)?.get(uid)?.size || 0;
+            const rawMinutes = leads * CAP_PER_LEAD;
+            const cappedMinutes = Math.min(rawMinutes, SLOT_CAPS[slot.label]);
+            slotData[slot.label] = { leads_attended: leads, minutes: cappedMinutes };
+            totalLeads += leads;
+            totalMinutes += cappedMinutes;
+          }
+
+          return {
+            user_id: uid,
+            user_name: user.name,
+            user_email: user.email,
+            slots: slotData,
+            total_leads: totalLeads,
+            total_minutes: totalMinutes,
+          };
+        })
+        .filter(Boolean);
+
+      res.json({
+        date: reportDate,
+        slots: slots.map(s => s.label),
+        slotDetails: slots.map(s => ({ label: s.label, start: s.start, end: s.end })),
+        users: userRows,
+      });
+    } catch (error: any) {
+      console.error("Error fetching work report:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/work-report/slot-leads - leads updated by a user in a specific time slot
+  app.get("/api/work-report/slot-leads", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId || !req.userId) {
+        return res.status(403).json({ error: "Must belong to a company" });
+      }
+
+      const { date, slotStart, slotEnd, userId: queryUserId } = req.query as {
+        date?: string;
+        slotStart?: string;
+        slotEnd?: string;
+        userId?: string;
+      };
+
+      const isAdmin = req.userRole === "company_admin";
+      const targetUserId = queryUserId && (isAdmin || queryUserId === req.userId)
+        ? queryUserId
+        : req.userId;
+
+      if (!date || !slotStart || !slotEnd) {
+        return res.status(400).json({ error: "date, slotStart, slotEnd are required" });
+      }
+
+      const company = await storage.getCompany(req.companyId);
+      const timezone = (company?.settings?.timezone) || "UTC";
+
+      const dayStart = getStartOfDayInTimezone(date, timezone);
+      const dayEnd = getEndOfDayInTimezone(date, timezone);
+
+      const slotStartHour = parseInt(slotStart, 10);
+      const slotEndHour = parseInt(slotEnd, 10);
+
+      // Fetch updates in the slot time range for this user
+      const updates = await db
+        .select({
+          lead_id: dbSchema.lead_updates.lead_id,
+          created_at: dbSchema.lead_updates.created_at,
+        })
+        .from(dbSchema.lead_updates)
+        .where(
+          and(
+            eq(dbSchema.lead_updates.created_by_user_id, targetUserId),
+            gte(dbSchema.lead_updates.created_at, dayStart),
+            lte(dbSchema.lead_updates.created_at, dayEnd)
+          )
+        );
+
+      // Filter by local hour
+      const leadIdsInSlot = new Set<string>();
+      for (const upd of updates) {
+        const localHour = parseInt(formatInTimeZone(upd.created_at, timezone, "H"), 10);
+        if (localHour >= slotStartHour && localHour < slotEndHour) {
+          leadIdsInSlot.add(upd.lead_id);
+        }
+      }
+
+      if (leadIdsInSlot.size === 0) {
+        return res.json({ leads: [], sheets: [], count: 0 });
+      }
+
+      // Fetch the actual leads
+      const leadIds = [...leadIdsInSlot];
+      const leadsResult = await db
+        .select()
+        .from(dbSchema.leads)
+        .where(
+          and(
+            inArray(dbSchema.leads.id, leadIds),
+            isNull(dbSchema.leads.deleted_at)
+          )
+        );
+
+      // Check that these leads belong to this company via sheets
+      const sheetIds = [...new Set(leadsResult.map(l => l.sheet_id))];
+      const companySheets = await storage.getSheetsByCompanyId(req.companyId);
+      const companySheetIds = new Set(companySheets.map(s => s.id));
+
+      const authorizedLeads = leadsResult.filter(l => companySheetIds.has(l.sheet_id));
+      const authorizedSheetIds = [...new Set(authorizedLeads.map(l => l.sheet_id))];
+      const sheetsForLeads = companySheets.filter(s => authorizedSheetIds.includes(s.id));
+
+      res.json({
+        leads: authorizedLeads,
+        sheets: sheetsForLeads,
+        count: authorizedLeads.length,
+      });
+    } catch (error: any) {
+      console.error("Error fetching work report slot leads:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // CONVERSION SETTINGS (Pipeline Stage Management) - Admin Only
   // ============================================================================
 
