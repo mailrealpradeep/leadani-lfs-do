@@ -2286,20 +2286,18 @@ export default function VisionBoardPage() {
     gcTime: 0,
   });
 
-  // Work Report query
-  interface WorkReportUserRow {
-    user_id: string;
-    user_name: string;
-    user_email: string;
-    slots: Record<string, { leads_attended: number; minutes: number }>;
-    total_leads: number;
-    total_minutes: number;
+  // Work Report query — slot-centric API
+  interface WorkReportSlot {
+    label: string;
+    slotMinutes: number;
+    start: number;
+    end: number;
+    data: Record<string, { uniqueLeads: number; activityMinutes: number }>;
   }
   interface WorkReportResponse {
     date: string;
-    slots: string[];
-    slotDetails: Array<{ label: string; start: number; end: number }>;
-    users: WorkReportUserRow[];
+    users: Array<{ id: string; name: string }>;
+    slots: WorkReportSlot[];
   }
   const workReportQueryKey = ["/api/work-report", workReportDate, workReportUserFilter];
   const {
@@ -3943,21 +3941,22 @@ export default function VisionBoardPage() {
 
 interface WorkReportTableProps {
   workReportData: {
-    slots: string[];
-    slotDetails: Array<{ label: string; start: number; end: number }>;
-    users: Array<{
-      user_id: string;
-      user_name: string;
-      user_email: string;
-      slots: Record<string, { leads_attended: number; minutes: number }>;
-      total_leads: number;
-      total_minutes: number;
+    date: string;
+    users: Array<{ id: string; name: string }>;
+    slots: Array<{
+      label: string;
+      slotMinutes: number;
+      start: number;
+      end: number;
+      data: Record<string, { uniqueLeads: number; activityMinutes: number }>;
     }>;
   };
   workReportDate: string;
 }
 
 function WorkReportTable({ workReportData, workReportDate }: WorkReportTableProps) {
+  const { users, slots } = workReportData;
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs border-collapse">
@@ -3966,53 +3965,50 @@ function WorkReportTable({ workReportData, workReportDate }: WorkReportTableProp
             <th className="sticky left-0 z-10 bg-slate-50/95 dark:bg-slate-700/95 backdrop-blur-sm whitespace-nowrap font-semibold px-3 py-2 text-left border-b border-r border-border/30 min-w-[90px]">
               Time Slot
             </th>
-            {workReportData.users.map(u => (
-              <th key={u.user_id} className="whitespace-nowrap font-medium px-2 py-2 text-center border-b border-border/30 min-w-[72px] max-w-[100px]">
-                <span className="block truncate max-w-[90px]" title={u.user_name}>
-                  {u.user_name.split(" ")[0]}
+            {users.map(u => (
+              <th key={u.id} className="whitespace-nowrap font-medium px-2 py-2 text-center border-b border-border/30 min-w-[80px] max-w-[110px]">
+                <span className="block truncate max-w-[100px]" title={u.name}>
+                  {u.name.split(" ")[0]}
                 </span>
               </th>
             ))}
-            <th className="whitespace-nowrap font-semibold px-2 py-2 text-center border-b border-border/30 min-w-[60px] text-slate-600 dark:text-slate-300">
+            <th className="whitespace-nowrap font-semibold px-2 py-2 text-center border-b border-border/30 min-w-[70px] text-slate-600 dark:text-slate-300">
               Total
             </th>
           </tr>
         </thead>
         <tbody>
-          {workReportData.slots.map((slot, slotIdx) => {
-            const slotDetail = workReportData.slotDetails?.find(s => s.label === slot);
-            const slotHour = slotDetail?.start ?? 0;
-            const slotEndHour = slotDetail?.end ?? slotHour + 1;
-            const rowTotal = workReportData.users.reduce((sum, u) => sum + (u.slots[slot]?.leads_attended || 0), 0);
-            const rowMins = workReportData.users.reduce((sum, u) => sum + (u.slots[slot]?.minutes || 0), 0);
+          {slots.map((slot, slotIdx) => {
+            const rowTotal = users.reduce((sum, u) => sum + (slot.data[u.id]?.uniqueLeads || 0), 0);
+            const rowMins = users.reduce((sum, u) => sum + (slot.data[u.id]?.activityMinutes || 0), 0);
             const isEven = slotIdx % 2 === 0;
             return (
-              <tr key={slot} className={isEven ? "bg-white/60 dark:bg-slate-800/40" : "bg-slate-50/40 dark:bg-slate-800/10"}>
+              <tr key={slot.label} className={isEven ? "bg-white/60 dark:bg-slate-800/40" : "bg-slate-50/40 dark:bg-slate-800/10"}>
                 <td className={`sticky left-0 z-10 font-medium px-3 py-1.5 whitespace-nowrap border-r border-border/30 ${isEven ? "bg-white/95 dark:bg-slate-800/95" : "bg-slate-50/95 dark:bg-slate-800/60"} backdrop-blur-sm`}>
-                  {slot}
+                  {slot.label}
                 </td>
-                {workReportData.users.map(u => {
-                  const slotData = u.slots[slot];
-                  const leads = slotData?.leads_attended || 0;
-                  const mins = slotData?.minutes || 0;
+                {users.map(u => {
+                  const cell = slot.data[u.id];
+                  const leads = cell?.uniqueLeads || 0;
+                  const mins = cell?.activityMinutes || 0;
                   const searchParams = new URLSearchParams({
                     date: workReportDate,
-                    slotStart: String(slotHour),
-                    slotEnd: String(slotEndHour),
-                    userId: u.user_id,
-                    slotLabel: slot,
-                    userName: u.user_name,
+                    slotStart: String(slot.start),
+                    slotEnd: String(slot.end),
+                    userId: u.id,
+                    slotLabel: slot.label,
+                    userName: u.name,
                   });
                   return (
-                    <td key={u.user_id} className="text-center px-2 py-1">
+                    <td key={u.id} className="text-center px-2 py-1">
                       {leads > 0 ? (
                         <Link href={`/work-report-view?${searchParams.toString()}`}>
                           <button
-                            className="inline-flex flex-col items-center gap-0 cursor-pointer hover-elevate rounded px-1.5 py-0.5 min-w-[40px]"
-                            data-testid={`cell-work-report-${u.user_id}-${slot}`}
+                            className="inline-flex flex-col items-center gap-0 cursor-pointer hover-elevate rounded px-1.5 py-0.5 min-w-[48px]"
+                            data-testid={`cell-work-report-${u.id}-${slot.label}`}
                           >
-                            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{leads}</span>
-                            <span className="text-[9px] text-muted-foreground">{mins}m</span>
+                            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{leads} leads</span>
+                            <span className="text-[9px] text-muted-foreground">{mins} min</span>
                           </button>
                         </Link>
                       ) : (
@@ -4024,8 +4020,8 @@ function WorkReportTable({ workReportData, workReportDate }: WorkReportTableProp
                 <td className="text-center px-2 py-1">
                   {rowTotal > 0 ? (
                     <div className="inline-flex flex-col items-center gap-0">
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{rowTotal}</span>
-                      <span className="text-[9px] text-muted-foreground">{rowMins}m</span>
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{rowTotal} leads</span>
+                      <span className="text-[9px] text-muted-foreground">{rowMins} min</span>
                     </div>
                   ) : (
                     <span className="text-xs text-muted-foreground/30">—</span>
@@ -4038,21 +4034,25 @@ function WorkReportTable({ workReportData, workReportDate }: WorkReportTableProp
             <td className="sticky left-0 z-10 bg-slate-100/95 dark:bg-slate-700/95 backdrop-blur-sm px-3 py-2 text-xs whitespace-nowrap border-r border-border/30">
               Total
             </td>
-            {workReportData.users.map(u => (
-              <td key={u.user_id} className="text-center px-2 py-2">
-                <div className="inline-flex flex-col items-center gap-0">
-                  <span className="text-xs font-bold">{u.total_leads}</span>
-                  <span className="text-[9px] text-muted-foreground">{u.total_minutes}m</span>
-                </div>
-              </td>
-            ))}
+            {users.map(u => {
+              const totalLeads = slots.reduce((s, slot) => s + (slot.data[u.id]?.uniqueLeads || 0), 0);
+              const totalMins = slots.reduce((s, slot) => s + (slot.data[u.id]?.activityMinutes || 0), 0);
+              return (
+                <td key={u.id} className="text-center px-2 py-2">
+                  <div className="inline-flex flex-col items-center gap-0">
+                    <span className="text-xs font-bold">{totalLeads} leads</span>
+                    <span className="text-[9px] text-muted-foreground">{totalMins} min</span>
+                  </div>
+                </td>
+              );
+            })}
             <td className="text-center px-2 py-2">
               <div className="inline-flex flex-col items-center gap-0">
                 <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
-                  {workReportData.users.reduce((s, u) => s + u.total_leads, 0)}
+                  {slots.reduce((s, slot) => s + users.reduce((su, u) => su + (slot.data[u.id]?.uniqueLeads || 0), 0), 0)} leads
                 </span>
                 <span className="text-[9px] text-muted-foreground">
-                  {workReportData.users.reduce((s, u) => s + u.total_minutes, 0)}m
+                  {slots.reduce((s, slot) => s + users.reduce((su, u) => su + (slot.data[u.id]?.activityMinutes || 0), 0), 0)} min
                 </span>
               </div>
             </td>

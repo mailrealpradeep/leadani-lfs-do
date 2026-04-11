@@ -25107,7 +25107,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     return slots;
   }
 
-  // GET /api/work-report - summary grid (slots × users)
+  // GET /api/work-report - summary grid (slots × users), slot-centric response
   app.get("/api/work-report", authMiddleware, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId || !req.userId) {
@@ -25135,7 +25135,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       let targetUserIds: string[];
 
       if (isAdmin && !queryUserId) {
-        // Admin gets all company users
         const users = await storage.getUsersByCompanyId(req.companyId);
         targetUserIds = users.filter(u => u.is_active).map(u => u.id);
       } else if (queryUserId && (isAdmin || queryUserId === req.userId)) {
@@ -25144,85 +25143,70 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         targetUserIds = [req.userId];
       }
 
-      // Fetch all lead updates in the date range for targeted users
-      const updates = await db
-        .select({
-          id: dbSchema.lead_updates.id,
-          lead_id: dbSchema.lead_updates.lead_id,
-          created_by_user_id: dbSchema.lead_updates.created_by_user_id,
-          created_at: dbSchema.lead_updates.created_at,
-        })
-        .from(dbSchema.lead_updates)
-        .where(
-          and(
-            isNotNull(dbSchema.lead_updates.created_by_user_id),
-            inArray(dbSchema.lead_updates.created_by_user_id, targetUserIds),
-            gte(dbSchema.lead_updates.created_at, dayStart),
-            lte(dbSchema.lead_updates.created_at, dayEnd)
-          )
-        );
-
       // Load all active users for name mapping
       const allUsers = await storage.getUsersByCompanyId(req.companyId);
       const userMap = new Map(allUsers.map(u => [u.id, u]));
 
       const slots = getWorkReportSlots();
-      const CAP_PER_LEAD = 4; // minutes per lead per slot
-      const SLOT_CAPS: Record<string, number> = {};
-      slots.forEach(s => {
-        SLOT_CAPS[s.label] = (s.end - s.start) * 60; // minutes in slot
-      });
+      const CAP_PER_LEAD = 4; // minutes per lead, capped at slot duration
 
-      // Build slot map: slotLabel → userId → Set<leadId>
-      const slotUserLeads: Map<string, Map<string, Set<string>>> = new Map();
-      slots.forEach(s => slotUserLeads.set(s.label, new Map()));
-
-      for (const upd of updates) {
-        if (!upd.created_by_user_id) continue;
-        // Convert created_at to company timezone hour
-        const localHour = parseInt(formatInTimeZone(upd.created_at, timezone, "H"), 10);
-        const slot = slots.find(s => localHour >= s.start && localHour < s.end);
-        if (!slot) continue;
-
-        const slotMap = slotUserLeads.get(slot.label)!;
-        if (!slotMap.has(upd.created_by_user_id)) slotMap.set(upd.created_by_user_id, new Set());
-        slotMap.get(upd.created_by_user_id)!.add(upd.lead_id);
+      if (targetUserIds.length === 0) {
+        return res.json({
+          date: reportDate,
+          users: [],
+          slots: slots.map(s => ({ label: s.label, slotMinutes: (s.end - s.start) * 60, data: {} })),
+        });
       }
 
-      // Build result: for each user, for each slot: leads_attended + minutes
-      const userRows = targetUserIds
-        .map(uid => {
-          const user = userMap.get(uid);
-          if (!user) return null;
-          const slotData: Record<string, { leads_attended: number; minutes: number }> = {};
-          let totalLeads = 0;
-          let totalMinutes = 0;
+      // Single SQL query: aggregate unique leads per (user, hour) using Postgres AT TIME ZONE
+      const aggRows = await db.execute(sql`
+        SELECT
+          created_by_user_id AS user_id,
+          EXTRACT(HOUR FROM created_at AT TIME ZONE ${timezone})::int AS local_hour,
+          COUNT(DISTINCT lead_id)::int AS unique_leads
+        FROM lead_updates
+        WHERE
+          created_by_user_id = ANY(ARRAY[${sql.join(targetUserIds.map(id => sql`${id}`), sql`, `)}])
+          AND created_at >= ${dayStart}
+          AND created_at <= ${dayEnd}
+          AND created_by_user_id IS NOT NULL
+        GROUP BY created_by_user_id, local_hour
+      `);
 
-          for (const slot of slots) {
-            const leads = slotUserLeads.get(slot.label)?.get(uid)?.size || 0;
-            const rawMinutes = leads * CAP_PER_LEAD;
-            const cappedMinutes = Math.min(rawMinutes, SLOT_CAPS[slot.label]);
-            slotData[slot.label] = { leads_attended: leads, minutes: cappedMinutes };
-            totalLeads += leads;
-            totalMinutes += cappedMinutes;
+      // Map aggregated data: userId → localHour → uniqueLeads
+      const aggMap = new Map<string, Map<number, number>>();
+      for (const row of aggRows.rows as Array<{ user_id: string; local_hour: number; unique_leads: number }>) {
+        if (!aggMap.has(row.user_id)) aggMap.set(row.user_id, new Map());
+        aggMap.get(row.user_id)!.set(Number(row.local_hour), Number(row.unique_leads));
+      }
+
+      // Build slot-centric response
+      const usersInfo = targetUserIds
+        .filter(uid => userMap.has(uid))
+        .map(uid => ({ id: uid, name: userMap.get(uid)!.name }));
+
+      const slotsResult = slots.map(slot => {
+        const slotMinutes = (slot.end - slot.start) * 60;
+        const data: Record<string, { uniqueLeads: number; activityMinutes: number }> = {};
+
+        for (const { id: uid } of usersInfo) {
+          const hourMap = aggMap.get(uid);
+          let uniqueLeads = 0;
+          // Sum distinct leads across all hours within the slot
+          for (let h = slot.start; h < slot.end; h++) {
+            uniqueLeads += hourMap?.get(h) || 0;
           }
+          const activityMinutes = Math.min(uniqueLeads * CAP_PER_LEAD, slotMinutes);
+          data[uid] = { uniqueLeads, activityMinutes };
+        }
 
-          return {
-            user_id: uid,
-            user_name: user.name,
-            user_email: user.email,
-            slots: slotData,
-            total_leads: totalLeads,
-            total_minutes: totalMinutes,
-          };
-        })
-        .filter(Boolean);
+        return { label: slot.label, slotMinutes, start: slot.start, end: slot.end, data };
+      });
 
       res.json({
         date: reportDate,
-        slots: slots.map(s => s.label),
-        slotDetails: slots.map(s => ({ label: s.label, start: s.start, end: s.end })),
-        users: userRows,
+        users: usersInfo,
+        slots: slotsResult,
       });
     } catch (error: any) {
       console.error("Error fetching work report:", error);
