@@ -8,10 +8,17 @@ import { SpreadsheetGrid } from "@/components/spreadsheet-grid";
 import { LeadDetailDrawer } from "@/components/lead-detail-drawer";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import type { Lead } from "@shared/schema";
+
+interface SheetInfo {
+  id: string;
+  name: string;
+  company_id: string;
+}
 
 interface SlotLeadsResponse {
-  leads: any[];
-  sheets: any[];
+  leads: Lead[];
+  sheets: SheetInfo[];
   count: number;
 }
 
@@ -53,7 +60,7 @@ export default function WorkReportView() {
   });
 
   const handleOpenLeadDetail = (leadId: string) => {
-    const lead = data?.leads?.find((l: any) => l.id === leadId);
+    const lead = data?.leads?.find((l) => l.id === leadId);
     if (lead) {
       setSelectedLeadId(leadId);
       setSelectedSheetId(lead.sheet_id);
@@ -71,7 +78,7 @@ export default function WorkReportView() {
     <div className="flex-1 flex flex-col overflow-hidden h-full">
       <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-background">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <Link href="/vision-board">
+          <Link href="/vision-board?tab=work-report">
             <Button variant="ghost" size="icon" aria-label="Back to Vision Board" data-testid="button-back-work-report">
               <ArrowLeft className="h-4 w-4" />
             </Button>
