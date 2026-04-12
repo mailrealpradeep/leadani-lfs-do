@@ -2296,6 +2296,7 @@ export default function VisionBoardPage() {
   }
   interface WorkReportResponse {
     date: string;
+    eligibleUsers: Array<{ id: string; name: string }>;
     users: Array<{ id: string; name: string }>;
     slots: WorkReportSlot[];
   }
@@ -3087,7 +3088,7 @@ export default function VisionBoardPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Users</SelectItem>
-                          {(workReportData?.users || []).map(u => (
+                          {(workReportData?.eligibleUsers || []).map(u => (
                             <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                           ))}
                         </SelectContent>

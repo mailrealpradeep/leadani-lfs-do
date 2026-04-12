@@ -25175,9 +25175,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const slots = getWorkReportSlots();
       const CAP_PER_LEAD = 4; // minutes per lead, capped at slot duration
 
+      // Build the full eligible user list for the dropdown (always included regardless of userId filter)
+      const eligibleUsersInfo = eligibleUserIds
+        .filter(uid => userMap.has(uid))
+        .map(uid => ({ id: uid, name: userMap.get(uid)!.name }));
+
       if (targetUserIds.length === 0) {
         return res.json({
           date: reportDate,
+          eligibleUsers: eligibleUsersInfo,
           users: [],
           slots: slots.map(s => ({ label: s.label, slotMinutes: (s.end - s.start) * 60, data: {} })),
         });
@@ -25255,6 +25261,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       res.json({
         date: reportDate,
+        eligibleUsers: eligibleUsersInfo,
         users: usersInfo,
         slots: slotsResult,
       });
