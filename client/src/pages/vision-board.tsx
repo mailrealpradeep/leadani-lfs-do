@@ -3080,14 +3080,14 @@ export default function VisionBoardPage() {
                     Time-wise Work Report
                   </CardTitle>
                   <div className="flex items-center gap-2 flex-wrap">
-                    {isAdminOrMultiSheet && allUsers.length > 0 && (
+                    {isAdminOrMultiSheet && (
                       <Select value={workReportUserFilter} onValueChange={setWorkReportUserFilter}>
                         <SelectTrigger className="w-36 h-8 text-xs" data-testid="select-work-report-user">
                           <SelectValue placeholder="All Users" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Users</SelectItem>
-                          {allUsers.map(u => (
+                          {(workReportData?.users || []).map(u => (
                             <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                           ))}
                         </SelectContent>

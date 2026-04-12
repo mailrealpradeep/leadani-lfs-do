@@ -25130,22 +25130,47 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const dayStart = getStartOfDayInTimezone(new Date(reportDate + "T12:00:00Z"), timezone);
       const dayEnd = getEndOfDayInTimezone(new Date(reportDate + "T12:00:00Z"), timezone);
 
-      // Determine which users to include
+      // Load all active users for name mapping and eligibility filtering
+      const allUsers = await storage.getUsersByCompanyId(req.companyId);
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+      // Eligible users: active role='user' (not company_admin) AND single-sheet (≤1 non-personal company sheet)
+      const regularActiveUsers = allUsers.filter(u => u.is_active && u.role === 'user');
+      let eligibleUserIds: string[] = [];
+      if (regularActiveUsers.length > 0) {
+        const regularUserIds = regularActiveUsers.map(u => u.id);
+        const sheetCountRows = await db
+          .select({
+            user_id: dbSchema.sheet_users.user_id,
+            sheet_count: sql<number>`count(${dbSchema.sheet_users.sheet_id})::int`,
+          })
+          .from(dbSchema.sheet_users)
+          .innerJoin(dbSchema.sheets, eq(dbSchema.sheets.id, dbSchema.sheet_users.sheet_id))
+          .where(
+            and(
+              eq(dbSchema.sheets.company_id, req.companyId),
+              eq(dbSchema.sheets.is_personal, false),
+              inArray(dbSchema.sheet_users.user_id, regularUserIds)
+            )
+          )
+          .groupBy(dbSchema.sheet_users.user_id);
+        const multiSheetUserIds = new Set(
+          sheetCountRows.filter(r => r.sheet_count > 1).map(r => r.user_id)
+        );
+        eligibleUserIds = regularUserIds.filter(id => !multiSheetUserIds.has(id));
+      }
+
+      // Determine which users to include in the report
       const isAdmin = req.userRole === "company_admin";
       let targetUserIds: string[];
 
       if (isAdmin && !queryUserId) {
-        const users = await storage.getUsersByCompanyId(req.companyId);
-        targetUserIds = users.filter(u => u.is_active).map(u => u.id);
+        targetUserIds = eligibleUserIds;
       } else if (queryUserId && (isAdmin || queryUserId === req.userId)) {
-        targetUserIds = [queryUserId];
+        targetUserIds = eligibleUserIds.includes(queryUserId) ? [queryUserId] : [];
       } else {
-        targetUserIds = [req.userId];
+        targetUserIds = eligibleUserIds.includes(req.userId) ? [req.userId] : [];
       }
-
-      // Load all active users for name mapping
-      const allUsers = await storage.getUsersByCompanyId(req.companyId);
-      const userMap = new Map(allUsers.map(u => [u.id, u]));
 
       const slots = getWorkReportSlots();
       const CAP_PER_LEAD = 4; // minutes per lead, capped at slot duration
