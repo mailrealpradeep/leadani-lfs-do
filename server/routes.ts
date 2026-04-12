@@ -25175,6 +25175,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // Parameterize user IDs using Drizzle's sql template (each ID is a bound parameter)
       const userIdParams = sql.join(targetUserIds.map(id => sql`${id}`), sql`, `);
 
+      // Parameterize manual update types from the shared MANUAL_UPDATE_TYPES constant.
+      // This avoids hardcoding strings here — add new manual types to schema.ts instead.
+      const manualTypeParams = sql.join(dbSchema.MANUAL_UPDATE_TYPES.map(t => sql`${t}`), sql`, `);
+
       // Single query: CTE buckets each update into its slot, outer query counts distinct leads per (user, slot)
       const aggRows = await db.execute(sql`
         WITH bucketed AS (
@@ -25188,6 +25192,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
             AND lu.created_at >= ${dayStart}
             AND lu.created_at <= ${dayEnd}
             AND lu.created_by_user_id IS NOT NULL
+            AND lu.update_via = ANY(ARRAY[${manualTypeParams}])
         )
         SELECT
           user_id,
@@ -25266,7 +25271,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const slotStartHour = parseInt(slotStart, 10);
       const slotEndHour = parseInt(slotEnd, 10);
 
-      // Fetch updates in the slot time range for this user
+      // Fetch updates in the slot time range for this user — manual only
       const updates = await db
         .select({
           lead_id: dbSchema.lead_updates.lead_id,
@@ -25277,7 +25282,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           and(
             eq(dbSchema.lead_updates.created_by_user_id, targetUserId),
             gte(dbSchema.lead_updates.created_at, dayStart),
-            lte(dbSchema.lead_updates.created_at, dayEnd)
+            lte(dbSchema.lead_updates.created_at, dayEnd),
+            inArray(dbSchema.lead_updates.update_via, [...dbSchema.MANUAL_UPDATE_TYPES])
           )
         );
 

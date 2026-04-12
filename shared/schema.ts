@@ -761,6 +761,12 @@ export const insertLeadUpdateSchema = z.object({
 
 export type InsertLeadUpdate = z.infer<typeof insertLeadUpdateSchema>;
 
+// Update types that represent genuine manual activity by a sheet user.
+// Automated types (webhook, whatsapp, import, merge) are excluded.
+// Used by the Work Report to count only human-initiated lead updates.
+// Add new manual types here if the update_via enum grows.
+export const MANUAL_UPDATE_TYPES = ["web", "call", "transfer", "visit"] as const satisfies ReadonlyArray<z.infer<typeof insertLeadUpdateSchema>["update_via"]>;
+
 // ============================================================================
 // AUTH
 // ============================================================================
