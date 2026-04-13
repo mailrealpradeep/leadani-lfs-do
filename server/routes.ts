@@ -25143,6 +25143,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         if (!dateRegex.test(date)) {
           return res.status(400).json({ error: "date must be in YYYY-MM-DD format" });
         }
+        if (!isCalendarValid(date)) {
+          return res.status(400).json({ error: "date is not a valid calendar date" });
+        }
         resolvedStart = date;
         resolvedEnd = date;
       } else {
