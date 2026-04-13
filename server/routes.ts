@@ -25121,6 +25121,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const timezone = (company?.settings?.timezone) || "UTC";
 
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      const isCalendarValid = (d: string) => {
+        const dt = new Date(d + "T12:00:00Z");
+        return !isNaN(dt.getTime()) && dt.toISOString().slice(0, 10) === d;
+      };
       const today = getTodayDateString(timezone);
 
       // Resolve startDate / endDate — support both legacy ?date= and new ?startDate=&endDate=
@@ -25129,6 +25133,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (qStartDate && qEndDate) {
         if (!dateRegex.test(qStartDate) || !dateRegex.test(qEndDate)) {
           return res.status(400).json({ error: "startDate and endDate must be in YYYY-MM-DD format" });
+        }
+        if (!isCalendarValid(qStartDate) || !isCalendarValid(qEndDate)) {
+          return res.status(400).json({ error: "startDate or endDate is not a valid calendar date" });
         }
         resolvedStart = qStartDate;
         resolvedEnd = qEndDate;
@@ -25338,17 +25345,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const timezone = (company?.settings?.timezone) || "UTC";
 
       const dateRegexSL = /^\d{4}-\d{2}-\d{2}$/;
+      const isCalendarValidSL = (d: string) => {
+        const dt = new Date(d + "T12:00:00Z");
+        return !isNaN(dt.getTime()) && dt.toISOString().slice(0, 10) === d;
+      };
       let slResolvedStart: string;
       let slResolvedEnd: string;
       if (qSD && qED) {
         if (!dateRegexSL.test(qSD) || !dateRegexSL.test(qED)) {
           return res.status(400).json({ error: "startDate and endDate must be in YYYY-MM-DD format" });
         }
+        if (!isCalendarValidSL(qSD) || !isCalendarValidSL(qED)) {
+          return res.status(400).json({ error: "startDate or endDate is not a valid calendar date" });
+        }
         slResolvedStart = qSD;
         slResolvedEnd = qED;
       } else if (date) {
         if (!dateRegexSL.test(date)) {
           return res.status(400).json({ error: "date must be in YYYY-MM-DD format" });
+        }
+        if (!isCalendarValidSL(date)) {
+          return res.status(400).json({ error: "date is not a valid calendar date" });
         }
         slResolvedStart = date;
         slResolvedEnd = date;
