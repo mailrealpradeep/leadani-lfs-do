@@ -25114,21 +25114,38 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      const { date, userId: queryUserId } = req.query as { date?: string; userId?: string };
+      const { date, startDate: qStartDate, endDate: qEndDate, userId: queryUserId } = req.query as {
+        date?: string; startDate?: string; endDate?: string; userId?: string;
+      };
       const company = await storage.getCompany(req.companyId);
       const timezone = (company?.settings?.timezone) || "UTC";
 
-      // Determine the date to report on (default = today in company timezone)
-      let reportDate: string;
-      if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        reportDate = date;
-      } else {
-        reportDate = getTodayDateString(timezone);
-      }
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      const today = getTodayDateString(timezone);
 
-      // Parse date range for the report day in UTC
-      const dayStart = getStartOfDayInTimezone(new Date(reportDate + "T12:00:00Z"), timezone);
-      const dayEnd = getEndOfDayInTimezone(new Date(reportDate + "T12:00:00Z"), timezone);
+      // Resolve startDate / endDate — support both legacy ?date= and new ?startDate=&endDate=
+      let resolvedStart: string;
+      let resolvedEnd: string;
+      if (qStartDate && qEndDate && dateRegex.test(qStartDate) && dateRegex.test(qEndDate)) {
+        resolvedStart = qStartDate;
+        resolvedEnd = qEndDate;
+      } else if (date && dateRegex.test(date)) {
+        resolvedStart = date;
+        resolvedEnd = date;
+      } else {
+        resolvedStart = today;
+        resolvedEnd = today;
+      }
+      // Safety: clamp range to max 31 days
+      const startMs = new Date(resolvedStart + "T12:00:00Z").getTime();
+      const endMs = new Date(resolvedEnd + "T12:00:00Z").getTime();
+      if (endMs < startMs) { resolvedEnd = resolvedStart; }
+      const diffDays = Math.round((new Date(resolvedEnd + "T12:00:00Z").getTime() - startMs) / 86400000);
+      if (diffDays > 30) { resolvedStart = resolvedEnd; }  // fallback to single-day if > 31 days
+
+      // Parse date range for the report in UTC
+      const dayStart = getStartOfDayInTimezone(new Date(resolvedStart + "T12:00:00Z"), timezone);
+      const dayEnd = getEndOfDayInTimezone(new Date(resolvedEnd + "T12:00:00Z"), timezone);
 
       // Load all active users for name mapping and eligibility filtering
       const allUsers = await storage.getUsersByCompanyId(req.companyId);
@@ -25182,7 +25199,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       if (targetUserIds.length === 0) {
         return res.json({
-          date: reportDate,
+          startDate: resolvedStart,
+          endDate: resolvedEnd,
           eligibleUsers: eligibleUsersInfo,
           users: [],
           slots: slots.map(s => ({ label: s.label, slotMinutes: (s.end - s.start) * 60, data: {} })),
@@ -25190,12 +25208,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       // Build the slot CASE expression parts using Drizzle sql tag.
-      // - Slot start/end (0-24) and labels are server-hardcoded in getWorkReportSlots() — not user input.
-      // - Timezone comes from company DB settings — not direct user input.
-      // - User IDs are loaded from the company's own user list — validated before use.
-      // The CTE ensures COUNT(DISTINCT lead_id) is computed per slot (not per hour),
-      // preventing double-counting a lead touched in multiple hours within one multi-hour slot.
-      //
       // slot.start and slot.end are integers 0-24 from server-hardcoded getWorkReportSlots().
       // We use sql.raw() only for these integer bounds (server constants) and bind all other values.
       const slotWhenParts = slots.map(s =>
@@ -25203,19 +25215,21 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       );
       const slotCaseFragment = sql`CASE ${sql.join(slotWhenParts, sql` `)} ELSE NULL END`;
 
-      // Parameterize user IDs using Drizzle's sql template (each ID is a bound parameter)
+      // Parameterize user IDs and manual update types
       const userIdParams = sql.join(targetUserIds.map(id => sql`${id}`), sql`, `);
-
-      // Parameterize manual update types from the shared MANUAL_UPDATE_TYPES constant.
-      // This avoids hardcoding strings here — add new manual types to schema.ts instead.
       const manualTypeParams = sql.join(dbSchema.MANUAL_UPDATE_TYPES.map(t => sql`${t}`), sql`, `);
 
-      // Single query: CTE buckets each update into its slot, outer query counts distinct leads per (user, slot)
+      // Two-level CTE:
+      // 1. "bucketed" assigns each update a slot label and its local activity_date
+      // 2. "daily_counts" counts DISTINCT leads per (user, slot, day) — prevents double-counting
+      //    leads touched multiple times in the same slot on the same day
+      // 3. Outer aggregates across days, returning daily_leads_array for per-day capping in app code
       const aggRows = await db.execute(sql`
         WITH bucketed AS (
           SELECT
             lu.created_by_user_id AS user_id,
             lu.lead_id,
+            (lu.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})::date AS activity_date,
             ${slotCaseFragment} AS slot_label
           FROM lead_updates lu
           WHERE
@@ -25224,21 +25238,34 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
             AND lu.created_at <= ${dayEnd}
             AND lu.created_by_user_id IS NOT NULL
             AND lu.update_via = ANY(ARRAY[${manualTypeParams}])
+        ),
+        daily_counts AS (
+          SELECT
+            user_id,
+            slot_label,
+            activity_date,
+            COUNT(DISTINCT lead_id)::int AS daily_leads
+          FROM bucketed
+          WHERE slot_label IS NOT NULL
+          GROUP BY user_id, slot_label, activity_date
         )
         SELECT
           user_id,
           slot_label,
-          COUNT(DISTINCT lead_id)::int AS unique_leads
-        FROM bucketed
-        WHERE slot_label IS NOT NULL
+          SUM(daily_leads)::int AS total_leads,
+          array_agg(daily_leads ORDER BY activity_date) AS daily_leads_array
+        FROM daily_counts
         GROUP BY user_id, slot_label
       `);
 
-      // Map aggregated data: userId → slotLabel → uniqueLeads
-      const aggMap = new Map<string, Map<string, number>>();
-      for (const row of aggRows.rows as Array<{ user_id: string; slot_label: string; unique_leads: number }>) {
+      // Map aggregated data: userId → slotLabel → { totalLeads, dailyLeadsArray }
+      const aggMap = new Map<string, Map<string, { totalLeads: number; dailyLeadsArray: number[] }>>();
+      for (const row of aggRows.rows as Array<{ user_id: string; slot_label: string; total_leads: number; daily_leads_array: number[] }>) {
         if (!aggMap.has(row.user_id)) aggMap.set(row.user_id, new Map());
-        aggMap.get(row.user_id)!.set(row.slot_label, Number(row.unique_leads));
+        aggMap.get(row.user_id)!.set(row.slot_label, {
+          totalLeads: Number(row.total_leads),
+          dailyLeadsArray: Array.isArray(row.daily_leads_array) ? row.daily_leads_array.map(Number) : [Number(row.total_leads)],
+        });
       }
 
       // Build slot-centric response
@@ -25251,8 +25278,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         const data: Record<string, { uniqueLeads: number; activityMinutes: number }> = {};
 
         for (const { id: uid } of usersInfo) {
-          const uniqueLeads = aggMap.get(uid)?.get(slot.label) || 0;
-          const activityMinutes = Math.min(uniqueLeads * CAP_PER_LEAD, slotMinutes);
+          const entry = aggMap.get(uid)?.get(slot.label);
+          const uniqueLeads = entry?.totalLeads || 0;
+          // Apply 4-min/lead cap per day then sum — correct for multi-day ranges
+          const activityMinutes = entry
+            ? entry.dailyLeadsArray.reduce((sum, dl) => sum + Math.min(dl * CAP_PER_LEAD, slotMinutes), 0)
+            : 0;
           data[uid] = { uniqueLeads, activityMinutes };
         }
 
@@ -25260,7 +25291,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       });
 
       res.json({
-        date: reportDate,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
         eligibleUsers: eligibleUsersInfo,
         users: usersInfo,
         slots: slotsResult,
@@ -25278,11 +25310,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      const { date, slotStart, slotEnd, userId: queryUserId } = req.query as {
-        date?: string;
-        slotStart?: string;
-        slotEnd?: string;
-        userId?: string;
+      const { date, startDate: qSD, endDate: qED, slotStart, slotEnd, userId: queryUserId } = req.query as {
+        date?: string; startDate?: string; endDate?: string;
+        slotStart?: string; slotEnd?: string; userId?: string;
       };
 
       const isAdmin = req.userRole === "company_admin";
@@ -25290,15 +25320,28 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         ? queryUserId
         : req.userId;
 
-      if (!date || !slotStart || !slotEnd) {
-        return res.status(400).json({ error: "date, slotStart, slotEnd are required" });
+      if (!slotStart || !slotEnd) {
+        return res.status(400).json({ error: "slotStart, slotEnd are required" });
       }
 
       const company = await storage.getCompany(req.companyId);
       const timezone = (company?.settings?.timezone) || "UTC";
 
-      const dayStart = getStartOfDayInTimezone(new Date(date + "T12:00:00Z"), timezone);
-      const dayEnd = getEndOfDayInTimezone(new Date(date + "T12:00:00Z"), timezone);
+      const dateRegexSL = /^\d{4}-\d{2}-\d{2}$/;
+      let slResolvedStart: string;
+      let slResolvedEnd: string;
+      if (qSD && qED && dateRegexSL.test(qSD) && dateRegexSL.test(qED)) {
+        slResolvedStart = qSD;
+        slResolvedEnd = qED;
+      } else if (date && dateRegexSL.test(date)) {
+        slResolvedStart = date;
+        slResolvedEnd = date;
+      } else {
+        return res.status(400).json({ error: "date (or startDate+endDate) is required" });
+      }
+
+      const dayStart = getStartOfDayInTimezone(new Date(slResolvedStart + "T12:00:00Z"), timezone);
+      const dayEnd = getEndOfDayInTimezone(new Date(slResolvedEnd + "T12:00:00Z"), timezone);
 
       const slotStartHour = parseInt(slotStart, 10);
       const slotEndHour = parseInt(slotEnd, 10);

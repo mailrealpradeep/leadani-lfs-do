@@ -25,7 +25,12 @@ interface SlotLeadsResponse {
 export default function WorkReportView() {
   const search = useSearch();
   const params = new URLSearchParams(search);
-  const date = params.get("date") || "";
+
+  // Support both legacy ?date= and new ?startDate=&endDate=
+  const legacyDate = params.get("date") || "";
+  const startDate = params.get("startDate") || legacyDate;
+  const endDate = params.get("endDate") || legacyDate;
+
   const slotStart = parseInt(params.get("slotStart") || "0", 10);
   const slotEnd = parseInt(params.get("slotEnd") || "24", 10);
   const userId = params.get("userId") || undefined;
@@ -35,15 +40,21 @@ export default function WorkReportView() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedSheetId, setSelectedSheetId] = useState<string | null>(null);
 
-  const workReportParams = { date, slotStart, slotEnd, userId };
+  const isSingleDay = startDate === endDate;
+  const dateLabel = isSingleDay
+    ? startDate
+    : `${startDate} – ${endDate}`;
 
-  const queryKey = ["/api/work-report/slot-leads", date, slotStart, slotEnd, userId];
+  const workReportParams = { date: startDate, slotStart, slotEnd, userId };
+
+  const queryKey = ["/api/work-report/slot-leads", startDate, endDate, slotStart, slotEnd, userId];
 
   const { data, refetch } = useQuery<SlotLeadsResponse>({
     queryKey,
     queryFn: async () => {
       const urlParams = new URLSearchParams({
-        date,
+        startDate,
+        endDate,
         slotStart: String(slotStart),
         slotEnd: String(slotEnd),
       });
@@ -56,7 +67,7 @@ export default function WorkReportView() {
       if (!res.ok) throw new Error("Failed to fetch slot leads");
       return res.json();
     },
-    enabled: !!date,
+    enabled: !!startDate,
   });
 
   const handleOpenLeadDetail = (leadId: string) => {
@@ -88,7 +99,7 @@ export default function WorkReportView() {
           </div>
           <span className="font-medium text-sm truncate">
             {userName ? `${userName} — ` : ""}{slotLabel}
-            {date && <span className="text-muted-foreground ml-1 text-xs">({date})</span>}
+            {dateLabel && <span className="text-muted-foreground ml-1 text-xs">({dateLabel})</span>}
           </span>
           <Badge variant="secondary" className="text-xs shrink-0">
             {count}

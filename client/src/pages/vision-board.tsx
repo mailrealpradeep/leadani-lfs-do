@@ -44,7 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInDays, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -2271,12 +2271,49 @@ export default function VisionBoardPage() {
   const [quickActionsUserId, setQuickActionsUserId] = useState<string>("all");
 
   // Work Report state
-  const [workReportDate, setWorkReportDate] = useState<string>(() => {
+  const [workReportPreset, setWorkReportPreset] = useState<string>("today");
+  const [workReportRangeStart, setWorkReportRangeStart] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const [workReportRangeEnd, setWorkReportRangeEnd] = useState<string>(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
   const [workReportUserFilter, setWorkReportUserFilter] = useState<string>("all");
   const isFetchingCount = useIsFetching();
+
+  // Helper: convert Date to YYYY-MM-DD string
+  const toDateStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  // Helper: compute startDate/endDate from preset
+  const getWorkReportDates = (preset: string): { startDate: string; endDate: string } => {
+    const today = new Date();
+    switch (preset) {
+      case "yesterday": {
+        const y = subDays(today, 1);
+        return { startDate: toDateStr(y), endDate: toDateStr(y) };
+      }
+      case "last7":
+        return { startDate: toDateStr(subDays(today, 6)), endDate: toDateStr(today) };
+      case "last30":
+        return { startDate: toDateStr(subDays(today, 29)), endDate: toDateStr(today) };
+      case "thisMonth":
+        return { startDate: toDateStr(startOfMonth(today)), endDate: toDateStr(today) };
+      case "lastMonth": {
+        const prev = subMonths(today, 1);
+        return { startDate: toDateStr(startOfMonth(prev)), endDate: toDateStr(endOfMonth(prev)) };
+      }
+      case "custom":
+        return { startDate: workReportRangeStart, endDate: workReportRangeEnd };
+      default:
+        return { startDate: toDateStr(today), endDate: toDateStr(today) };
+    }
+  };
+
+  const { startDate: wrStartDate, endDate: wrEndDate } = getWorkReportDates(workReportPreset);
+  const isSingleDay = wrStartDate === wrEndDate;
 
   // Fetch all users for the dropdown (only for Admin/Multi-sheet users)
   const { data: allUsers = [] } = useQuery<Array<{ id: string; name: string; email: string }>>({
@@ -2295,12 +2332,13 @@ export default function VisionBoardPage() {
     data: Record<string, { uniqueLeads: number; activityMinutes: number }>;
   }
   interface WorkReportResponse {
-    date: string;
+    startDate: string;
+    endDate: string;
     eligibleUsers: Array<{ id: string; name: string }>;
     users: Array<{ id: string; name: string }>;
     slots: WorkReportSlot[];
   }
-  const workReportQueryKey = ["/api/work-report", workReportDate, workReportUserFilter];
+  const workReportQueryKey = ["/api/work-report", wrStartDate, wrEndDate, workReportUserFilter];
   const {
     data: workReportData,
     isLoading: workReportLoading,
@@ -2309,7 +2347,7 @@ export default function VisionBoardPage() {
     queryKey: workReportQueryKey,
     queryFn: async () => {
       const token = localStorage.getItem("auth_token");
-      const urlParams = new URLSearchParams({ date: workReportDate });
+      const urlParams = new URLSearchParams({ startDate: wrStartDate, endDate: wrEndDate });
       if (workReportUserFilter !== "all") urlParams.append("userId", workReportUserFilter);
       const res = await fetch(`/api/work-report?${urlParams}`, {
         credentials: "include",
@@ -3083,7 +3121,7 @@ export default function VisionBoardPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     {isAdminOrMultiSheet && (
                       <Select value={workReportUserFilter} onValueChange={setWorkReportUserFilter}>
-                        <SelectTrigger className="w-36 h-8 text-xs" data-testid="select-work-report-user">
+                        <SelectTrigger className="w-32 h-8 text-xs" data-testid="select-work-report-user">
                           <SelectValue placeholder="All Users" />
                         </SelectTrigger>
                         <SelectContent>
@@ -3094,14 +3132,46 @@ export default function VisionBoardPage() {
                         </SelectContent>
                       </Select>
                     )}
-                    <input
-                      type="date"
-                      value={workReportDate}
-                      max={new Date().toISOString().split("T")[0]}
-                      onChange={e => setWorkReportDate(e.target.value)}
-                      className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground"
-                      data-testid="input-work-report-date"
-                    />
+                    <Select value={workReportPreset} onValueChange={v => { setWorkReportPreset(v); }}>
+                      <SelectTrigger className="w-36 h-8 text-xs" data-testid="select-work-report-preset">
+                        <SelectValue placeholder="Today" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="today">Today</SelectItem>
+                        <SelectItem value="yesterday">Yesterday</SelectItem>
+                        <SelectItem value="last7">Last 7 Days</SelectItem>
+                        <SelectItem value="last30">Last 30 Days</SelectItem>
+                        <SelectItem value="thisMonth">This Month</SelectItem>
+                        <SelectItem value="lastMonth">Last Month</SelectItem>
+                        <SelectItem value="custom">Custom Range</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {workReportPreset === "custom" ? (
+                      <>
+                        <input
+                          type="date"
+                          value={workReportRangeStart}
+                          max={workReportRangeEnd || new Date().toISOString().split("T")[0]}
+                          onChange={e => setWorkReportRangeStart(e.target.value)}
+                          className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground w-32"
+                          data-testid="input-work-report-start"
+                        />
+                        <span className="text-xs text-muted-foreground">–</span>
+                        <input
+                          type="date"
+                          value={workReportRangeEnd}
+                          min={workReportRangeStart}
+                          max={new Date().toISOString().split("T")[0]}
+                          onChange={e => setWorkReportRangeEnd(e.target.value)}
+                          className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground w-32"
+                          data-testid="input-work-report-end"
+                        />
+                      </>
+                    ) : !isSingleDay ? (
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        {format(new Date(wrStartDate + "T12:00:00"), "MMM d")} – {format(new Date(wrEndDate + "T12:00:00"), "MMM d, yyyy")}
+                      </span>
+                    ) : null}
                     <Button
                       size="icon"
                       variant="ghost"
@@ -3124,12 +3194,13 @@ export default function VisionBoardPage() {
                   </div>
                 ) : !workReportData || workReportData.users.length === 0 ? (
                   <div className="p-8 text-center text-muted-foreground text-sm">
-                    No activity found for {workReportDate}
+                    No activity found{isSingleDay ? ` for ${wrStartDate}` : ` from ${wrStartDate} to ${wrEndDate}`}
                   </div>
                 ) : (
                   <WorkReportTable
                     workReportData={workReportData}
-                    workReportDate={workReportDate}
+                    startDate={wrStartDate}
+                    endDate={wrEndDate}
                   />
                 )}
               </CardContent>
@@ -3943,7 +4014,6 @@ export default function VisionBoardPage() {
 
 interface WorkReportTableProps {
   workReportData: {
-    date: string;
     users: Array<{ id: string; name: string }>;
     slots: Array<{
       label: string;
@@ -3953,10 +4023,11 @@ interface WorkReportTableProps {
       data: Record<string, { uniqueLeads: number; activityMinutes: number }>;
     }>;
   };
-  workReportDate: string;
+  startDate: string;
+  endDate: string;
 }
 
-function WorkReportTable({ workReportData, workReportDate }: WorkReportTableProps) {
+function WorkReportTable({ workReportData, startDate, endDate }: WorkReportTableProps) {
   const { users, slots } = workReportData;
 
   return (
@@ -3994,7 +4065,8 @@ function WorkReportTable({ workReportData, workReportDate }: WorkReportTableProp
                   const leads = cell?.uniqueLeads || 0;
                   const mins = cell?.activityMinutes || 0;
                   const searchParams = new URLSearchParams({
-                    date: workReportDate,
+                    startDate,
+                    endDate,
                     slotStart: String(slot.start),
                     slotEnd: String(slot.end),
                     userId: u.id,
