@@ -169,7 +169,7 @@ interface SpreadsheetGridProps {
   hotLeadsMode?: boolean;
   watchlistMode?: boolean;
   customViewId?: string; // For custom view mode
-  workReportParams?: { date: string; slotStart: number; slotEnd: number; userId?: string }; // For work report mode
+  workReportParams?: { date?: string; startDate: string; endDate: string; slotStart: number; slotEnd: number; userId?: string }; // For work report mode
 }
 
 interface WatchlistLeadsResponse {
@@ -1053,7 +1053,7 @@ export function SpreadsheetGrid({
 
   // Work report mode data fetching
   const workReportQueryKey = workReportParams
-    ? ["/api/work-report/slot-leads", workReportParams.date, workReportParams.slotStart, workReportParams.slotEnd, workReportParams.userId]
+    ? ["/api/work-report/slot-leads", workReportParams.startDate, workReportParams.endDate, workReportParams.slotStart, workReportParams.slotEnd, workReportParams.userId]
     : null;
 
   const {
@@ -1066,7 +1066,8 @@ export function SpreadsheetGrid({
     queryFn: async () => {
       if (!workReportParams) throw new Error("No params");
       const params = new URLSearchParams({
-        date: workReportParams.date,
+        startDate: workReportParams.startDate,
+        endDate: workReportParams.endDate,
         slotStart: String(workReportParams.slotStart),
         slotEnd: String(workReportParams.slotEnd),
       });

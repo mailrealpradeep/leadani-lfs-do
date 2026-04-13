@@ -45,7 +45,7 @@ export default function WorkReportView() {
     ? startDate
     : `${startDate} – ${endDate}`;
 
-  const workReportParams = { date: startDate, slotStart, slotEnd, userId };
+  const workReportParams = { startDate, endDate, slotStart, slotEnd, userId };
 
   const queryKey = ["/api/work-report/slot-leads", startDate, endDate, slotStart, slotEnd, userId];
 

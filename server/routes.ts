@@ -25126,22 +25126,32 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // Resolve startDate / endDate — support both legacy ?date= and new ?startDate=&endDate=
       let resolvedStart: string;
       let resolvedEnd: string;
-      if (qStartDate && qEndDate && dateRegex.test(qStartDate) && dateRegex.test(qEndDate)) {
+      if (qStartDate && qEndDate) {
+        if (!dateRegex.test(qStartDate) || !dateRegex.test(qEndDate)) {
+          return res.status(400).json({ error: "startDate and endDate must be in YYYY-MM-DD format" });
+        }
         resolvedStart = qStartDate;
         resolvedEnd = qEndDate;
-      } else if (date && dateRegex.test(date)) {
+      } else if (date) {
+        if (!dateRegex.test(date)) {
+          return res.status(400).json({ error: "date must be in YYYY-MM-DD format" });
+        }
         resolvedStart = date;
         resolvedEnd = date;
       } else {
         resolvedStart = today;
         resolvedEnd = today;
       }
-      // Safety: clamp range to max 31 days
+      // Validate range ordering and length
       const startMs = new Date(resolvedStart + "T12:00:00Z").getTime();
       const endMs = new Date(resolvedEnd + "T12:00:00Z").getTime();
-      if (endMs < startMs) { resolvedEnd = resolvedStart; }
-      const diffDays = Math.round((new Date(resolvedEnd + "T12:00:00Z").getTime() - startMs) / 86400000);
-      if (diffDays > 30) { resolvedStart = resolvedEnd; }  // fallback to single-day if > 31 days
+      if (endMs < startMs) {
+        return res.status(400).json({ error: "endDate must not be before startDate" });
+      }
+      const diffDays = Math.round((endMs - startMs) / 86400000);
+      if (diffDays > 30) {
+        return res.status(400).json({ error: "Date range must not exceed 31 days" });
+      }
 
       // Parse date range for the report in UTC
       const dayStart = getStartOfDayInTimezone(new Date(resolvedStart + "T12:00:00Z"), timezone);
@@ -25330,14 +25340,30 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const dateRegexSL = /^\d{4}-\d{2}-\d{2}$/;
       let slResolvedStart: string;
       let slResolvedEnd: string;
-      if (qSD && qED && dateRegexSL.test(qSD) && dateRegexSL.test(qED)) {
+      if (qSD && qED) {
+        if (!dateRegexSL.test(qSD) || !dateRegexSL.test(qED)) {
+          return res.status(400).json({ error: "startDate and endDate must be in YYYY-MM-DD format" });
+        }
         slResolvedStart = qSD;
         slResolvedEnd = qED;
-      } else if (date && dateRegexSL.test(date)) {
+      } else if (date) {
+        if (!dateRegexSL.test(date)) {
+          return res.status(400).json({ error: "date must be in YYYY-MM-DD format" });
+        }
         slResolvedStart = date;
         slResolvedEnd = date;
       } else {
         return res.status(400).json({ error: "date (or startDate+endDate) is required" });
+      }
+      // Validate range ordering and max 31 days
+      const slStartMs = new Date(slResolvedStart + "T12:00:00Z").getTime();
+      const slEndMs = new Date(slResolvedEnd + "T12:00:00Z").getTime();
+      if (slEndMs < slStartMs) {
+        return res.status(400).json({ error: "endDate must not be before startDate" });
+      }
+      const slDiffDays = Math.round((slEndMs - slStartMs) / 86400000);
+      if (slDiffDays > 30) {
+        return res.status(400).json({ error: "Date range must not exceed 31 days" });
       }
 
       const dayStart = getStartOfDayInTimezone(new Date(slResolvedStart + "T12:00:00Z"), timezone);

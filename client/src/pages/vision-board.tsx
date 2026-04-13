@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useIsFetching } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -2315,6 +2315,16 @@ export default function VisionBoardPage() {
   const { startDate: wrStartDate, endDate: wrEndDate } = getWorkReportDates(workReportPreset);
   const isSingleDay = wrStartDate === wrEndDate;
 
+  // Validate custom range: start <= end AND max 31 days
+  const wrRangeValid = useMemo(() => {
+    if (!wrStartDate || !wrEndDate) return false;
+    const startMs = new Date(wrStartDate + "T12:00:00Z").getTime();
+    const endMs = new Date(wrEndDate + "T12:00:00Z").getTime();
+    if (endMs < startMs) return false;
+    const diffDays = Math.round((endMs - startMs) / 86400000);
+    return diffDays <= 30;
+  }, [wrStartDate, wrEndDate]);
+
   // Fetch all users for the dropdown (only for Admin/Multi-sheet users)
   const { data: allUsers = [] } = useQuery<Array<{ id: string; name: string; email: string }>>({
     queryKey: ["/api/company/users"],
@@ -2356,7 +2366,7 @@ export default function VisionBoardPage() {
       if (!res.ok) throw new Error("Failed to fetch work report");
       return res.json();
     },
-    enabled: !!user?.company_id,
+    enabled: !!user?.company_id && wrRangeValid,
     staleTime: 60_000,
   });
   
@@ -3151,7 +3161,7 @@ export default function VisionBoardPage() {
                         <input
                           type="date"
                           value={workReportRangeStart}
-                          max={workReportRangeEnd || new Date().toISOString().split("T")[0]}
+                          max={new Date().toISOString().split("T")[0]}
                           onChange={e => setWorkReportRangeStart(e.target.value)}
                           className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground w-32"
                           data-testid="input-work-report-start"
@@ -3166,6 +3176,9 @@ export default function VisionBoardPage() {
                           className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground w-32"
                           data-testid="input-work-report-end"
                         />
+                        {!wrRangeValid && (
+                          <span className="text-xs text-destructive whitespace-nowrap">Max 31 days</span>
+                        )}
                       </>
                     ) : !isSingleDay ? (
                       <span className="text-[10px] text-muted-foreground whitespace-nowrap">
@@ -3191,6 +3204,10 @@ export default function VisionBoardPage() {
                     <Skeleton className="h-6 w-full" />
                     <Skeleton className="h-6 w-full" />
                     <Skeleton className="h-6 w-full" />
+                  </div>
+                ) : !wrRangeValid ? (
+                  <div className="p-8 text-center text-muted-foreground text-sm">
+                    Please select a valid date range (max 31 days).
                   </div>
                 ) : !workReportData || workReportData.users.length === 0 ? (
                   <div className="p-8 text-center text-muted-foreground text-sm">
