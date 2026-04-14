@@ -620,6 +620,7 @@ function CompanyAdminView() {
   const [userToReset, setUserToReset] = useState<User | null>(null);
   const [selectedHighlightingSheetId, setSelectedHighlightingSheetId] = useState<string>("");
   const [selectedValidationSheetId, setSelectedValidationSheetId] = useState<string>("");
+  const [showArchivedUsers, setShowArchivedUsers] = useState(false);
   const { toast } = useToast();
 
   const { data: users = [], isLoading } = useQuery<User[]>({

@@ -74,6 +74,15 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
   // Otherwise, treat as JWT token
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+
+    // For non-super-admin users, verify the account is still active
+    if (decoded.role !== "super_admin") {
+      const user = await storage.getUser(decoded.userId);
+      if (!user || user.is_active === false) {
+        return res.status(401).json({ error: "Your account has been deactivated. Please contact your administrator." });
+      }
+    }
+
     req.userId = decoded.userId;
     req.userRole = decoded.role;
     req.companyId = decoded.companyId;
