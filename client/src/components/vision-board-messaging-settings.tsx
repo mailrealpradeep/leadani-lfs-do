@@ -333,7 +333,7 @@ export function VisionBoardMessagingSettings({ className }: VisionBoardMessaging
                         <FormControl>
                           <ScrollArea className="h-48 border rounded-md p-4">
                             <div className="space-y-2">
-                              {companyUsers.map((user) => (
+                              {companyUsers.filter((u: any) => u.is_active !== false).map((user) => (
                                 <div key={user.id} className="flex items-center space-x-2">
                                   <Checkbox
                                     id={`user-${user.id}`}
@@ -617,7 +617,7 @@ export function VisionBoardMessagingSettings({ className }: VisionBoardMessaging
                       <FormControl>
                         <ScrollArea className="h-48 border rounded-md p-4">
                           <div className="space-y-2">
-                            {companyUsers.map((user) => (
+                            {companyUsers.filter((u: any) => u.is_active !== false).map((user) => (
                               <div key={user.id} className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`edit-user-${user.id}`}

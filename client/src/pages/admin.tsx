@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, MessageSquare, Database, CheckCircle2, Loader2, MapPin, Calendar } from "lucide-react";
+import { Building2, Users, LayoutGrid, TrendingUp, Plus, Pencil, Trash2, UserPlus, X, Key, Columns, Smartphone, Bell, Filter, FileSpreadsheet, Search, Palette, Target, HardDrive, Settings, Globe, Check, ChevronsUpDown, MessageSquareMore, MessageSquare, Database, CheckCircle2, Loader2, MapPin, Calendar, Archive, RotateCcw, ChevronDown } from "lucide-react";
 import * as ct from "countries-and-timezones";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -671,14 +671,34 @@ function CompanyAdminView() {
       setDeleteDialogOpen(false);
       setUserToDelete(null);
       toast({
-        title: "User deleted",
-        description: "The user has been removed from your company.",
+        title: "User archived",
+        description: "The user has been archived and can no longer log in. Their history is preserved.",
       });
     },
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to delete user",
+        description: error.message || "Failed to archive user",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const reactivateMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return await apiRequest("POST", `/api/admin/company/users/${userId}/reactivate`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/users"] });
+      toast({
+        title: "User reactivated",
+        description: "The user has been reactivated and can log in again.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reactivate user",
         variant: "destructive",
       });
     },
@@ -941,14 +961,14 @@ function CompanyAdminView() {
                 <div className="text-left">
                   <div className="font-semibold">Company Users</div>
                   <div className="text-sm text-muted-foreground font-normal">
-                    {users.length} {users.length === 1 ? "user" : "users"} in your company
+                    {users.filter(u => u.is_active !== false).length} active{users.filter(u => u.is_active === false).length > 0 ? `, ${users.filter(u => u.is_active === false).length} archived` : ""}
                   </div>
                 </div>
               </div>
             </AccordionTrigger>
             <AccordionContent>
               <div className="space-y-3 pt-2">
-                {users.map((user) => (
+                {users.filter(u => u.is_active !== false).map((user) => (
                   <div
                     key={user.id}
                     className="flex items-center gap-3 p-3 rounded-lg border hover-elevate"
@@ -982,18 +1002,69 @@ function CompanyAdminView() {
                           variant="ghost"
                           size="icon"
                           onClick={() => handleDeleteClick(user)}
-                          data-testid={`button-delete-user-${user.id}`}
+                          data-testid={`button-archive-user-${user.id}`}
+                          title="Archive user"
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                          <Archive className="h-4 w-4 text-destructive" />
                         </Button>
                       </>
                     )}
                   </div>
                 ))}
-                {users.length === 0 && (
+                {users.filter(u => u.is_active !== false).length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    No users found
+                    No active users found
                   </p>
+                )}
+
+                {users.filter(u => u.is_active === false).length > 0 && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full py-2"
+                      onClick={() => setShowArchivedUsers(v => !v)}
+                      data-testid="button-toggle-archived-users"
+                    >
+                      <ChevronDown className={`h-4 w-4 transition-transform ${showArchivedUsers ? "rotate-180" : ""}`} />
+                      {users.filter(u => u.is_active === false).length} archived {users.filter(u => u.is_active === false).length === 1 ? "user" : "users"}
+                    </button>
+                    {showArchivedUsers && (
+                      <div className="space-y-2 mt-2">
+                        {users.filter(u => u.is_active === false).map((user) => (
+                          <div
+                            key={user.id}
+                            className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30"
+                            data-testid={`user-archived-${user.id}`}
+                          >
+                            <Avatar className="h-10 w-10 opacity-50">
+                              <AvatarFallback>
+                                {user.name.substring(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm truncate text-muted-foreground">{user.name}</div>
+                              <div className="text-xs text-muted-foreground truncate">
+                                {user.email}
+                              </div>
+                            </div>
+                            <Badge variant="outline" className="text-muted-foreground">
+                              Archived
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => reactivateMutation.mutate(user.id)}
+                              disabled={reactivateMutation.isPending}
+                              data-testid={`button-reactivate-user-${user.id}`}
+                              title="Reactivate user"
+                            >
+                              <RotateCcw className="h-4 w-4 text-primary" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </AccordionContent>
@@ -1606,19 +1677,19 @@ function CompanyAdminView() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogTitle>Archive User</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {userToDelete?.name}? This action cannot be undone.
+              Are you sure you want to archive <strong>{userToDelete?.name}</strong>? They will no longer be able to log in, and will be removed from all reports and dropdowns. Their update history will be preserved. You can reactivate them later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              data-testid="button-confirm-delete-user"
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-archive-user"
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete User"}
+              {deleteMutation.isPending ? "Archiving..." : "Archive User"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

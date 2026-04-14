@@ -346,7 +346,7 @@ export default function ActivityLogs() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Users</SelectItem>
-                {users.map((u: any) => (
+                {users.filter((u: any) => u.is_active !== false).map((u: any) => (
                   <SelectItem key={u.id} value={u.id}>
                     {u.name}
                   </SelectItem>

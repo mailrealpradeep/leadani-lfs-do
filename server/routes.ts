@@ -1278,6 +1278,11 @@ ${questionsList}`;
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
+      // Block deactivated users from logging in
+      if (user.is_active === false) {
+        return res.status(401).json({ error: "Your account has been deactivated. Please contact your administrator." });
+      }
+
       // Update last login timestamp
       await storage.updateUser(user.id, { 
         last_login: new Date().toISOString() 
@@ -1323,6 +1328,11 @@ ${questionsList}`;
       const user = await storage.getUser(req.userId!);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
+      }
+
+      // Reject deactivated users — forces frontend to log out
+      if (user.is_active === false) {
+        return res.status(401).json({ error: "Your account has been deactivated. Please contact your administrator." });
       }
 
       // Get company info if user belongs to one
@@ -5095,12 +5105,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Cannot delete users from other companies" });
       }
 
-      // Ensure at least one company admin remains
+      // Ensure at least one active company admin remains
       if (userToDelete.role === "company_admin") {
-        const companyAdmins = await storage.getUsersByCompanyId(userToDelete.company_id!);
-        const adminCount = companyAdmins.filter(u => u.role === "company_admin").length;
+        const companyUsers = await storage.getUsersByCompanyId(userToDelete.company_id!);
+        const adminCount = companyUsers.filter(u => u.role === "company_admin" && u.is_active !== false).length;
         if (adminCount <= 1) {
-          return res.status(403).json({ error: "Cannot delete the last company admin. Promote another user first." });
+          return res.status(403).json({ error: "Cannot archive the last active company admin. Promote another user first." });
         }
       }
 
@@ -5117,9 +5127,40 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         payload: { email: userToDelete.email, role: userToDelete.role },
       });
 
-      res.json({ message: "User deleted successfully" });
+      res.json({ message: "User archived successfully" });
     } catch (error: any) {
-      console.error("Delete user error:", error);
+      console.error("Archive user error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/company/users/:userId/reactivate", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { userId } = req.params;
+
+      const userToReactivate = await storage.getUser(userId);
+      if (!userToReactivate) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (req.userRole === "company_admin" && userToReactivate.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cannot reactivate users from other companies" });
+      }
+
+      await storage.reactivateUser(userId);
+
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: req.companyId!,
+        action: "reactivate",
+        model: "user",
+        model_id: userId,
+        payload: { email: userToReactivate.email, role: userToReactivate.role },
+      });
+
+      res.json({ message: "User reactivated successfully" });
+    } catch (error: any) {
+      console.error("Reactivate user error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -5362,10 +5403,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           return res.status(403).json({ error: "No company context" });
         }
         const users = await storage.getUsersByCompanyId(req.companyId);
-        const usersWithoutPasswords = users.map(u => {
-          const { password_hash, ...rest } = u;
-          return rest;
-        });
+        const usersWithoutPasswords = users
+          .filter(u => u.is_active !== false)
+          .map(u => {
+            const { password_hash, ...rest } = u;
+            return rest;
+          });
         res.json(usersWithoutPasswords);
       } else if (req.userRole === "super_admin") {
         // Super admins can see all users
