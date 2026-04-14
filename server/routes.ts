@@ -21580,7 +21580,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Access denied to source sheet" });
       }
 
-      // Verify all destination sheets belong to company
+      // Verify all destination sheets belong to company — pre-fetch them all once into a map
+      const destSheetMap: Record<string, NonNullable<Awaited<ReturnType<typeof storage.getSheet>>>> = {};
       for (const dest of destinations) {
         const destSheet = await storage.getSheet(dest.sheet_id);
         if (!destSheet || destSheet.company_id !== req.companyId) {
@@ -21589,6 +21590,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         if (dest.sheet_id === source_sheet_id) {
           return res.status(400).json({ error: "Cannot transfer to same sheet" });
         }
+        destSheetMap[dest.sheet_id] = destSheet;
       }
 
       // Get all source leads
@@ -21599,61 +21601,77 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json({ transferred_count: 0, message: "No leads to transfer" });
       }
 
-      // Get transfer user info
+      // Pre-fetch user info and timezone once — NOT inside the loop
       const transferUser = await storage.getUser(req.userId);
       const transferUserName = transferUser?.name || "Unknown";
+      const bulkTransferCompany = await storage.getCompany(sourceSheet.company_id);
+      const bulkTransferTimezone = getCompanyTimezone(bulkTransferCompany);
+      const today = getTodayDateString(bulkTransferTimezone);
+      const now = new Date();
 
-      // Prepare weighted distribution
-      // Sort destinations by percentage descending for weighted round-robin
+      // Distribution pass — pure in-memory, zero DB queries
       const sortedDests = [...destinations].sort((a: any, b: any) => b.percentage - a.percentage);
       const destCounts: Record<string, number> = {};
-      sortedDests.forEach((d: any) => { destCounts[d.sheet_id] = 0; });
+      const destLeadIds: Record<string, string[]> = {};
+      sortedDests.forEach((d: any) => { destCounts[d.sheet_id] = 0; destLeadIds[d.sheet_id] = []; });
 
-      const io = app.get("io") as SocketIOServer;
-      let transferredCount = 0;
+      const leadUpdateRows: Array<{
+        id: string; lead_id: string; update_via: string;
+        update_on: string; remark: string;
+        created_by_user_id: string; created_at: Date;
+      }> = [];
 
       for (let i = 0; i < leads.length; i++) {
         const lead = leads[i];
-        
-        // Find which destination should get this lead (weighted round-robin)
+
+        // Weighted round-robin — identical logic as before, fully in-memory
         let targetSheetId = sortedDests[0].sheet_id;
         let minDeviation = Infinity;
-        
         for (const dest of sortedDests) {
           const expectedCount = (dest.percentage / 100) * (i + 1);
-          const actualCount = destCounts[dest.sheet_id];
-          const deviation = actualCount - expectedCount;
-          
+          const deviation = destCounts[dest.sheet_id] - expectedCount;
           if (deviation < minDeviation) {
             minDeviation = deviation;
             targetSheetId = dest.sheet_id;
           }
         }
 
-        // Update lead's sheet_id
-        const targetSheet = await storage.getSheet(targetSheetId);
-        await storage.updateLead(lead.id, { 
-          sheet_id: targetSheetId,
-        });
+        const targetSheetName = destSheetMap[targetSheetId]?.name || targetSheetId;
+        destLeadIds[targetSheetId].push(lead.id);
+        destCounts[targetSheetId]++;
 
-        // Add update history entry using company timezone
-        const updateRemark = remark 
-          ? `Transferred from ${sourceSheet.name} to ${targetSheet?.name} by ${transferUserName} - ${remark}`
-          : `Transferred from ${sourceSheet.name} to ${targetSheet?.name} by ${transferUserName}`;
-        
-        const bulkTransferCompany = await storage.getCompany(sourceSheet.company_id);
-        const bulkTransferTimezone = getCompanyTimezone(bulkTransferCompany);
-        const today = getTodayDateString(bulkTransferTimezone);
-        await storage.createLeadUpdate({
+        const updateRemark = remark
+          ? `Transferred from ${sourceSheet.name} to ${targetSheetName} by ${transferUserName} - ${remark}`
+          : `Transferred from ${sourceSheet.name} to ${targetSheetName} by ${transferUserName}`;
+
+        leadUpdateRows.push({
+          id: crypto.randomUUID(),
           lead_id: lead.id,
           update_via: "transfer",
           update_on: today,
           remark: updateRemark,
-          created_by_user_id: req.userId,
+          created_by_user_id: req.userId!,
+          created_at: now,
         });
+      }
 
-        destCounts[targetSheetId]++;
-        transferredCount++;
+      const transferredCount = leads.length;
+
+      // Batch UPDATE leads — one query per destination sheet instead of one per lead
+      for (const sheetId of Object.keys(destLeadIds)) {
+        const ids = destLeadIds[sheetId];
+        if (ids.length === 0) continue;
+        await db.update(dbSchema.leads)
+          .set({ sheet_id: sheetId, updated_at: now })
+          .where(inArray(dbSchema.leads.id, ids));
+      }
+
+      // Bulk INSERT all lead_updates in one query (chunked to stay within PG's 65535 param limit)
+      if (leadUpdateRows.length > 0) {
+        const CHUNK_SIZE = 8000; // ~7 cols × 8000 rows = 56000 params — safely under 65535
+        for (let i = 0; i < leadUpdateRows.length; i += CHUNK_SIZE) {
+          await db.insert(dbSchema.lead_updates).values(leadUpdateRows.slice(i, i + CHUNK_SIZE));
+        }
       }
 
       // Log activity
@@ -21663,9 +21681,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         companyId: req.companyId,
         action: "lead_transferred",
         targetType: "leads",
-        bulkMeta: {
-          count: transferredCount,
-        },
+        bulkMeta: { count: transferredCount },
         details: {
           operation: "bulk_transfer",
           source_sheet: sourceSheet.name,
@@ -21679,19 +21695,19 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       });
 
       // Emit socket events
-      io.to(`sheet_${source_sheet_id}`).emit("leads_transferred_out", { 
-        sheetId: source_sheet_id, 
-        count: transferredCount 
+      const io = app.get("io") as SocketIOServer;
+      io.to(`sheet_${source_sheet_id}`).emit("leads_transferred_out", {
+        sheetId: source_sheet_id,
+        count: transferredCount,
       });
-      
       for (const dest of destinations) {
-        io.to(`sheet_${dest.sheet_id}`).emit("leads_transferred_in", { 
-          sheetId: dest.sheet_id, 
-          count: destCounts[dest.sheet_id] 
+        io.to(`sheet_${dest.sheet_id}`).emit("leads_transferred_in", {
+          sheetId: dest.sheet_id,
+          count: destCounts[dest.sheet_id],
         });
       }
 
-      res.json({ 
+      res.json({
         transferred_count: transferredCount,
         distribution: destinations.map((d: any) => ({
           sheet_id: d.sheet_id,
