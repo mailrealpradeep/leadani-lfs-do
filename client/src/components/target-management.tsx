@@ -1493,7 +1493,7 @@ export function TargetManagement() {
                           <FormItem>
                             <FormLabel>Assign Users</FormLabel>
                             <div className="border rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
-                              {users.filter((u: any) => u.is_active !== false).map((user) => (
+                              {users.filter((u) => u.is_active !== false).map((user) => (
                                 <div
                                   key={user.id}
                                   className="flex items-center space-x-2"

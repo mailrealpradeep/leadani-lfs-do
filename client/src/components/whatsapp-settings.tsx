@@ -1745,7 +1745,7 @@ function AllocationForm({
             <SelectValue placeholder="Select user" />
           </SelectTrigger>
           <SelectContent>
-            {users.filter((u: any) => u.is_active !== false).map((user) => (
+            {users.filter((u) => u.is_active !== false).map((user) => (
               <SelectItem key={user.id} value={user.id}>
                 {user.name || user.email}
               </SelectItem>
