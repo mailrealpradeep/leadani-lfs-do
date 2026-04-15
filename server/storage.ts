@@ -1112,6 +1112,7 @@ export interface IStorage {
 
   // WhatsApp Allocation Splits (Percentage-based distribution)
   getWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string): Promise<WhatsAppAllocationSplit[]>;
+  getAllWhatsAppAllocationSplits(companyId: string): Promise<Record<string, WhatsAppAllocationSplit[]>>;
   setWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string, splits: Array<{ user_id: string; sheet_id: string; percentage: number }>): Promise<WhatsAppAllocationSplit[]>;
   deleteWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string): Promise<boolean>;
 
@@ -3876,6 +3877,7 @@ export class MemStorage implements IStorage {
   async updateWhatsAppAllocation(_id: string, _updates: Partial<WhatsAppAllocationRecord>): Promise<WhatsAppAllocationRecord | undefined> { return undefined; }
   async deleteWhatsAppAllocation(_id: string): Promise<boolean> { return false; }
   async getWhatsAppAllocationSplits(_companyId: string, _displayPhoneNumber: string): Promise<WhatsAppAllocationSplit[]> { return []; }
+  async getAllWhatsAppAllocationSplits(_companyId: string): Promise<Record<string, WhatsAppAllocationSplit[]>> { return {}; }
   async setWhatsAppAllocationSplits(_companyId: string, _displayPhoneNumber: string, _splits: Array<{ user_id: string; sheet_id: string; percentage: number }>): Promise<WhatsAppAllocationSplit[]> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async deleteWhatsAppAllocationSplits(_companyId: string, _displayPhoneNumber: string): Promise<boolean> { return false; }
   async getWhatsAppAllocationDailyCount(_companyId: string, _displayPhoneNumber: string, _date: string): Promise<WhatsAppAllocationDailyCount | undefined> { return undefined; }
@@ -12190,6 +12192,19 @@ export class PgStorage implements IStorage {
         eq(dbSchema.whatsapp_allocation_splits.display_phone_number, displayPhoneNumber)
       ))
       .orderBy(asc(dbSchema.whatsapp_allocation_splits.created_at));
+  }
+
+  async getAllWhatsAppAllocationSplits(companyId: string): Promise<Record<string, WhatsAppAllocationSplit[]>> {
+    const rows = await db.select()
+      .from(dbSchema.whatsapp_allocation_splits)
+      .where(eq(dbSchema.whatsapp_allocation_splits.company_id, companyId))
+      .orderBy(asc(dbSchema.whatsapp_allocation_splits.created_at));
+    const map: Record<string, WhatsAppAllocationSplit[]> = {};
+    for (const row of rows) {
+      if (!map[row.display_phone_number]) map[row.display_phone_number] = [];
+      map[row.display_phone_number].push(row);
+    }
+    return map;
   }
 
   async setWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string, splits: Array<{ user_id: string; sheet_id: string; percentage: number }>): Promise<WhatsAppAllocationSplit[]> {

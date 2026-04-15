@@ -7361,6 +7361,18 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get all splits for all phone numbers belonging to the company (single call)
+  app.get("/api/admin/company/whatsapp/allocations/all-splits", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
+      const map = await storage.getAllWhatsAppAllocationSplits(req.companyId);
+      res.json(map);
+    } catch (error: any) {
+      console.error("Get all WhatsApp allocation splits error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get splits for a specific phone number
   app.get("/api/admin/company/whatsapp/allocations/:phone/splits", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {

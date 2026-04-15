@@ -366,21 +366,9 @@ export function WhatsAppSettings() {
     enabled: !!splitModalPhone,
   });
 
-  // Fetch all splits for all allocations (to show split indicator in table)
+  // Fetch all splits for all allocations in a single call (to show split indicator in table)
   const { data: allSplitsMap = {} } = useQuery<Record<string, WhatsAppAllocationSplit[]>>({
     queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"],
-    queryFn: async () => {
-      const result: Record<string, WhatsAppAllocationSplit[]> = {};
-      await Promise.all(
-        allocations.map(async (a) => {
-          try {
-            const splits = await apiRequest<WhatsAppAllocationSplit[]>("GET", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(a.display_phone_number)}/splits`);
-            if (splits.length >= 2) result[a.display_phone_number] = splits;
-          } catch { /* ignore */ }
-        })
-      );
-      return result;
-    },
     enabled: allocations.length > 0,
   });
 
