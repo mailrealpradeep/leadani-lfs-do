@@ -1112,28 +1112,36 @@ export function WhatsAppSettings() {
           </Card>
 
           {/* Split Allocation Modal */}
-          {splitModalPhone && (
-            <SplitAllocationModal
-              phone={splitModalPhone}
-              existingSplits={splitsData}
-              isLoading={splitsLoading}
-              users={users}
-              sheets={sheets}
-              getUserName={getUserName}
-              getSheetName={getSheetName}
-              onSave={(splits) => setSplitsMutation.mutate({ phone: splitModalPhone, splits })}
-              onRevertToSingle={() => deleteSplitsMutation.mutate(splitModalPhone)}
-              onUpdateSingleUser={(user_id, sheet_id) => {
-                const alloc = allocations.find(a => a.display_phone_number === splitModalPhone);
-                if (alloc) updateSingleUserMutation.mutate({ id: alloc.id, user_id, sheet_id });
-              }}
-              onClose={() => setSplitModalPhone(null)}
-              isSaving={setSplitsMutation.isPending}
-              isReverting={deleteSplitsMutation.isPending}
-              isUpdatingSingle={updateSingleUserMutation.isPending}
-              singleAllocation={allocations.find(a => a.display_phone_number === splitModalPhone)}
-            />
-          )}
+          {splitModalPhone && (() => {
+            const modalAlloc = allocations.find(a => a.display_phone_number === splitModalPhone);
+            return (
+              <SplitAllocationModal
+                phone={splitModalPhone}
+                existingSplits={splitsData}
+                isLoading={splitsLoading}
+                users={users}
+                sheets={sheets}
+                getUserName={getUserName}
+                getSheetName={getSheetName}
+                onSave={(splits) => setSplitsMutation.mutate({ phone: splitModalPhone, splits })}
+                onSaveAsSingle={async (user_id, sheet_id) => {
+                  try {
+                    if (splitsData.length >= 2) {
+                      await deleteSplitsMutation.mutateAsync(splitModalPhone);
+                    }
+                    if (modalAlloc) {
+                      await updateSingleUserMutation.mutateAsync({ id: modalAlloc.id, user_id, sheet_id });
+                    }
+                  } catch {
+                    // individual mutations already show toast on error
+                  }
+                }}
+                onClose={() => setSplitModalPhone(null)}
+                isSaving={setSplitsMutation.isPending || deleteSplitsMutation.isPending || updateSingleUserMutation.isPending}
+                singleAllocation={modalAlloc}
+              />
+            );
+          })()}
         </TabsContent>
 
         {/* Trigger Rules Tab */}
@@ -1857,12 +1865,9 @@ function SplitAllocationModal({
   getUserName,
   getSheetName,
   onSave,
-  onRevertToSingle,
-  onUpdateSingleUser,
+  onSaveAsSingle,
   onClose,
   isSaving,
-  isReverting,
-  isUpdatingSingle,
   singleAllocation,
 }: {
   phone: string;
@@ -1873,12 +1878,9 @@ function SplitAllocationModal({
   getUserName: (id: string) => string;
   getSheetName: (id: string) => string;
   onSave: (splits: Array<{ user_id: string; sheet_id: string; percentage: number }>) => void;
-  onRevertToSingle: () => void;
-  onUpdateSingleUser: (user_id: string, sheet_id: string) => void;
+  onSaveAsSingle: (user_id: string, sheet_id: string) => void;
   onClose: () => void;
   isSaving: boolean;
-  isReverting: boolean;
-  isUpdatingSingle: boolean;
   singleAllocation?: WhatsAppAllocation;
 }) {
   const isSplitMode = existingSplits.length >= 2;
@@ -1924,19 +1926,8 @@ function SplitAllocationModal({
 
   const handleSave = () => {
     if (mode === "single") {
-      if (isSplitMode) {
-        // Currently in split mode, reverting to single user — delete splits first, then update allocation
-        onRevertToSingle();
-        // After revert, the parent allocation still has its original user_id/sheet_id;
-        // update if the admin picked different values
-        if (singleUserId && singleSheetId) {
-          onUpdateSingleUser(singleUserId, singleSheetId);
-        }
-      } else {
-        // Already in single user mode, just update the user/sheet
-        if (singleUserId && singleSheetId) {
-          onUpdateSingleUser(singleUserId, singleSheetId);
-        }
+      if (singleUserId && singleSheetId) {
+        onSaveAsSingle(singleUserId, singleSheetId);
       }
     } else {
       onSave(splitRows.map(r => ({ ...r, percentage: Number(r.percentage) || 0 })));
@@ -2103,15 +2094,15 @@ function SplitAllocationModal({
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={onClose} disabled={isSaving || isReverting || isUpdatingSingle}>
+              <Button variant="outline" onClick={onClose} disabled={isSaving}>
                 Cancel
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={!canSave || isSaving || isReverting || isUpdatingSingle}
+                disabled={!canSave || isSaving}
                 data-testid="save-split-allocation"
               >
-                {(isSaving || isReverting || isUpdatingSingle) ? "Saving..." : "Save"}
+                {isSaving ? "Saving..." : "Save"}
               </Button>
             </div>
           </div>

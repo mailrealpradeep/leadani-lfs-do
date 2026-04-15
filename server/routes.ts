@@ -7389,6 +7389,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         if (!s.user_id || !s.sheet_id || typeof s.percentage !== 'number') {
           return res.status(400).json({ error: "Each split requires user_id, sheet_id, and percentage" });
         }
+        if (!Number.isInteger(s.percentage) || s.percentage < 1 || s.percentage > 99) {
+          return res.status(400).json({ error: "Each split percentage must be a whole number between 1 and 99" });
+        }
       }
       const result = await storage.setWhatsAppAllocationSplits(req.companyId, req.params.phone, splits);
       res.json(result);
