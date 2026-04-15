@@ -48,3 +48,7 @@ integrations = ["javascript_mem_db:1.0.0", "google-sheet:1.0.0"]
 [userenv]
 
 [userenv.development]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 90000
