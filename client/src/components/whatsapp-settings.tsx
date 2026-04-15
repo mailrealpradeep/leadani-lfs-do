@@ -361,8 +361,8 @@ export function WhatsAppSettings() {
 
   // Fetch splits for a given phone (enabled when modal is open)
   const { data: splitsData = [], isLoading: splitsLoading } = useQuery<WhatsAppAllocationSplit[]>({
-    queryKey: ["/api/admin/company/whatsapp/allocations/splits", splitModalPhone],
-    queryFn: () => apiRequest<WhatsAppAllocationSplit[]>("GET", `/api/admin/company/whatsapp/allocations/splits/${encodeURIComponent(splitModalPhone!)}`),
+    queryKey: ["/api/admin/company/whatsapp/allocations", splitModalPhone, "splits"],
+    queryFn: () => apiRequest<WhatsAppAllocationSplit[]>("GET", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(splitModalPhone!)}/splits`),
     enabled: !!splitModalPhone,
   });
 
@@ -374,7 +374,7 @@ export function WhatsAppSettings() {
       await Promise.all(
         allocations.map(async (a) => {
           try {
-            const splits = await apiRequest<WhatsAppAllocationSplit[]>("GET", `/api/admin/company/whatsapp/allocations/splits/${encodeURIComponent(a.display_phone_number)}`);
+            const splits = await apiRequest<WhatsAppAllocationSplit[]>("GET", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(a.display_phone_number)}/splits`);
             if (splits.length >= 2) result[a.display_phone_number] = splits;
           } catch { /* ignore */ }
         })
@@ -387,11 +387,12 @@ export function WhatsAppSettings() {
   // Set splits mutation
   const setSplitsMutation = useMutation({
     mutationFn: async ({ phone, splits }: { phone: string; splits: Array<{ user_id: string; sheet_id: string; percentage: number }> }) => {
-      return await apiRequest("POST", `/api/admin/company/whatsapp/allocations/splits/${encodeURIComponent(phone)}`, { splits });
+      return await apiRequest("POST", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(phone)}/splits`, { splits });
     },
     onSuccess: (_, { phone }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/splits", phone] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations", phone, "splits"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations"] });
       toast({ title: "Split allocation saved", description: "Percentage distribution has been updated." });
       setSplitModalPhone(null);
     },
@@ -403,12 +404,29 @@ export function WhatsAppSettings() {
   // Delete splits mutation (revert to single user)
   const deleteSplitsMutation = useMutation({
     mutationFn: async (phone: string) => {
-      return await apiRequest("DELETE", `/api/admin/company/whatsapp/allocations/splits/${encodeURIComponent(phone)}`);
+      return await apiRequest("DELETE", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(phone)}/splits`);
     },
     onSuccess: (_, phone) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/splits", phone] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations", phone, "splits"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations"] });
       toast({ title: "Reverted to single user", description: "Split allocation has been removed." });
+      setSplitModalPhone(null);
+    },
+    onError: (error: Error) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  // Update single user/sheet for an allocation (used by modal in single-user mode)
+  const updateSingleUserMutation = useMutation({
+    mutationFn: async ({ id, user_id, sheet_id }: { id: string; user_id: string; sheet_id: string }) => {
+      return await apiRequest("PUT", `/api/admin/company/whatsapp/allocations/${id}`, { user_id, sheet_id });
+    },
+    onSuccess: (_, { }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"] });
+      toast({ title: "Assignment updated", description: "Single user assignment has been saved." });
       setSplitModalPhone(null);
     },
     onError: (error: Error) => {
@@ -1105,9 +1123,14 @@ export function WhatsAppSettings() {
               getSheetName={getSheetName}
               onSave={(splits) => setSplitsMutation.mutate({ phone: splitModalPhone, splits })}
               onRevertToSingle={() => deleteSplitsMutation.mutate(splitModalPhone)}
+              onUpdateSingleUser={(user_id, sheet_id) => {
+                const alloc = allocations.find(a => a.display_phone_number === splitModalPhone);
+                if (alloc) updateSingleUserMutation.mutate({ id: alloc.id, user_id, sheet_id });
+              }}
               onClose={() => setSplitModalPhone(null)}
               isSaving={setSplitsMutation.isPending}
               isReverting={deleteSplitsMutation.isPending}
+              isUpdatingSingle={updateSingleUserMutation.isPending}
               singleAllocation={allocations.find(a => a.display_phone_number === splitModalPhone)}
             />
           )}
@@ -1835,9 +1858,11 @@ function SplitAllocationModal({
   getSheetName,
   onSave,
   onRevertToSingle,
+  onUpdateSingleUser,
   onClose,
   isSaving,
   isReverting,
+  isUpdatingSingle,
   singleAllocation,
 }: {
   phone: string;
@@ -1849,9 +1874,11 @@ function SplitAllocationModal({
   getSheetName: (id: string) => string;
   onSave: (splits: Array<{ user_id: string; sheet_id: string; percentage: number }>) => void;
   onRevertToSingle: () => void;
+  onUpdateSingleUser: (user_id: string, sheet_id: string) => void;
   onClose: () => void;
   isSaving: boolean;
   isReverting: boolean;
+  isUpdatingSingle: boolean;
   singleAllocation?: WhatsAppAllocation;
 }) {
   const isSplitMode = existingSplits.length >= 2;
@@ -1860,6 +1887,8 @@ function SplitAllocationModal({
     { user_id: singleAllocation?.user_id || "", sheet_id: singleAllocation?.sheet_id || "", percentage: 50 },
     { user_id: "", sheet_id: "", percentage: 50 },
   ]);
+  const [singleUserId, setSingleUserId] = useState(singleAllocation?.user_id || "");
+  const [singleSheetId, setSingleSheetId] = useState(singleAllocation?.sheet_id || "");
 
   // Once splits are loaded, initialize state correctly
   useEffect(() => {
@@ -1869,6 +1898,8 @@ function SplitAllocationModal({
       setSplitRows(existingSplits.map(s => ({ user_id: s.user_id, sheet_id: s.sheet_id, percentage: s.percentage })));
     } else {
       setMode("single");
+      setSingleUserId(singleAllocation?.user_id || "");
+      setSingleSheetId(singleAllocation?.sheet_id || "");
       setSplitRows([
         { user_id: singleAllocation?.user_id || "", sheet_id: singleAllocation?.sheet_id || "", percentage: 50 },
         { user_id: "", sheet_id: "", percentage: 50 },
@@ -1893,14 +1924,27 @@ function SplitAllocationModal({
 
   const handleSave = () => {
     if (mode === "single") {
-      onRevertToSingle();
+      if (isSplitMode) {
+        // Currently in split mode, reverting to single user — delete splits first, then update allocation
+        onRevertToSingle();
+        // After revert, the parent allocation still has its original user_id/sheet_id;
+        // update if the admin picked different values
+        if (singleUserId && singleSheetId) {
+          onUpdateSingleUser(singleUserId, singleSheetId);
+        }
+      } else {
+        // Already in single user mode, just update the user/sheet
+        if (singleUserId && singleSheetId) {
+          onUpdateSingleUser(singleUserId, singleSheetId);
+        }
+      }
     } else {
       onSave(splitRows.map(r => ({ ...r, percentage: Number(r.percentage) || 0 })));
     }
   };
 
   const canSave = mode === "single"
-    ? true
+    ? (!!singleUserId && !!singleSheetId)
     : (splitRows.length >= 2 && totalPct === 100 && splitRows.every(r => r.user_id && r.sheet_id && Number(r.percentage) > 0));
 
   return (
@@ -1941,20 +1985,39 @@ function SplitAllocationModal({
             </div>
 
             {mode === "single" && (
-              <div className="p-4 border rounded-md bg-muted/30 space-y-1">
-                <div className="text-sm font-medium">Current single user assignment</div>
-                {singleAllocation ? (
-                  <div className="text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">{getUserName(singleAllocation.user_id)}</span>
-                    {" → "}
-                    <span>{getSheetName(singleAllocation.sheet_id)}</span>
+              <div className="p-4 border rounded-md bg-muted/30 space-y-3">
+                <div className="text-sm font-medium">Single user assignment</div>
+                <div className="flex flex-wrap gap-3">
+                  <div className="flex-1 min-w-[160px]">
+                    <Label className="text-xs mb-1 block">Assign to user</Label>
+                    <Select value={singleUserId} onValueChange={setSingleUserId}>
+                      <SelectTrigger data-testid="select-single-user">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {users.map(u => (
+                          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground">No single user configured.</div>
-                )}
+                  <div className="flex-1 min-w-[160px]">
+                    <Label className="text-xs mb-1 block">Add to sheet</Label>
+                    <Select value={singleSheetId} onValueChange={setSingleSheetId}>
+                      <SelectTrigger data-testid="select-single-sheet">
+                        <SelectValue placeholder="Select sheet" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sheets.map(s => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 {isSplitMode && (
-                  <div className="pt-2 text-sm text-amber-600 dark:text-amber-400">
-                    Saving in Single User mode will remove the current split allocation and revert to the single user/sheet assignment.
+                  <div className="text-sm text-amber-600 dark:text-amber-400">
+                    Saving in Single User mode will remove the current split allocation and use the selected user and sheet.
                   </div>
                 )}
               </div>
@@ -2040,15 +2103,15 @@ function SplitAllocationModal({
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={onClose} disabled={isSaving || isReverting}>
+              <Button variant="outline" onClick={onClose} disabled={isSaving || isReverting || isUpdatingSingle}>
                 Cancel
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={!canSave || isSaving || isReverting}
+                disabled={!canSave || isSaving || isReverting || isUpdatingSingle}
                 data-testid="save-split-allocation"
               >
-                {isSaving || isReverting ? "Saving..." : "Save"}
+                {(isSaving || isReverting || isUpdatingSingle) ? "Saving..." : "Save"}
               </Button>
             </div>
           </div>

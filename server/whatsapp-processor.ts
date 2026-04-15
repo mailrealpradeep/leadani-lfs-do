@@ -399,14 +399,15 @@ async function pickSplitAllocation(
   // Total leads assigned today
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
-  // Find which split is most under its target ratio
+  // Find which split is most under its target ratio (weighted round-robin)
+  // deficit = target_ratio - actual_ratio; pick the user with the highest deficit
+  // When total=0, all actual_ratios are 0 so highest-target user wins first
   let bestSplit = splits[0];
   let bestDeficit = -Infinity;
   for (const split of splits) {
     const assigned = counts[split.user_id] ?? 0;
     const target = split.percentage / 100;
-    // Deficit = how far below target this user is (higher = more overdue)
-    const currentRatio = total === 0 ? 0 : assigned / (total + 1);
+    const currentRatio = total === 0 ? 0 : assigned / total;
     const deficit = target - currentRatio;
     if (deficit > bestDeficit) {
       bestDeficit = deficit;

@@ -7362,7 +7362,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // Get splits for a specific phone number
-  app.get("/api/admin/company/whatsapp/allocations/splits/:phone", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/company/whatsapp/allocations/:phone/splits", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
       const splits = await storage.getWhatsAppAllocationSplits(req.companyId, req.params.phone);
@@ -7374,7 +7374,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // Set splits for a specific phone number (replaces all existing splits)
-  app.post("/api/admin/company/whatsapp/allocations/splits/:phone", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/company/whatsapp/allocations/:phone/splits", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
       const { splits } = req.body as { splits: Array<{ user_id: string; sheet_id: string; percentage: number }> };
@@ -7399,7 +7399,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // Delete all splits for a specific phone number (revert to single-user mode)
-  app.delete("/api/admin/company/whatsapp/allocations/splits/:phone", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/company/whatsapp/allocations/:phone/splits", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
       await storage.deleteWhatsAppAllocationSplits(req.companyId, req.params.phone);
@@ -7411,7 +7411,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   });
 
   // Get today's distribution counts for a specific phone number
-  app.get("/api/admin/company/whatsapp/allocations/daily-counts/:phone", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/admin/company/whatsapp/allocations/:phone/daily-counts", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
       const company = await storage.getCompany(req.companyId);
