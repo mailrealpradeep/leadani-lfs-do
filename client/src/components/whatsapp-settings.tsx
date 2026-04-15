@@ -987,10 +987,27 @@ export function WhatsAppSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <AllocationForm 
-                sheets={sheets} 
-                users={users} 
-                onSubmit={(data) => createAllocationMutation.mutate(data)} 
+              <AllocationForm
+                sheets={sheets}
+                users={users}
+                onSubmit={(data) => createAllocationMutation.mutate(data)}
+                onSubmitSplit={async (phone, splits) => {
+                  try {
+                    await apiRequest("POST", "/api/admin/company/whatsapp/allocations", {
+                      display_phone_number: phone,
+                      user_id: splits[0].user_id,
+                      sheet_id: splits[0].sheet_id,
+                    });
+                    await apiRequest("POST", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(phone)}/splits`, { splits });
+                    queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"] });
+                    toast({ title: "Allocation created", description: "Split allocation has been set up successfully." });
+                    return true;
+                  } catch (error: any) {
+                    toast({ variant: "destructive", title: "Error", description: error.message });
+                    return false;
+                  }
+                }}
                 isPending={createAllocationMutation.isPending}
               />
 
@@ -2113,82 +2130,246 @@ function SplitAllocationModal({
 }
 
 // Allocation Form Component
-function AllocationForm({ 
-  sheets, 
-  users, 
-  onSubmit, 
-  isPending 
-}: { 
-  sheets: Sheet[]; 
-  users: User[]; 
+function AllocationForm({
+  sheets,
+  users,
+  onSubmit,
+  onSubmitSplit,
+  isPending,
+}: {
+  sheets: Sheet[];
+  users: User[];
   onSubmit: (data: { display_phone_number: string; user_id: string; sheet_id: string }) => void;
+  onSubmitSplit?: (phone: string, splits: Array<{ user_id: string; sheet_id: string; percentage: number }>) => Promise<boolean>;
   isPending: boolean;
 }) {
+  const [mode, setMode] = useState<"single" | "split">("single");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [userId, setUserId] = useState("");
   const [sheetId, setSheetId] = useState("");
+  const [splitRows, setSplitRows] = useState<Array<{ user_id: string; sheet_id: string; percentage: number }>>([
+    { user_id: "", sheet_id: "", percentage: 50 },
+    { user_id: "", sheet_id: "", percentage: 50 },
+  ]);
+  const [isSplitSubmitting, setIsSplitSubmitting] = useState(false);
 
-  const handleSubmit = () => {
-    if (!phoneNumber || !userId || !sheetId) return;
-    onSubmit({ display_phone_number: phoneNumber, user_id: userId, sheet_id: sheetId });
+  const totalPct = splitRows.reduce((sum, r) => sum + (Number(r.percentage) || 0), 0);
+
+  const updateSplitRow = (idx: number, field: string, value: string | number) => {
+    setSplitRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+  };
+
+  const addSplitRow = () => {
+    setSplitRows(prev => [...prev, { user_id: "", sheet_id: "", percentage: 0 }]);
+  };
+
+  const removeSplitRow = (idx: number) => {
+    if (splitRows.length <= 2) return;
+    setSplitRows(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const resetForm = () => {
     setPhoneNumber("");
     setUserId("");
     setSheetId("");
+    setSplitRows([
+      { user_id: "", sheet_id: "", percentage: 50 },
+      { user_id: "", sheet_id: "", percentage: 50 },
+    ]);
   };
 
+  const canSubmitSingle = !!phoneNumber && !!userId && !!sheetId;
+  const canSubmitSplit = !!phoneNumber && splitRows.length >= 2 && totalPct === 100 &&
+    splitRows.every(r => r.user_id && r.sheet_id && Number(r.percentage) > 0);
+
+  const handleSubmit = async () => {
+    if (mode === "single") {
+      if (!canSubmitSingle) return;
+      onSubmit({ display_phone_number: phoneNumber, user_id: userId, sheet_id: sheetId });
+      resetForm();
+    } else {
+      if (!canSubmitSplit || !onSubmitSplit) return;
+      setIsSplitSubmitting(true);
+      const ok = await onSubmitSplit(phoneNumber, splitRows.map(r => ({ ...r, percentage: Number(r.percentage) || 0 })));
+      setIsSplitSubmitting(false);
+      if (ok) resetForm();
+    }
+  };
+
+  const isSubmitting = isPending || isSplitSubmitting;
+
   return (
-    <div className="flex flex-col sm:flex-row gap-3 p-4 border rounded-md bg-muted/30">
-      <div className="flex-1">
-        <Label htmlFor="phone-number" className="text-xs">WhatsApp Business Number</Label>
-        <Input
-          id="phone-number"
-          placeholder="e.g., 918249344757"
-          value={phoneNumber}
-          onChange={(e) => setPhoneNumber(e.target.value)}
-          className="mt-1"
-          data-testid="input-phone-number"
-        />
-      </div>
-      <div className="flex-1">
-        <Label htmlFor="user-select" className="text-xs">Assign to User</Label>
-        <Select value={userId} onValueChange={setUserId}>
-          <SelectTrigger className="mt-1" id="user-select" data-testid="select-user">
-            <SelectValue placeholder="Select user" />
-          </SelectTrigger>
-          <SelectContent>
-            {users.filter((u) => u.is_active !== false).map((user) => (
-              <SelectItem key={user.id} value={user.id}>
-                {user.name || user.email}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex-1">
-        <Label htmlFor="sheet-select" className="text-xs">Target Sheet</Label>
-        <Select value={sheetId} onValueChange={setSheetId}>
-          <SelectTrigger className="mt-1" id="sheet-select" data-testid="select-sheet">
-            <SelectValue placeholder="Select sheet" />
-          </SelectTrigger>
-          <SelectContent>
-            {sheets.map((sheet) => (
-              <SelectItem key={sheet.id} value={sheet.id}>
-                {sheet.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex items-end">
-        <Button 
-          onClick={handleSubmit} 
-          disabled={!phoneNumber || !userId || !sheetId || isPending}
-          data-testid="button-add-allocation"
+    <div className="p-4 border rounded-md bg-muted/30 space-y-3">
+      {/* Mode toggle */}
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          variant={mode === "single" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setMode("single")}
+          data-testid="form-mode-single"
         >
-          <Plus className="h-4 w-4 mr-2" />
-          Add
+          Single User
+        </Button>
+        <Button
+          variant={mode === "split" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setMode("split")}
+          data-testid="form-mode-split"
+        >
+          Split by Percentage
         </Button>
       </div>
+
+      {/* Phone number field (always shown) */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex-1">
+          <Label htmlFor="phone-number" className="text-xs">WhatsApp Business Number</Label>
+          <Input
+            id="phone-number"
+            placeholder="e.g., 918249344757"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            className="mt-1"
+            data-testid="input-phone-number"
+          />
+        </div>
+
+        {mode === "single" && (
+          <>
+            <div className="flex-1">
+              <Label htmlFor="user-select" className="text-xs">Assign to User</Label>
+              <Select value={userId} onValueChange={setUserId}>
+                <SelectTrigger className="mt-1" id="user-select" data-testid="select-user">
+                  <SelectValue placeholder="Select user" />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.filter((u) => u.is_active !== false).map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.name || user.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-1">
+              <Label htmlFor="sheet-select" className="text-xs">Target Sheet</Label>
+              <Select value={sheetId} onValueChange={setSheetId}>
+                <SelectTrigger className="mt-1" id="sheet-select" data-testid="select-sheet">
+                  <SelectValue placeholder="Select sheet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sheets.map((sheet) => (
+                    <SelectItem key={sheet.id} value={sheet.id}>
+                      {sheet.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                onClick={handleSubmit}
+                disabled={!canSubmitSingle || isSubmitting}
+                data-testid="button-add-allocation"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {isSubmitting ? "Adding..." : "Add"}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Split rows editor */}
+      {mode === "split" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium">Allocation splits</div>
+            <div className={cn("text-sm font-mono font-medium", totalPct === 100 ? "text-green-600 dark:text-green-400" : "text-destructive")}>
+              Total: {totalPct}%{totalPct !== 100 && " (must be 100%)"}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {splitRows.map((row, idx) => (
+              <div key={idx} className="flex flex-wrap gap-2 items-end p-3 border rounded-md bg-muted/20">
+                <div className="flex-1 min-w-[140px]">
+                  <Label className="text-xs">User</Label>
+                  <Select value={row.user_id} onValueChange={(v) => updateSplitRow(idx, "user_id", v)}>
+                    <SelectTrigger className="mt-1 h-9" data-testid={`form-split-user-${idx}`}>
+                      <SelectValue placeholder="Select user" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {users.filter(u => u.is_active !== false).map(u => (
+                        <SelectItem key={u.id} value={u.id}>{u.name || u.email}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1 min-w-[140px]">
+                  <Label className="text-xs">Target Sheet</Label>
+                  <Select value={row.sheet_id} onValueChange={(v) => updateSplitRow(idx, "sheet_id", v)}>
+                    <SelectTrigger className="mt-1 h-9" data-testid={`form-split-sheet-${idx}`}>
+                      <SelectValue placeholder="Select sheet" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sheets.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-24">
+                  <Label className="text-xs">Percentage</Label>
+                  <div className="flex items-center mt-1 gap-1">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={row.percentage}
+                      onChange={(e) => updateSplitRow(idx, "percentage", Number(e.target.value))}
+                      className="h-9"
+                      data-testid={`form-split-pct-${idx}`}
+                    />
+                    <span className="text-sm text-muted-foreground">%</span>
+                  </div>
+                </div>
+                <div className="flex items-end pb-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeSplitRow(idx)}
+                    disabled={splitRows.length <= 2}
+                    data-testid={`form-remove-split-${idx}`}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={addSplitRow} data-testid="form-add-split-row">
+              <Plus className="h-4 w-4 mr-1" />
+              Add User
+            </Button>
+            <div className="flex-1" />
+            <Button
+              onClick={handleSubmit}
+              disabled={!canSubmitSplit || isSubmitting}
+              data-testid="button-add-split-allocation"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              {isSubmitting ? "Adding..." : "Add"}
+            </Button>
+          </div>
+
+          <div className="text-xs text-muted-foreground">
+            Leads are distributed using weighted round-robin that resets daily (company timezone).
+          </div>
+        </div>
+      )}
     </div>
   );
 }
