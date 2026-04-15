@@ -65,6 +65,16 @@ interface WhatsAppAllocation {
   updated_at: string;
 }
 
+interface WhatsAppAllocationSplit {
+  id: string;
+  company_id: string;
+  display_phone_number: string;
+  user_id: string;
+  sheet_id: string;
+  percentage: number;
+  created_at: string;
+}
+
 interface WhatsAppTriggerRule {
   id: string;
   company_id: string;
@@ -340,6 +350,66 @@ export function WhatsAppSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations"] });
       toast({ title: "Deleted", description: "Allocation has been removed." });
+    },
+    onError: (error: Error) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  // Split allocation modal state
+  const [splitModalPhone, setSplitModalPhone] = useState<string | null>(null);
+
+  // Fetch splits for a given phone (enabled when modal is open)
+  const { data: splitsData = [], isLoading: splitsLoading } = useQuery<WhatsAppAllocationSplit[]>({
+    queryKey: ["/api/admin/company/whatsapp/allocations/splits", splitModalPhone],
+    queryFn: () => apiRequest<WhatsAppAllocationSplit[]>("GET", `/api/admin/company/whatsapp/allocations/splits/${encodeURIComponent(splitModalPhone!)}`),
+    enabled: !!splitModalPhone,
+  });
+
+  // Fetch all splits for all allocations (to show split indicator in table)
+  const { data: allSplitsMap = {} } = useQuery<Record<string, WhatsAppAllocationSplit[]>>({
+    queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"],
+    queryFn: async () => {
+      const result: Record<string, WhatsAppAllocationSplit[]> = {};
+      await Promise.all(
+        allocations.map(async (a) => {
+          try {
+            const splits = await apiRequest<WhatsAppAllocationSplit[]>("GET", `/api/admin/company/whatsapp/allocations/splits/${encodeURIComponent(a.display_phone_number)}`);
+            if (splits.length >= 2) result[a.display_phone_number] = splits;
+          } catch { /* ignore */ }
+        })
+      );
+      return result;
+    },
+    enabled: allocations.length > 0,
+  });
+
+  // Set splits mutation
+  const setSplitsMutation = useMutation({
+    mutationFn: async ({ phone, splits }: { phone: string; splits: Array<{ user_id: string; sheet_id: string; percentage: number }> }) => {
+      return await apiRequest("POST", `/api/admin/company/whatsapp/allocations/splits/${encodeURIComponent(phone)}`, { splits });
+    },
+    onSuccess: (_, { phone }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/splits", phone] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"] });
+      toast({ title: "Split allocation saved", description: "Percentage distribution has been updated." });
+      setSplitModalPhone(null);
+    },
+    onError: (error: Error) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    },
+  });
+
+  // Delete splits mutation (revert to single user)
+  const deleteSplitsMutation = useMutation({
+    mutationFn: async (phone: string) => {
+      return await apiRequest("DELETE", `/api/admin/company/whatsapp/allocations/splits/${encodeURIComponent(phone)}`);
+    },
+    onSuccess: (_, phone) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/splits", phone] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"] });
+      toast({ title: "Reverted to single user", description: "Split allocation has been removed." });
+      setSplitModalPhone(null);
     },
     onError: (error: Error) => {
       toast({ variant: "destructive", title: "Error", description: error.message });
@@ -911,8 +981,7 @@ export function WhatsAppSettings() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Phone Number</TableHead>
-                      <TableHead>Assigned User</TableHead>
-                      <TableHead>Target Sheet</TableHead>
+                      <TableHead>Assignment</TableHead>
                       <TableHead>Enabled</TableHead>
                       <TableHead>
                         <div className="flex items-center gap-1">
@@ -927,67 +996,121 @@ export function WhatsAppSettings() {
                           </Tooltip>
                         </div>
                       </TableHead>
-                      <TableHead className="w-[50px]">Actions</TableHead>
+                      <TableHead className="w-[100px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {allocationsLoading ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                           Loading allocations...
                         </TableCell>
                       </TableRow>
                     ) : allocations.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                           No phone allocations configured. Add one above to start receiving WhatsApp leads.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      allocations.map((allocation) => (
-                        <TableRow key={allocation.id}>
-                          <TableCell className="font-mono">{allocation.display_phone_number}</TableCell>
-                          <TableCell>{getUserName(allocation.user_id)}</TableCell>
-                          <TableCell>{getSheetName(allocation.sheet_id)}</TableCell>
-                          <TableCell>
-                            <Switch
-                              checked={allocation.enabled}
-                              onCheckedChange={(checked) => 
-                                updateAllocationMutation.mutate({ id: allocation.id, updates: { enabled: checked } })
-                              }
-                              data-testid={`toggle-allocation-${allocation.id}`}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Switch
-                              checked={allocation.catch_all_enabled ?? false}
-                              onCheckedChange={(checked) =>
-                                updateAllocationMutation.mutate({ id: allocation.id, updates: { catch_all_enabled: checked } })
-                              }
-                              data-testid={`toggle-catch-all-${allocation.id}`}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setItemToDelete({ type: "allocation", id: allocation.id });
-                                setDeleteDialogOpen(true);
-                              }}
-                              data-testid={`delete-allocation-${allocation.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
+                      allocations.map((allocation) => {
+                        const splits = allSplitsMap[allocation.display_phone_number] || [];
+                        const isSplitMode = splits.length >= 2;
+                        return (
+                          <TableRow key={allocation.id}>
+                            <TableCell className="font-mono">{allocation.display_phone_number}</TableCell>
+                            <TableCell>
+                              {isSplitMode ? (
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="text-xs">
+                                    <Users className="h-3 w-3 mr-1" />
+                                    Split ({splits.length} users)
+                                  </Badge>
+                                  <div className="text-xs text-muted-foreground hidden sm:block">
+                                    {splits.map(s => `${getUserName(s.user_id)} ${s.percentage}%`).join(", ")}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col">
+                                  <span className="text-sm">{getUserName(allocation.user_id)}</span>
+                                  <span className="text-xs text-muted-foreground">{getSheetName(allocation.sheet_id)}</span>
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Switch
+                                checked={allocation.enabled}
+                                onCheckedChange={(checked) => 
+                                  updateAllocationMutation.mutate({ id: allocation.id, updates: { enabled: checked } })
+                                }
+                                data-testid={`toggle-allocation-${allocation.id}`}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Switch
+                                checked={allocation.catch_all_enabled ?? false}
+                                onCheckedChange={(checked) =>
+                                  updateAllocationMutation.mutate({ id: allocation.id, updates: { catch_all_enabled: checked } })
+                                }
+                                data-testid={`toggle-catch-all-${allocation.id}`}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => setSplitModalPhone(allocation.display_phone_number)}
+                                      data-testid={`edit-allocation-${allocation.id}`}
+                                    >
+                                      <Settings className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Configure user assignment</TooltipContent>
+                                </Tooltip>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    setItemToDelete({ type: "allocation", id: allocation.id });
+                                    setDeleteDialogOpen(true);
+                                  }}
+                                  data-testid={`delete-allocation-${allocation.id}`}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>
               </div>
             </CardContent>
           </Card>
+
+          {/* Split Allocation Modal */}
+          {splitModalPhone && (
+            <SplitAllocationModal
+              phone={splitModalPhone}
+              existingSplits={splitsData}
+              isLoading={splitsLoading}
+              users={users}
+              sheets={sheets}
+              getUserName={getUserName}
+              getSheetName={getSheetName}
+              onSave={(splits) => setSplitsMutation.mutate({ phone: splitModalPhone, splits })}
+              onRevertToSingle={() => deleteSplitsMutation.mutate(splitModalPhone)}
+              onClose={() => setSplitModalPhone(null)}
+              isSaving={setSplitsMutation.isPending}
+              isReverting={deleteSplitsMutation.isPending}
+              singleAllocation={allocations.find(a => a.display_phone_number === splitModalPhone)}
+            />
+          )}
         </TabsContent>
 
         {/* Trigger Rules Tab */}
@@ -1698,6 +1821,240 @@ export function WhatsAppSettings() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Split Allocation Modal
+function SplitAllocationModal({
+  phone,
+  existingSplits,
+  isLoading,
+  users,
+  sheets,
+  getUserName,
+  getSheetName,
+  onSave,
+  onRevertToSingle,
+  onClose,
+  isSaving,
+  isReverting,
+  singleAllocation,
+}: {
+  phone: string;
+  existingSplits: WhatsAppAllocationSplit[];
+  isLoading: boolean;
+  users: User[];
+  sheets: Sheet[];
+  getUserName: (id: string) => string;
+  getSheetName: (id: string) => string;
+  onSave: (splits: Array<{ user_id: string; sheet_id: string; percentage: number }>) => void;
+  onRevertToSingle: () => void;
+  onClose: () => void;
+  isSaving: boolean;
+  isReverting: boolean;
+  singleAllocation?: WhatsAppAllocation;
+}) {
+  const isSplitMode = existingSplits.length >= 2;
+  const [mode, setMode] = useState<"single" | "split">("single");
+  const [splitRows, setSplitRows] = useState<Array<{ user_id: string; sheet_id: string; percentage: number }>>([
+    { user_id: singleAllocation?.user_id || "", sheet_id: singleAllocation?.sheet_id || "", percentage: 50 },
+    { user_id: "", sheet_id: "", percentage: 50 },
+  ]);
+
+  // Once splits are loaded, initialize state correctly
+  useEffect(() => {
+    if (isLoading) return;
+    if (existingSplits.length >= 2) {
+      setMode("split");
+      setSplitRows(existingSplits.map(s => ({ user_id: s.user_id, sheet_id: s.sheet_id, percentage: s.percentage })));
+    } else {
+      setMode("single");
+      setSplitRows([
+        { user_id: singleAllocation?.user_id || "", sheet_id: singleAllocation?.sheet_id || "", percentage: 50 },
+        { user_id: "", sheet_id: "", percentage: 50 },
+      ]);
+    }
+  }, [isLoading, existingSplits.length]);
+
+  const totalPct = splitRows.reduce((sum, r) => sum + (Number(r.percentage) || 0), 0);
+
+  const updateRow = (idx: number, field: string, value: string | number) => {
+    setSplitRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+  };
+
+  const addRow = () => {
+    setSplitRows(prev => [...prev, { user_id: "", sheet_id: "", percentage: 0 }]);
+  };
+
+  const removeRow = (idx: number) => {
+    if (splitRows.length <= 2) return;
+    setSplitRows(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleSave = () => {
+    if (mode === "single") {
+      onRevertToSingle();
+    } else {
+      onSave(splitRows.map(r => ({ ...r, percentage: Number(r.percentage) || 0 })));
+    }
+  };
+
+  const canSave = mode === "single"
+    ? true
+    : (splitRows.length >= 2 && totalPct === 100 && splitRows.every(r => r.user_id && r.sheet_id && Number(r.percentage) > 0));
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            Configure Assignment — {phone}
+          </DialogTitle>
+          <DialogDescription>
+            Choose how incoming leads from this number are assigned.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="py-8 text-center text-muted-foreground">Loading...</div>
+        ) : (
+          <div className="space-y-4">
+            {/* Mode selector */}
+            <div className="flex gap-2">
+              <Button
+                variant={mode === "single" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setMode("single")}
+                data-testid="mode-single"
+              >
+                Single User
+              </Button>
+              <Button
+                variant={mode === "split" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setMode("split")}
+                data-testid="mode-split"
+              >
+                Split by Percentage
+              </Button>
+            </div>
+
+            {mode === "single" && (
+              <div className="p-4 border rounded-md bg-muted/30 space-y-1">
+                <div className="text-sm font-medium">Current single user assignment</div>
+                {singleAllocation ? (
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{getUserName(singleAllocation.user_id)}</span>
+                    {" → "}
+                    <span>{getSheetName(singleAllocation.sheet_id)}</span>
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No single user configured.</div>
+                )}
+                {isSplitMode && (
+                  <div className="pt-2 text-sm text-amber-600 dark:text-amber-400">
+                    Saving in Single User mode will remove the current split allocation and revert to the single user/sheet assignment.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {mode === "split" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">Split allocation entries</div>
+                  <div className={cn("text-sm font-mono font-medium", totalPct === 100 ? "text-green-600 dark:text-green-400" : "text-destructive")}>
+                    Total: {totalPct}%{totalPct !== 100 && " (must be 100%)"}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {splitRows.map((row, idx) => (
+                    <div key={idx} className="flex flex-wrap gap-2 items-end p-3 border rounded-md bg-muted/20">
+                      <div className="flex-1 min-w-[140px]">
+                        <Label className="text-xs">User</Label>
+                        <Select value={row.user_id} onValueChange={(v) => updateRow(idx, "user_id", v)}>
+                          <SelectTrigger className="mt-1 h-9" data-testid={`split-user-${idx}`}>
+                            <SelectValue placeholder="Select user" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {users.filter(u => u.is_active !== false).map(u => (
+                              <SelectItem key={u.id} value={u.id}>{u.name || u.email}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex-1 min-w-[140px]">
+                        <Label className="text-xs">Target Sheet</Label>
+                        <Select value={row.sheet_id} onValueChange={(v) => updateRow(idx, "sheet_id", v)}>
+                          <SelectTrigger className="mt-1 h-9" data-testid={`split-sheet-${idx}`}>
+                            <SelectValue placeholder="Select sheet" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sheets.map(s => (
+                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-24">
+                        <Label className="text-xs">Percentage</Label>
+                        <div className="flex items-center mt-1 gap-1">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={row.percentage}
+                            onChange={(e) => updateRow(idx, "percentage", Number(e.target.value))}
+                            className="h-9"
+                            data-testid={`split-pct-${idx}`}
+                          />
+                          <span className="text-sm text-muted-foreground">%</span>
+                        </div>
+                      </div>
+                      <div className="flex items-end pb-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeRow(idx)}
+                          disabled={splitRows.length <= 2}
+                          data-testid={`remove-split-${idx}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <Button variant="outline" size="sm" onClick={addRow} data-testid="add-split-row">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add User
+                </Button>
+
+                <div className="text-xs text-muted-foreground">
+                  Leads are distributed using weighted round-robin that resets daily at midnight (company timezone). The system tracks how many leads each user received today and picks the most underserved user next.
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={onClose} disabled={isSaving || isReverting}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={!canSave || isSaving || isReverting}
+                data-testid="save-split-allocation"
+              >
+                {isSaving || isReverting ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -4758,6 +4758,39 @@ export const insertWhatsAppAllocationSchema = createInsertSchema(whatsapp_alloca
 
 export type InsertWhatsAppAllocationData = z.infer<typeof insertWhatsAppAllocationSchema>;
 
+// WhatsApp Allocation Splits - For percentage-based lead distribution across multiple users
+export const whatsapp_allocation_splits = pgTable('whatsapp_allocation_splits', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  display_phone_number: varchar('display_phone_number', { length: 20 }).notNull(),
+  user_id: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sheet_id: varchar('sheet_id').notNull().references(() => sheets.id, { onDelete: 'cascade' }),
+  percentage: integer('percentage').notNull(), // 0-100, all splits for a phone must sum to 100
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type WhatsAppAllocationSplit = typeof whatsapp_allocation_splits.$inferSelect;
+export type InsertWhatsAppAllocationSplit = typeof whatsapp_allocation_splits.$inferInsert;
+export const insertWhatsAppAllocationSplitSchema = createInsertSchema(whatsapp_allocation_splits).omit({
+  id: true,
+  created_at: true,
+});
+export type InsertWhatsAppAllocationSplitData = z.infer<typeof insertWhatsAppAllocationSplitSchema>;
+
+// WhatsApp Allocation Daily Counts - Tracks per-day weighted round-robin distribution counts
+export const whatsapp_allocation_daily_counts = pgTable('whatsapp_allocation_daily_counts', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  display_phone_number: varchar('display_phone_number', { length: 20 }).notNull(),
+  date: varchar('date', { length: 10 }).notNull(), // YYYY-MM-DD in company timezone
+  counts: json('counts').$type<Record<string, number>>().notNull().default({}), // { user_id: count }
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WhatsAppAllocationDailyCount = typeof whatsapp_allocation_daily_counts.$inferSelect;
+export type InsertWhatsAppAllocationDailyCount = typeof whatsapp_allocation_daily_counts.$inferInsert;
+
 // WhatsApp Trigger Rules - Conditions to identify new leads vs follow-ups
 export interface WhatsAppTriggerRule {
   id: string;

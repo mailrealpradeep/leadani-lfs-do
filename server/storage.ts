@@ -267,6 +267,8 @@ import type {
   // WhatsApp Lead Management System
   WhatsAppAllocationRecord,
   InsertWhatsAppAllocationData,
+  WhatsAppAllocationSplit,
+  WhatsAppAllocationDailyCount,
   WhatsAppTriggerRuleRecord,
   InsertWhatsAppTriggerRuleData,
   WhatsAppFieldMappingRecord,
@@ -1107,6 +1109,15 @@ export interface IStorage {
   createWhatsAppAllocation(allocation: InsertWhatsAppAllocationData): Promise<WhatsAppAllocationRecord>;
   updateWhatsAppAllocation(id: string, updates: Partial<WhatsAppAllocationRecord>): Promise<WhatsAppAllocationRecord | undefined>;
   deleteWhatsAppAllocation(id: string): Promise<boolean>;
+
+  // WhatsApp Allocation Splits (Percentage-based distribution)
+  getWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string): Promise<WhatsAppAllocationSplit[]>;
+  setWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string, splits: Array<{ user_id: string; sheet_id: string; percentage: number }>): Promise<WhatsAppAllocationSplit[]>;
+  deleteWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string): Promise<boolean>;
+
+  // WhatsApp Allocation Daily Counts (Weighted round-robin tracking)
+  getWhatsAppAllocationDailyCount(companyId: string, displayPhoneNumber: string, date: string): Promise<WhatsAppAllocationDailyCount | undefined>;
+  upsertWhatsAppAllocationDailyCount(companyId: string, displayPhoneNumber: string, date: string, counts: Record<string, number>): Promise<WhatsAppAllocationDailyCount>;
 
   // WhatsApp Trigger Rules (New lead detection rules)
   getWhatsAppTriggerRules(companyId: string): Promise<WhatsAppTriggerRuleRecord[]>;
@@ -3864,6 +3875,11 @@ export class MemStorage implements IStorage {
   async createWhatsAppAllocation(_allocation: InsertWhatsAppAllocationData): Promise<WhatsAppAllocationRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppAllocation(_id: string, _updates: Partial<WhatsAppAllocationRecord>): Promise<WhatsAppAllocationRecord | undefined> { return undefined; }
   async deleteWhatsAppAllocation(_id: string): Promise<boolean> { return false; }
+  async getWhatsAppAllocationSplits(_companyId: string, _displayPhoneNumber: string): Promise<WhatsAppAllocationSplit[]> { return []; }
+  async setWhatsAppAllocationSplits(_companyId: string, _displayPhoneNumber: string, _splits: Array<{ user_id: string; sheet_id: string; percentage: number }>): Promise<WhatsAppAllocationSplit[]> { throw new Error("WhatsApp not implemented in MemStorage"); }
+  async deleteWhatsAppAllocationSplits(_companyId: string, _displayPhoneNumber: string): Promise<boolean> { return false; }
+  async getWhatsAppAllocationDailyCount(_companyId: string, _displayPhoneNumber: string, _date: string): Promise<WhatsAppAllocationDailyCount | undefined> { return undefined; }
+  async upsertWhatsAppAllocationDailyCount(_companyId: string, _displayPhoneNumber: string, _date: string, _counts: Record<string, number>): Promise<WhatsAppAllocationDailyCount> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async getWhatsAppTriggerRules(_companyId: string): Promise<WhatsAppTriggerRuleRecord[]> { return []; }
   async getWhatsAppTriggerRule(_id: string): Promise<WhatsAppTriggerRuleRecord | undefined> { return undefined; }
   async createWhatsAppTriggerRule(_rule: InsertWhatsAppTriggerRuleData): Promise<WhatsAppTriggerRuleRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
@@ -12163,6 +12179,79 @@ export class PgStorage implements IStorage {
   async deleteWhatsAppAllocation(id: string): Promise<boolean> {
     await db.delete(dbSchema.whatsapp_allocations).where(eq(dbSchema.whatsapp_allocations.id, id));
     return true;
+  }
+
+  // WhatsApp Allocation Splits
+  async getWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string): Promise<WhatsAppAllocationSplit[]> {
+    return await db.select()
+      .from(dbSchema.whatsapp_allocation_splits)
+      .where(and(
+        eq(dbSchema.whatsapp_allocation_splits.company_id, companyId),
+        eq(dbSchema.whatsapp_allocation_splits.display_phone_number, displayPhoneNumber)
+      ))
+      .orderBy(asc(dbSchema.whatsapp_allocation_splits.created_at));
+  }
+
+  async setWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string, splits: Array<{ user_id: string; sheet_id: string; percentage: number }>): Promise<WhatsAppAllocationSplit[]> {
+    // Delete existing splits for this phone number
+    await db.delete(dbSchema.whatsapp_allocation_splits)
+      .where(and(
+        eq(dbSchema.whatsapp_allocation_splits.company_id, companyId),
+        eq(dbSchema.whatsapp_allocation_splits.display_phone_number, displayPhoneNumber)
+      ));
+    // Insert new splits
+    if (splits.length === 0) return [];
+    const now = new Date();
+    const rows = splits.map(s => ({
+      id: randomUUID(),
+      company_id: companyId,
+      display_phone_number: displayPhoneNumber,
+      user_id: s.user_id,
+      sheet_id: s.sheet_id,
+      percentage: s.percentage,
+      created_at: now,
+    }));
+    const result = await db.insert(dbSchema.whatsapp_allocation_splits).values(rows).returning();
+    return result;
+  }
+
+  async deleteWhatsAppAllocationSplits(companyId: string, displayPhoneNumber: string): Promise<boolean> {
+    await db.delete(dbSchema.whatsapp_allocation_splits)
+      .where(and(
+        eq(dbSchema.whatsapp_allocation_splits.company_id, companyId),
+        eq(dbSchema.whatsapp_allocation_splits.display_phone_number, displayPhoneNumber)
+      ));
+    return true;
+  }
+
+  // WhatsApp Allocation Daily Counts
+  async getWhatsAppAllocationDailyCount(companyId: string, displayPhoneNumber: string, date: string): Promise<WhatsAppAllocationDailyCount | undefined> {
+    const result = await db.select()
+      .from(dbSchema.whatsapp_allocation_daily_counts)
+      .where(and(
+        eq(dbSchema.whatsapp_allocation_daily_counts.company_id, companyId),
+        eq(dbSchema.whatsapp_allocation_daily_counts.display_phone_number, displayPhoneNumber),
+        eq(dbSchema.whatsapp_allocation_daily_counts.date, date)
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async upsertWhatsAppAllocationDailyCount(companyId: string, displayPhoneNumber: string, date: string, counts: Record<string, number>): Promise<WhatsAppAllocationDailyCount> {
+    const existing = await this.getWhatsAppAllocationDailyCount(companyId, displayPhoneNumber, date);
+    const now = new Date();
+    if (existing) {
+      const result = await db.update(dbSchema.whatsapp_allocation_daily_counts)
+        .set({ counts, updated_at: now })
+        .where(eq(dbSchema.whatsapp_allocation_daily_counts.id, existing.id))
+        .returning();
+      return result[0];
+    } else {
+      const result = await db.insert(dbSchema.whatsapp_allocation_daily_counts)
+        .values({ id: randomUUID(), company_id: companyId, display_phone_number: displayPhoneNumber, date, counts, created_at: now, updated_at: now })
+        .returning();
+      return result[0];
+    }
   }
 
   // WhatsApp Trigger Rules

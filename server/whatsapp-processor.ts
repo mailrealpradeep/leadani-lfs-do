@@ -3,9 +3,11 @@ import type {
   WhatsAppMessageLogRecord, 
   WhatsAppTriggerRuleRecord, 
   WhatsAppAllocationRecord,
+  WhatsAppAllocationSplit,
   Lead
 } from "@shared/schema";
 import { generateSailaResponse } from "./saila-engine";
+import { getTodayDateString } from "./timezone-utils";
 
 // Helper: get column keys protected by final value settings with block_automations enabled
 function getAutomationBlockedFinalValues(companySettings: any): Map<string, Set<string>> {
@@ -383,23 +385,75 @@ export async function processWhatsAppMessage(
   }
 }
 
+// Weighted round-robin: pick the split entry most under its target percentage for today
+async function pickSplitAllocation(
+  companyId: string,
+  displayPhoneNumber: string,
+  splits: WhatsAppAllocationSplit[],
+  timezone: string
+): Promise<WhatsAppAllocationSplit> {
+  const today = getTodayDateString(timezone);
+  const dailyCount = await storage.getWhatsAppAllocationDailyCount(companyId, displayPhoneNumber, today);
+  const counts: Record<string, number> = dailyCount?.counts ? { ...dailyCount.counts } : {};
+
+  // Total leads assigned today
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+  // Find which split is most under its target ratio
+  let bestSplit = splits[0];
+  let bestDeficit = -Infinity;
+  for (const split of splits) {
+    const assigned = counts[split.user_id] ?? 0;
+    const target = split.percentage / 100;
+    // Deficit = how far below target this user is (higher = more overdue)
+    const currentRatio = total === 0 ? 0 : assigned / (total + 1);
+    const deficit = target - currentRatio;
+    if (deficit > bestDeficit) {
+      bestDeficit = deficit;
+      bestSplit = split;
+    }
+  }
+
+  // Increment and persist
+  counts[bestSplit.user_id] = (counts[bestSplit.user_id] ?? 0) + 1;
+  await storage.upsertWhatsAppAllocationDailyCount(companyId, displayPhoneNumber, today, counts);
+
+  return bestSplit;
+}
+
 async function findAllocationByPhone(
   companyId: string,
   displayPhoneNumber: string
 ): Promise<WhatsAppAllocationRecord | null> {
-  const allocations = await storage.getWhatsAppAllocations(companyId);
-  
   const normalizedDisplay = normalizePhoneNumber(displayPhoneNumber);
-  
-  for (const alloc of allocations) {
-    if (!alloc.enabled) continue;
-    const normalizedAlloc = normalizePhoneNumber(alloc.display_phone_number);
-    if (normalizedAlloc === normalizedDisplay) {
-      return alloc;
-    }
+
+  // Check for split allocation first
+  // We need to match by normalized phone - find the canonical display_phone_number used for splits
+  const allAllocations = await storage.getWhatsAppAllocations(companyId);
+  const matchingAlloc = allAllocations.find(a => {
+    if (!a.enabled) return false;
+    return normalizePhoneNumber(a.display_phone_number) === normalizedDisplay;
+  });
+
+  if (!matchingAlloc) return null;
+
+  // Check if this phone has split rules configured
+  const splits = await storage.getWhatsAppAllocationSplits(companyId, matchingAlloc.display_phone_number);
+  if (splits.length >= 2) {
+    // Use split mode: weighted round-robin
+    const company = await storage.getCompany(companyId);
+    const timezone = (company?.settings as any)?.timezone || "UTC";
+    const chosen = await pickSplitAllocation(companyId, matchingAlloc.display_phone_number, splits, timezone);
+    // Return a WhatsAppAllocationRecord-compatible object using the split's user/sheet
+    return {
+      ...matchingAlloc,
+      user_id: chosen.user_id,
+      sheet_id: chosen.sheet_id,
+    };
   }
-  
-  return null;
+
+  // Single mode: return the allocation as-is
+  return matchingAlloc;
 }
 
 async function addFollowupToLead(

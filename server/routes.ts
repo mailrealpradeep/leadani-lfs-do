@@ -7361,6 +7361,70 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get splits for a specific phone number
+  app.get("/api/admin/company/whatsapp/allocations/splits/:phone", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
+      const splits = await storage.getWhatsAppAllocationSplits(req.companyId, req.params.phone);
+      res.json(splits);
+    } catch (error: any) {
+      console.error("Get WhatsApp allocation splits error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Set splits for a specific phone number (replaces all existing splits)
+  app.post("/api/admin/company/whatsapp/allocations/splits/:phone", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
+      const { splits } = req.body as { splits: Array<{ user_id: string; sheet_id: string; percentage: number }> };
+      if (!Array.isArray(splits) || splits.length < 2) {
+        return res.status(400).json({ error: "At least 2 split entries are required" });
+      }
+      const total = splits.reduce((sum, s) => sum + (Number(s.percentage) || 0), 0);
+      if (total !== 100) {
+        return res.status(400).json({ error: `Percentages must sum to 100 (currently ${total})` });
+      }
+      for (const s of splits) {
+        if (!s.user_id || !s.sheet_id || typeof s.percentage !== 'number') {
+          return res.status(400).json({ error: "Each split requires user_id, sheet_id, and percentage" });
+        }
+      }
+      const result = await storage.setWhatsAppAllocationSplits(req.companyId, req.params.phone, splits);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Set WhatsApp allocation splits error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete all splits for a specific phone number (revert to single-user mode)
+  app.delete("/api/admin/company/whatsapp/allocations/splits/:phone", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
+      await storage.deleteWhatsAppAllocationSplits(req.companyId, req.params.phone);
+      res.json({ message: "Splits deleted" });
+    } catch (error: any) {
+      console.error("Delete WhatsApp allocation splits error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get today's distribution counts for a specific phone number
+  app.get("/api/admin/company/whatsapp/allocations/daily-counts/:phone", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
+      const company = await storage.getCompany(req.companyId);
+      const timezone = (company?.settings as any)?.timezone || "UTC";
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: timezone });
+      const counts = await storage.getWhatsAppAllocationDailyCount(req.companyId, req.params.phone, today);
+      res.json({ date: today, counts: counts?.counts || {} });
+    } catch (error: any) {
+      console.error("Get WhatsApp allocation daily counts error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get all WhatsApp trigger rules for the company
   app.get("/api/admin/company/whatsapp/trigger-rules", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
