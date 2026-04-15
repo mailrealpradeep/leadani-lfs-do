@@ -1896,6 +1896,7 @@ function SplitAllocationModal({
     queryFn: () => apiRequest("GET", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(phone)}/daily-counts`).then(r => r.json()),
     enabled: mode === "split",
     refetchOnWindowFocus: false,
+    refetchInterval: 30000,
   });
   const dailyCounts = dailyCountsData?.counts ?? {};
   const [splitRows, setSplitRows] = useState<Array<{ user_id: string; sheet_id: string; percentage: number }>>([
@@ -2111,7 +2112,7 @@ function SplitAllocationModal({
 
                 {dailyCountsData && (
                   <div className="flex items-center justify-between px-3 py-2 border rounded-md bg-muted/20 text-sm" data-testid="split-today-total">
-                    <span className="font-medium">Total leads today</span>
+                    <span className="font-medium">Total leads — {dailyCountsData.date}</span>
                     <span className="font-semibold tabular-nums">
                       {Object.values(dailyCounts).reduce((sum, n) => sum + n, 0)}
                     </span>
