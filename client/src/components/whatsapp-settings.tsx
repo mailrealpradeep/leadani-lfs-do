@@ -1902,6 +1902,14 @@ function SplitAllocationModal({
 }) {
   const isSplitMode = existingSplits.length >= 2;
   const [mode, setMode] = useState<"single" | "split">("single");
+
+  const { data: dailyCountsData } = useQuery<{ date: string; counts: Record<string, number> }>({
+    queryKey: ["/api/admin/company/whatsapp/allocations", phone, "daily-counts"],
+    queryFn: () => apiRequest("GET", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(phone)}/daily-counts`).then(r => r.json()),
+    enabled: mode === "split",
+    refetchOnWindowFocus: false,
+  });
+  const dailyCounts = dailyCountsData?.counts ?? {};
   const [splitRows, setSplitRows] = useState<Array<{ user_id: string; sheet_id: string; percentage: number }>>([
     { user_id: singleAllocation?.user_id || "", sheet_id: singleAllocation?.sheet_id || "", percentage: 50 },
     { user_id: "", sheet_id: "", percentage: 50 },
@@ -2084,6 +2092,15 @@ function SplitAllocationModal({
                           <span className="text-sm text-muted-foreground">%</span>
                         </div>
                       </div>
+                      <div className="flex flex-col items-center justify-end gap-0.5 min-w-[80px]">
+                        <span className="text-xs text-muted-foreground">Today's Leads</span>
+                        <span
+                          className="text-sm font-semibold tabular-nums"
+                          data-testid={`split-today-count-${idx}`}
+                        >
+                          {row.user_id ? (dailyCounts[row.user_id] ?? 0) : "—"}
+                        </span>
+                      </div>
                       <div className="flex items-end pb-0.5">
                         <Button
                           variant="ghost"
@@ -2103,6 +2120,15 @@ function SplitAllocationModal({
                   <Plus className="h-4 w-4 mr-1" />
                   Add User
                 </Button>
+
+                {dailyCountsData && (
+                  <div className="flex items-center justify-between px-3 py-2 border rounded-md bg-muted/20 text-sm" data-testid="split-today-total">
+                    <span className="font-medium">Total leads today</span>
+                    <span className="font-semibold tabular-nums">
+                      {Object.values(dailyCounts).reduce((sum, n) => sum + n, 0)}
+                    </span>
+                  </div>
+                )}
 
                 <div className="text-xs text-muted-foreground">
                   Leads are distributed using weighted round-robin that resets daily at midnight (company timezone). The system tracks how many leads each user received today and picks the most underserved user next.
