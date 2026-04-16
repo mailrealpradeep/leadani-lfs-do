@@ -222,6 +222,7 @@ export function WhatsAppSettings() {
   const [logsPageSize, setLogsPageSize] = useState(25);
   const [logsBusinessFilter, setLogsBusinessFilter] = useState<string>("");
   const [logsOutcomeFilter, setLogsOutcomeFilter] = useState<string>("");
+  const [logsUserFilter, setLogsUserFilter] = useState<string>("");
   const [logsSearchText, setLogsSearchText] = useState("");
   const [logsFromDate, setLogsFromDate] = useState<string>("");
   const [logsToDate, setLogsToDate] = useState<string>("");
@@ -293,13 +294,14 @@ export function WhatsAppSettings() {
   logsQueryParams.set("offset", ((logsPage - 1) * logsPageSize).toString());
   if (logsBusinessFilter) logsQueryParams.set("businessNumber", logsBusinessFilter);
   if (logsOutcomeFilter) logsQueryParams.set("outcome", logsOutcomeFilter);
+  if (logsUserFilter) logsQueryParams.set("allocatedTo", logsUserFilter);
   if (logsSearchText) logsQueryParams.set("search", logsSearchText);
   if (logsFromDate) logsQueryParams.set("fromDate", logsFromDate);
   if (logsToDate) logsQueryParams.set("toDate", logsToDate);
   if (logsUniqueByPhone) logsQueryParams.set("uniqueByPhone", "true");
   
   const { data: messageLogsData, isLoading: logsLoading, refetch: refetchLogs } = useQuery<{ logs: WhatsAppMessageLog[]; total: number }>({
-    queryKey: ["/api/admin/company/whatsapp/message-logs", logsPage, logsPageSize, logsBusinessFilter, logsOutcomeFilter, logsSearchText, logsFromDate, logsToDate, logsUniqueByPhone],
+    queryKey: ["/api/admin/company/whatsapp/message-logs", logsPage, logsPageSize, logsBusinessFilter, logsOutcomeFilter, logsUserFilter, logsSearchText, logsFromDate, logsToDate, logsUniqueByPhone],
     queryFn: () => apiRequest<{ logs: WhatsAppMessageLog[]; total: number }>("GET", `/api/admin/company/whatsapp/message-logs?${logsQueryParams.toString()}`),
   });
   
@@ -335,7 +337,7 @@ export function WhatsAppSettings() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setLogsPage(1);
-  }, [logsBusinessFilter, logsOutcomeFilter, logsSearchText, logsFromDate, logsToDate, logsPageSize, logsUniqueByPhone]);
+  }, [logsBusinessFilter, logsOutcomeFilter, logsUserFilter, logsSearchText, logsFromDate, logsToDate, logsPageSize, logsUniqueByPhone]);
 
   // Create allocation mutation
   const createAllocationMutation = useMutation({
@@ -1545,6 +1547,21 @@ export function WhatsAppSettings() {
                       <SelectItem value="error">Error</SelectItem>
                     </SelectContent>
                   </Select>
+
+                  {/* Allocated User Filter */}
+                  <Select value={logsUserFilter || "all"} onValueChange={(v) => setLogsUserFilter(v === "all" ? "" : v)}>
+                    <SelectTrigger className="w-[180px]" data-testid="logs-user-filter">
+                      <SelectValue placeholder="All Users" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Users</SelectItem>
+                      {users.map((user) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.name || user.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   
                   {/* Unique numbers toggle */}
                   <Button
@@ -1583,7 +1600,7 @@ export function WhatsAppSettings() {
                   </div>
                   
                   {/* Clear Filters */}
-                  {(logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsFromDate || logsToDate || logsUniqueByPhone) && (
+                  {(logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsUserFilter || logsFromDate || logsToDate || logsUniqueByPhone) && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1591,6 +1608,7 @@ export function WhatsAppSettings() {
                         setLogsSearchText("");
                         setLogsBusinessFilter("");
                         setLogsOutcomeFilter("");
+                        setLogsUserFilter("");
                         setLogsFromDate("");
                         setLogsToDate("");
                         setLogsUniqueByPhone(false);
@@ -1627,7 +1645,7 @@ export function WhatsAppSettings() {
                     ) : messageLogs.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          {logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsFromDate || logsToDate || logsUniqueByPhone
+                          {logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsUserFilter || logsFromDate || logsToDate || logsUniqueByPhone
                             ? "No messages match your filters."
                             : "No messages have been processed yet."}
                         </TableCell>

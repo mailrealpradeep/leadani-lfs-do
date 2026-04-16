@@ -1154,6 +1154,7 @@ export interface IStorage {
     fromDate?: Date;
     toDate?: Date;
     uniqueByPhone?: boolean;
+    allocatedTo?: string;
   }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }>;
   getWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined>;
   createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord>;
@@ -3898,7 +3899,7 @@ export class MemStorage implements IStorage {
   async deleteWhatsAppDefaultValue(_id: string): Promise<boolean> { return false; }
   async getWhatsAppTransferSettings(_companyId: string): Promise<WhatsAppTransferSettingsRecord | undefined> { return undefined; }
   async upsertWhatsAppTransferSettings(_companyId: string, _settings: Partial<InsertWhatsAppTransferSettingsData>): Promise<WhatsAppTransferSettingsRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
-  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; search?: string; fromDate?: Date; toDate?: Date; uniqueByPhone?: boolean; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
+  async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; search?: string; fromDate?: Date; toDate?: Date; uniqueByPhone?: boolean; allocatedTo?: string; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppMessageLog(_id: string, _updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
@@ -12433,6 +12434,7 @@ export class PgStorage implements IStorage {
     fromDate?: Date;
     toDate?: Date;
     uniqueByPhone?: boolean;
+    allocatedTo?: string;
   }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> {
     const limitVal = options?.limit ?? 25;
     const offsetVal = options?.offset ?? 0;
@@ -12469,6 +12471,12 @@ export class PgStorage implements IStorage {
       const endDate = new Date(options.toDate);
       endDate.setDate(endDate.getDate() + 1);
       conditions.push(lt(dbSchema.whatsapp_message_logs.processed_at, endDate));
+    }
+
+    if (options?.allocatedTo) {
+      conditions.push(
+        sql`${dbSchema.whatsapp_message_logs.outcome_details}->>'allocated_to_user_id' = ${options.allocatedTo}`
+      );
     }
     
     const whereClause = and(...conditions);
