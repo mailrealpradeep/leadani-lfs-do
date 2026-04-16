@@ -1933,7 +1933,7 @@ function SplitAllocationModal({
   const isSplitMode = existingSplits.length >= 2;
   const [mode, setMode] = useState<"single" | "split">("single");
 
-  const { data: dailyCountsData } = useQuery<{ date: string; counts: Record<string, number> }>({
+  const { data: dailyCountsData, dataUpdatedAt } = useQuery<{ date: string; counts: Record<string, number> }>({
     queryKey: ["/api/admin/company/whatsapp/allocations", phone, "daily-counts"],
     queryFn: () => apiRequest("GET", `/api/admin/company/whatsapp/allocations/${encodeURIComponent(phone)}/daily-counts`).then(r => r.json()),
     enabled: mode === "split",
@@ -1941,6 +1941,12 @@ function SplitAllocationModal({
     refetchInterval: 30000,
   });
   const dailyCounts = dailyCountsData?.counts ?? {};
+
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 10000);
+    return () => clearInterval(id);
+  }, []);
   const [splitRows, setSplitRows] = useState<Array<{ user_id: string; sheet_id: string; percentage: number }>>([
     { user_id: singleAllocation?.user_id || "", sheet_id: singleAllocation?.sheet_id || "", percentage: 50 },
     { user_id: "", sheet_id: "", percentage: 50 },
@@ -2154,7 +2160,17 @@ function SplitAllocationModal({
 
                 {dailyCountsData && (
                   <div className="flex items-center justify-between px-3 py-2 border rounded-md bg-muted/20 text-sm" data-testid="split-today-total">
-                    <span className="font-medium">Total leads — {dailyCountsData.date}</span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">Total leads — {dailyCountsData.date}</span>
+                      {dataUpdatedAt > 0 && (
+                        <span className="text-xs text-muted-foreground" data-testid="split-counts-last-updated">
+                          {(() => {
+                            const elapsedSec = Math.max(0, Math.floor((now - dataUpdatedAt) / 1000));
+                            return `Last updated ${elapsedSec < 60 ? `${elapsedSec}s ago` : `${Math.floor(elapsedSec / 60)}m ago`}`;
+                          })()}
+                        </span>
+                      )}
+                    </div>
                     <span className="font-semibold tabular-nums">
                       {Object.values(dailyCounts).reduce((sum, n) => sum + n, 0)}
                     </span>
