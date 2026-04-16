@@ -7713,6 +7713,34 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         uniqueByPhone,
         allocatedTo,
       });
+
+      // Enrich logs with allocated user names
+      const userIds = [...new Set(
+        result.logs
+          .map((log) => log.outcome_details?.allocated_to_user_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      )];
+      if (userIds.length > 0) {
+        const users = await storage.getUsersByIds(userIds);
+        // Scope to this company only to prevent cross-tenant name exposure
+        const companyUserMap = new Map(
+          users.filter(u => u.company_id === req.companyId).map(u => [u.id, u.name])
+        );
+        result.logs = result.logs.map((log) => {
+          const userId = log.outcome_details?.allocated_to_user_id;
+          if (typeof userId === "string" && companyUserMap.has(userId)) {
+            return {
+              ...log,
+              outcome_details: {
+                ...log.outcome_details,
+                allocated_to_name: companyUserMap.get(userId),
+              },
+            };
+          }
+          return log;
+        });
+      }
+
       res.json(result);
     } catch (error: any) {
       console.error("Get WhatsApp message logs error:", error);
