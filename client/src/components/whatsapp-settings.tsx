@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation } from "@tanstack/react-query";
 import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock, Search, ChevronLeft, ChevronRight, Calendar, ArrowLeftRight, Users } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
@@ -309,7 +309,29 @@ export function WhatsAppSettings() {
   
   // Get unique business numbers from allocations for the filter dropdown
   const uniqueBusinessNumbers = Array.from(new Set(allocations.map(a => a.display_phone_number)));
-  
+
+  // Fetch today's lead counts for all phone numbers (for the allocation table rows)
+  // Only fires when the allocations tab is active to avoid unnecessary network requests
+  const dailyCountsQueries = useQueries({
+    queries: uniqueBusinessNumbers.map((phone) => ({
+      queryKey: ["/api/admin/company/whatsapp/allocations", phone, "daily-counts"],
+      queryFn: () =>
+        apiRequest<{ date: string; counts: Record<string, number> }>(
+          "GET",
+          `/api/admin/company/whatsapp/allocations/${encodeURIComponent(phone)}/daily-counts`
+        ),
+      enabled: activeTab === "allocations",
+      refetchOnWindowFocus: false,
+    })),
+  });
+
+  // Build a map of phone => total leads today
+  const todayTotalByPhone: Record<string, number> = {};
+  uniqueBusinessNumbers.forEach((phone, idx) => {
+    const counts = dailyCountsQueries[idx]?.data?.counts ?? {};
+    todayTotalByPhone[phone] = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  });
+
   // Reset to page 1 when filters change
   useEffect(() => {
     setLogsPage(1);
@@ -1039,9 +1061,21 @@ export function WhatsAppSettings() {
                       allocations.map((allocation) => {
                         const splits = allSplitsMap[allocation.display_phone_number] || [];
                         const isSplitMode = splits.length >= 2;
+                        const todayTotal = todayTotalByPhone[allocation.display_phone_number] ?? 0;
                         return (
                           <TableRow key={allocation.id}>
-                            <TableCell className="font-mono">{allocation.display_phone_number}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                <span className="font-mono text-sm">{allocation.display_phone_number}</span>
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs w-fit"
+                                  data-testid={`badge-today-leads-${allocation.id}`}
+                                >
+                                  {todayTotal} today
+                                </Badge>
+                              </div>
+                            </TableCell>
                             <TableCell>
                               {isSplitMode ? (
                                 <div className="flex items-center gap-2">
