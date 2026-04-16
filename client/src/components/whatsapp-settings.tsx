@@ -1962,7 +1962,7 @@ function SplitAllocationModal({
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 10000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
   const [splitRows, setSplitRows] = useState<Array<{ user_id: string; sheet_id: string; percentage: number }>>([
@@ -2184,7 +2184,9 @@ function SplitAllocationModal({
                         <span className="text-xs text-muted-foreground" data-testid="split-counts-last-updated">
                           {(() => {
                             const elapsedSec = Math.max(0, Math.floor((now - dataUpdatedAt) / 1000));
-                            return `Last updated ${elapsedSec < 60 ? `${elapsedSec}s ago` : `${Math.floor(elapsedSec / 60)}m ago`}`;
+                            const lastUpdatedLabel = `Last updated ${elapsedSec < 60 ? `${elapsedSec}s ago` : `${Math.floor(elapsedSec / 60)}m ago`}`;
+                            const refreshInSec = Math.max(0, 30 - elapsedSec);
+                            return `${lastUpdatedLabel} · Refreshing in ${refreshInSec}s`;
                           })()}
                         </span>
                       )}
