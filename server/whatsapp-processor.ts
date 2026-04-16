@@ -475,11 +475,17 @@ async function addFollowupToLead(
     created_by_user_id: lead.owner_user_id
   });
   
+  const followupOwner = await storage.getUser(lead.owner_user_id);
   await storage.updateWhatsAppMessageLog(log.id, {
     outcome: "followup_added",
     trigger_matched: true,
     matched_rule_id: matchedRuleId,
-    outcome_details: { lead_id: lead.id, action: "followup_added" },
+    outcome_details: {
+      lead_id: lead.id,
+      action: "followup_added",
+      allocated_to_name: followupOwner?.name || null,
+      allocated_to_user_id: lead.owner_user_id
+    },
     processed_at: new Date()
   });
   
@@ -667,11 +673,18 @@ async function createNewLead(
     created_by_user_id: allocation.user_id
   });
   
+  const allocatedUser = await storage.getUser(allocation.user_id);
   await storage.updateWhatsAppMessageLog(log.id, {
     outcome: "new_lead_created",
     trigger_matched: matchedRuleId !== null,
     matched_rule_id: matchedRuleId,
-    outcome_details: { lead_id: lead.id, action: "new_lead_created", via: matchedRuleId === null ? 'catch_all' : 'trigger' },
+    outcome_details: {
+      lead_id: lead.id,
+      action: "new_lead_created",
+      via: matchedRuleId === null ? 'catch_all' : 'trigger',
+      allocated_to_name: allocatedUser?.name || null,
+      allocated_to_user_id: allocation.user_id
+    },
     processed_at: new Date()
   });
   

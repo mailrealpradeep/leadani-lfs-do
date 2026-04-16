@@ -1611,6 +1611,7 @@ export function WhatsAppSettings() {
                       <TableHead>Sender</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>Business Number</TableHead>
+                      <TableHead>Allocated To</TableHead>
                       <TableHead>Message</TableHead>
                       <TableHead>Outcome</TableHead>
                     </TableRow>
@@ -1618,13 +1619,13 @@ export function WhatsAppSettings() {
                   <TableBody>
                     {logsLoading ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           Loading message logs...
                         </TableCell>
                       </TableRow>
                     ) : messageLogs.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           {logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsFromDate || logsToDate || logsUniqueByPhone
                             ? "No messages match your filters."
                             : "No messages have been processed yet."}
@@ -1639,6 +1640,12 @@ export function WhatsAppSettings() {
                           <TableCell>{log.sender_name || "-"}</TableCell>
                           <TableCell className="font-mono text-sm">{log.sender_phone}</TableCell>
                           <TableCell className="font-mono text-sm">{log.display_phone_number}</TableCell>
+                          <TableCell
+                            className="text-sm whitespace-nowrap"
+                            data-testid={`cell-allocated-to-${log.id}`}
+                          >
+                            {log.outcome_details?.allocated_to_name || <span className="text-muted-foreground">—</span>}
+                          </TableCell>
                           <TableCell className="max-w-[200px]">
                             {log.message_text ? (
                               <Tooltip>
