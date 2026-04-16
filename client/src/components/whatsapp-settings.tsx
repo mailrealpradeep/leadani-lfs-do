@@ -392,6 +392,7 @@ export function WhatsAppSettings() {
   const { data: allSplitsMap = {} } = useQuery<Record<string, WhatsAppAllocationSplit[]>>({
     queryKey: ["/api/admin/company/whatsapp/allocations/all-splits"],
     enabled: allocations.length > 0,
+    staleTime: Infinity,
   });
 
   // Set splits mutation
