@@ -1,4 +1,19 @@
 import { randomUUID } from "crypto";
+
+const WHATSAPP_STATUS_RANK: Record<string, number> = { sent: 1, delivered: 2, read: 3 };
+export function shouldAdvanceWhatsAppStatus(
+  current: string | null | undefined,
+  next: "sent" | "delivered" | "read" | "failed",
+): boolean {
+  if (!current) return true;
+  if (current === next) return false;
+  if (current === "read") return false;
+  if (current === "failed") return false;
+  if (next === "failed") return true;
+  const cur = WHATSAPP_STATUS_RANK[current] ?? 0;
+  const nxt = WHATSAPP_STATUS_RANK[next] ?? 0;
+  return nxt > cur;
+}
 import type {
   Company,
   InsertCompany,
@@ -501,6 +516,8 @@ export interface IStorage {
   createLeadUpdate(update: InsertLeadUpdate): Promise<LeadUpdate>;
   updateLeadUpdate(id: string, updates: Partial<LeadUpdate>): Promise<LeadUpdate | undefined>;
   deleteLeadUpdate(id: string): Promise<boolean>;
+  getLeadUpdateByWhatsAppMessageId(companyId: string, messageId: string): Promise<LeadUpdate | undefined>;
+  applyWhatsAppDeliveryStatus(companyId: string, messageId: string, status: "sent" | "delivered" | "read" | "failed", statusAt: Date, errorText?: string | null): Promise<LeadUpdate | undefined>;
 
   // Lead Transfer Requests
   createLeadTransferRequest(request: InsertLeadTransferRequestData): Promise<LeadTransferRequest>;
@@ -2397,6 +2414,31 @@ export class MemStorage implements IStorage {
     const updated = { ...update, ...updates };
     this.leadUpdates.set(id, updated);
     return updated;
+  }
+
+  async getLeadUpdateByWhatsAppMessageId(companyId: string, messageId: string): Promise<LeadUpdate | undefined> {
+    if (!messageId || !companyId) return undefined;
+    for (const u of this.leadUpdates.values()) {
+      if (u.whatsapp_message_id !== messageId) continue;
+      const lead = this.leads.get(u.lead_id);
+      if (!lead) continue;
+      const sheet = this.sheets.get(lead.sheet_id);
+      if (!sheet || sheet.company_id !== companyId) continue;
+      return u;
+    }
+    return undefined;
+  }
+
+  async applyWhatsAppDeliveryStatus(companyId: string, messageId: string, status: "sent" | "delivered" | "read" | "failed", statusAt: Date, errorText?: string | null): Promise<LeadUpdate | undefined> {
+    const existing = await this.getLeadUpdateByWhatsAppMessageId(companyId, messageId);
+    if (!existing) return undefined;
+    if (!shouldAdvanceWhatsAppStatus(existing.whatsapp_status ?? null, status)) return existing;
+    const patch: Partial<LeadUpdate> = {
+      whatsapp_status: status,
+      whatsapp_status_at: statusAt.toISOString(),
+    };
+    if (status === "failed" && errorText) patch.whatsapp_error = errorText;
+    return this.updateLeadUpdate(existing.id, patch);
   }
 
   async deleteLeadUpdate(id: string): Promise<boolean> {
@@ -5603,10 +5645,41 @@ export class PgStorage implements IStorage {
     if (updates.created_at && typeof updates.created_at === 'string') {
       convertedUpdates.created_at = new Date(updates.created_at);
     }
+    if (updates.whatsapp_status_at && typeof updates.whatsapp_status_at === 'string') {
+      convertedUpdates.whatsapp_status_at = new Date(updates.whatsapp_status_at);
+    }
     await db.update(dbSchema.lead_updates).set(convertedUpdates).where(eq(dbSchema.lead_updates.id, id));
     const result = await db.select().from(dbSchema.lead_updates).where(eq(dbSchema.lead_updates.id, id));
     if (result.length === 0) return undefined;
     return this.mapLeadUpdate(result[0]);
+  }
+
+  async getLeadUpdateByWhatsAppMessageId(companyId: string, messageId: string): Promise<LeadUpdate | undefined> {
+    if (!messageId || !companyId) return undefined;
+    const rows = await db
+      .select({ lu: dbSchema.lead_updates })
+      .from(dbSchema.lead_updates)
+      .innerJoin(dbSchema.leads, eq(dbSchema.leads.id, dbSchema.lead_updates.lead_id))
+      .innerJoin(dbSchema.sheets, eq(dbSchema.sheets.id, dbSchema.leads.sheet_id))
+      .where(and(
+        eq(dbSchema.lead_updates.whatsapp_message_id, messageId),
+        eq(dbSchema.sheets.company_id, companyId),
+      ))
+      .limit(1);
+    if (rows.length === 0) return undefined;
+    return this.mapLeadUpdate(rows[0].lu);
+  }
+
+  async applyWhatsAppDeliveryStatus(companyId: string, messageId: string, status: "sent" | "delivered" | "read" | "failed", statusAt: Date, errorText?: string | null): Promise<LeadUpdate | undefined> {
+    const existing = await this.getLeadUpdateByWhatsAppMessageId(companyId, messageId);
+    if (!existing) return undefined;
+    if (!shouldAdvanceWhatsAppStatus(existing.whatsapp_status ?? null, status)) return existing;
+    const patch: Partial<LeadUpdate> = {
+      whatsapp_status: status,
+      whatsapp_status_at: statusAt.toISOString(),
+    };
+    if (status === "failed" && errorText) patch.whatsapp_error = errorText;
+    return this.updateLeadUpdate(existing.id, patch);
   }
 
   async deleteLeadUpdate(id: string): Promise<boolean> {
@@ -5878,6 +5951,12 @@ export class PgStorage implements IStorage {
       ...row,
       created_by_user_id: row.created_by_user_id || null,
       created_at: row.created_at?.toISOString() || row.created_at,
+      whatsapp_message_id: row.whatsapp_message_id ?? null,
+      whatsapp_status: row.whatsapp_status ?? null,
+      whatsapp_status_at: row.whatsapp_status_at?.toISOString
+        ? row.whatsapp_status_at.toISOString()
+        : (row.whatsapp_status_at ?? null),
+      whatsapp_error: row.whatsapp_error ?? null,
     };
   }
 

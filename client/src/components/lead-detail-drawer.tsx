@@ -18,7 +18,16 @@ import {
   Loader2,
   ArrowDownLeft,
   ArrowUpRight,
+  Check,
+  CheckCheck,
+  XCircle,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Sheet,
@@ -64,6 +73,48 @@ type WhatsAppLeadMessage = {
   sent_by_name?: string | null;
   outcome_details?: Record<string, any> | null;
 };
+
+function WhatsAppDeliveryPill({
+  status,
+  statusAt,
+  errorText,
+  formatInTimezone,
+}: {
+  status: NonNullable<LeadUpdate["whatsapp_status"]>;
+  statusAt: string | null;
+  errorText: string | null;
+  formatInTimezone: (date: string | Date, fmt: string) => string;
+}) {
+  const cfg: Record<typeof status, { label: string; variant: "secondary" | "default" | "destructive"; Icon: typeof Check | null; className?: string }> = {
+    sent: { label: "Sent", variant: "secondary", Icon: Check },
+    delivered: { label: "Delivered", variant: "secondary", Icon: CheckCheck },
+    read: { label: "Read", variant: "default", Icon: CheckCheck, className: "bg-blue-600 hover:bg-blue-600 text-white" },
+    failed: { label: "Failed", variant: "destructive", Icon: XCircle },
+  };
+  const c = cfg[status];
+  const tooltipText = [
+    statusAt ? `${c.label}: ${formatInTimezone(statusAt, "MMM d, h:mm a")}` : c.label,
+    status === "failed" && errorText ? errorText : null,
+  ].filter(Boolean).join(" — ");
+  const badge = (
+    <Badge
+      variant={c.variant}
+      className={`gap-1 h-5 px-1.5 text-[10px] ${c.className ?? ""}`}
+      data-testid={`badge-wa-status-${status}`}
+    >
+      {c.Icon ? <c.Icon className="h-3 w-3" /> : null}
+      {c.label}
+    </Badge>
+  );
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{badge}</TooltipTrigger>
+        <TooltipContent>{tooltipText}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDetailDrawerProps) {
   const { formatDateOnly, formatDateTime, formatInTimezone } = useCompanyTimezone();
@@ -404,7 +455,7 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                             className="p-3 bg-muted/30 rounded-lg border"
                             data-testid={`update-${update.id}`}
                           >
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                               {update.update_via === "call" ? (
                                 <Phone className="h-3 w-3 text-blue-500" />
                               ) : (
@@ -413,6 +464,14 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                               <span className="text-xs font-medium capitalize">
                                 {update.update_via}
                               </span>
+                              {update.update_via === "whatsapp_outgoing" && update.whatsapp_status && (
+                                <WhatsAppDeliveryPill
+                                  status={update.whatsapp_status}
+                                  statusAt={update.whatsapp_status_at ?? null}
+                                  errorText={update.whatsapp_error ?? null}
+                                  formatInTimezone={formatInTimezone}
+                                />
+                              )}
                               <span className="text-xs text-muted-foreground ml-auto">
                                 {formatInTimezone(update.created_at, "MMM d, h:mm a")}
                               </span>

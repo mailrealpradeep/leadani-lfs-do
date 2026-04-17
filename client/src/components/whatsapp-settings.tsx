@@ -684,7 +684,16 @@ export function WhatsAppSettings() {
       case "ignored_no_trigger":
         return <Badge variant="outline">No Trigger Match</Badge>;
       case "sent":
-        return <Badge className="bg-emerald-600">Sent</Badge>;
+        return <Badge variant="secondary">Sent</Badge>;
+      case "delivered":
+        return <Badge className="bg-sky-600 hover:bg-sky-600 text-white">Delivered</Badge>;
+      case "read":
+        return <Badge className="bg-blue-600 hover:bg-blue-600 text-white">Read</Badge>;
+      case "failed": {
+        const err = typeof outcomeDetails?.error === "string" ? outcomeDetails.error : null;
+        const badge = <Badge variant="destructive">Failed</Badge>;
+        return err ? <span title={err}>{badge}</span> : badge;
+      }
       case "send_failed":
         return <Badge variant="destructive">Send Failed</Badge>;
       case "error":

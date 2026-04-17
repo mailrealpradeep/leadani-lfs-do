@@ -3,8 +3,9 @@ import { authMiddleware, type AuthRequest } from "../middleware/auth";
 import { storage } from "../storage";
 import { db } from "../db";
 import * as dbSchema from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import crypto from "crypto";
+import { shouldAdvanceWhatsAppStatus } from "../storage";
 
 const SUPER_ADMIN_EMAIL = "adminleadani@leadani.com";
 
@@ -341,7 +342,7 @@ export function registerWhatsAppCloudRoutes(app: Express): void {
           if (change.field !== "messages") continue;
 
           const value = change.value;
-          if (!value?.messages) continue;
+          if (!value) continue;
 
           const metadata = value.metadata;
           const phoneNumberId = metadata?.phone_number_id;
@@ -358,6 +359,59 @@ export function registerWhatsAppCloudRoutes(app: Express): void {
           const config = configs[0];
           const companyId = config.company_id;
 
+          // Delivery / read receipts for previously-sent outgoing messages
+          if (Array.isArray(value.statuses) && value.statuses.length > 0) {
+            for (const statusEvent of value.statuses) {
+              try {
+                const messageId: string | undefined = statusEvent?.id;
+                const rawStatus: string | undefined = statusEvent?.status;
+                if (!messageId || !rawStatus) continue;
+                const status = rawStatus === "sent" || rawStatus === "delivered" || rawStatus === "read" || rawStatus === "failed"
+                  ? rawStatus
+                  : null;
+                if (!status) continue;
+
+                const tsSec = Number(statusEvent?.timestamp);
+                const statusAt = Number.isFinite(tsSec) && tsSec > 0 ? new Date(tsSec * 1000) : new Date();
+
+                let errorText: string | null = null;
+                if (status === "failed" && Array.isArray(statusEvent.errors) && statusEvent.errors.length > 0) {
+                  const e = statusEvent.errors[0] ?? {};
+                  const code = e?.code != null ? `[${e.code}] ` : "";
+                  const title = String(e?.title ?? e?.message ?? "Send failed");
+                  errorText = `${code}${title}`;
+                }
+
+                await storage.applyWhatsAppDeliveryStatus(companyId, messageId, status, statusAt, errorText);
+
+                const existingLog = await db.select().from(dbSchema.whatsapp_message_logs)
+                  .where(and(
+                    eq(dbSchema.whatsapp_message_logs.company_id, companyId),
+                    eq(dbSchema.whatsapp_message_logs.message_id, messageId),
+                    eq(dbSchema.whatsapp_message_logs.direction, "outgoing"),
+                  ))
+                  .limit(1);
+
+                if (existingLog.length > 0) {
+                  const current = existingLog[0];
+                  if (shouldAdvanceWhatsAppStatus(current.outcome, status)) {
+                    const patch: Record<string, unknown> = { outcome: status };
+                    if (status === "failed" && errorText) {
+                      const prevDetails = (current.outcome_details as Record<string, unknown> | null) ?? {};
+                      patch.outcome_details = { ...prevDetails, error: errorText };
+                    }
+                    await db.update(dbSchema.whatsapp_message_logs)
+                      .set(patch)
+                      .where(eq(dbSchema.whatsapp_message_logs.id, current.id));
+                  }
+                }
+              } catch (statusErr) {
+                console.error("[WhatsApp Cloud] Failed to apply status event:", statusErr);
+              }
+            }
+          }
+
+          if (!value.messages) continue;
           for (const message of value.messages) {
             const senderPhone = message.from;
             const messageType = message.type;

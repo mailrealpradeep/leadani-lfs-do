@@ -7927,14 +7927,18 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(502).json({ error: sendResult.error || "Failed to send WhatsApp message" });
       }
 
-      // Log to lead_updates
+      // Log to lead_updates (capture message_id so delivery/read webhooks can update this row)
       const today = new Date().toISOString().slice(0, 10);
+      const sentAt = new Date();
       const update = await storage.createLeadUpdate({
         lead_id: lead.id,
         update_via: "whatsapp_outgoing",
         update_on: today,
         remark: `WA Sent (${label}): ${renderedText}`,
         created_by_user_id: req.userId!,
+        whatsapp_message_id: sendResult.messageId || null,
+        whatsapp_status: "sent",
+        whatsapp_status_at: sentAt,
       });
 
       await storage.markLeadAttended(lead.id, req.userId!);

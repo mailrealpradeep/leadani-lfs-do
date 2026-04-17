@@ -741,6 +741,8 @@ export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;
 // ============================================================================
 // LEAD UPDATES
 // ============================================================================
+export type WhatsAppDeliveryStatus = "sent" | "delivered" | "read" | "failed";
+
 export interface LeadUpdate {
   id: string;
   lead_id: string;
@@ -749,6 +751,10 @@ export interface LeadUpdate {
   remark: string;
   created_by_user_id?: string | null;
   created_at: string;
+  whatsapp_message_id?: string | null;
+  whatsapp_status?: WhatsAppDeliveryStatus | null;
+  whatsapp_status_at?: string | null;
+  whatsapp_error?: string | null;
 }
 
 export const insertLeadUpdateSchema = z.object({
@@ -757,6 +763,10 @@ export const insertLeadUpdateSchema = z.object({
   update_on: z.string(), // date string
   remark: z.string().min(1, "Remark is required"),
   created_by_user_id: z.string().optional(),
+  whatsapp_message_id: z.string().nullable().optional(),
+  whatsapp_status: z.enum(["sent", "delivered", "read", "failed"]).nullable().optional(),
+  whatsapp_status_at: z.union([z.string(), z.date()]).nullable().optional(),
+  whatsapp_error: z.string().nullable().optional(),
 });
 
 export type InsertLeadUpdate = z.infer<typeof insertLeadUpdateSchema>;
@@ -923,7 +933,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
 // ============================================================================
 // DRIZZLE ORM TABLE DEFINITIONS (for PostgreSQL)
 // ============================================================================
-import { pgTable, varchar, text, boolean, json, jsonb, timestamp, integer, doublePrecision, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, json, jsonb, timestamp, integer, doublePrecision, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const companies = pgTable('companies', {
@@ -1142,7 +1152,13 @@ export const lead_updates = pgTable('lead_updates', {
   remark: text('remark').notNull(),
   created_by_user_id: varchar('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
-});
+  whatsapp_message_id: varchar('whatsapp_message_id', { length: 255 }),
+  whatsapp_status: varchar('whatsapp_status', { length: 32 }),
+  whatsapp_status_at: timestamp('whatsapp_status_at'),
+  whatsapp_error: text('whatsapp_error'),
+}, (table) => ({
+  waMsgIdIdx: index('lead_updates_wa_message_id_idx').on(table.whatsapp_message_id),
+}));
 
 // ============================================================================
 // LEAD TRANSFER REQUESTS
@@ -4972,6 +4988,9 @@ export type WhatsAppMessageOutcome =
   | "ignored_no_match"
   | "ignored_no_trigger"
   | "sent"
+  | "delivered"
+  | "read"
+  | "failed"
   | "send_failed"
   | "error";
 
