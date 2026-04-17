@@ -7829,23 +7829,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         wauper_api_version: "v1",
       };
 
-      // Final outbound text: prefer client-edited message, fall back to configured body, then substitute placeholders
+      // Determine final outbound/historical text
       const clientText = typeof message_text === "string" ? message_text : "";
       const sourceText = clientText.trim().length > 0 ? clientText : String(template.body_text || "");
-      if (!sourceText.trim()) {
+      const isApproved = template.template_type === "approved";
+      if (!isApproved && !sourceText.trim()) {
         return res.status(400).json({ error: "Message body is required" });
       }
-      const renderedText = substitute(sourceText);
+      // For approved templates without any text, fall back to a name-based history record
+      const renderedText = sourceText.trim().length > 0
+        ? substitute(sourceText)
+        : `[Approved Template: ${String(template.approved_template_name || "").trim()}]`;
 
       let sendResult: { success: boolean; messageId?: string; error?: string };
 
-      if (template.template_type === "approved") {
+      if (isApproved) {
         const tplName = String(template.approved_template_name || "").trim();
         if (!tplName) {
           return res.status(400).json({ error: "Approved template name is not configured for this call response" });
         }
-        const params = [customerName, executiveName, String(company?.name || "")].filter((v) => v.length > 0);
-        sendResult = await sendWhatsAppApprovedTemplate(config, phoneSetting, recipient_phone, tplName, "en_US", params);
+        // Send with no body parameters by default; per-template parameter mapping is a separate concern
+        sendResult = await sendWhatsAppApprovedTemplate(config, phoneSetting, recipient_phone, tplName, "en_US", []);
       } else {
         sendResult = await sendWhatsAppMessage(config, phoneSetting, recipient_phone, renderedText);
       }

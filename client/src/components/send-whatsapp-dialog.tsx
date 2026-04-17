@@ -120,11 +120,11 @@ export function SendWhatsAppDialog({
   useEffect(() => {
     if (!selectedTemplate || !data) return;
     if (touched) return;
-    if (selectedTemplate.template_type !== "freeform") {
-      setMessageText("");
-      return;
-    }
-    const filled = applyPlaceholders(selectedTemplate.body_text || "", {
+    const source = selectedTemplate.body_text
+      || (selectedTemplate.template_type === "approved" && selectedTemplate.approved_template_name
+        ? `[Approved Template: ${selectedTemplate.approved_template_name}]`
+        : "");
+    const filled = applyPlaceholders(source, {
       customer_name: customerName || "",
       executive_name: data.context.executive_name || "",
       company_name: data.context.company_name || "",
