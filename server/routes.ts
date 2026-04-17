@@ -7791,12 +7791,17 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(400).json({ error: "Selected sender number is not allocated to this company" });
       }
 
-      // Load configured template from DB (server is source of truth, not client)
+      // Load configured template from DB; fall back to default (matches options endpoint)
       const allTemplates = await storage.getWhatsAppMessageTemplates(req.companyId!);
-      const template = allTemplates.find((t) => t.call_response === call_response);
-      if (!template || !template.enabled) {
-        return res.status(400).json({ error: "Template for this call response is not configured or is disabled" });
+      const stored = allTemplates.find((t) => t.call_response === call_response);
+      if (stored && !stored.enabled) {
+        return res.status(400).json({ error: "Template for this call response is disabled" });
       }
+      const template = {
+        template_type: stored?.template_type ?? "freeform",
+        body_text: stored?.body_text ?? "",
+        approved_template_name: stored?.approved_template_name ?? "",
+      };
 
       // Build context for placeholder substitution
       const company = await storage.getCompany(req.companyId!);
@@ -7936,16 +7941,16 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // Templates
       const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
       const tpls = await storage.getWhatsAppMessageTemplates(req.companyId!);
-      const byKey = new Map(tpls.map((t: any) => [t.call_response, t]));
+      const byKey = new Map(tpls.map((t) => [t.call_response, t]));
       const templates = WHATSAPP_CALL_RESPONSES.map((cr) => {
-        const t: any = byKey.get(cr) || {};
+        const t = byKey.get(cr);
         return {
           call_response: cr,
-          label: (WHATSAPP_CALL_RESPONSE_LABELS as any)[cr],
-          template_type: t.template_type ?? "freeform",
-          body_text: t.body_text ?? "",
-          approved_template_name: t.approved_template_name ?? "",
-          enabled: t.enabled ?? true,
+          label: WHATSAPP_CALL_RESPONSE_LABELS[cr],
+          template_type: t?.template_type ?? "freeform",
+          body_text: t?.body_text ?? "",
+          approved_template_name: t?.approved_template_name ?? "",
+          enabled: t?.enabled ?? true,
         };
       });
 
