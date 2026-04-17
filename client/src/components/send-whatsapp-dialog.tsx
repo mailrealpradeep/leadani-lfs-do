@@ -139,6 +139,7 @@ export function SendWhatsAppDialog({
         call_response: callResponse,
         send_from_phone: sendFromPhone,
         recipient_phone: recipientPhone,
+        ...(isApprovedTemplate ? {} : { message_text: messageText }),
       });
     },
     onSuccess: () => {
@@ -265,16 +266,22 @@ export function SendWhatsAppDialog({
                 </Alert>
               ) : selectedTemplate ? (
                 <div className="space-y-2">
-                  <Label>Message Preview</Label>
+                  <Label>Message</Label>
                   <Textarea
                     rows={6}
                     value={messageText}
-                    readOnly
-                    className="bg-muted/30"
+                    onChange={(e) => {
+                      setMessageText(e.target.value);
+                      setTouched(true);
+                    }}
+                    placeholder="Type your message..."
                     data-testid="textarea-message"
                   />
                   <div className="text-xs text-muted-foreground">
-                    The configured template (with substituted placeholders) is sent. Edit templates in WhatsApp Lead Settings → Message Templates.
+                    Prefilled from your template. You can edit before sending. Placeholders: <code>{"{customer_name}"}</code>{" "}
+                    <code>{"{executive_name}"}</code>{" "}
+                    <code>{"{company_name}"}</code>{" "}
+                    <code>{"{lead_id}"}</code>
                   </div>
                 </div>
               ) : null}

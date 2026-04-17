@@ -7758,7 +7758,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
 
-      const { call_response, send_from_phone, recipient_phone } = req.body || {};
+      const { call_response, send_from_phone, recipient_phone, message_text } = req.body || {};
       const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
       if (!call_response || typeof call_response !== "string" || !(WHATSAPP_CALL_RESPONSES as readonly string[]).includes(call_response)) {
         return res.status(400).json({ error: "call_response is required and must be a valid value" });
@@ -7839,11 +7839,13 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         sendResult = await sendWhatsAppApprovedTemplate(config as any, phoneSetting, recipient_phone, tplName, "en_US", params);
         renderedText = `[Approved Template: ${tplName}]`;
       } else {
-        const body = String(template.body_text || "").trim();
-        if (!body) {
-          return res.status(400).json({ error: "Message body is not configured for this call response" });
+        // Freeform: prefer client-edited text, fall back to configured body
+        const clientText = typeof message_text === "string" ? message_text : "";
+        const source = clientText.trim().length > 0 ? clientText : String(template.body_text || "");
+        if (!source.trim()) {
+          return res.status(400).json({ error: "Message body is required" });
         }
-        renderedText = substitute(body);
+        renderedText = substitute(source);
         sendResult = await sendWhatsAppMessage(config as any, phoneSetting, recipient_phone, renderedText);
       }
 
