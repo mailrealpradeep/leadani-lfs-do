@@ -7760,7 +7760,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       const { call_response, send_from_phone, recipient_phone, message_text } = req.body || {};
       const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
-      if (!call_response || typeof call_response !== "string" || !(WHATSAPP_CALL_RESPONSES as readonly string[]).includes(call_response)) {
+      type WhatsAppCallResponse = typeof WHATSAPP_CALL_RESPONSES[number];
+      const isValidCallResponse = (v: unknown): v is WhatsAppCallResponse =>
+        typeof v === "string" && (WHATSAPP_CALL_RESPONSES as readonly string[]).includes(v);
+      if (!isValidCallResponse(call_response)) {
         return res.status(400).json({ error: "call_response is required and must be a valid value" });
       }
       if (!send_from_phone || typeof send_from_phone !== "string") {
@@ -7797,7 +7800,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Load configured template from DB (server is source of truth, not client)
       const allTemplates = await storage.getWhatsAppMessageTemplates(req.companyId!);
-      const template = allTemplates.find((t: any) => t.call_response === call_response);
+      const template = allTemplates.find((t) => t.call_response === call_response);
       if (!template || !template.enabled) {
         return res.status(400).json({ error: "Template for this call response is not configured or is disabled" });
       }
@@ -7819,34 +7822,32 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Load Saila config (used by sender for domain/version)
       const sailaConfig = await storage.getSailaConfig(req.companyId!);
-      const config = sailaConfig || ({
+      const { sendWhatsAppMessage, sendWhatsAppApprovedTemplate } = await import("./saila-engine");
+      const config = sailaConfig ?? {
         company_id: req.companyId!,
         wauper_domain: "https://crmapi.wauper.com",
         wauper_api_version: "v1",
-      } as any);
+      };
 
-      const { sendWhatsAppMessage, sendWhatsAppApprovedTemplate } = await import("./saila-engine");
+      // Final outbound text: prefer client-edited message, fall back to configured body, then substitute placeholders
+      const clientText = typeof message_text === "string" ? message_text : "";
+      const sourceText = clientText.trim().length > 0 ? clientText : String(template.body_text || "");
+      if (!sourceText.trim()) {
+        return res.status(400).json({ error: "Message body is required" });
+      }
+      const renderedText = substitute(sourceText);
 
       let sendResult: { success: boolean; messageId?: string; error?: string };
-      let renderedText: string;
 
       if (template.template_type === "approved") {
         const tplName = String(template.approved_template_name || "").trim();
         if (!tplName) {
           return res.status(400).json({ error: "Approved template name is not configured for this call response" });
         }
-        const params = [customerName, executiveName, String(company?.name || "")].filter((v) => v && v.length > 0);
-        sendResult = await sendWhatsAppApprovedTemplate(config as any, phoneSetting, recipient_phone, tplName, "en_US", params);
-        renderedText = `[Approved Template: ${tplName}]`;
+        const params = [customerName, executiveName, String(company?.name || "")].filter((v) => v.length > 0);
+        sendResult = await sendWhatsAppApprovedTemplate(config, phoneSetting, recipient_phone, tplName, "en_US", params);
       } else {
-        // Freeform: prefer client-edited text, fall back to configured body
-        const clientText = typeof message_text === "string" ? message_text : "";
-        const source = clientText.trim().length > 0 ? clientText : String(template.body_text || "");
-        if (!source.trim()) {
-          return res.status(400).json({ error: "Message body is required" });
-        }
-        renderedText = substitute(source);
-        sendResult = await sendWhatsAppMessage(config as any, phoneSetting, recipient_phone, renderedText);
+        sendResult = await sendWhatsAppMessage(config, phoneSetting, recipient_phone, renderedText);
       }
 
       if (!sendResult.success) {
@@ -7854,7 +7855,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       // Log to lead_updates
-      const label = (WHATSAPP_CALL_RESPONSE_LABELS as any)[call_response] || call_response;
+      const label = WHATSAPP_CALL_RESPONSE_LABELS[call_response] || call_response;
       const today = new Date().toISOString().slice(0, 10);
       const update = await storage.createLeadUpdate({
         lead_id: lead.id,

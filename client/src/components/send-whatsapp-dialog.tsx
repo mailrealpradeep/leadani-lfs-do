@@ -139,7 +139,7 @@ export function SendWhatsAppDialog({
         call_response: callResponse,
         send_from_phone: sendFromPhone,
         recipient_phone: recipientPhone,
-        ...(isApprovedTemplate ? {} : { message_text: messageText }),
+        message_text: messageText,
       });
     },
     onSuccess: () => {
@@ -256,15 +256,16 @@ export function SendWhatsAppDialog({
                 </Select>
               </div>
 
-              {isApprovedTemplate ? (
+              {isApprovedTemplate && (
                 <Alert>
                   <AlertDescription className="text-sm">
-                    This is a Meta-approved template (
-                    <span className="font-mono">{selectedTemplate?.approved_template_name}</span>
-                    ). The body is sent from your WhatsApp Business profile.
+                    Sending Meta-approved template{" "}
+                    <span className="font-mono">{selectedTemplate?.approved_template_name}</span>.
+                    The text below is recorded in lead history.
                   </AlertDescription>
                 </Alert>
-              ) : selectedTemplate ? (
+              )}
+              {selectedTemplate && (
                 <div className="space-y-2">
                   <Label>Message</Label>
                   <Textarea
@@ -284,7 +285,7 @@ export function SendWhatsAppDialog({
                     <code>{"{lead_id}"}</code>
                   </div>
                 </div>
-              ) : null}
+              )}
 
               <div className="space-y-2">
                 <Label>Send From</Label>
