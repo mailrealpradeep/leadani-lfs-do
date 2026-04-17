@@ -960,7 +960,7 @@ export function WhatsAppSettings() {
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="allocations" className="flex items-center gap-2" data-testid="tab-allocations">
             <Phone className="h-4 w-4" />
             <span className="hidden sm:inline">Phone Allocations</span>
@@ -984,6 +984,10 @@ export function WhatsAppSettings() {
           <TabsTrigger value="transfer" className="flex items-center gap-2" data-testid="tab-transfer">
             <ArrowLeftRight className="h-4 w-4" />
             <span className="hidden sm:inline">Transfer Settings</span>
+          </TabsTrigger>
+          <TabsTrigger value="message-templates" className="flex items-center gap-2" data-testid="tab-message-templates">
+            <MessageSquare className="h-4 w-4" />
+            <span className="hidden sm:inline">Message Templates</span>
           </TabsTrigger>
         </TabsList>
 
@@ -1877,6 +1881,10 @@ export function WhatsAppSettings() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="message-templates" className="space-y-4">
+          <MessageTemplatesPanel />
+        </TabsContent>
       </Tabs>
 
       {/* Delete Confirmation Dialog */}
@@ -2736,6 +2744,160 @@ function DefaultValueForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+interface MessageTemplateRow {
+  call_response: string;
+  label: string;
+  template_type: "freeform" | "approved";
+  body_text: string;
+  approved_template_name: string;
+  enabled: boolean;
+}
+
+function MessageTemplatesPanel() {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<MessageTemplateRow[]>([]);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery<{ templates: MessageTemplateRow[] }>({
+    queryKey: ["/api/admin/company/whatsapp/message-templates"],
+  });
+
+  useEffect(() => {
+    if (data?.templates) setRows(data.templates);
+  }, [data]);
+
+  const updateRow = (key: string, patch: Partial<MessageTemplateRow>) => {
+    setRows((prev) => prev.map((r) => (r.call_response === key ? { ...r, ...patch } : r)));
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async (row: MessageTemplateRow) => {
+      return await apiRequest(
+        "PUT",
+        `/api/admin/company/whatsapp/message-templates/${encodeURIComponent(row.call_response)}`,
+        {
+          template_type: row.template_type,
+          body_text: row.body_text,
+          approved_template_name: row.approved_template_name,
+          enabled: row.enabled,
+        }
+      );
+    },
+    onSuccess: () => {
+      toast({ title: "Saved", description: "Template updated." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/message-templates"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Save failed", description: err?.message || "Could not save template", variant: "destructive" });
+    },
+    onSettled: () => setSavingKey(null),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <MessageSquare className="h-5 w-5" />
+          WhatsApp Message Templates
+        </CardTitle>
+        <CardDescription>
+          Configure message bodies for each call response. Executives will pick one when sending WhatsApp from a lead.
+          Use placeholders <code>{"{customer_name}"}</code>, <code>{"{executive_name}"}</code>, <code>{"{company_name}"}</code>,
+          and <code>{"{lead_id}"}</code>.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="text-sm text-muted-foreground">Loading templates...</div>
+        ) : (
+          rows.map((row) => (
+            <div
+              key={row.call_response}
+              className="rounded-md border p-4 space-y-3"
+              data-testid={`row-template-${row.call_response}`}
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{row.label}</Badge>
+                  <Badge variant="secondary">{row.template_type === "approved" ? "Approved" : "Freeform"}</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor={`enabled-${row.call_response}`} className="text-xs">Enabled</Label>
+                  <Switch
+                    id={`enabled-${row.call_response}`}
+                    checked={row.enabled}
+                    onCheckedChange={(v) => updateRow(row.call_response, { enabled: v })}
+                    data-testid={`switch-enabled-${row.call_response}`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Type</Label>
+                  <Select
+                    value={row.template_type}
+                    onValueChange={(v: "freeform" | "approved") =>
+                      updateRow(row.call_response, { template_type: v })
+                    }
+                  >
+                    <SelectTrigger data-testid={`select-type-${row.call_response}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="freeform">Freeform (within 24h window)</SelectItem>
+                      <SelectItem value="approved">Approved Template</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {row.template_type === "approved" && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Approved Template Name</Label>
+                    <Input
+                      value={row.approved_template_name}
+                      onChange={(e) => updateRow(row.call_response, { approved_template_name: e.target.value })}
+                      placeholder="e.g. follow_up_v1"
+                      data-testid={`input-approved-name-${row.call_response}`}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {row.template_type === "freeform" && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Message Body</Label>
+                  <textarea
+                    value={row.body_text}
+                    onChange={(e) => updateRow(row.call_response, { body_text: e.target.value })}
+                    rows={4}
+                    className="w-full rounded-md border bg-background p-2 text-sm"
+                    placeholder="Hi {customer_name}, this is {executive_name} from {company_name}..."
+                    data-testid={`textarea-body-${row.call_response}`}
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setSavingKey(row.call_response);
+                    saveMutation.mutate(row);
+                  }}
+                  disabled={savingKey === row.call_response}
+                  data-testid={`button-save-template-${row.call_response}`}
+                >
+                  {savingKey === row.call_response ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

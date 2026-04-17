@@ -7686,6 +7686,249 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       res.status(500).json({ error: error.message });
     }
   });
+  // WhatsApp Message Templates (Per-call-response outgoing templates)
+  app.get("/api/admin/company/whatsapp/message-templates", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
+      const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
+      const existing = await storage.getWhatsAppMessageTemplates(req.companyId);
+      const byKey = new Map(existing.map((t: any) => [t.call_response, t]));
+      const templates = WHATSAPP_CALL_RESPONSES.map((cr) => {
+        const t: any = byKey.get(cr) || {};
+        return {
+          call_response: cr,
+          label: (WHATSAPP_CALL_RESPONSE_LABELS as any)[cr],
+          template_type: t.template_type ?? "freeform",
+          body_text: t.body_text ?? "",
+          approved_template_name: t.approved_template_name ?? "",
+          enabled: t.enabled ?? true,
+        };
+      });
+      res.json({ templates });
+    } catch (error: any) {
+      console.error("Get WhatsApp message templates error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/admin/company/whatsapp/message-templates/:callResponse", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
+      const { WHATSAPP_CALL_RESPONSES } = await import("@shared/schema");
+      const callResponse = req.params.callResponse;
+      if (!(WHATSAPP_CALL_RESPONSES as readonly string[]).includes(callResponse)) {
+        return res.status(400).json({ error: "Invalid call response key" });
+      }
+      const { template_type, body_text, approved_template_name, enabled } = req.body;
+      if (template_type && template_type !== "freeform" && template_type !== "approved") {
+        return res.status(400).json({ error: "template_type must be 'freeform' or 'approved'" });
+      }
+      const saved = await storage.upsertWhatsAppMessageTemplate(req.companyId, callResponse, {
+        template_type,
+        body_text,
+        approved_template_name,
+        enabled,
+      });
+      res.json(saved);
+    } catch (error: any) {
+      console.error("Upsert WhatsApp message template error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Send WhatsApp message from lead grid (uses lead owner's / chosen executive's WA Business number)
+  app.post("/api/leads/:leadId/send-whatsapp", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const lead = await storage.getLead(req.params.leadId);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet) return res.status(404).json({ error: "Sheet not found" });
+      if (sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Cross-tenant access denied" });
+      }
+
+      const access = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+      if (!access) return res.status(403).json({ error: "Access denied" });
+
+      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
+        const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
+        if (sheetUser && sheetUser.role === "viewer") {
+          return res.status(403).json({ error: "Viewers cannot send WhatsApp messages" });
+        }
+      }
+
+      const { call_response, message_text, send_from_phone, recipient_phone } = req.body || {};
+      const { WHATSAPP_CALL_RESPONSES } = await import("@shared/schema");
+      if (!call_response || typeof call_response !== "string" || !(WHATSAPP_CALL_RESPONSES as readonly string[]).includes(call_response)) {
+        return res.status(400).json({ error: "call_response is required and must be a valid value" });
+      }
+      if (!message_text || typeof message_text !== "string" || !message_text.trim()) {
+        return res.status(400).json({ error: "message_text is required" });
+      }
+      if (!send_from_phone || typeof send_from_phone !== "string") {
+        return res.status(400).json({ error: "send_from_phone is required" });
+      }
+      if (!recipient_phone || typeof recipient_phone !== "string") {
+        return res.status(400).json({ error: "recipient_phone is required" });
+      }
+
+      // Anti-spoofing: recipient_phone must match one of the lead's phone fields
+      const cf: any = lead.custom_fields || {};
+      const candidates = [cf.mobile_no, cf.mobile, cf.phone, cf.whatsapp_no, cf.whatsapp]
+        .filter((v) => v != null)
+        .map((v) => String(v).replace(/\D/g, "").slice(-10));
+      const recipDigits = String(recipient_phone).replace(/\D/g, "").slice(-10);
+      if (!recipDigits || !candidates.some((c) => c === recipDigits)) {
+        return res.status(400).json({ error: "Recipient does not match any phone field on this lead" });
+      }
+
+      // Resolve send-from to a Saila phone setting (which has access_token + waba_phone_number_id)
+      const phoneSetting = await storage.getSailaPhoneSettingByNumber(req.companyId!, send_from_phone);
+      if (!phoneSetting || !phoneSetting.access_token || !phoneSetting.waba_phone_number_id) {
+        return res.status(400).json({ error: "Selected sender number is not connected to WhatsApp Business" });
+      }
+
+      // Verify the send_from_phone is one of our company's allocations (anti-spoofing)
+      const allocations = await storage.getWhatsAppAllocations(req.companyId!);
+      const allocationMatch = allocations.some(
+        (a) => a.display_phone_number === send_from_phone || a.display_phone_number.replace(/\D/g, "").endsWith(send_from_phone.replace(/\D/g, "").slice(-10))
+      );
+      if (!allocationMatch) {
+        return res.status(400).json({ error: "Selected sender number is not allocated to this company" });
+      }
+
+      // Load Saila config (used by sendWhatsAppMessage for domain/version)
+      const sailaConfig = await storage.getSailaConfig(req.companyId!);
+      const config = sailaConfig || ({
+        company_id: req.companyId!,
+        wauper_domain: "https://crmapi.wauper.com",
+        wauper_api_version: "v1",
+      } as any);
+
+      const { sendWhatsAppMessage } = await import("./saila-engine");
+      const sendResult = await sendWhatsAppMessage(config as any, phoneSetting, recipient_phone, message_text);
+
+      if (!sendResult.success) {
+        return res.status(502).json({ error: sendResult.error || "Failed to send WhatsApp message" });
+      }
+
+      // Log to lead_updates
+      const { WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
+      const label = (WHATSAPP_CALL_RESPONSE_LABELS as any)[call_response] || call_response;
+      const today = new Date().toISOString().slice(0, 10);
+      const update = await storage.createLeadUpdate({
+        lead_id: lead.id,
+        update_via: "whatsapp_outgoing",
+        update_on: today,
+        remark: `WA Sent (${label}): ${message_text}`,
+        created_by_user_id: req.userId!,
+      });
+
+      await storage.markLeadAttended(lead.id, req.userId!);
+
+      await storage.createAuditLog({
+        user_id: req.userId!,
+        company_id: sheet.company_id,
+        action: "send_whatsapp",
+        model: "lead_update",
+        model_id: update.id,
+        payload: {
+          lead_id: lead.id,
+          call_response,
+          send_from_phone,
+          recipient_phone,
+          message_id: sendResult.messageId,
+        },
+      });
+
+      res.json({ success: true, message_id: sendResult.messageId, update });
+    } catch (error: any) {
+      console.error("Send WhatsApp error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get available "Send From" numbers for a lead (lead owner first, then other allocations)
+  app.get("/api/leads/:leadId/send-whatsapp/options", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const lead = await storage.getLead(req.params.leadId);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet || sheet.company_id !== req.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const access = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+      if (!access) return res.status(403).json({ error: "Access denied" });
+
+      const allocations = await storage.getWhatsAppAllocations(req.companyId!);
+      const phoneSettings = await storage.getSailaPhoneSettings(req.companyId!);
+      const connectedSet = new Set(
+        phoneSettings
+          .filter((p) => p.access_token && p.waba_phone_number_id)
+          .map((p) => p.display_phone_number)
+      );
+
+      // Dedupe by display_phone_number; mark which one is the lead owner's
+      const seen = new Map<string, { display_phone_number: string; user_id: string; user_name: string | null; is_lead_owner: boolean }>();
+      const userIds = Array.from(new Set(allocations.map((a) => a.user_id)));
+      const usersMap = new Map((await storage.getUsersByIds(userIds)).map((u) => [u.id, u]));
+
+      for (const a of allocations) {
+        if (!a.enabled) continue;
+        if (!connectedSet.has(a.display_phone_number)) continue;
+        const existing = seen.get(a.display_phone_number);
+        const isOwner = a.user_id === lead.owner_user_id;
+        if (!existing || (isOwner && !existing.is_lead_owner)) {
+          seen.set(a.display_phone_number, {
+            display_phone_number: a.display_phone_number,
+            user_id: a.user_id,
+            user_name: usersMap.get(a.user_id)?.name || null,
+            is_lead_owner: isOwner,
+          });
+        }
+      }
+
+      const options = Array.from(seen.values()).sort((a, b) => {
+        if (a.is_lead_owner !== b.is_lead_owner) return a.is_lead_owner ? -1 : 1;
+        return a.display_phone_number.localeCompare(b.display_phone_number);
+      });
+
+      // Templates
+      const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
+      const tpls = await storage.getWhatsAppMessageTemplates(req.companyId!);
+      const byKey = new Map(tpls.map((t: any) => [t.call_response, t]));
+      const templates = WHATSAPP_CALL_RESPONSES.map((cr) => {
+        const t: any = byKey.get(cr) || {};
+        return {
+          call_response: cr,
+          label: (WHATSAPP_CALL_RESPONSE_LABELS as any)[cr],
+          template_type: t.template_type ?? "freeform",
+          body_text: t.body_text ?? "",
+          approved_template_name: t.approved_template_name ?? "",
+          enabled: t.enabled ?? true,
+        };
+      });
+
+      const company = await storage.getCompany(req.companyId!);
+      const owner = lead.owner_user_id ? usersMap.get(lead.owner_user_id) || (await storage.getUser(lead.owner_user_id)) : null;
+
+      res.json({
+        options,
+        templates,
+        context: {
+          company_name: company?.name || "",
+          lead_id: lead.id,
+          executive_name: owner?.name || "",
+        },
+      });
+    } catch (error: any) {
+      console.error("Get send-whatsapp options error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get WhatsApp message logs for the company
   app.get("/api/admin/company/whatsapp/message-logs", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {

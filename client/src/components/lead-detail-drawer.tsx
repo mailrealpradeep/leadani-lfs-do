@@ -35,6 +35,7 @@ import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { LeadEditDialog } from "./lead-edit-dialog";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
+import { SendWhatsAppDialog } from "./send-whatsapp-dialog";
 
 interface LeadDetailDrawerProps {
   leadId: string | null;
@@ -52,6 +53,7 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [addUpdateDialogOpen, setAddUpdateDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [sendWaOpen, setSendWaOpen] = useState(false);
   
   const { data: lead, isLoading, isError, refetch, isFetching } = useQuery<Lead>({
     queryKey: ["/api/leads", leadId],
@@ -201,11 +203,16 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
 
   const handleWhatsApp = () => {
     if (hasValidMobile) {
-      // Add country code if not present (assuming India +91)
-      const waNumber = cleanMobile.length === 10 ? `91${cleanMobile}` : cleanMobile;
-      window.open(`https://wa.me/${waNumber}`, "_blank");
+      setSendWaOpen(true);
     }
   };
+
+  const customerDisplayName = String(
+    lead?.custom_fields?.full_name ||
+      lead?.custom_fields?.name ||
+      lead?.custom_fields?.first_name ||
+      ""
+  );
 
   const effectiveSheetId = sheetId || lead?.sheet_id || "";
 
@@ -458,6 +465,17 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
           leadId={leadId}
           open={historyDialogOpen}
           onOpenChange={setHistoryDialogOpen}
+        />
+      )}
+
+      {/* Send WhatsApp Dialog */}
+      {leadId && mobileNumber && (
+        <SendWhatsAppDialog
+          open={sendWaOpen}
+          onOpenChange={setSendWaOpen}
+          leadId={leadId}
+          customerName={customerDisplayName}
+          recipientPhone={mobileNumber}
         />
       )}
     </>

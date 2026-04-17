@@ -59,6 +59,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
 import { useAutoFillRules } from "@/hooks/use-auto-fill-rules";
 import { Button } from "@/components/ui/button";
+import { SendWhatsAppDialog } from "@/components/send-whatsapp-dialog";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -466,6 +467,12 @@ export function SpreadsheetGrid({
   const lastScrollTop = useRef(0);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateHistoryDialogOpen, setUpdateHistoryDialogOpen] = useState(false);
+  const [sendWhatsAppDialog, setSendWhatsAppDialog] = useState<{
+    open: boolean;
+    leadId: string;
+    customerName: string;
+    recipientPhone: string;
+  }>({ open: false, leadId: "", customerName: "", recipientPhone: "" });
   const [selectedLeadForUpdate, setSelectedLeadForUpdate] = useState<string | null>(null);
   const [nextFollowupDialogOpen, setNextFollowupDialogOpen] = useState(false);
   const [selectedLeadForNextFollowup, setSelectedLeadForNextFollowup] = useState<Lead | null>(null);
@@ -3431,6 +3438,15 @@ export function SpreadsheetGrid({
           />
         </>
       )}
+      <SendWhatsAppDialog
+        open={sendWhatsAppDialog.open}
+        onOpenChange={(open) =>
+          setSendWhatsAppDialog((prev) => ({ ...prev, open }))
+        }
+        leadId={sendWhatsAppDialog.leadId}
+        customerName={sendWhatsAppDialog.customerName}
+        recipientPhone={sendWhatsAppDialog.recipientPhone}
+      />
       {selectedLeadForNextFollowup && (
         <NextFollowupDateDialog
           key={`next-followup-dialog-${selectedLeadForNextFollowup.id}`}
@@ -4083,9 +4099,12 @@ export function SpreadsheetGrid({
                               e.stopPropagation();
                               const whatsappNo = lead.custom_fields?.whatsapp_no || lead.custom_fields?.whatsapp || lead.custom_fields?.mobile_no || lead.custom_fields?.mobile;
                               if (whatsappNo) {
-                                const cleanNumber = String(whatsappNo).replace(/[\s-]/g, '');
-                                const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
-                                window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                                setSendWhatsAppDialog({
+                                  open: true,
+                                  leadId: lead.id,
+                                  customerName: String(lead.custom_fields?.full_name || lead.custom_fields?.name || lead.custom_fields?.first_name || ""),
+                                  recipientPhone: String(whatsappNo),
+                                });
                               }
                             }}
                             data-testid={`button-whatsapp-lead-${lead.id}`}
@@ -4924,9 +4943,12 @@ export function SpreadsheetGrid({
                                     className="h-6 w-6 flex-shrink-0"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      const cleanNumber = String(value).replace(/[\s-]/g, '');
-                                      const formattedNumber = cleanNumber.startsWith('+') ? cleanNumber.slice(1) : (cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`);
-                                      window.open(`https://wa.me/${formattedNumber}`, '_blank');
+                                      setSendWhatsAppDialog({
+                                        open: true,
+                                        leadId: lead.id,
+                                        customerName: String(lead.custom_fields?.full_name || lead.custom_fields?.name || lead.custom_fields?.first_name || ""),
+                                        recipientPhone: String(value),
+                                      });
                                     }}
                                     data-testid={`button-whatsapp-${lead.id}-${col.key}`}
                                   >

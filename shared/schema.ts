@@ -744,7 +744,7 @@ export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;
 export interface LeadUpdate {
   id: string;
   lead_id: string;
-  update_via: "whatsapp" | "call" | "transfer" | "web" | "webhook" | "merge" | "import" | "visit";
+  update_via: "whatsapp" | "call" | "transfer" | "web" | "webhook" | "merge" | "import" | "visit" | "whatsapp_outgoing";
   update_on: string; // date
   remark: string;
   created_by_user_id?: string | null;
@@ -753,7 +753,7 @@ export interface LeadUpdate {
 
 export const insertLeadUpdateSchema = z.object({
   lead_id: z.string(),
-  update_via: z.enum(["whatsapp", "call", "transfer", "web", "webhook", "merge", "import", "visit"]),
+  update_via: z.enum(["whatsapp", "call", "transfer", "web", "webhook", "merge", "import", "visit", "whatsapp_outgoing"]),
   update_on: z.string(), // date string
   remark: z.string().min(1, "Remark is required"),
   created_by_user_id: z.string().optional(),
@@ -4918,6 +4918,47 @@ export const insertWhatsAppTransferSettingsSchema = createInsertSchema(whatsapp_
 });
 
 export type InsertWhatsAppTransferSettingsData = z.infer<typeof insertWhatsAppTransferSettingsSchema>;
+
+// WhatsApp Message Templates - Per-call-response outgoing templates
+export const WHATSAPP_CALL_RESPONSES = [
+  "no_response",
+  "switch_off",
+  "call_cut",
+  "discussed",
+  "repeated_no_response",
+] as const;
+export type WhatsAppCallResponse = (typeof WHATSAPP_CALL_RESPONSES)[number];
+
+export const WHATSAPP_CALL_RESPONSE_LABELS: Record<WhatsAppCallResponse, string> = {
+  no_response: "No Response",
+  switch_off: "Switch Off",
+  call_cut: "Call Cut",
+  discussed: "Discussed",
+  repeated_no_response: "Repeated No Response",
+};
+
+export const whatsapp_message_templates = pgTable('whatsapp_message_templates', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  call_response: varchar('call_response', { length: 40 }).notNull(),
+  template_type: varchar('template_type', { length: 20 }).notNull().default('freeform'), // 'freeform' | 'approved'
+  body_text: text('body_text').notNull().default(''),
+  approved_template_name: varchar('approved_template_name', { length: 200 }).notNull().default(''),
+  enabled: boolean('enabled').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WhatsAppMessageTemplateRecord = typeof whatsapp_message_templates.$inferSelect;
+export type InsertWhatsAppMessageTemplate = typeof whatsapp_message_templates.$inferInsert;
+
+export const insertWhatsAppMessageTemplateSchema = createInsertSchema(whatsapp_message_templates).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertWhatsAppMessageTemplateData = z.infer<typeof insertWhatsAppMessageTemplateSchema>;
 
 // WhatsApp Message Log - Track all processed WhatsApp messages
 export type WhatsAppMessageOutcome = 

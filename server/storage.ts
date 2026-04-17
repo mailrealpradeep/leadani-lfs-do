@@ -277,6 +277,7 @@ import type {
   InsertWhatsAppDefaultValueData,
   WhatsAppTransferSettingsRecord,
   InsertWhatsAppTransferSettingsData,
+  WhatsAppMessageTemplateRecord,
   WhatsAppMessageLogRecord,
   InsertWhatsAppMessageLogData,
   SailaConfig,
@@ -1143,6 +1144,10 @@ export interface IStorage {
   // WhatsApp Transfer Settings
   getWhatsAppTransferSettings(companyId: string): Promise<WhatsAppTransferSettingsRecord | undefined>;
   upsertWhatsAppTransferSettings(companyId: string, settings: Partial<InsertWhatsAppTransferSettingsData>): Promise<WhatsAppTransferSettingsRecord>;
+
+  // WhatsApp Message Templates (Per-call-response outgoing message templates)
+  getWhatsAppMessageTemplates(companyId: string): Promise<WhatsAppMessageTemplateRecord[]>;
+  upsertWhatsAppMessageTemplate(companyId: string, callResponse: string, data: { template_type?: string; body_text?: string; approved_template_name?: string; enabled?: boolean }): Promise<WhatsAppMessageTemplateRecord>;
 
   // WhatsApp Message Logs (Track processed messages)
   getWhatsAppMessageLogs(companyId: string, options?: { 
@@ -3899,6 +3904,8 @@ export class MemStorage implements IStorage {
   async deleteWhatsAppDefaultValue(_id: string): Promise<boolean> { return false; }
   async getWhatsAppTransferSettings(_companyId: string): Promise<WhatsAppTransferSettingsRecord | undefined> { return undefined; }
   async upsertWhatsAppTransferSettings(_companyId: string, _settings: Partial<InsertWhatsAppTransferSettingsData>): Promise<WhatsAppTransferSettingsRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
+  async getWhatsAppMessageTemplates(_companyId: string): Promise<any[]> { return []; }
+  async upsertWhatsAppMessageTemplate(_companyId: string, _callResponse: string, _data: any): Promise<any> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; search?: string; fromDate?: Date; toDate?: Date; uniqueByPhone?: boolean; allocatedTo?: string; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
@@ -12422,6 +12429,44 @@ export class PgStorage implements IStorage {
         .returning();
       return result[0];
     }
+  }
+
+  // WhatsApp Message Templates
+  async getWhatsAppMessageTemplates(companyId: string): Promise<WhatsAppMessageTemplateRecord[]> {
+    return await db.select()
+      .from(dbSchema.whatsapp_message_templates)
+      .where(eq(dbSchema.whatsapp_message_templates.company_id, companyId));
+  }
+
+  async upsertWhatsAppMessageTemplate(
+    companyId: string,
+    callResponse: string,
+    data: { template_type?: string; body_text?: string; approved_template_name?: string; enabled?: boolean }
+  ): Promise<WhatsAppMessageTemplateRecord> {
+    const existing = await db.select().from(dbSchema.whatsapp_message_templates)
+      .where(and(
+        eq(dbSchema.whatsapp_message_templates.company_id, companyId),
+        eq(dbSchema.whatsapp_message_templates.call_response, callResponse),
+      ))
+      .limit(1);
+    if (existing[0]) {
+      const result = await db.update(dbSchema.whatsapp_message_templates)
+        .set({ ...data, updated_at: new Date() })
+        .where(eq(dbSchema.whatsapp_message_templates.id, existing[0].id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(dbSchema.whatsapp_message_templates)
+      .values({
+        company_id: companyId,
+        call_response: callResponse,
+        template_type: data.template_type ?? "freeform",
+        body_text: data.body_text ?? "",
+        approved_template_name: data.approved_template_name ?? "",
+        enabled: data.enabled ?? true,
+      })
+      .returning();
+    return result[0];
   }
 
   // WhatsApp Message Logs
