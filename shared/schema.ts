@@ -4969,19 +4969,26 @@ export type WhatsAppMessageOutcome =
   | "followup_added"
   | "ignored_no_match"
   | "ignored_no_trigger"
+  | "sent"
+  | "send_failed"
   | "error";
+
+export type WhatsAppMessageDirection = "incoming" | "outgoing";
 
 export interface WhatsAppMessageLog {
   id: string;
   company_id: string;
-  webhook_request_id: string; // Reference to original webhook_requests record
-  sender_phone: string; // Last 10 digits of sender's phone
+  webhook_request_id: string | null; // Reference to original webhook_requests record (incoming only)
+  direction: WhatsAppMessageDirection;
+  lead_id: string | null;
+  sent_by_user_id: string | null;
+  sender_phone: string; // Last 10 digits of customer's phone (sender for incoming, recipient for outgoing)
   sender_name: string | null;
-  sender_wa_id: string; // Full WhatsApp ID
-  display_phone_number: string; // Business number that received the message
+  sender_wa_id: string; // Full WhatsApp ID of the customer
+  display_phone_number: string; // Business number used (received by for incoming, sent from for outgoing)
   message_id: string; // WhatsApp message ID (for deduplication)
   message_text: string | null;
-  message_type: string; // text, image, etc.
+  message_type: string; // text, image, template, etc.
   outcome: WhatsAppMessageOutcome;
   outcome_details: Record<string, any> | null; // Additional info like lead_id, transfer_request_id
   trigger_matched: boolean;
@@ -4993,7 +5000,10 @@ export interface WhatsAppMessageLog {
 export const whatsapp_message_logs = pgTable('whatsapp_message_logs', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
-  webhook_request_id: varchar('webhook_request_id').notNull().references(() => webhook_requests.id, { onDelete: 'cascade' }),
+  webhook_request_id: varchar('webhook_request_id').references(() => webhook_requests.id, { onDelete: 'cascade' }),
+  direction: varchar('direction', { length: 16 }).notNull().default('incoming'),
+  lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  sent_by_user_id: varchar('sent_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   sender_phone: varchar('sender_phone', { length: 20 }).notNull(),
   sender_name: varchar('sender_name', { length: 255 }),
   sender_wa_id: varchar('sender_wa_id', { length: 30 }).notNull(),

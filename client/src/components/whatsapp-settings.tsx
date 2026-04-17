@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueries, useMutation } from "@tanstack/react-query";
-import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock, Search, ChevronLeft, ChevronRight, Calendar, ArrowLeftRight, Users } from "lucide-react";
+import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock, Search, ChevronLeft, ChevronRight, Calendar, ArrowLeftRight, Users, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -112,7 +112,10 @@ interface WhatsAppDefaultValue {
 interface WhatsAppMessageLog {
   id: string;
   company_id: string;
-  webhook_request_id: string;
+  webhook_request_id: string | null;
+  direction: "incoming" | "outgoing";
+  lead_id: string | null;
+  sent_by_user_id: string | null;
   sender_phone: string;
   sender_name: string | null;
   sender_wa_id: string;
@@ -227,6 +230,7 @@ export function WhatsAppSettings() {
   const [logsFromDate, setLogsFromDate] = useState<string>("");
   const [logsToDate, setLogsToDate] = useState<string>("");
   const [logsUniqueByPhone, setLogsUniqueByPhone] = useState(false);
+  const [logsDirectionFilter, setLogsDirectionFilter] = useState<"all" | "incoming" | "outgoing">("all");
   
   // Helper function to check if a webhook payload contains ad referral data
   const hasAdReferral = (payload: any): boolean => {
@@ -299,9 +303,10 @@ export function WhatsAppSettings() {
   if (logsFromDate) logsQueryParams.set("fromDate", logsFromDate);
   if (logsToDate) logsQueryParams.set("toDate", logsToDate);
   if (logsUniqueByPhone) logsQueryParams.set("uniqueByPhone", "true");
-  
+  if (logsDirectionFilter !== "all") logsQueryParams.set("direction", logsDirectionFilter);
+
   const { data: messageLogsData, isLoading: logsLoading, refetch: refetchLogs } = useQuery<{ logs: WhatsAppMessageLog[]; total: number }>({
-    queryKey: ["/api/admin/company/whatsapp/message-logs", logsPage, logsPageSize, logsBusinessFilter, logsOutcomeFilter, logsUserFilter, logsSearchText, logsFromDate, logsToDate, logsUniqueByPhone],
+    queryKey: ["/api/admin/company/whatsapp/message-logs", logsPage, logsPageSize, logsBusinessFilter, logsOutcomeFilter, logsUserFilter, logsSearchText, logsFromDate, logsToDate, logsUniqueByPhone, logsDirectionFilter],
     queryFn: () => apiRequest<{ logs: WhatsAppMessageLog[]; total: number }>("GET", `/api/admin/company/whatsapp/message-logs?${logsQueryParams.toString()}`),
   });
   
@@ -337,7 +342,7 @@ export function WhatsAppSettings() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setLogsPage(1);
-  }, [logsBusinessFilter, logsOutcomeFilter, logsUserFilter, logsSearchText, logsFromDate, logsToDate, logsPageSize, logsUniqueByPhone]);
+  }, [logsBusinessFilter, logsOutcomeFilter, logsUserFilter, logsSearchText, logsFromDate, logsToDate, logsPageSize, logsUniqueByPhone, logsDirectionFilter]);
 
   // Create allocation mutation
   const createAllocationMutation = useMutation({
@@ -678,6 +683,10 @@ export function WhatsAppSettings() {
         return <Badge variant="outline">No Match</Badge>;
       case "ignored_no_trigger":
         return <Badge variant="outline">No Trigger Match</Badge>;
+      case "sent":
+        return <Badge className="bg-emerald-600">Sent</Badge>;
+      case "send_failed":
+        return <Badge variant="destructive">Send Failed</Badge>;
       case "error":
         return <Badge variant="destructive">Error</Badge>;
       default:
@@ -1535,6 +1544,18 @@ export function WhatsAppSettings() {
                     </SelectContent>
                   </Select>
                   
+                  {/* Direction Filter */}
+                  <Select value={logsDirectionFilter} onValueChange={(v) => setLogsDirectionFilter(v as "all" | "incoming" | "outgoing")}>
+                    <SelectTrigger className="w-[160px]" data-testid="logs-direction-filter">
+                      <SelectValue placeholder="All Directions" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Directions</SelectItem>
+                      <SelectItem value="incoming">Incoming</SelectItem>
+                      <SelectItem value="outgoing">Outgoing</SelectItem>
+                    </SelectContent>
+                  </Select>
+
                   {/* Outcome Filter */}
                   <Select value={logsOutcomeFilter || "all"} onValueChange={(v) => setLogsOutcomeFilter(v === "all" ? "" : v)}>
                     <SelectTrigger className="w-[180px]" data-testid="logs-outcome-filter">
@@ -1548,6 +1569,8 @@ export function WhatsAppSettings() {
                       <SelectItem value="ignored_no_trigger">No Trigger Match</SelectItem>
                       <SelectItem value="ignored_no_match">No Allocation</SelectItem>
                       <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="sent">Sent (Outgoing)</SelectItem>
+                      <SelectItem value="send_failed">Send Failed</SelectItem>
                       <SelectItem value="error">Error</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1604,7 +1627,7 @@ export function WhatsAppSettings() {
                   </div>
                   
                   {/* Clear Filters */}
-                  {(logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsUserFilter || logsFromDate || logsToDate || logsUniqueByPhone) && (
+                  {(logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsUserFilter || logsFromDate || logsToDate || logsUniqueByPhone || logsDirectionFilter !== "all") && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1616,6 +1639,7 @@ export function WhatsAppSettings() {
                         setLogsFromDate("");
                         setLogsToDate("");
                         setLogsUniqueByPhone(false);
+                        setLogsDirectionFilter("all");
                       }}
                       data-testid="clear-logs-filters"
                     >
@@ -1631,10 +1655,13 @@ export function WhatsAppSettings() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Time</TableHead>
-                      <TableHead>Sender</TableHead>
+                      <TableHead>Direction</TableHead>
+                      <TableHead>Customer</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>Business Number</TableHead>
-                      <TableHead>Allocated To</TableHead>
+                      <TableHead>Sent By / Allocated To</TableHead>
+                      <TableHead>Lead</TableHead>
+                      <TableHead>Template</TableHead>
                       <TableHead>Message</TableHead>
                       <TableHead>Outcome</TableHead>
                     </TableRow>
@@ -1642,50 +1669,105 @@ export function WhatsAppSettings() {
                   <TableBody>
                     {logsLoading ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                           Loading message logs...
                         </TableCell>
                       </TableRow>
                     ) : messageLogs.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          {logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsUserFilter || logsFromDate || logsToDate || logsUniqueByPhone
+                        <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                          {logsSearchText || logsBusinessFilter || logsOutcomeFilter || logsUserFilter || logsFromDate || logsToDate || logsUniqueByPhone || logsDirectionFilter !== "all"
                             ? "No messages match your filters."
                             : "No messages have been processed yet."}
                         </TableCell>
                       </TableRow>
                     ) : (
-                      messageLogs.map((log) => (
-                        <TableRow key={log.id}>
-                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                            {format(new Date(log.processed_at), "MMM d, h:mm a")}
-                          </TableCell>
-                          <TableCell>{log.sender_name || "-"}</TableCell>
-                          <TableCell className="font-mono text-sm">{log.sender_phone}</TableCell>
-                          <TableCell className="font-mono text-sm">{log.display_phone_number}</TableCell>
-                          <TableCell
-                            className="text-sm whitespace-nowrap"
-                            data-testid={`cell-allocated-to-${log.id}`}
-                          >
-                            {log.outcome_details?.allocated_to_name || <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          <TableCell className="max-w-[200px]">
-                            {log.message_text ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="block truncate cursor-help">{log.message_text}</span>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-[400px] whitespace-pre-wrap">
-                                  {log.message_text}
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span className="text-muted-foreground italic">[{log.message_type}]</span>
-                            )}
-                          </TableCell>
-                          <TableCell>{getOutcomeBadge(log.outcome, log.outcome_details)}</TableCell>
-                        </TableRow>
-                      ))
+                      messageLogs.map((log) => {
+                        const isOutgoing = log.direction === "outgoing";
+                        const peopleLabel = isOutgoing
+                          ? (log.outcome_details?.sent_by_name || <span className="text-muted-foreground">—</span>)
+                          : (log.outcome_details?.allocated_to_name || <span className="text-muted-foreground">—</span>);
+                        return (
+                          <TableRow key={log.id} data-testid={`row-message-log-${log.id}`}>
+                            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                              {format(new Date(log.processed_at), "MMM d, h:mm a")}
+                            </TableCell>
+                            <TableCell data-testid={`cell-direction-${log.id}`}>
+                              {isOutgoing ? (
+                                <Badge className="bg-emerald-600 gap-1">
+                                  <ArrowUpRight className="h-3 w-3" />
+                                  Outgoing
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="gap-1">
+                                  <ArrowDownLeft className="h-3 w-3" />
+                                  Incoming
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>{log.sender_name || "-"}</TableCell>
+                            <TableCell className="font-mono text-sm">{log.sender_phone}</TableCell>
+                            <TableCell className="font-mono text-sm">{log.display_phone_number}</TableCell>
+                            <TableCell
+                              className="text-sm whitespace-nowrap"
+                              data-testid={`cell-allocated-to-${log.id}`}
+                            >
+                              {peopleLabel}
+                            </TableCell>
+                            <TableCell
+                              className="text-sm whitespace-nowrap max-w-[160px] truncate"
+                              data-testid={`cell-lead-${log.id}`}
+                            >
+                              {log.outcome_details?.lead_name ? (
+                                <span title={String(log.outcome_details.lead_name)}>
+                                  {String(log.outcome_details.lead_name)}
+                                </span>
+                              ) : (log.lead_id || log.outcome_details?.lead_id) ? (
+                                <span className="font-mono text-xs text-muted-foreground" title={String(log.lead_id || log.outcome_details?.lead_id)}>
+                                  {String(log.lead_id || log.outcome_details?.lead_id).slice(0, 8)}…
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell
+                              className="text-sm whitespace-nowrap"
+                              data-testid={`cell-template-${log.id}`}
+                            >
+                              {isOutgoing ? (
+                                log.outcome_details?.approved_template_name ? (
+                                  <Badge variant="outline" className="font-mono text-xs">
+                                    {String(log.outcome_details.approved_template_name)}
+                                  </Badge>
+                                ) : log.outcome_details?.call_response_label ? (
+                                  <Badge variant="secondary">
+                                    {String(log.outcome_details.call_response_label)}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">Free-form</span>
+                                )
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="max-w-[200px]">
+                              {log.message_text ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="block truncate cursor-help">{log.message_text}</span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[400px] whitespace-pre-wrap">
+                                    {log.message_text}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <span className="text-muted-foreground italic">[{log.message_type}]</span>
+                              )}
+                            </TableCell>
+                            <TableCell>{getOutcomeBadge(log.outcome, log.outcome_details)}</TableCell>
+                          </TableRow>
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>

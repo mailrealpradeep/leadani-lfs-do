@@ -39,7 +39,7 @@ function invalidateVisionCachesForCompany(companyId: string): void {
   visionTeamCache.invalidateByPrefix(companyId);
   visionConversionCache.invalidateByPrefix(companyId);
 }
-import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage } from "@shared/schema";
+import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage, type InsertWhatsAppMessageLogData } from "@shared/schema";
 import { evaluateCondition } from "./target-evaluator";
 import { notifyLeadAssigned, notifyLeadUpdated, notifyWebhookReceived, notifyUserJoined } from "./push-service";
 import { triggerOutgoingWebhooks, getChangedFields, flattenLeadFields } from "./webhook-trigger";
@@ -7852,12 +7852,51 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         sendResult = await sendWhatsAppMessage(config, phoneSetting, recipient_phone, renderedText);
       }
 
+      const label = WHATSAPP_CALL_RESPONSE_LABELS[call_response] || call_response;
+
+      // Always record this outgoing attempt in WhatsApp message logs (sent or failed),
+      // so admins can audit it from WhatsApp Lead Settings → Message Logs.
+      try {
+        const recipientDigits = String(recipient_phone).replace(/\D/g, "").slice(-10);
+        const outgoingLogId = crypto.randomUUID();
+        const outgoingLog: InsertWhatsAppMessageLogData = {
+          company_id: req.companyId!,
+          webhook_request_id: null,
+          direction: "outgoing",
+          lead_id: lead.id,
+          sent_by_user_id: req.userId!,
+          sender_phone: recipientDigits,
+          sender_name: customerName || null,
+          sender_wa_id: String(recipient_phone),
+          display_phone_number: send_from_phone,
+          message_id: sendResult.messageId || `out_${outgoingLogId}`,
+          message_text: renderedText,
+          message_type: isApproved ? "template" : "text",
+          outcome: sendResult.success ? "sent" : "send_failed",
+          outcome_details: {
+            direction: "outgoing",
+            lead_id: lead.id,
+            sent_by_user_id: req.userId!,
+            sent_by_name: sender?.name || sender?.email || null,
+            call_response,
+            call_response_label: label,
+            template_type: template.template_type,
+            approved_template_name: isApproved ? template.approved_template_name : undefined,
+            error: sendResult.success ? undefined : sendResult.error,
+          },
+          trigger_matched: false,
+          processed_at: new Date(),
+        };
+        await storage.createWhatsAppMessageLog(outgoingLog);
+      } catch (logErr) {
+        console.error("[Send WhatsApp] Failed to record outgoing log:", logErr);
+      }
+
       if (!sendResult.success) {
         return res.status(502).json({ error: sendResult.error || "Failed to send WhatsApp message" });
       }
 
       // Log to lead_updates
-      const label = WHATSAPP_CALL_RESPONSE_LABELS[call_response] || call_response;
       const today = new Date().toISOString().slice(0, 10);
       const update = await storage.createLeadUpdate({
         lead_id: lead.id,
@@ -7987,7 +8026,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const toDate = req.query.toDate ? new Date(req.query.toDate as string) : undefined;
       const uniqueByPhone = req.query.uniqueByPhone === "true";
       const allocatedTo = req.query.allocatedTo as string | undefined;
-      
+      const direction = req.query.direction as string | undefined;
+      const sentByUserId = req.query.sentByUserId as string | undefined;
+
       const result = await storage.getWhatsAppMessageLogs(req.companyId, { 
         limit, 
         offset,
@@ -7998,34 +8039,90 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         toDate,
         uniqueByPhone,
         allocatedTo,
+        direction,
+        sentByUserId,
       });
 
-      // Enrich logs with allocated user names
-      const userIds = [...new Set(
-        result.logs
-          .map((log) => log.outcome_details?.allocated_to_user_id)
-          .filter((id): id is string => typeof id === "string" && id.length > 0)
-      )];
+      // Enrich logs with allocated user names, outgoing sender names, and lead names
+      const userIds = Array.from(new Set(
+        result.logs.flatMap((log) => {
+          const ids: string[] = [];
+          const allocatedId = log.outcome_details?.allocated_to_user_id;
+          if (typeof allocatedId === "string" && allocatedId.length > 0) ids.push(allocatedId);
+          if (log.sent_by_user_id) ids.push(log.sent_by_user_id);
+          return ids;
+        })
+      ));
+      let companyUserMap = new Map<string, string>();
       if (userIds.length > 0) {
         const users = await storage.getUsersByIds(userIds);
         // Scope to this company only to prevent cross-tenant name exposure
-        const companyUserMap = new Map(
+        companyUserMap = new Map(
           users.filter(u => u.company_id === req.companyId).map(u => [u.id, u.name])
         );
-        result.logs = result.logs.map((log) => {
-          const userId = log.outcome_details?.allocated_to_user_id;
-          if (typeof userId === "string" && companyUserMap.has(userId)) {
-            return {
-              ...log,
-              outcome_details: {
-                ...log.outcome_details,
-                allocated_to_name: companyUserMap.get(userId),
-              },
-            };
-          }
-          return log;
+      }
+
+      // Collect lead IDs from both the column and outcome_details, then fetch lead names
+      const leadIds = Array.from(new Set(
+        result.logs.flatMap((log) => {
+          const ids: string[] = [];
+          if (log.lead_id) ids.push(log.lead_id);
+          const odLeadId = log.outcome_details?.lead_id;
+          if (typeof odLeadId === "string" && odLeadId.length > 0) ids.push(odLeadId);
+          return ids;
+        })
+      ));
+      const leadNameMap = new Map<string, string>();
+      if (leadIds.length > 0) {
+        const leadRows = await db
+          .select({
+            id: dbSchema.leads.id,
+            sheet_id: dbSchema.leads.sheet_id,
+            custom_fields: dbSchema.leads.custom_fields,
+          })
+          .from(dbSchema.leads)
+          .where(inArray(dbSchema.leads.id, leadIds));
+        const sheetIds = Array.from(new Set(leadRows.map(l => l.sheet_id)));
+        const sheetCompanyMap = new Map<string, string>();
+        if (sheetIds.length > 0) {
+          const sheetRows = await db
+            .select({ id: dbSchema.sheets.id, company_id: dbSchema.sheets.company_id })
+            .from(dbSchema.sheets)
+            .where(inArray(dbSchema.sheets.id, sheetIds));
+          sheetRows.forEach(s => sheetCompanyMap.set(s.id, s.company_id));
+        }
+        leadRows.forEach((l) => {
+          // Scope to this company to prevent cross-tenant exposure
+          if (sheetCompanyMap.get(l.sheet_id) !== req.companyId) return;
+          const cf = (l.custom_fields ?? {}) as Record<string, unknown>;
+          const name =
+            (typeof cf.full_name === "string" && cf.full_name) ||
+            (typeof cf.name === "string" && cf.name) ||
+            (typeof cf.first_name === "string" && cf.first_name) ||
+            "";
+          if (name) leadNameMap.set(l.id, name);
         });
       }
+
+      result.logs = result.logs.map((log) => {
+        const allocatedId = log.outcome_details?.allocated_to_user_id;
+        const sentById = log.sent_by_user_id;
+        const odLeadId = log.outcome_details?.lead_id;
+        const effectiveLeadId =
+          log.lead_id || (typeof odLeadId === "string" ? odLeadId : null);
+        const newDetails: Record<string, unknown> = { ...(log.outcome_details || {}) };
+        if (typeof allocatedId === "string" && companyUserMap.has(allocatedId)) {
+          newDetails.allocated_to_name = companyUserMap.get(allocatedId);
+        }
+        if (sentById && companyUserMap.has(sentById)) {
+          newDetails.sent_by_name = companyUserMap.get(sentById);
+        }
+        if (effectiveLeadId && leadNameMap.has(effectiveLeadId)) {
+          newDetails.lead_name = leadNameMap.get(effectiveLeadId);
+          newDetails.lead_id = effectiveLeadId;
+        }
+        return { ...log, outcome_details: newDetails };
+      });
 
       res.json(result);
     } catch (error: any) {
