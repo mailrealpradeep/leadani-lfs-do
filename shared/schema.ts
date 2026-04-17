@@ -4944,6 +4944,8 @@ export const whatsapp_message_templates = pgTable('whatsapp_message_templates', 
   template_type: varchar('template_type', { length: 20 }).notNull().default('freeform'), // 'freeform' | 'approved'
   body_text: text('body_text').notNull().default(''),
   approved_template_name: varchar('approved_template_name', { length: 200 }).notNull().default(''),
+  approved_template_language: varchar('approved_template_language', { length: 20 }).notNull().default('en_US'),
+  approved_template_variables: text('approved_template_variables').array().notNull().default(sql`ARRAY[]::text[]`),
   enabled: boolean('enabled').notNull().default(true),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),

@@ -2835,6 +2835,8 @@ interface MessageTemplateRow {
   template_type: "freeform" | "approved";
   body_text: string;
   approved_template_name: string;
+  approved_template_language: string;
+  approved_template_variables: string[];
   enabled: boolean;
 }
 
@@ -2864,6 +2866,8 @@ function MessageTemplatesPanel() {
           template_type: row.template_type,
           body_text: row.body_text,
           approved_template_name: row.approved_template_name,
+          approved_template_language: row.approved_template_language,
+          approved_template_variables: row.approved_template_variables,
           enabled: row.enabled,
         }
       );
@@ -2947,6 +2951,43 @@ function MessageTemplatesPanel() {
                   </div>
                 )}
               </div>
+
+              {row.template_type === "approved" && (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Language Code</Label>
+                    <Input
+                      value={row.approved_template_language}
+                      onChange={(e) => updateRow(row.call_response, { approved_template_language: e.target.value })}
+                      placeholder="en_US"
+                      data-testid={`input-approved-language-${row.call_response}`}
+                    />
+                    <div className="text-xs text-muted-foreground">
+                      Must match the language of the approved template in Meta Business Manager (e.g. <code>en_US</code>, <code>en</code>, <code>hi</code>).
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Body Variables (one per line, in order)</Label>
+                    <textarea
+                      value={(row.approved_template_variables || []).join("\n")}
+                      onChange={(e) =>
+                        updateRow(row.call_response, {
+                          approved_template_variables: e.target.value
+                            .split("\n")
+                            .map((s) => s.replace(/\r$/, "")),
+                        })
+                      }
+                      rows={4}
+                      className="w-full rounded-md border bg-background p-2 text-sm font-mono"
+                      placeholder={"{customer_name}\n{executive_name}"}
+                      data-testid={`textarea-approved-vars-${row.call_response}`}
+                    />
+                    <div className="text-xs text-muted-foreground">
+                      Each line maps to a positional variable (<code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>, …) in the approved template body. Placeholders <code>{"{customer_name}"}</code>, <code>{"{executive_name}"}</code>, <code>{"{company_name}"}</code>, <code>{"{lead_id}"}</code> are substituted at send time.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {row.template_type === "freeform" && (
                 <div className="space-y-1">

@@ -37,6 +37,8 @@ interface TemplateOption {
   template_type: "freeform" | "approved";
   body_text: string;
   approved_template_name: string;
+  approved_template_language: string;
+  approved_template_variables: string[];
   enabled: boolean;
 }
 
@@ -81,6 +83,7 @@ export function SendWhatsAppDialog({
   const [messageText, setMessageText] = useState<string>("");
   const [sendFromPhone, setSendFromPhone] = useState<string>("");
   const [touched, setTouched] = useState(false);
+  const [templateVars, setTemplateVars] = useState<string[]>([]);
 
   const { data, isLoading, error } = useQuery<SendWhatsAppOptionsResponse>({
     queryKey: ["/api/leads", leadId, "send-whatsapp/options"],
@@ -103,6 +106,7 @@ export function SendWhatsAppDialog({
       setMessageText("");
       setSendFromPhone("");
       setTouched(false);
+      setTemplateVars([]);
     }
   }, [open]);
 
@@ -119,18 +123,27 @@ export function SendWhatsAppDialog({
   // When call-response changes, prefill (only if user hasn't typed yet)
   useEffect(() => {
     if (!selectedTemplate || !data) return;
-    if (touched) return;
-    const source = selectedTemplate.body_text
-      || (selectedTemplate.template_type === "approved" && selectedTemplate.approved_template_name
-        ? `[Approved Template: ${selectedTemplate.approved_template_name}]`
-        : "");
-    const filled = applyPlaceholders(source, {
+    const vars = {
       customer_name: customerName || "",
       executive_name: data.context.executive_name || "",
       company_name: data.context.company_name || "",
       lead_id: data.context.lead_id || "",
-    });
-    setMessageText(filled);
+    };
+    if (!touched) {
+      const source = selectedTemplate.body_text
+        || (selectedTemplate.template_type === "approved" && selectedTemplate.approved_template_name
+          ? `[Approved Template: ${selectedTemplate.approved_template_name}]`
+          : "");
+      setMessageText(applyPlaceholders(source, vars));
+    }
+    // Always re-seed template variables when the selected template changes
+    if (selectedTemplate.template_type === "approved") {
+      setTemplateVars(
+        (selectedTemplate.approved_template_variables || []).map((v) => applyPlaceholders(v, vars))
+      );
+    } else {
+      setTemplateVars([]);
+    }
   }, [selectedTemplate, data, customerName, touched]);
 
   const sendMutation = useMutation({
@@ -140,6 +153,9 @@ export function SendWhatsAppDialog({
         send_from_phone: sendFromPhone,
         recipient_phone: recipientPhone,
         message_text: messageText,
+        ...(selectedTemplate?.template_type === "approved"
+          ? { template_variables: templateVars }
+          : {}),
       });
     },
     onSuccess: () => {
@@ -229,7 +245,13 @@ export function SendWhatsAppDialog({
             <>
               <div className="space-y-2">
                 <Label>Call Response</Label>
-                <Select value={callResponse} onValueChange={setCallResponse}>
+                <Select
+                  value={callResponse}
+                  onValueChange={(v) => {
+                    setCallResponse(v);
+                    setTouched(false);
+                  }}
+                >
                   <SelectTrigger data-testid="select-call-response">
                     <SelectValue placeholder="Select a call response..." />
                   </SelectTrigger>
@@ -260,10 +282,39 @@ export function SendWhatsAppDialog({
                 <Alert>
                   <AlertDescription className="text-sm">
                     Sending Meta-approved template{" "}
-                    <span className="font-mono">{selectedTemplate?.approved_template_name}</span>.
-                    The text below is recorded in lead history.
+                    <span className="font-mono">{selectedTemplate?.approved_template_name}</span>{" "}
+                    (<span className="font-mono">{selectedTemplate?.approved_template_language || "en_US"}</span>).
+                    Works outside the 24-hour window. The text below is recorded in lead history.
                   </AlertDescription>
                 </Alert>
+              )}
+              {isApprovedTemplate && templateVars.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Template Variables</Label>
+                  <div className="space-y-2">
+                    {templateVars.map((v, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-muted-foreground w-10 shrink-0">
+                          {`{{${idx + 1}}}`}
+                        </span>
+                        <input
+                          type="text"
+                          value={v}
+                          onChange={(e) => {
+                            const next = templateVars.slice();
+                            next[idx] = e.target.value;
+                            setTemplateVars(next);
+                          }}
+                          className="flex-1 rounded-md border bg-background px-3 py-2 text-sm"
+                          data-testid={`input-template-var-${idx}`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    These map positionally to <code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>, … in the approved template body.
+                  </div>
+                </div>
               )}
               {selectedTemplate && (
                 <div className="space-y-2">

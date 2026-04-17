@@ -1147,7 +1147,7 @@ export interface IStorage {
 
   // WhatsApp Message Templates (Per-call-response outgoing message templates)
   getWhatsAppMessageTemplates(companyId: string): Promise<WhatsAppMessageTemplateRecord[]>;
-  upsertWhatsAppMessageTemplate(companyId: string, callResponse: string, data: { template_type?: string; body_text?: string; approved_template_name?: string; enabled?: boolean }): Promise<WhatsAppMessageTemplateRecord>;
+  upsertWhatsAppMessageTemplate(companyId: string, callResponse: string, data: { template_type?: string; body_text?: string; approved_template_name?: string; approved_template_language?: string; approved_template_variables?: string[]; enabled?: boolean }): Promise<WhatsAppMessageTemplateRecord>;
 
   // WhatsApp Message Logs (Track processed messages)
   getWhatsAppMessageLogs(companyId: string, options?: { 
@@ -12443,7 +12443,7 @@ export class PgStorage implements IStorage {
   async upsertWhatsAppMessageTemplate(
     companyId: string,
     callResponse: string,
-    data: { template_type?: string; body_text?: string; approved_template_name?: string; enabled?: boolean }
+    data: { template_type?: string; body_text?: string; approved_template_name?: string; approved_template_language?: string; approved_template_variables?: string[]; enabled?: boolean }
   ): Promise<WhatsAppMessageTemplateRecord> {
     const existing = await db.select().from(dbSchema.whatsapp_message_templates)
       .where(and(
@@ -12465,6 +12465,8 @@ export class PgStorage implements IStorage {
         template_type: data.template_type ?? "freeform",
         body_text: data.body_text ?? "",
         approved_template_name: data.approved_template_name ?? "",
+        approved_template_language: data.approved_template_language ?? "en_US",
+        approved_template_variables: data.approved_template_variables ?? [],
         enabled: data.enabled ?? true,
       })
       .returning();

@@ -7701,6 +7701,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           template_type: t.template_type ?? "freeform",
           body_text: t.body_text ?? "",
           approved_template_name: t.approved_template_name ?? "",
+          approved_template_language: t.approved_template_language ?? "en_US",
+          approved_template_variables: Array.isArray(t.approved_template_variables) ? t.approved_template_variables : [],
           enabled: t.enabled ?? true,
         };
       });
@@ -7719,14 +7721,26 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!(WHATSAPP_CALL_RESPONSES as readonly string[]).includes(callResponse)) {
         return res.status(400).json({ error: "Invalid call response key" });
       }
-      const { template_type, body_text, approved_template_name, enabled } = req.body;
+      const { template_type, body_text, approved_template_name, approved_template_language, approved_template_variables, enabled } = req.body;
       if (template_type && template_type !== "freeform" && template_type !== "approved") {
         return res.status(400).json({ error: "template_type must be 'freeform' or 'approved'" });
+      }
+      if (approved_template_language !== undefined && (typeof approved_template_language !== "string" || approved_template_language.length > 20)) {
+        return res.status(400).json({ error: "approved_template_language must be a short string (e.g. en_US)" });
+      }
+      let normalizedVars: string[] | undefined;
+      if (approved_template_variables !== undefined) {
+        if (!Array.isArray(approved_template_variables) || !approved_template_variables.every((v) => typeof v === "string")) {
+          return res.status(400).json({ error: "approved_template_variables must be an array of strings" });
+        }
+        normalizedVars = approved_template_variables.map((v) => String(v));
       }
       const saved = await storage.upsertWhatsAppMessageTemplate(req.companyId, callResponse, {
         template_type,
         body_text,
         approved_template_name,
+        approved_template_language,
+        approved_template_variables: normalizedVars,
         enabled,
       });
       res.json(saved);
@@ -7801,6 +7815,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         template_type: stored?.template_type ?? "freeform",
         body_text: stored?.body_text ?? "",
         approved_template_name: stored?.approved_template_name ?? "",
+        approved_template_language: stored?.approved_template_language ?? "en_US",
+        approved_template_variables: Array.isArray(stored?.approved_template_variables)
+          ? stored!.approved_template_variables
+          : [],
       };
 
       // Build context for placeholder substitution
@@ -7834,21 +7852,34 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!isApproved && !sourceText.trim()) {
         return res.status(400).json({ error: "Message body is required" });
       }
-      // For approved templates without any text, fall back to a name-based history record
-      const renderedText = sourceText.trim().length > 0
-        ? substitute(sourceText)
-        : `[Approved Template: ${String(template.approved_template_name || "").trim()}]`;
-
       let sendResult: { success: boolean; messageId?: string; error?: string };
+      let renderedText: string;
+      let resolvedVariables: string[] = [];
+      let tplLang = "en_US";
 
       if (isApproved) {
         const tplName = String(template.approved_template_name || "").trim();
         if (!tplName) {
           return res.status(400).json({ error: "Approved template name is not configured for this call response" });
         }
-        // Send with no body parameters by default; per-template parameter mapping is a separate concern
-        sendResult = await sendWhatsAppApprovedTemplate(config, phoneSetting, recipient_phone, tplName, "en_US", []);
+        tplLang = String(template.approved_template_language || "en_US").trim() || "en_US";
+        // Body parameters: prefer client-provided overrides, otherwise use configured variables (with placeholder substitution)
+        const rawClientVars: unknown = (req.body && typeof req.body === "object")
+          ? (req.body as Record<string, unknown>).template_variables
+          : undefined;
+        const clientVars: string[] | null = Array.isArray(rawClientVars)
+          && rawClientVars.every((v): v is string => typeof v === "string")
+          ? (rawClientVars as string[])
+          : null;
+        const baseVars: string[] = clientVars ?? (template.approved_template_variables as string[]);
+        resolvedVariables = baseVars.map((v) => substitute(String(v ?? "")));
+        // History record: name + language + resolved variables (plus optional body_text preview)
+        const previewBody = sourceText.trim().length > 0 ? ` — ${substitute(sourceText)}` : "";
+        const varsPart = resolvedVariables.length > 0 ? ` [${resolvedVariables.join(" | ")}]` : "";
+        renderedText = `[Approved Template: ${tplName} (${tplLang})]${varsPart}${previewBody}`;
+        sendResult = await sendWhatsAppApprovedTemplate(config, phoneSetting, recipient_phone, tplName, tplLang, resolvedVariables);
       } else {
+        renderedText = substitute(sourceText);
         sendResult = await sendWhatsAppMessage(config, phoneSetting, recipient_phone, renderedText);
       }
 
@@ -7918,6 +7949,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           lead_id: lead.id,
           call_response,
           template_type: template.template_type,
+          approved_template_name: template.template_type === "approved" ? template.approved_template_name : undefined,
+          approved_template_language: template.template_type === "approved" ? tplLang : undefined,
+          approved_template_variables: template.template_type === "approved" ? resolvedVariables : undefined,
           send_from_phone,
           recipient_phone,
           message_id: sendResult.messageId,
@@ -7989,6 +8023,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           template_type: t?.template_type ?? "freeform",
           body_text: t?.body_text ?? "",
           approved_template_name: t?.approved_template_name ?? "",
+          approved_template_language: t?.approved_template_language ?? "en_US",
+          approved_template_variables: Array.isArray(t?.approved_template_variables) ? t!.approved_template_variables : [],
           enabled: t?.enabled ?? true,
         };
       });
