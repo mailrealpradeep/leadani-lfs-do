@@ -137,7 +137,6 @@ export function SendWhatsAppDialog({
     mutationFn: async () => {
       return await apiRequest("POST", `/api/leads/${leadId}/send-whatsapp`, {
         call_response: callResponse,
-        message_text: messageText,
         send_from_phone: sendFromPhone,
         recipient_phone: recipientPhone,
       });
@@ -167,7 +166,7 @@ export function SendWhatsAppDialog({
     !!callResponse &&
     !!sendFromPhone &&
     !!recipientPhone &&
-    (!isApprovedTemplate ? messageText.trim().length > 0 : !!selectedTemplate?.approved_template_name);
+    !!selectedTemplate?.enabled;
 
   const openWaWeb = () => {
     const cleanNumber = String(recipientPhone).replace(/[\s-]/g, "");
@@ -261,30 +260,24 @@ export function SendWhatsAppDialog({
                   <AlertDescription className="text-sm">
                     This is a Meta-approved template (
                     <span className="font-mono">{selectedTemplate?.approved_template_name}</span>
-                    ). The body is sent as-is from your WhatsApp Business profile.
+                    ). The body is sent from your WhatsApp Business profile.
                   </AlertDescription>
                 </Alert>
-              ) : (
+              ) : selectedTemplate ? (
                 <div className="space-y-2">
-                  <Label>Message</Label>
+                  <Label>Message Preview</Label>
                   <Textarea
                     rows={6}
                     value={messageText}
-                    onChange={(e) => {
-                      setMessageText(e.target.value);
-                      setTouched(true);
-                    }}
-                    placeholder="Type or pick a Call Response above to prefill..."
+                    readOnly
+                    className="bg-muted/30"
                     data-testid="textarea-message"
                   />
                   <div className="text-xs text-muted-foreground">
-                    Placeholders: <code>{"{customer_name}"}</code>{" "}
-                    <code>{"{executive_name}"}</code>{" "}
-                    <code>{"{company_name}"}</code>{" "}
-                    <code>{"{lead_id}"}</code>
+                    The configured template (with substituted placeholders) is sent. Edit templates in WhatsApp Lead Settings → Message Templates.
                   </div>
                 </div>
-              )}
+              ) : null}
 
               <div className="space-y-2">
                 <Label>Send From</Label>

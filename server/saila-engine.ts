@@ -281,6 +281,68 @@ async function callSarvamLLM(
   }
 }
 
+export async function sendWhatsAppApprovedTemplate(
+  config: SailaConfig,
+  phoneSetting: SailaPhoneSetting,
+  recipientPhone: string,
+  templateName: string,
+  languageCode: string = "en_US",
+  bodyParameters: string[] = []
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const accessToken = (phoneSetting.access_token || "").trim();
+  if (!accessToken) return { success: false, error: `No access token configured for channel ${phoneSetting.display_phone_number}` };
+  const phoneNumberId = (phoneSetting.waba_phone_number_id || "").trim();
+  if (!phoneNumberId) return { success: false, error: `No phone number ID configured for channel ${phoneSetting.display_phone_number}` };
+
+  const domain = (config.wauper_domain || "https://crmapi.wauper.com").replace(/\/$/, "");
+  const version = config.wauper_api_version || "v1";
+
+  try {
+    const cleanPhone = recipientPhone.replace(/\D/g, "");
+    const url = `${domain}/api/meta/${version}/${phoneNumberId}/messages`;
+    const components: any[] = [];
+    if (bodyParameters.length > 0) {
+      components.push({
+        type: "body",
+        parameters: bodyParameters.map((t) => ({ type: "text", text: String(t) })),
+      });
+    }
+    const body = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: cleanPhone,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        ...(components.length > 0 ? { components } : {}),
+      },
+    };
+    console.log(`[Saila] Sending Approved Template '${templateName}' to ${cleanPhone}`);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Saila] Wauper template send failed:", response.status, errorText);
+      return { success: false, error: `Wauper API error: ${response.status} — ${errorText.slice(0, 200)}` };
+    }
+    const data = await response.json();
+    if (data.success === false) {
+      return { success: false, error: `Wauper error: ${data.error || "Unknown error"}` };
+    }
+    return { success: true, messageId: data.id || data.messageId || data.messages?.[0]?.id };
+  } catch (err: any) {
+    console.error("[Saila] Wauper template send error:", err);
+    return { success: false, error: err.message };
+  }
+}
+
 export async function sendWhatsAppMessage(
   config: SailaConfig,
   phoneSetting: SailaPhoneSetting,

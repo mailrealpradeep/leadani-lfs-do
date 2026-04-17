@@ -4947,7 +4947,9 @@ export const whatsapp_message_templates = pgTable('whatsapp_message_templates', 
   enabled: boolean('enabled').notNull().default(true),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  companyCallResponseUnique: uniqueIndex('whatsapp_message_templates_company_call_response_unique').on(t.company_id, t.call_response),
+}));
 
 export type WhatsAppMessageTemplateRecord = typeof whatsapp_message_templates.$inferSelect;
 export type InsertWhatsAppMessageTemplate = typeof whatsapp_message_templates.$inferInsert;

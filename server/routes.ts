@@ -7758,13 +7758,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
 
-      const { call_response, message_text, send_from_phone, recipient_phone } = req.body || {};
-      const { WHATSAPP_CALL_RESPONSES } = await import("@shared/schema");
+      const { call_response, send_from_phone, recipient_phone } = req.body || {};
+      const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
       if (!call_response || typeof call_response !== "string" || !(WHATSAPP_CALL_RESPONSES as readonly string[]).includes(call_response)) {
         return res.status(400).json({ error: "call_response is required and must be a valid value" });
-      }
-      if (!message_text || typeof message_text !== "string" || !message_text.trim()) {
-        return res.status(400).json({ error: "message_text is required" });
       }
       if (!send_from_phone || typeof send_from_phone !== "string") {
         return res.status(400).json({ error: "send_from_phone is required" });
@@ -7789,16 +7786,38 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(400).json({ error: "Selected sender number is not connected to WhatsApp Business" });
       }
 
-      // Verify the send_from_phone is one of our company's allocations (anti-spoofing)
+      // Verify the send_from_phone is one of our company's enabled allocations (anti-spoofing)
       const allocations = await storage.getWhatsAppAllocations(req.companyId!);
       const allocationMatch = allocations.some(
-        (a) => a.display_phone_number === send_from_phone || a.display_phone_number.replace(/\D/g, "").endsWith(send_from_phone.replace(/\D/g, "").slice(-10))
+        (a) => a.enabled && (a.display_phone_number === send_from_phone || a.display_phone_number.replace(/\D/g, "").endsWith(send_from_phone.replace(/\D/g, "").slice(-10)))
       );
       if (!allocationMatch) {
         return res.status(400).json({ error: "Selected sender number is not allocated to this company" });
       }
 
-      // Load Saila config (used by sendWhatsAppMessage for domain/version)
+      // Load configured template from DB (server is source of truth, not client)
+      const allTemplates = await storage.getWhatsAppMessageTemplates(req.companyId!);
+      const template = allTemplates.find((t: any) => t.call_response === call_response);
+      if (!template || !template.enabled) {
+        return res.status(400).json({ error: "Template for this call response is not configured or is disabled" });
+      }
+
+      // Build context for placeholder substitution
+      const company = await storage.getCompany(req.companyId!);
+      const owner = lead.owner_user_id ? await storage.getUser(lead.owner_user_id) : null;
+      const sender = await storage.getUser(req.userId!);
+      const customerName = String(cf.full_name || cf.name || cf.first_name || "");
+      const executiveName = String(owner?.name || sender?.name || "");
+      const placeholders: Record<string, string> = {
+        customer_name: customerName,
+        executive_name: executiveName,
+        company_name: String(company?.name || ""),
+        lead_id: lead.id,
+      };
+      const substitute = (text: string): string =>
+        text.replace(/\{(customer_name|executive_name|company_name|lead_id)\}/g, (_m, k) => placeholders[k] ?? "");
+
+      // Load Saila config (used by sender for domain/version)
       const sailaConfig = await storage.getSailaConfig(req.companyId!);
       const config = sailaConfig || ({
         company_id: req.companyId!,
@@ -7806,22 +7825,40 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         wauper_api_version: "v1",
       } as any);
 
-      const { sendWhatsAppMessage } = await import("./saila-engine");
-      const sendResult = await sendWhatsAppMessage(config as any, phoneSetting, recipient_phone, message_text);
+      const { sendWhatsAppMessage, sendWhatsAppApprovedTemplate } = await import("./saila-engine");
+
+      let sendResult: { success: boolean; messageId?: string; error?: string };
+      let renderedText: string;
+
+      if (template.template_type === "approved") {
+        const tplName = String(template.approved_template_name || "").trim();
+        if (!tplName) {
+          return res.status(400).json({ error: "Approved template name is not configured for this call response" });
+        }
+        const params = [customerName, executiveName, String(company?.name || "")].filter((v) => v && v.length > 0);
+        sendResult = await sendWhatsAppApprovedTemplate(config as any, phoneSetting, recipient_phone, tplName, "en_US", params);
+        renderedText = `[Approved Template: ${tplName}]`;
+      } else {
+        const body = String(template.body_text || "").trim();
+        if (!body) {
+          return res.status(400).json({ error: "Message body is not configured for this call response" });
+        }
+        renderedText = substitute(body);
+        sendResult = await sendWhatsAppMessage(config as any, phoneSetting, recipient_phone, renderedText);
+      }
 
       if (!sendResult.success) {
         return res.status(502).json({ error: sendResult.error || "Failed to send WhatsApp message" });
       }
 
       // Log to lead_updates
-      const { WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
       const label = (WHATSAPP_CALL_RESPONSE_LABELS as any)[call_response] || call_response;
       const today = new Date().toISOString().slice(0, 10);
       const update = await storage.createLeadUpdate({
         lead_id: lead.id,
         update_via: "whatsapp_outgoing",
         update_on: today,
-        remark: `WA Sent (${label}): ${message_text}`,
+        remark: `WA Sent (${label}): ${renderedText}`,
         created_by_user_id: req.userId!,
       });
 
@@ -7836,13 +7873,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         payload: {
           lead_id: lead.id,
           call_response,
+          template_type: template.template_type,
           send_from_phone,
           recipient_phone,
           message_id: sendResult.messageId,
         },
       });
 
-      res.json({ success: true, message_id: sendResult.messageId, update });
+      res.json({ success: true, message_id: sendResult.messageId, rendered_text: renderedText, update });
     } catch (error: any) {
       console.error("Send WhatsApp error:", error);
       res.status(500).json({ error: error.message });
