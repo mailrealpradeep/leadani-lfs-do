@@ -1541,6 +1541,68 @@ ${questionsList}`;
   });
 
   // ============================================================================
+  // WHATSAPP DELIVERY STATUS HELPER
+  // Maps Meta "statuses" webhook events to our outgoing message logs.
+  // Status values per Meta: sent | delivered | read | failed
+  // ============================================================================
+  async function processWhatsAppStatuses(
+    companyId: string,
+    statuses: any[]
+  ): Promise<number> {
+    if (!Array.isArray(statuses) || statuses.length === 0) return 0;
+    let updated = 0;
+    const rank: Record<string, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
+    for (const status of statuses) {
+      try {
+        const messageId: string = status?.id || "";
+        const newStatus: string = status?.status || "";
+        if (!messageId || !newStatus) continue;
+        if (!(newStatus in rank)) continue;
+
+        const log = await storage.getOutgoingWhatsAppMessageLogByMessageId(companyId, messageId);
+        if (!log) continue;
+
+        // Don't downgrade: don't overwrite "read" with "delivered", etc.
+        const currentRank = rank[log.outcome] ?? 0;
+        const incomingRank = rank[newStatus] ?? 0;
+        if (currentRank > incomingRank) continue;
+
+        const tsRaw = status?.timestamp;
+        const tsMs = tsRaw ? Number(tsRaw) * 1000 : Date.now();
+        const eventTime = new Date(isNaN(tsMs) ? Date.now() : tsMs).toISOString();
+
+        const existingDetails = (log.outcome_details || {}) as Record<string, any>;
+        const statusHistory: Record<string, string> = {
+          ...(existingDetails.status_history || {}),
+          [newStatus]: eventTime,
+        };
+
+        const updates: Record<string, any> = {
+          outcome: newStatus,
+          outcome_details: {
+            ...existingDetails,
+            status_history: statusHistory,
+            last_status: newStatus,
+            last_status_at: eventTime,
+            ...(newStatus === "failed" && status?.errors
+              ? { errors: status.errors }
+              : {}),
+            ...(status?.recipient_id ? { recipient_id: status.recipient_id } : {}),
+            ...(status?.conversation ? { conversation: status.conversation } : {}),
+            ...(status?.pricing ? { pricing: status.pricing } : {}),
+          },
+        };
+
+        await storage.updateWhatsAppMessageLog(log.id, updates);
+        updated++;
+      } catch (err: any) {
+        console.error("[WhatsApp Statuses] Failed to update log for status:", err?.message || err);
+      }
+    }
+    return updated;
+  }
+
+  // ============================================================================
   // WHATSAPP WEBHOOK - Dedicated endpoint for WhatsApp Business API messages
   // ============================================================================
   
@@ -1593,6 +1655,10 @@ ${questionsList}`;
           for (const entry of payload.entry) {
             for (const change of entry.changes || []) {
               if (change.field === "messages" && change.value) {
+                // Handle delivery status updates (sent/delivered/read/failed)
+                if (Array.isArray(change.value.statuses) && change.value.statuses.length > 0) {
+                  await processWhatsAppStatuses(companyId, change.value.statuses);
+                }
                 const metadata = change.value.metadata || {};
                 const contacts = change.value.contacts || [];
                 const messages = change.value.messages || [];
@@ -1725,6 +1791,33 @@ ${questionsList}`;
         payload?.entry?.length > 0
       );
       
+      // For WhatsApp payloads, opportunistically process delivery status updates first.
+      // Status events (sent/delivered/read/failed) are matched to outgoing logs by message_id;
+      // they don't need a phone allocation and can arrive without any "messages" payload.
+      let hadStatusOnlyPayload = false;
+      if (isWhatsAppPayload) {
+        let hadStatuses = false;
+        let hadMessages = false;
+        for (const entry of payload.entry) {
+          for (const change of entry.changes || []) {
+            if (change.field === "messages" && change.value) {
+              if (Array.isArray(change.value.statuses) && change.value.statuses.length > 0) {
+                hadStatuses = true;
+                await processWhatsAppStatuses(webhook.company_id, change.value.statuses);
+              }
+              if (Array.isArray(change.value.messages) && change.value.messages.length > 0) {
+                hadMessages = true;
+              }
+            }
+          }
+        }
+        hadStatusOnlyPayload = hadStatuses && !hadMessages;
+        if (hadStatusOnlyPayload) {
+          // No incoming messages to allocate; just acknowledge
+          return res.status(200).json({ success: true, message: "WhatsApp status updates processed" });
+        }
+      }
+
       // For WhatsApp payloads, check if there's a matching phone allocation for this company
       // This supports multiple WhatsApp business numbers per company, each with their own webhook
       let shouldProcessAsWhatsApp = false;
@@ -1775,6 +1868,7 @@ ${questionsList}`;
             for (const change of changes) {
               if (change.field === "messages" && change.value) {
                 const value = change.value;
+                // Note: delivery status updates are handled earlier in the request lifecycle
                 const messages = value.messages || [];
                 const contacts = value.contacts || [];
                 const metadata = value.metadata || {};

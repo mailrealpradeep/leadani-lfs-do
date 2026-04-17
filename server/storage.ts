@@ -1182,6 +1182,7 @@ export interface IStorage {
   }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }>;
   getWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined>;
   getWhatsAppMessagesForLead(companyId: string, leadId: string, phoneLast10?: string | null): Promise<WhatsAppMessageLogRecord[]>;
+  getOutgoingWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined>;
   createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord>;
   updateWhatsAppMessageLog(id: string, updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined>;
   
@@ -3954,6 +3955,7 @@ export class MemStorage implements IStorage {
   async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; search?: string; fromDate?: Date; toDate?: Date; uniqueByPhone?: boolean; allocatedTo?: string; direction?: string; sentByUserId?: string; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async getWhatsAppMessagesForLead(_companyId: string, _leadId: string, _phoneLast10?: string | null): Promise<WhatsAppMessageLogRecord[]> { return []; }
+  async getOutgoingWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppMessageLog(_id: string, _updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async getLeadsForSheet(sheetId: string): Promise<Lead[]> {
@@ -12690,6 +12692,20 @@ export class PgStorage implements IStorage {
       ))
       .orderBy(dbSchema.whatsapp_message_logs.processed_at);
     return logs;
+  }
+
+  async getOutgoingWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined> {
+    if (!messageId) return undefined;
+    const result = await db.select()
+      .from(dbSchema.whatsapp_message_logs)
+      .where(and(
+        eq(dbSchema.whatsapp_message_logs.company_id, companyId),
+        eq(dbSchema.whatsapp_message_logs.message_id, messageId),
+        eq(dbSchema.whatsapp_message_logs.direction, 'outgoing')
+      ))
+      .orderBy(desc(dbSchema.whatsapp_message_logs.processed_at))
+      .limit(1);
+    return result[0];
   }
 
   async createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> {

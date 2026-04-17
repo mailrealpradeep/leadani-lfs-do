@@ -1579,6 +1579,9 @@ export function WhatsAppSettings() {
                       <SelectItem value="ignored_no_match">No Allocation</SelectItem>
                       <SelectItem value="pending">Pending</SelectItem>
                       <SelectItem value="sent">Sent (Outgoing)</SelectItem>
+                      <SelectItem value="delivered">Delivered</SelectItem>
+                      <SelectItem value="read">Read</SelectItem>
+                      <SelectItem value="failed">Failed</SelectItem>
                       <SelectItem value="send_failed">Send Failed</SelectItem>
                       <SelectItem value="error">Error</SelectItem>
                     </SelectContent>
