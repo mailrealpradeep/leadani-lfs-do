@@ -1164,6 +1164,7 @@ export interface IStorage {
     sentByUserId?: string;
   }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }>;
   getWhatsAppMessageLogByMessageId(companyId: string, messageId: string): Promise<WhatsAppMessageLogRecord | undefined>;
+  getWhatsAppMessagesForLead(companyId: string, leadId: string, phoneLast10?: string | null): Promise<WhatsAppMessageLogRecord[]>;
   createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord>;
   updateWhatsAppMessageLog(id: string, updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined>;
   
@@ -3910,6 +3911,7 @@ export class MemStorage implements IStorage {
   async upsertWhatsAppMessageTemplate(_companyId: string, _callResponse: string, _data: any): Promise<any> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async getWhatsAppMessageLogs(_companyId: string, _options?: { limit?: number; offset?: number; businessNumber?: string; outcome?: string; search?: string; fromDate?: Date; toDate?: Date; uniqueByPhone?: boolean; allocatedTo?: string; direction?: string; sentByUserId?: string; }): Promise<{ logs: WhatsAppMessageLogRecord[]; total: number }> { return { logs: [], total: 0 }; }
   async getWhatsAppMessageLogByMessageId(_companyId: string, _messageId: string): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
+  async getWhatsAppMessagesForLead(_companyId: string, _leadId: string, _phoneLast10?: string | null): Promise<WhatsAppMessageLogRecord[]> { return []; }
   async createWhatsAppMessageLog(_log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> { throw new Error("WhatsApp not implemented in MemStorage"); }
   async updateWhatsAppMessageLog(_id: string, _updates: Partial<WhatsAppMessageLogRecord>): Promise<WhatsAppMessageLogRecord | undefined> { return undefined; }
   async getLeadsForSheet(sheetId: string): Promise<Lead[]> {
@@ -12594,6 +12596,21 @@ export class PgStorage implements IStorage {
       ))
       .limit(1);
     return result[0];
+  }
+
+  async getWhatsAppMessagesForLead(companyId: string, leadId: string, phoneLast10?: string | null): Promise<WhatsAppMessageLogRecord[]> {
+    const matchClauses: any[] = [eq(dbSchema.whatsapp_message_logs.lead_id, leadId)];
+    if (phoneLast10 && phoneLast10.length > 0) {
+      matchClauses.push(eq(dbSchema.whatsapp_message_logs.sender_phone, phoneLast10));
+    }
+    const logs = await db.select()
+      .from(dbSchema.whatsapp_message_logs)
+      .where(and(
+        eq(dbSchema.whatsapp_message_logs.company_id, companyId),
+        or(...matchClauses)
+      ))
+      .orderBy(dbSchema.whatsapp_message_logs.processed_at);
+    return logs;
   }
 
   async createWhatsAppMessageLog(log: InsertWhatsAppMessageLogData): Promise<WhatsAppMessageLogRecord> {

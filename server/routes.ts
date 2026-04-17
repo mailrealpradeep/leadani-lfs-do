@@ -10695,6 +10695,56 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Get WhatsApp conversation (incoming + outgoing) for a single lead
+  app.get("/api/leads/:id/whatsapp-messages", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      const sheet = await storage.getSheet(lead.sheet_id);
+      if (!sheet) {
+        return res.status(404).json({ error: "Sheet not found" });
+      }
+
+      const hasAccess = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Build a phone-last-10 from the lead's typical phone fields
+      const cf: any = lead.custom_fields || {};
+      const phoneCandidates = [cf.mobile_no, cf.mobile, cf.phone, cf.whatsapp_no, cf.whatsapp]
+        .filter((v) => v != null && String(v).trim().length > 0)
+        .map((v) => String(v).replace(/\D/g, "").slice(-10))
+        .filter((d) => d.length === 10);
+      const phoneLast10 = phoneCandidates[0] || null;
+
+      const messages = await storage.getWhatsAppMessagesForLead(sheet.company_id, lead.id, phoneLast10);
+
+      // Enrich outgoing messages with sender name
+      const senderIds = Array.from(new Set(
+        messages.map(m => m.sent_by_user_id).filter((v): v is string => !!v)
+      ));
+      const senderMap = new Map<string, string>();
+      if (senderIds.length > 0) {
+        const users = await storage.getUsersByIds(senderIds);
+        users.filter(u => u.company_id === sheet.company_id).forEach(u => senderMap.set(u.id, u.name));
+      }
+
+      const enriched = messages.map((m) => ({
+        ...m,
+        sent_by_name: m.sent_by_user_id ? senderMap.get(m.sent_by_user_id) || null : null,
+      }));
+
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Get lead whatsapp messages error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/leads/:id/updates", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const lead = await storage.getLead(req.params.id);

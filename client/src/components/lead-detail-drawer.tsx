@@ -15,7 +15,9 @@ import {
   Star,
   Activity,
   TrendingUp,
-  Loader2
+  Loader2,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -48,6 +50,21 @@ type LeadUpdateWithUser = LeadUpdate & {
   created_by_first_name?: string | null;
 };
 
+type WhatsAppLeadMessage = {
+  id: string;
+  direction: "incoming" | "outgoing";
+  sender_phone: string;
+  sender_name: string | null;
+  display_phone_number: string;
+  message_text: string | null;
+  message_type: string;
+  outcome: string;
+  processed_at: string;
+  sent_by_user_id: string | null;
+  sent_by_name?: string | null;
+  outcome_details?: Record<string, any> | null;
+};
+
 export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDetailDrawerProps) {
   const { formatDateOnly, formatDateTime, formatInTimezone } = useCompanyTimezone();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -63,6 +80,11 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
 
   const { data: updates = [] } = useQuery<LeadUpdateWithUser[]>({
     queryKey: ["/api/leads", leadId, "updates"],
+    enabled: !!leadId && open,
+  });
+
+  const { data: waMessages = [], isLoading: waLoading } = useQuery<WhatsAppLeadMessage[]>({
+    queryKey: ["/api/leads", leadId, "whatsapp-messages"],
     enabled: !!leadId && open,
   });
 
@@ -418,6 +440,97 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                             <ChevronRight className="h-4 w-4 ml-1" />
                           </Button>
                         )}
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  {/* WhatsApp Conversation */}
+                  <div data-testid="section-whatsapp-conversation">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                        <MessageCircle className="h-3.5 w-3.5 text-green-600" />
+                        WhatsApp Conversation
+                        {waMessages.length > 0 && (
+                          <span className="text-xs text-muted-foreground normal-case font-normal">
+                            ({waMessages.length})
+                          </span>
+                        )}
+                      </h3>
+                    </div>
+
+                    {waLoading ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-16 w-full" />
+                        <Skeleton className="h-16 w-3/4" />
+                      </div>
+                    ) : waMessages.length === 0 ? (
+                      <div className="text-center py-6 text-muted-foreground bg-muted/30 rounded-lg">
+                        <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No WhatsApp messages yet</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {waMessages.map((msg) => {
+                          const isOutgoing = msg.direction === "outgoing";
+                          const bodyText =
+                            msg.message_text ||
+                            (msg.message_type === "template"
+                              ? `[Template: ${msg.outcome_details?.template_name || msg.outcome_details?.approved_template_name || "approved"}]`
+                              : `[${msg.message_type}]`);
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`p-3 rounded-lg border ${
+                                isOutgoing
+                                  ? "bg-green-500/5 border-green-500/20 ml-4"
+                                  : "bg-muted/30 mr-4"
+                              }`}
+                              data-testid={`wa-message-${msg.id}`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                {isOutgoing ? (
+                                  <ArrowUpRight className="h-3 w-3 text-green-600" />
+                                ) : (
+                                  <ArrowDownLeft className="h-3 w-3 text-blue-500" />
+                                )}
+                                <span className="text-xs font-medium">
+                                  {isOutgoing ? "Sent" : "Received"}
+                                </span>
+                                <Badge variant="secondary" className="text-[10px] font-normal">
+                                  {msg.message_type}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground ml-auto">
+                                  {formatInTimezone(msg.processed_at, "MMM d, h:mm a")}
+                                </span>
+                              </div>
+                              {bodyText && (
+                                <p className="text-sm text-foreground/80 whitespace-pre-wrap break-words">
+                                  {bodyText}
+                                </p>
+                              )}
+                              <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
+                                {isOutgoing ? (
+                                  <>
+                                    <div data-testid={`wa-message-meta-${msg.id}`}>
+                                      To {msg.sender_phone}
+                                      {msg.sent_by_name ? ` · by ${msg.sent_by_name}` : ""}
+                                    </div>
+                                    <div>From business {msg.display_phone_number}</div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div data-testid={`wa-message-meta-${msg.id}`}>
+                                      From {msg.sender_name || msg.sender_phone}
+                                    </div>
+                                    <div>To business {msg.display_phone_number}</div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

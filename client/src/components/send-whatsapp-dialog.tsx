@@ -165,6 +165,7 @@ export function SendWhatsAppDialog({
       });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "updates"] });
       queryClient.invalidateQueries({ queryKey: [`/api/leads/${leadId}/updates`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "whatsapp-messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       onOpenChange(false);
     },
