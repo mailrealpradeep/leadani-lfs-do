@@ -7751,13 +7751,6 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const access = await hasSheetAccess(req.userId!, req.userRole!, req.companyId || null, lead.sheet_id);
       if (!access) return res.status(403).json({ error: "Access denied" });
 
-      if (req.userRole !== "super_admin" && req.userRole !== "company_admin") {
-        const sheetUser = await storage.getSheetUser(lead.sheet_id, req.userId!);
-        if (sheetUser && sheetUser.role === "viewer") {
-          return res.status(403).json({ error: "Viewers cannot send WhatsApp messages" });
-        }
-      }
-
       const { call_response, send_from_phone, recipient_phone, message_text } = req.body || {};
       const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
       type WhatsAppCallResponse = typeof WHATSAPP_CALL_RESPONSES[number];
