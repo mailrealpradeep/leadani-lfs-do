@@ -743,6 +743,15 @@ export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;
 // ============================================================================
 export type WhatsAppDeliveryStatus = "sent" | "delivered" | "read" | "failed";
 
+export interface WhatsAppTemplateSendInfo {
+  name: string;
+  language: string;
+  variables: string[];
+  body?: string | null;
+  call_response?: string | null;
+  call_response_label?: string | null;
+}
+
 export interface LeadUpdate {
   id: string;
   lead_id: string;
@@ -755,7 +764,17 @@ export interface LeadUpdate {
   whatsapp_status?: WhatsAppDeliveryStatus | null;
   whatsapp_status_at?: string | null;
   whatsapp_error?: string | null;
+  whatsapp_template?: WhatsAppTemplateSendInfo | null;
 }
+
+export const whatsAppTemplateSendInfoSchema = z.object({
+  name: z.string(),
+  language: z.string(),
+  variables: z.array(z.string()),
+  body: z.string().nullable().optional(),
+  call_response: z.string().nullable().optional(),
+  call_response_label: z.string().nullable().optional(),
+});
 
 export const insertLeadUpdateSchema = z.object({
   lead_id: z.string(),
@@ -767,6 +786,7 @@ export const insertLeadUpdateSchema = z.object({
   whatsapp_status: z.enum(["sent", "delivered", "read", "failed"]).nullable().optional(),
   whatsapp_status_at: z.union([z.string(), z.date()]).nullable().optional(),
   whatsapp_error: z.string().nullable().optional(),
+  whatsapp_template: whatsAppTemplateSendInfoSchema.nullable().optional(),
 });
 
 export type InsertLeadUpdate = z.infer<typeof insertLeadUpdateSchema>;
@@ -1156,6 +1176,7 @@ export const lead_updates = pgTable('lead_updates', {
   whatsapp_status: varchar('whatsapp_status', { length: 32 }),
   whatsapp_status_at: timestamp('whatsapp_status_at'),
   whatsapp_error: text('whatsapp_error'),
+  whatsapp_template: json('whatsapp_template').$type<WhatsAppTemplateSendInfo>(),
 }, (table) => ({
   waMsgIdIdx: index('lead_updates_wa_message_id_idx').on(table.whatsapp_message_id),
 }));

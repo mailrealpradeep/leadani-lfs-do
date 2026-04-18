@@ -47,6 +47,10 @@ import { LeadEditDialog } from "./lead-edit-dialog";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { SendWhatsAppDialog } from "./send-whatsapp-dialog";
+import {
+  WhatsAppTemplateUpdateCard,
+  parseTemplateFromUpdate,
+} from "./whatsapp-template-update-card";
 
 interface LeadDetailDrawerProps {
   leadId: string | null;
@@ -449,45 +453,55 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {updates.slice(0, 5).map((update) => (
-                          <div
-                            key={update.id}
-                            className="p-3 bg-muted/30 rounded-lg border"
-                            data-testid={`update-${update.id}`}
-                          >
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
-                              {update.update_via === "call" ? (
-                                <Phone className="h-3 w-3 text-blue-500" />
-                              ) : (
-                                <MessageCircle className="h-3 w-3 text-green-500" />
-                              )}
-                              <span className="text-xs font-medium capitalize">
-                                {update.update_via}
-                              </span>
-                              {update.update_via === "whatsapp_outgoing" && update.whatsapp_status && (
-                                <WhatsAppDeliveryPill
-                                  status={update.whatsapp_status}
-                                  statusAt={update.whatsapp_status_at ?? null}
-                                  errorText={update.whatsapp_error ?? null}
-                                  formatInTimezone={formatInTimezone}
+                        {updates.slice(0, 5).map((update) => {
+                          const templateInfo = parseTemplateFromUpdate(update);
+                          return (
+                            <div
+                              key={update.id}
+                              className="p-3 bg-muted/30 rounded-lg border"
+                              data-testid={`update-${update.id}`}
+                            >
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                {update.update_via === "call" ? (
+                                  <Phone className="h-3 w-3 text-blue-500" />
+                                ) : (
+                                  <MessageCircle className="h-3 w-3 text-green-500" />
+                                )}
+                                <span className="text-xs font-medium capitalize">
+                                  {update.update_via}
+                                </span>
+                                {update.update_via === "whatsapp_outgoing" && update.whatsapp_status && (
+                                  <WhatsAppDeliveryPill
+                                    status={update.whatsapp_status}
+                                    statusAt={update.whatsapp_status_at ?? null}
+                                    errorText={update.whatsapp_error ?? null}
+                                    formatInTimezone={formatInTimezone}
+                                  />
+                                )}
+                                <span className="text-xs text-muted-foreground ml-auto">
+                                  {formatInTimezone(update.created_at, "MMM d, h:mm a")}
+                                </span>
+                              </div>
+                              {templateInfo ? (
+                                <WhatsAppTemplateUpdateCard
+                                  template={templateInfo.template}
+                                  variant="compact"
                                 />
+                              ) : (
+                                update.remark && (
+                                  <p className="text-sm text-foreground/80 line-clamp-2">
+                                    {update.remark}
+                                  </p>
+                                )
                               )}
-                              <span className="text-xs text-muted-foreground ml-auto">
-                                {formatInTimezone(update.created_at, "MMM d, h:mm a")}
-                              </span>
+                              {update.created_by_first_name && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  by {update.created_by_first_name}
+                                </p>
+                              )}
                             </div>
-                            {update.remark && (
-                              <p className="text-sm text-foreground/80 line-clamp-2">
-                                {update.remark}
-                              </p>
-                            )}
-                            {update.created_by_first_name && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                by {update.created_by_first_name}
-                              </p>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                         {updates.length > 5 && (
                           <Button
                             variant="ghost"

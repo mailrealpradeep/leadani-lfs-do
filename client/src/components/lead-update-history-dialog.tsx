@@ -9,6 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Trash2, Phone, MessageSquare, ArrowRightLeft, MapPin } from "lucide-react";
+import {
+  WhatsAppTemplateUpdateCard,
+  parseTemplateFromUpdate,
+} from "./whatsapp-template-update-card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -89,6 +93,7 @@ export function LeadUpdateHistoryDialog({
               {updates.map((update, index) => {
                 // Serial number: most recent (top) has highest number
                 const serialNo = updates.length - index;
+                const templateInfo = parseTemplateFromUpdate(update);
                 
                 return (
                   <div
@@ -136,9 +141,13 @@ export function LeadUpdateHistoryDialog({
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-foreground whitespace-pre-wrap break-words">
-                        {update.remark}
-                      </p>
+                      {templateInfo ? (
+                        <WhatsAppTemplateUpdateCard template={templateInfo.template} />
+                      ) : (
+                        <p className="text-sm text-foreground whitespace-pre-wrap break-words">
+                          {update.remark}
+                        </p>
+                      )}
                     </div>
                     
                     {/* Delete Button */}

@@ -8033,6 +8033,16 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         whatsapp_message_id: sendResult.messageId || null,
         whatsapp_status: "sent",
         whatsapp_status_at: sentAt,
+        whatsapp_template: isApproved
+          ? {
+              name: String(template.approved_template_name || "").trim(),
+              language: tplLang,
+              variables: resolvedVariables,
+              body: sourceText.trim().length > 0 ? substitute(sourceText) : null,
+              call_response,
+              call_response_label: label,
+            }
+          : null,
       });
 
       await storage.markLeadAttended(lead.id, req.userId!);
