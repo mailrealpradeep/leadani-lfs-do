@@ -2852,10 +2852,42 @@ interface MessageTemplateRow {
   enabled: boolean;
 }
 
+const COMMON_TEMPLATE_LANGUAGES: { code: string; label: string }[] = [
+  { code: "en", label: "English (en)" },
+  { code: "en_US", label: "English — US (en_US)" },
+  { code: "en_GB", label: "English — UK (en_GB)" },
+  { code: "hi", label: "Hindi (hi)" },
+  { code: "hi_IN", label: "Hindi — India (hi_IN)" },
+  { code: "mr", label: "Marathi (mr)" },
+  { code: "gu", label: "Gujarati (gu)" },
+  { code: "ta", label: "Tamil (ta)" },
+  { code: "te", label: "Telugu (te)" },
+  { code: "kn", label: "Kannada (kn)" },
+  { code: "ml", label: "Malayalam (ml)" },
+  { code: "bn", label: "Bengali (bn)" },
+  { code: "pa", label: "Punjabi (pa)" },
+  { code: "ur", label: "Urdu (ur)" },
+  { code: "ar", label: "Arabic (ar)" },
+  { code: "es", label: "Spanish (es)" },
+  { code: "es_ES", label: "Spanish — Spain (es_ES)" },
+  { code: "es_MX", label: "Spanish — Mexico (es_MX)" },
+  { code: "pt_BR", label: "Portuguese — Brazil (pt_BR)" },
+  { code: "pt_PT", label: "Portuguese — Portugal (pt_PT)" },
+  { code: "fr", label: "French (fr)" },
+  { code: "de", label: "German (de)" },
+  { code: "it", label: "Italian (it)" },
+  { code: "id", label: "Indonesian (id)" },
+  { code: "ja", label: "Japanese (ja)" },
+  { code: "ko", label: "Korean (ko)" },
+  { code: "zh_CN", label: "Chinese — Simplified (zh_CN)" },
+  { code: "zh_TW", label: "Chinese — Traditional (zh_TW)" },
+];
+
 function MessageTemplatesPanel() {
   const { toast } = useToast();
   const [rows, setRows] = useState<MessageTemplateRow[]>([]);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [languageOtherMode, setLanguageOtherMode] = useState<Record<string, boolean>>({});
 
   const { data, isLoading } = useQuery<{ templates: MessageTemplateRow[] }>({
     queryKey: ["/api/admin/company/whatsapp/message-templates"],
@@ -2968,12 +3000,50 @@ function MessageTemplatesPanel() {
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Language Code</Label>
-                    <Input
-                      value={row.approved_template_language}
-                      onChange={(e) => updateRow(row.call_response, { approved_template_language: e.target.value })}
-                      placeholder="en_US"
-                      data-testid={`input-approved-language-${row.call_response}`}
-                    />
+                    {(() => {
+                      const currentValue = row.approved_template_language || "";
+                      const isKnown = COMMON_TEMPLATE_LANGUAGES.some((l) => l.code === currentValue);
+                      const otherMode = languageOtherMode[row.call_response] ?? (currentValue !== "" && !isKnown);
+                      const selectValue = otherMode ? "__other__" : isKnown ? currentValue : "";
+                      return (
+                        <>
+                          <Select
+                            value={selectValue}
+                            onValueChange={(val) => {
+                              if (val === "__other__") {
+                                setLanguageOtherMode((prev) => ({ ...prev, [row.call_response]: true }));
+                              } else {
+                                setLanguageOtherMode((prev) => ({ ...prev, [row.call_response]: false }));
+                                updateRow(row.call_response, { approved_template_language: val });
+                              }
+                            }}
+                          >
+                            <SelectTrigger data-testid={`select-approved-language-${row.call_response}`}>
+                              <SelectValue placeholder="Select a language" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {COMMON_TEMPLATE_LANGUAGES.map((l) => (
+                                <SelectItem key={l.code} value={l.code} data-testid={`option-approved-language-${row.call_response}-${l.code}`}>
+                                  {l.label}
+                                </SelectItem>
+                              ))}
+                              <SelectItem value="__other__" data-testid={`option-approved-language-${row.call_response}-other`}>
+                                Other…
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {selectValue === "__other__" && (
+                            <Input
+                              value={currentValue}
+                              onChange={(e) => updateRow(row.call_response, { approved_template_language: e.target.value })}
+                              placeholder="e.g. en_US"
+                              className="mt-2"
+                              data-testid={`input-approved-language-${row.call_response}`}
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
                     <div className="text-xs text-muted-foreground">
                       Must match the language of the approved template in Meta Business Manager (e.g. <code>en_US</code>, <code>en</code>, <code>hi</code>).
                     </div>
