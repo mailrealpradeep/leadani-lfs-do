@@ -687,33 +687,70 @@ function TemplateMessageEditor({ template, onClose }: { template: SailaTemplate;
 function KeywordsTab() {
   const { toast } = useToast();
   const { data: keywords = [] } = useQuery<SailaKeyword[]>({ queryKey: ["/api/saila/keywords"] });
-  const [showCreate, setShowCreate] = useState(false);
-  const [newKeyword, setNewKeyword] = useState({ keyword: "", match_type: "contains", response_text: "", priority: 0 });
-  const [isCreating, setIsCreating] = useState(false);
+  const emptyForm = { keyword: "", match_type: "contains", response_text: "", priority: 0 };
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formValues, setFormValues] = useState(emptyForm);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const parsedKeywords = newKeyword.keyword
-    .split(",")
-    .map(k => k.trim())
-    .filter(k => k.length > 0);
+  const isEditing = editingId !== null;
+  const parsedKeywords = isEditing
+    ? [formValues.keyword.trim()].filter(k => k.length > 0)
+    : formValues.keyword.split(",").map(k => k.trim()).filter(k => k.length > 0);
 
-  const handleCreate = async () => {
+  const openCreate = () => {
+    setEditingId(null);
+    setFormValues(emptyForm);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (kw: SailaKeyword) => {
+    setEditingId(kw.id);
+    setFormValues({
+      keyword: kw.keyword,
+      match_type: kw.match_type,
+      response_text: kw.response_text ?? "",
+      priority: kw.priority,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleDialogOpenChange = (next: boolean) => {
+    setDialogOpen(next);
+    if (!next) {
+      setEditingId(null);
+      setFormValues(emptyForm);
+    }
+  };
+
+  const handleSubmit = async () => {
     if (parsedKeywords.length === 0) return;
-    setIsCreating(true);
+    setIsSaving(true);
     try {
-      await Promise.all(
-        parsedKeywords.map(kw =>
-          apiRequest("POST", "/api/saila/keywords", { ...newKeyword, keyword: kw })
-        )
-      );
-      await queryClient.invalidateQueries({ queryKey: ["/api/saila/keywords"] });
-      const count = parsedKeywords.length;
-      toast({ title: count === 1 ? "Keyword added" : `${count} keywords added` });
-      setShowCreate(false);
-      setNewKeyword({ keyword: "", match_type: "contains", response_text: "", priority: 0 });
+      if (isEditing && editingId) {
+        await apiRequest("PUT", `/api/saila/keywords/${editingId}`, {
+          keyword: formValues.keyword.trim(),
+          match_type: formValues.match_type,
+          response_text: formValues.response_text,
+          priority: formValues.priority,
+        });
+        await queryClient.invalidateQueries({ queryKey: ["/api/saila/keywords"] });
+        toast({ title: "Keyword updated" });
+      } else {
+        await Promise.all(
+          parsedKeywords.map(kw =>
+            apiRequest("POST", "/api/saila/keywords", { ...formValues, keyword: kw })
+          )
+        );
+        await queryClient.invalidateQueries({ queryKey: ["/api/saila/keywords"] });
+        const count = parsedKeywords.length;
+        toast({ title: count === 1 ? "Keyword added" : `${count} keywords added` });
+      }
+      handleDialogOpenChange(false);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
-      setIsCreating(false);
+      setIsSaving(false);
     }
   };
 
@@ -739,7 +776,7 @@ function KeywordsTab() {
           <h3 className="text-lg font-semibold">Keyword Matching</h3>
           <p className="text-sm text-muted-foreground">Define keywords that trigger specific responses</p>
         </div>
-        <Button onClick={() => setShowCreate(true)} data-testid="button-add-keyword">
+        <Button onClick={openCreate} data-testid="button-add-keyword">
           <Plus className="h-4 w-4 mr-2" />
           Add Keyword
         </Button>
@@ -771,7 +808,22 @@ function KeywordsTab() {
                   checked={kw.enabled}
                   onCheckedChange={(checked) => toggleMutation.mutate({ id: kw.id, enabled: checked })}
                 />
-                <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(kw.id)}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => openEdit(kw)}
+                  data-testid={`button-edit-keyword-${kw.id}`}
+                  aria-label="Edit keyword"
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => deleteMutation.mutate(kw.id)}
+                  data-testid={`button-delete-keyword-${kw.id}`}
+                  aria-label="Delete keyword"
+                >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </CardContent>
@@ -780,24 +832,26 @@ function KeywordsTab() {
         </div>
       )}
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Keyword Rule</DialogTitle>
+            <DialogTitle>{isEditing ? "Edit Keyword" : "Add Keyword Rule"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Keyword(s)</Label>
+              <Label>{isEditing ? "Keyword" : "Keyword(s)"}</Label>
               <Input
-                value={newKeyword.keyword}
-                onChange={(e) => setNewKeyword(prev => ({ ...prev, keyword: e.target.value }))}
-                placeholder="e.g. hi, Hi, Hey, hiii"
+                value={formValues.keyword}
+                onChange={(e) => setFormValues(prev => ({ ...prev, keyword: e.target.value }))}
+                placeholder={isEditing ? "Trigger text" : "e.g. hi, Hi, Hey, hiii"}
                 data-testid="input-keyword"
               />
-              <p className="text-xs text-muted-foreground">
-                Separate multiple keywords with commas — each gets its own rule with the same response.
-              </p>
-              {parsedKeywords.length > 1 && (
+              {!isEditing && (
+                <p className="text-xs text-muted-foreground">
+                  Separate multiple keywords with commas — each gets its own rule with the same response.
+                </p>
+              )}
+              {!isEditing && parsedKeywords.length > 1 && (
                 <div className="flex items-center gap-1 flex-wrap">
                   <span className="text-xs text-muted-foreground">{parsedKeywords.length} keywords:</span>
                   {parsedKeywords.map((kw, i) => (
@@ -809,8 +863,8 @@ function KeywordsTab() {
             <div className="space-y-2">
               <Label>Match Type</Label>
               <Select
-                value={newKeyword.match_type}
-                onValueChange={(val) => setNewKeyword(prev => ({ ...prev, match_type: val }))}
+                value={formValues.match_type}
+                onValueChange={(val) => setFormValues(prev => ({ ...prev, match_type: val }))}
               >
                 <SelectTrigger data-testid="select-match-type">
                   <SelectValue />
@@ -825,8 +879,8 @@ function KeywordsTab() {
             <div className="space-y-2">
               <Label>Response Text</Label>
               <Textarea
-                value={newKeyword.response_text}
-                onChange={(e) => setNewKeyword(prev => ({ ...prev, response_text: e.target.value }))}
+                value={formValues.response_text}
+                onChange={(e) => setFormValues(prev => ({ ...prev, response_text: e.target.value }))}
                 placeholder="Quick response for this keyword..."
                 rows={3}
                 data-testid="input-keyword-response"
@@ -836,20 +890,26 @@ function KeywordsTab() {
               <Label>Priority (higher = checked first)</Label>
               <Input
                 type="number"
-                value={newKeyword.priority}
-                onChange={(e) => setNewKeyword(prev => ({ ...prev, priority: parseInt(e.target.value) || 0 }))}
+                value={formValues.priority}
+                onChange={(e) => setFormValues(prev => ({ ...prev, priority: parseInt(e.target.value) || 0 }))}
                 data-testid="input-keyword-priority"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => handleDialogOpenChange(false)}>Cancel</Button>
             <Button
-              onClick={handleCreate}
-              disabled={parsedKeywords.length === 0 || isCreating}
+              onClick={handleSubmit}
+              disabled={parsedKeywords.length === 0 || isSaving}
               data-testid="button-confirm-keyword"
             >
-              {isCreating ? "Adding..." : parsedKeywords.length > 1 ? `Add ${parsedKeywords.length} Keywords` : "Add"}
+              {isSaving
+                ? (isEditing ? "Saving..." : "Adding...")
+                : isEditing
+                  ? "Save Changes"
+                  : parsedKeywords.length > 1
+                    ? `Add ${parsedKeywords.length} Keywords`
+                    : "Add"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2018,7 +2078,7 @@ export default function SailaAI() {
         </div>
 
         <Tabs defaultValue="settings">
-          <TabsList className="grid grid-cols-8 w-full" data-testid="tabs-saila">
+          <TabsList className="grid grid-cols-5 sm:grid-cols-9 w-full h-auto gap-1" data-testid="tabs-saila">
             <TabsTrigger value="settings" className="text-xs sm:text-sm" data-testid="tab-settings">
               <Settings className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Settings</span>
