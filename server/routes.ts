@@ -7808,6 +7808,39 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     }
   });
 
+  // Live lookup of an approved template's expected body-variable count from
+  // Meta/Wauper. Used by the admin UI to show "Meta expects N variables"
+  // inline next to the template-name input so admins can configure the
+  // matching count without hitting Save first.
+  app.get("/api/admin/company/whatsapp/template-metadata", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });
+      const name = String(req.query.name ?? "").trim();
+      if (!name) return res.status(400).json({ error: "name is required" });
+      const language = req.query.language != null ? String(req.query.language) : undefined;
+      const sailaConfig = await storage.getSailaConfig(req.companyId);
+      if (!sailaConfig) {
+        return res.json({ ok: false, reason: "no_config" });
+      }
+      const cloudConfigs = await db
+        .select()
+        .from(dbSchema.whatsapp_cloud_config)
+        .where(eq(dbSchema.whatsapp_cloud_config.company_id, req.companyId));
+      const cloudConfig = cloudConfigs.find((c: any) => c.access_token && c.waba_id) || cloudConfigs[0];
+      const accessToken = cloudConfig?.access_token || null;
+      const wabaId = cloudConfig?.waba_id || null;
+      if (!accessToken || !wabaId) {
+        return res.json({ ok: false, reason: !accessToken ? "no_access_token" : "no_waba_id" });
+      }
+      const { fetchApprovedTemplateMetadata } = await import("./saila-engine");
+      const meta = await fetchApprovedTemplateMetadata(sailaConfig, accessToken, wabaId, name, language);
+      res.json(meta);
+    } catch (error: any) {
+      console.error("Get WhatsApp template metadata error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.put("/api/admin/company/whatsapp/message-templates/:callResponse", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       if (!req.companyId) return res.status(403).json({ error: "Must belong to a company" });

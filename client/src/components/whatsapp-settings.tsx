@@ -2917,6 +2917,99 @@ const COMMON_TEMPLATE_LANGUAGES: { code: string; label: string }[] = [
   { code: "zh_TW", label: "Chinese — Traditional (zh_TW)" },
 ];
 
+type TemplateMetaResult =
+  | { ok: true; expectedVariableCount: number; matchedLanguage: string }
+  | { ok: false; reason: string; error?: string };
+
+function ApprovedTemplateMetaHint({
+  name,
+  language,
+  configuredCount,
+}: {
+  name: string;
+  language: string;
+  configuredCount: number;
+}) {
+  const trimmedName = name.trim();
+  const [debouncedName, setDebouncedName] = useState(trimmedName);
+  const [debouncedLang, setDebouncedLang] = useState(language);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedName(trimmedName);
+      setDebouncedLang(language);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [trimmedName, language]);
+
+  const enabled = debouncedName.length > 0;
+  const params = new URLSearchParams();
+  if (debouncedName) params.set("name", debouncedName);
+  if (debouncedLang) params.set("language", debouncedLang);
+
+  const { data, isLoading, isFetching, isError } = useQuery<TemplateMetaResult>({
+    queryKey: ["/api/admin/company/whatsapp/template-metadata", debouncedName, debouncedLang],
+    queryFn: () =>
+      apiRequest<TemplateMetaResult>(
+        "GET",
+        `/api/admin/company/whatsapp/template-metadata?${params.toString()}`,
+      ),
+    enabled,
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  if (!enabled) return null;
+
+  const stillDebouncing = trimmedName !== debouncedName || language !== debouncedLang;
+  if (isLoading || isFetching || stillDebouncing) {
+    return (
+      <div className="text-xs text-muted-foreground" data-testid={`hint-meta-loading-${name}`}>
+        Checking Meta for expected variable count…
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="text-xs text-muted-foreground" data-testid="hint-meta-error">
+        Couldn't reach Meta to check the expected variable count.
+      </div>
+    );
+  }
+
+  if (!data.ok) {
+    if (data.reason === "not_found") {
+      return (
+        <div className="text-xs text-destructive" data-testid="hint-meta-not-found">
+          Meta has no approved template named "{debouncedName}"{debouncedLang ? ` in ${debouncedLang}` : ""}.
+        </div>
+      );
+    }
+    if (data.reason === "no_waba_id" || data.reason === "no_access_token" || data.reason === "no_config") {
+      return (
+        <div className="text-xs text-muted-foreground" data-testid="hint-meta-not-configured">
+          Connect the WhatsApp Cloud API to see Meta's expected variable count.
+        </div>
+      );
+    }
+    return (
+      <div className="text-xs text-muted-foreground" data-testid="hint-meta-unavailable">
+        Couldn't fetch Meta's expected variable count.
+      </div>
+    );
+  }
+
+  const expected = data.expectedVariableCount;
+  if (configuredCount === expected) return null;
+
+  return (
+    <div className="text-xs text-amber-600 dark:text-amber-500" data-testid="hint-meta-mismatch">
+      Meta expects {expected} variable{expected === 1 ? "" : "s"} (you have {configuredCount}).
+    </div>
+  );
+}
+
 function MessageTemplatesPanel() {
   const { toast } = useToast();
   const [rows, setRows] = useState<MessageTemplateRow[]>([]);
@@ -3030,6 +3123,15 @@ function MessageTemplatesPanel() {
                       onChange={(e) => updateRow(row.call_response, { approved_template_name: e.target.value })}
                       placeholder="e.g. follow_up_v1"
                       data-testid={`input-approved-name-${row.call_response}`}
+                    />
+                    <ApprovedTemplateMetaHint
+                      name={row.approved_template_name || ""}
+                      language={row.approved_template_language || ""}
+                      configuredCount={
+                        row.approved_template_variable_count != null
+                          ? row.approved_template_variable_count
+                          : (row.approved_template_variables || []).length
+                      }
                     />
                   </div>
                 )}
