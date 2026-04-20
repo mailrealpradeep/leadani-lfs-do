@@ -349,7 +349,26 @@ export function WhatsAppInlineComposer({
           setMessageText(e.target.value);
           setTouched(true);
         }}
-        placeholder={isApprovedTemplate ? "Recorded body text (Meta uses the approved template)" : "Type your reply…"}
+        onKeyDown={(e) => {
+          if (
+            e.key === "Enter" &&
+            !e.shiftKey &&
+            !e.altKey &&
+            !e.ctrlKey &&
+            !e.metaKey &&
+            !e.nativeEvent.isComposing
+          ) {
+            e.preventDefault();
+            if (canSend) {
+              sendMutation.mutate();
+            }
+          }
+        }}
+        placeholder={
+          isApprovedTemplate
+            ? "Recorded body text (Meta uses the approved template)"
+            : "Type your reply…  (Enter to send, Shift+Enter for newline)"
+        }
         className="text-sm resize-none"
         data-testid="textarea-composer-message"
       />

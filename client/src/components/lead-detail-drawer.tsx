@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Phone, 
@@ -169,7 +169,8 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
   const [addUpdateDialogOpen, setAddUpdateDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [sendWaOpen, setSendWaOpen] = useState(false);
-  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   const { data: lead, isLoading, isError, refetch, isFetching } = useQuery<Lead>({
     queryKey: ["/api/leads", leadId],
     enabled: !!leadId && open,
@@ -316,6 +317,17 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
   const handleRetry = () => {
     refetch();
   };
+
+  // Auto-scroll the conversation to the latest message when the drawer opens,
+  // when a new WhatsApp message arrives, or after a successful reply.
+  useEffect(() => {
+    if (!open || waLoading) return;
+    if (waMessages.length === 0) return;
+    const id = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [open, waLoading, waMessages.length]);
 
   const handleCall = () => {
     if (hasValidMobile) {
@@ -660,6 +672,7 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                             </div>
                           );
                         })}
+                        <div ref={messagesEndRef} data-testid="anchor-wa-conversation-end" />
                       </div>
                     )}
 
