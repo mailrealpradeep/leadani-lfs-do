@@ -47,6 +47,7 @@ import { LeadEditDialog } from "./lead-edit-dialog";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { SendWhatsAppDialog } from "./send-whatsapp-dialog";
+import { WhatsAppInlineComposer } from "./whatsapp-inline-composer";
 import {
   WhatsAppTemplateUpdateCard,
   parseTemplateFromUpdate,
@@ -605,6 +606,14 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                           );
                         })}
                       </div>
+                    )}
+
+                    {hasValidMobile && mobileNumber && (
+                      <WhatsAppInlineComposer
+                        leadId={leadId!}
+                        customerName={customerDisplayName}
+                        recipientPhone={mobileNumber}
+                      />
                     )}
                   </div>
                 </div>
