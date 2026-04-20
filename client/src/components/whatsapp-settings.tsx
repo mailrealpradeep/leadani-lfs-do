@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
+import { formatWhatsAppDuration, getWhatsAppDurationColorClass } from "@/lib/whatsapp-duration";
 import { useQuery, useQueries, useMutation } from "@tanstack/react-query";
 import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock, Search, ChevronLeft, ChevronRight, Calendar, ArrowLeftRight, Users, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -1786,21 +1787,12 @@ export function WhatsAppSettings() {
                                 const badge = getOutcomeBadge(log.outcome, log.outcome_details);
                                 const lines: string[] = [];
                                 const sentMs = log.processed_at ? new Date(log.processed_at).getTime() : NaN;
-                                const formatDelta = (toIso: string) => {
+                                const computeMsFromSent = (toIso: string) => {
                                   if (!Number.isFinite(sentMs)) return null;
                                   const ms = new Date(toIso).getTime() - sentMs;
-                                  if (!Number.isFinite(ms) || ms < 0) return null;
-                                  const sec = Math.round(ms / 1000);
-                                  if (sec < 60) return `${Math.max(1, sec)}s`;
-                                  const min = Math.round(sec / 60);
-                                  if (min < 60) return `${min}m`;
-                                  const hours = Math.floor(min / 60);
-                                  const remMin = min % 60;
-                                  if (hours < 24) return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
-                                  const days = Math.floor(hours / 24);
-                                  const remHours = hours % 24;
-                                  return remHours ? `${days}d ${remHours}h` : `${days}d`;
+                                  return Number.isFinite(ms) && ms >= 0 ? ms : null;
                                 };
+                                const formatDelta = (toIso: string) => formatWhatsAppDuration(computeMsFromSent(toIso));
                                 if (log.delivered_at) {
                                   const d = formatDelta(log.delivered_at);
                                   lines.push(`Delivered at ${formatInTimezone(log.delivered_at, "MMM d, h:mm a")}${d ? ` (in ${d})` : ""}`);
@@ -1816,16 +1808,21 @@ export function WhatsAppSettings() {
                                 if (lines.length === 0) return badge;
 
                                 let durationCaption: string | null = null;
+                                let durationMs: number | null = null;
                                 if (log.read_at) {
-                                  const d = formatDelta(log.read_at);
+                                  durationMs = computeMsFromSent(log.read_at);
+                                  const d = formatWhatsAppDuration(durationMs);
                                   durationCaption = d ? `Read in ${d}` : `Read ${formatInTimezone(log.read_at, "h:mm a")}`;
                                 } else if (log.delivered_at) {
-                                  const d = formatDelta(log.delivered_at);
+                                  durationMs = computeMsFromSent(log.delivered_at);
+                                  const d = formatWhatsAppDuration(durationMs);
                                   durationCaption = d ? `Delivered in ${d}` : `Delivered ${formatInTimezone(log.delivered_at, "h:mm a")}`;
                                 } else if (log.failed_at) {
-                                  const d = formatDelta(log.failed_at);
+                                  durationMs = computeMsFromSent(log.failed_at);
+                                  const d = formatWhatsAppDuration(durationMs);
                                   durationCaption = d ? `Failed after ${d}` : `Failed ${formatInTimezone(log.failed_at, "h:mm a")}`;
                                 }
+                                const durationColorClass = getWhatsAppDurationColorClass(durationMs);
 
                                 return (
                                   <div className="flex flex-col gap-1">
@@ -1841,7 +1838,7 @@ export function WhatsAppSettings() {
                                     </Tooltip>
                                     {durationCaption && (
                                       <div
-                                        className="text-[10px] text-muted-foreground leading-tight"
+                                        className={`text-[10px] leading-tight ${durationColorClass}`}
                                         data-testid={`outcome-duration-${log.id}`}
                                       >
                                         {durationCaption}

@@ -30,6 +30,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatWhatsAppDuration as formatShortDuration, getWhatsAppDurationColorClass } from "@/lib/whatsapp-duration";
 import {
   Sheet,
   SheetContent,
@@ -130,20 +131,6 @@ function WhatsAppDeliveryPill({
   );
 }
 
-function formatShortDuration(ms: number): string | null {
-  if (!Number.isFinite(ms) || ms < 0) return null;
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return `${Math.max(1, sec)}s`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m`;
-  const hours = Math.floor(min / 60);
-  const remMin = min % 60;
-  if (hours < 24) return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours ? `${days}d ${remHours}h` : `${days}d`;
-}
-
 function diffMs(fromIso: string | null | undefined, toIso: string | null | undefined): number | null {
   if (!fromIso || !toIso) return null;
   const from = new Date(fromIso).getTime();
@@ -200,20 +187,22 @@ function WhatsAppOutgoingStatusIndicator({
   if (readAtLabel) tooltipLines.push(`Read at ${readAtLabel}`);
 
   let durationLabel: string | null = null;
+  let durationMs: number | null = null;
   if (outcome === "read") {
-    const ms = diffMs(sentAtIso, readAtIso);
-    const d = ms !== null ? formatShortDuration(ms) : null;
+    durationMs = diffMs(sentAtIso, readAtIso);
+    const d = formatShortDuration(durationMs);
     if (d) durationLabel = `Read in ${d}`;
   } else if (outcome === "delivered") {
-    const ms = diffMs(sentAtIso, deliveredAtIso);
-    const d = ms !== null ? formatShortDuration(ms) : null;
+    durationMs = diffMs(sentAtIso, deliveredAtIso);
+    const d = formatShortDuration(durationMs);
     if (d) durationLabel = `Delivered in ${d}`;
   } else if (outcome === "failed") {
-    const ms = diffMs(sentAtIso, failedAtIso);
-    const d = ms !== null ? formatShortDuration(ms) : null;
+    durationMs = diffMs(sentAtIso, failedAtIso);
+    const d = formatShortDuration(durationMs);
     if (d) durationLabel = `Failed after ${d}`;
   }
   if (durationLabel) tooltipLines.push(durationLabel);
+  const durationColorClass = getWhatsAppDurationColorClass(durationMs);
 
   return (
     <TooltipProvider>
@@ -227,7 +216,7 @@ function WhatsAppOutgoingStatusIndicator({
             <cfg.Icon className="h-3.5 w-3.5" />
             {durationLabel && (
               <span
-                className="text-[10px] font-normal whitespace-nowrap"
+                className={`text-[10px] font-normal whitespace-nowrap ${durationColorClass}`}
                 data-testid={`wa-message-duration-${messageId}`}
               >
                 {durationLabel}
