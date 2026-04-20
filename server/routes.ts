@@ -8045,20 +8045,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!sendResult.success) {
         // Record the failed attempt in lead history so the failure is visible
         try {
-          const today = new Date().toISOString().slice(0, 10);
+          const failedToday = new Date().toISOString().slice(0, 10);
           await storage.createLeadUpdate({
             lead_id: lead.id,
             update_via: "whatsapp_outgoing",
-            update_on: today,
+            update_on: failedToday,
             remark: `WA Send Failed (${label}): ${sendResult.error || "Unknown error"} — ${renderedText}`,
             created_by_user_id: req.userId!,
             whatsapp_message_id: sendResult.messageId || null,
             whatsapp_status: "failed",
             whatsapp_status_at: new Date(),
-            whatsapp_template_name: isApproved ? template.approved_template_name : null,
-            whatsapp_template_language: isApproved ? template.approved_template_language : null,
-            whatsapp_template_variables: isApproved ? resolvedVariables : null,
-          } as any);
+            whatsapp_template: isApproved
+              ? {
+                  name: String(template.approved_template_name || "").trim(),
+                  language: tplLang,
+                  variables: resolvedVariables,
+                  body: sourceText.trim().length > 0 ? substitute(sourceText) : null,
+                  call_response,
+                  call_response_label: label,
+                }
+              : null,
+          });
         } catch (histErr) {
           console.error("[Send WhatsApp] Failed to record failure in lead history:", histErr);
         }
@@ -8170,10 +8177,11 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         .map((v: any) => String(v).replace(/\D/g, "").slice(-10))
         .filter((v: string) => v.length === 10);
       let lastIncomingMap: Record<string, string> = {};
+      let sessionLookupStatus: "ok" | "failed" = "ok";
       if (leadPhones.length > 0) {
         const phones = sortedOptions.map((o) => o.display_phone_number);
         // Try each lead phone (usually only one); merge results, keeping the latest per display number.
-        // Failure here must NOT block sending — degrade gracefully to "unknown" session state.
+        // Failure here must NOT block sending — UI degrades gracefully to "unknown" session state.
         try {
           for (const last10 of Array.from(new Set(leadPhones))) {
             const partial = await storage.getLastIncomingWhatsAppTimestamps(req.companyId!, last10, phones);
@@ -8186,6 +8194,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         } catch (lookupErr) {
           console.error("[Send WhatsApp] last-incoming lookup failed:", lookupErr);
           lastIncomingMap = {};
+          sessionLookupStatus = "failed";
         }
       }
       const options = sortedOptions.map((o) => ({
@@ -8218,6 +8227,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       res.json({
         options,
         templates,
+        session_lookup_status: sessionLookupStatus,
         context: {
           company_name: company?.name || "",
           lead_id: lead.id,

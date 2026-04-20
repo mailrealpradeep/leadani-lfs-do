@@ -47,6 +47,7 @@ interface TemplateOption {
 interface SendWhatsAppOptionsResponse {
   options: SendOption[];
   templates: TemplateOption[];
+  session_lookup_status?: "ok" | "failed";
   context: {
     company_name: string;
     lead_id: string;
@@ -164,9 +165,10 @@ export function SendWhatsAppDialog({
     [data, sendFromPhone],
   );
 
-  // Compute 24h session window state
+  // Compute 24h session window state — degrade to "unknown" on backend lookup failure
   const sessionInfo = useMemo(() => {
     if (!selectedSenderOption) return { state: "unknown" as const };
+    if (data?.session_lookup_status === "failed") return { state: "unknown" as const };
     const ts = selectedSenderOption.last_incoming_at;
     if (!ts) return { state: "closed" as const };
     const last = new Date(ts).getTime();
@@ -179,7 +181,7 @@ export function SendWhatsAppDialog({
     const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
     const expiresAt = new Date(last + windowMs);
     return { state: "open" as const, hours, minutes, expiresAt };
-  }, [selectedSenderOption]);
+  }, [selectedSenderOption, data?.session_lookup_status]);
 
   const sendMutation = useMutation({
     mutationFn: async () => {
@@ -214,8 +216,16 @@ export function SendWhatsAppDialog({
   });
 
   const isApprovedTemplate = selectedTemplate?.template_type === "approved";
+  // Only block free-form sends when the window is *known* to be closed.
+  // "unknown" (lookup failure) must never disable Send.
   const sessionClosedForFreeform =
     !isApprovedTemplate && !!selectedTemplate && sessionInfo.state === "closed";
+  const effectiveVarCount = isApprovedTemplate
+    ? Math.max(
+        selectedTemplate?.approved_template_variable_count ?? 0,
+        selectedTemplate?.approved_template_variables?.length ?? 0,
+      )
+    : 0;
   const canSend =
     !sendMutation.isPending &&
     !!callResponse &&
@@ -359,11 +369,11 @@ export function SendWhatsAppDialog({
                     <span className="font-mono">{selectedTemplate?.approved_template_name}</span>{" "}
                     (<span className="font-mono">{selectedTemplate?.approved_template_language || "en_US"}</span>).
                     Works outside the 24-hour window. The text below is recorded in lead history.
-                    {typeof selectedTemplate?.approved_template_variable_count === "number" && (
+                    {effectiveVarCount > 0 && (
                       <>
                         {" "}This template expects{" "}
-                        <span className="font-mono">{selectedTemplate.approved_template_variable_count}</span>{" "}
-                        body variable{selectedTemplate.approved_template_variable_count === 1 ? "" : "s"}.
+                        <span className="font-mono">{effectiveVarCount}</span>{" "}
+                        body variable{effectiveVarCount === 1 ? "" : "s"}.
                       </>
                     )}
                   </AlertDescription>
