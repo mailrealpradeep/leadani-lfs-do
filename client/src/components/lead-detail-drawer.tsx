@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Phone, 
@@ -18,6 +18,7 @@ import {
   Loader2,
   ArrowDownLeft,
   ArrowUpRight,
+  ArrowDown,
   Check,
   CheckCheck,
   XCircle,
@@ -129,10 +130,36 @@ function WhatsAppDeliveryPill({
   );
 }
 
+function formatShortDuration(ms: number): string | null {
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${Math.max(1, sec)}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hours = Math.floor(min / 60);
+  const remMin = min % 60;
+  if (hours < 24) return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days}d ${remHours}h` : `${days}d`;
+}
+
+function diffMs(fromIso: string | null | undefined, toIso: string | null | undefined): number | null {
+  if (!fromIso || !toIso) return null;
+  const from = new Date(fromIso).getTime();
+  const to = new Date(toIso).getTime();
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  return to - from;
+}
+
 function WhatsAppOutgoingStatusIndicator({
   outcome,
   errorText,
   messageId,
+  sentAtIso,
+  deliveredAtIso,
+  readAtIso,
+  failedAtIso,
   deliveredAtLabel,
   readAtLabel,
   failedAtLabel,
@@ -140,6 +167,10 @@ function WhatsAppOutgoingStatusIndicator({
   outcome: string;
   errorText: string | null;
   messageId: string;
+  sentAtIso?: string | null;
+  deliveredAtIso?: string | null;
+  readAtIso?: string | null;
+  failedAtIso?: string | null;
   deliveredAtLabel?: string | null;
   readAtLabel?: string | null;
   failedAtLabel?: string | null;
@@ -167,16 +198,41 @@ function WhatsAppOutgoingStatusIndicator({
   }
   if (deliveredAtLabel) tooltipLines.push(`Delivered at ${deliveredAtLabel}`);
   if (readAtLabel) tooltipLines.push(`Read at ${readAtLabel}`);
+
+  let durationLabel: string | null = null;
+  if (outcome === "read") {
+    const ms = diffMs(sentAtIso, readAtIso);
+    const d = ms !== null ? formatShortDuration(ms) : null;
+    if (d) durationLabel = `Read in ${d}`;
+  } else if (outcome === "delivered") {
+    const ms = diffMs(sentAtIso, deliveredAtIso);
+    const d = ms !== null ? formatShortDuration(ms) : null;
+    if (d) durationLabel = `Delivered in ${d}`;
+  } else if (outcome === "failed") {
+    const ms = diffMs(sentAtIso, failedAtIso);
+    const d = ms !== null ? formatShortDuration(ms) : null;
+    if (d) durationLabel = `Failed after ${d}`;
+  }
+  if (durationLabel) tooltipLines.push(durationLabel);
+
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className={`inline-flex items-center ${cfg.iconClass}`}
+            className={`inline-flex items-center gap-1 ${cfg.iconClass}`}
             data-testid={`wa-message-status-${cfg.testId}-${messageId}`}
             aria-label={cfg.label}
           >
             <cfg.Icon className="h-3.5 w-3.5" />
+            {durationLabel && (
+              <span
+                className="text-[10px] font-normal whitespace-nowrap"
+                data-testid={`wa-message-duration-${messageId}`}
+              >
+                {durationLabel}
+              </span>
+            )}
           </span>
         </TooltipTrigger>
         <TooltipContent>
@@ -212,13 +268,90 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
   const [sendWaOpen, setSendWaOpen] = useState(false);
   const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
+  const [hasUnreadBelow, setHasUnreadBelow] = useState(false);
+  const forceScrollNonceRef = useRef(0);
+  const [forceScrollNonce, setForceScrollNonce] = useState(0);
+  // Tracks which lead's pendingSends are currently in state. Persistence is
+  // skipped until hydration for the active lead has finished, otherwise a lead
+  // switch can briefly write the previous lead's failed bubbles under the new
+  // lead's storage key.
+  const hydratedLeadIdRef = useRef<string | null>(null);
+  // The hydration effect schedules a setPendingSends but the value isn't
+  // committed until the next render. The persistence effect on the SAME render
+  // would otherwise see the previous lead's pendingSends in closure and write
+  // them under the new lead's key. This flag tells persistence to skip exactly
+  // one cycle right after hydration so the stale value never reaches storage.
+  const skipNextPersistRef = useRef(false);
 
-  // Reset pending bubbles when switching leads.
+  const failedStorageKey = useCallback(
+    (id: string) => `wa-failed-sends:${id}`,
+    [],
+  );
+
+  // Hydrate failed sends from localStorage when switching leads,
+  // and clear in-flight pending bubbles (those should not survive a reload).
   useEffect(() => {
-    setPendingSends([]);
-  }, [leadId]);
+    if (!leadId) {
+      setPendingSends([]);
+      hydratedLeadIdRef.current = null;
+      return;
+    }
+    let next: PendingSend[] = [];
+    try {
+      const raw = window.localStorage.getItem(failedStorageKey(leadId));
+      if (raw) {
+        const parsed = JSON.parse(raw) as PendingSend[];
+        if (Array.isArray(parsed)) {
+          next = parsed.filter((p) => p && p.status === "failed");
+        }
+      }
+    } catch {
+      // Ignore corrupt storage entries
+    }
+    // Mark hydration complete BEFORE the state setter so the persistence
+    // effect (which fires on the same render) sees the matching active lead,
+    // but tell it to skip this cycle — the pendingSends in closure on this
+    // render is still the previous lead's value and would corrupt storage.
+    hydratedLeadIdRef.current = leadId;
+    skipNextPersistRef.current = true;
+    setPendingSends(next);
+  }, [leadId, failedStorageKey]);
+
+  // Persist failed sends so a refresh / drawer-close doesn't lose them.
+  // Skipped until hydration for the active lead has run, to avoid writing the
+  // previous lead's bubbles under the new lead's key during the transition.
+  useEffect(() => {
+    if (!leadId) return;
+    if (hydratedLeadIdRef.current !== leadId) return;
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
+      return;
+    }
+    const failedOnly = pendingSends.filter((p) => p.status === "failed");
+    try {
+      if (failedOnly.length === 0) {
+        window.localStorage.removeItem(failedStorageKey(leadId));
+      } else {
+        window.localStorage.setItem(
+          failedStorageKey(leadId),
+          JSON.stringify(failedOnly),
+        );
+      }
+    } catch {
+      // Storage may be full or disabled; degrade gracefully.
+    }
+  }, [pendingSends, leadId, failedStorageKey]);
+
+  const triggerForceScroll = useCallback(() => {
+    forceScrollNonceRef.current += 1;
+    setForceScrollNonce(forceScrollNonceRef.current);
+    setHasUnreadBelow(false);
+  }, []);
 
   const handleOptimisticAdd = (tempId: string, meta: OptimisticSendMeta) => {
+    // The user just hit Send — always pull them to the latest message.
+    triggerForceScroll();
     setPendingSends((prev) => [
       ...prev,
       {
@@ -446,16 +579,113 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
     refetch();
   };
 
-  // Auto-scroll the conversation to the latest message when the drawer opens,
-  // when a new WhatsApp message arrives, or after a successful reply.
+  // Track whether the conversation viewport is scrolled near the bottom.
+  // We attach the listener to the nearest Radix ScrollArea viewport so we can
+  // tell when the executive has scrolled up to read older messages.
+  const getViewport = useCallback((): HTMLElement | null => {
+    return (
+      messagesEndRef.current?.closest('[data-radix-scroll-area-viewport]') as
+        | HTMLElement
+        | null
+    ) ?? null;
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const viewport = getViewport();
+    if (!viewport) return;
+    const PIN_THRESHOLD = 80;
+    const update = () => {
+      const dist = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      const pinned = dist <= PIN_THRESHOLD;
+      setIsPinnedToBottom(pinned);
+      if (pinned) setHasUnreadBelow(false);
+    };
+    update();
+    viewport.addEventListener("scroll", update, { passive: true });
+    return () => viewport.removeEventListener("scroll", update);
+  }, [open, waLoading, getViewport]);
+
+  const lastMessagesCountRef = useRef(0);
+  const lastPendingCountRef = useRef(0);
+
+  // Reset the per-lead "what we last saw" baselines whenever the lead changes
+  // so the smart-scroll effect doesn't compare counts across different leads.
+  useEffect(() => {
+    lastMessagesCountRef.current = 0;
+    lastPendingCountRef.current = 0;
+  }, [leadId]);
+
+  // Smart auto-scroll: only follow new messages when the user is already pinned
+  // near the bottom. Otherwise, just flag that there are new messages below so
+  // we can show a "New messages ↓" pill they can tap.
+  // Pending-only changes (e.g. retry success removes a pending bubble) do not
+  // scroll on their own — explicit force-scroll handles the just-sent case.
   useEffect(() => {
     if (!open || waLoading) return;
-    if (waMessages.length === 0 && pendingSends.length === 0) return;
+    const prevMessages = lastMessagesCountRef.current;
+    const prevPending = lastPendingCountRef.current;
+    const grewMessages = waMessages.length > prevMessages;
+    const grewPending = pendingSends.length > prevPending;
+    lastMessagesCountRef.current = waMessages.length;
+    lastPendingCountRef.current = pendingSends.length;
+
+    // Nothing new to show — leave scroll alone.
+    if (!grewMessages && !grewPending) return;
+
+    // Pending bubble appeared from this user clicking Send — the optimistic
+    // add handler already dispatched a force-scroll; nothing to do here.
+    if (grewPending && !grewMessages) return;
+
+    // New incoming/outgoing messages: only auto-scroll if pinned. Otherwise
+    // surface the "New messages" pill and let the user opt in.
+    if (grewMessages) {
+      if (!isPinnedToBottom) {
+        setHasUnreadBelow(true);
+        return;
+      }
+      const id = window.requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      });
+      return () => window.cancelAnimationFrame(id);
+    }
+  }, [open, waLoading, waMessages.length, pendingSends.length, isPinnedToBottom]);
+
+  // Explicit force-scroll requests (after Send, or pill click).
+  useEffect(() => {
+    if (!open || waLoading) return;
+    if (forceScrollNonce === 0) return;
     const id = window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      setHasUnreadBelow(false);
     });
     return () => window.cancelAnimationFrame(id);
-  }, [open, waLoading, waMessages.length, pendingSends.length]);
+  }, [forceScrollNonce, open, waLoading]);
+
+  // Initial open / lead switch: jump to the latest message without animation
+  // once the conversation finishes loading. Re-running when waLoading flips
+  // false ensures we anchor correctly even when data arrives after open.
+  const initialAnchoredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      initialAnchoredRef.current = null;
+      return;
+    }
+    if (!leadId || waLoading) return;
+    if (initialAnchoredRef.current === leadId) return;
+    if (waMessages.length === 0 && pendingSends.length === 0) {
+      initialAnchoredRef.current = leadId;
+      return;
+    }
+    initialAnchoredRef.current = leadId;
+    const id = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
+      setIsPinnedToBottom(true);
+      setHasUnreadBelow(false);
+    });
+    return () => window.cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, leadId, waLoading]);
 
   const handleCall = () => {
     if (hasValidMobile) {
@@ -705,7 +935,7 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                   <Separator />
 
                   {/* WhatsApp Conversation */}
-                  <div data-testid="section-whatsapp-conversation">
+                  <div data-testid="section-whatsapp-conversation" className="relative">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                         <MessageCircle className="h-3.5 w-3.5 text-green-600" />
@@ -717,6 +947,21 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                         )}
                       </h3>
                     </div>
+                    {hasUnreadBelow && (
+                      <div className="sticky top-1 z-20 flex justify-center pointer-events-none">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="default"
+                          className="pointer-events-auto h-7 px-3 rounded-full shadow-md gap-1.5 text-xs"
+                          onClick={triggerForceScroll}
+                          data-testid="button-wa-new-messages-pill"
+                        >
+                          New messages
+                          <ArrowDown className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
 
                     {waLoading ? (
                       <div className="space-y-2">
@@ -768,6 +1013,10 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                                         : null
                                     }
                                     messageId={msg.id}
+                                    sentAtIso={msg.processed_at}
+                                    deliveredAtIso={msg.delivered_at}
+                                    readAtIso={msg.read_at}
+                                    failedAtIso={msg.failed_at}
                                     deliveredAtLabel={msg.delivered_at ? formatInTimezone(msg.delivered_at, "MMM d, h:mm a") : null}
                                     readAtLabel={msg.read_at ? formatInTimezone(msg.read_at, "MMM d, h:mm a") : null}
                                     failedAtLabel={msg.failed_at ? formatInTimezone(msg.failed_at, "MMM d, h:mm a") : null}

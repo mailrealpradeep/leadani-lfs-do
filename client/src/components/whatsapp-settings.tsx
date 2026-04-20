@@ -1785,10 +1785,48 @@ export function WhatsAppSettings() {
                               {(() => {
                                 const badge = getOutcomeBadge(log.outcome, log.outcome_details);
                                 const lines: string[] = [];
-                                if (log.delivered_at) lines.push(`Delivered at ${formatInTimezone(log.delivered_at, "MMM d, h:mm a")}`);
-                                if (log.read_at) lines.push(`Read at ${formatInTimezone(log.read_at, "MMM d, h:mm a")}`);
-                                if (log.failed_at) lines.push(`Failed at ${formatInTimezone(log.failed_at, "MMM d, h:mm a")}`);
+                                const sentMs = log.processed_at ? new Date(log.processed_at).getTime() : NaN;
+                                const formatDelta = (toIso: string) => {
+                                  if (!Number.isFinite(sentMs)) return null;
+                                  const ms = new Date(toIso).getTime() - sentMs;
+                                  if (!Number.isFinite(ms) || ms < 0) return null;
+                                  const sec = Math.round(ms / 1000);
+                                  if (sec < 60) return `${Math.max(1, sec)}s`;
+                                  const min = Math.round(sec / 60);
+                                  if (min < 60) return `${min}m`;
+                                  const hours = Math.floor(min / 60);
+                                  const remMin = min % 60;
+                                  if (hours < 24) return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
+                                  const days = Math.floor(hours / 24);
+                                  const remHours = hours % 24;
+                                  return remHours ? `${days}d ${remHours}h` : `${days}d`;
+                                };
+                                if (log.delivered_at) {
+                                  const d = formatDelta(log.delivered_at);
+                                  lines.push(`Delivered at ${formatInTimezone(log.delivered_at, "MMM d, h:mm a")}${d ? ` (in ${d})` : ""}`);
+                                }
+                                if (log.read_at) {
+                                  const d = formatDelta(log.read_at);
+                                  lines.push(`Read at ${formatInTimezone(log.read_at, "MMM d, h:mm a")}${d ? ` (in ${d})` : ""}`);
+                                }
+                                if (log.failed_at) {
+                                  const d = formatDelta(log.failed_at);
+                                  lines.push(`Failed at ${formatInTimezone(log.failed_at, "MMM d, h:mm a")}${d ? ` (after ${d})` : ""}`);
+                                }
                                 if (lines.length === 0) return badge;
+
+                                let durationCaption: string | null = null;
+                                if (log.read_at) {
+                                  const d = formatDelta(log.read_at);
+                                  durationCaption = d ? `Read in ${d}` : `Read ${formatInTimezone(log.read_at, "h:mm a")}`;
+                                } else if (log.delivered_at) {
+                                  const d = formatDelta(log.delivered_at);
+                                  durationCaption = d ? `Delivered in ${d}` : `Delivered ${formatInTimezone(log.delivered_at, "h:mm a")}`;
+                                } else if (log.failed_at) {
+                                  const d = formatDelta(log.failed_at);
+                                  durationCaption = d ? `Failed after ${d}` : `Failed ${formatInTimezone(log.failed_at, "h:mm a")}`;
+                                }
+
                                 return (
                                   <div className="flex flex-col gap-1">
                                     <Tooltip>
@@ -1801,11 +1839,14 @@ export function WhatsAppSettings() {
                                         </div>
                                       </TooltipContent>
                                     </Tooltip>
-                                    <div className="text-[10px] text-muted-foreground leading-tight">
-                                      {log.read_at ? `Read ${formatInTimezone(log.read_at, "h:mm a")}` :
-                                        log.delivered_at ? `Delivered ${formatInTimezone(log.delivered_at, "h:mm a")}` :
-                                        log.failed_at ? `Failed ${formatInTimezone(log.failed_at, "h:mm a")}` : null}
-                                    </div>
+                                    {durationCaption && (
+                                      <div
+                                        className="text-[10px] text-muted-foreground leading-tight"
+                                        data-testid={`outcome-duration-${log.id}`}
+                                      >
+                                        {durationCaption}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })()}
