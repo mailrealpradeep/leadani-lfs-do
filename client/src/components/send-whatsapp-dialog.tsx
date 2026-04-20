@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ExternalLink, Loader2, MessageCircle, Send } from "lucide-react";
+import { ExternalLink, Loader2, MessageCircle, RotateCw, Send } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -110,6 +110,7 @@ export function SendWhatsAppDialog({
       setSendFromPhone("");
       setTouched(false);
       setTemplateVars([]);
+      sendMutation.reset();
     }
   }, [open]);
 
@@ -214,6 +215,13 @@ export function SendWhatsAppDialog({
       });
     },
   });
+
+  const sendErrorMessage =
+    sendMutation.isError && !sendMutation.isPending
+      ? sendMutation.error instanceof Error && sendMutation.error.message
+        ? sendMutation.error.message
+        : "Could not send WhatsApp message"
+      : null;
 
   const isApprovedTemplate = selectedTemplate?.template_type === "approved";
   // Only block free-form sends when the window is *known* to be closed.
@@ -407,6 +415,35 @@ export function SendWhatsAppDialog({
                   </div>
                 </div>
               )}
+              {sendErrorMessage && (
+                <Alert variant="destructive" data-testid="alert-send-failed">
+                  <AlertDescription className="text-sm">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium">Failed to send WhatsApp message</div>
+                        <div
+                          className="mt-1 break-words"
+                          data-testid="text-send-error-message"
+                        >
+                          {sendErrorMessage}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => sendMutation.mutate()}
+                        disabled={!canSend}
+                        data-testid="button-retry-send"
+                      >
+                        <RotateCw className="h-3.5 w-3.5 mr-1" />
+                        Retry send
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {selectedTemplate && (
                 <div className="space-y-2">
                   <Label>Message</Label>
