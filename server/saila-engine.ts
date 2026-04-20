@@ -427,6 +427,72 @@ export async function fetchApprovedTemplateMetadata(
   return { ok: true, expectedVariableCount: expected, matchedLanguage: String(tpl?.language ?? "") };
 }
 
+/**
+ * 5-minute in-memory cache for `fetchApprovedTemplateMetadata`.
+ *
+ * Keyed by (companyId | wabaId | templateName | languageCode). Both the
+ * send path and the `/options` endpoint hit this so that the dialog can
+ * render N variable inputs based on Meta's live count without paying a
+ * Wauper round-trip on every render.
+ *
+ * Entries are returned even when `ok: false` so transient failures don't
+ * cause a thundering herd, but we use a shorter negative TTL (60s) so we
+ * recover quickly once the upstream is healthy again.
+ */
+const APPROVED_TEMPLATE_META_CACHE = new Map<
+  string,
+  { expiresAt: number; result: ApprovedTemplateMetadataResult }
+>();
+const APPROVED_TEMPLATE_META_TTL_OK_MS = 5 * 60 * 1000;
+const APPROVED_TEMPLATE_META_TTL_FAIL_MS = 60 * 1000;
+const APPROVED_TEMPLATE_META_CACHE_MAX = 500;
+
+export async function fetchApprovedTemplateMetadataCached(
+  cacheKey: string,
+  config: SailaConfig,
+  accessToken: string | null | undefined,
+  wabaId: string | null | undefined,
+  templateName: string,
+  languageCode?: string | null,
+): Promise<ApprovedTemplateMetadataResult> {
+  const now = Date.now();
+  const hit = APPROVED_TEMPLATE_META_CACHE.get(cacheKey);
+  if (hit && hit.expiresAt > now) return hit.result;
+  const result = await fetchApprovedTemplateMetadata(
+    config,
+    accessToken,
+    wabaId,
+    templateName,
+    languageCode,
+  );
+  if (APPROVED_TEMPLATE_META_CACHE.size >= APPROVED_TEMPLATE_META_CACHE_MAX) {
+    // Drop the oldest 25% so the cache doesn't grow unbounded.
+    const drop = Math.ceil(APPROVED_TEMPLATE_META_CACHE.size / 4);
+    let i = 0;
+    for (const k of APPROVED_TEMPLATE_META_CACHE.keys()) {
+      if (i++ >= drop) break;
+      APPROVED_TEMPLATE_META_CACHE.delete(k);
+    }
+  }
+  const ttl = result.ok ? APPROVED_TEMPLATE_META_TTL_OK_MS : APPROVED_TEMPLATE_META_TTL_FAIL_MS;
+  APPROVED_TEMPLATE_META_CACHE.set(cacheKey, { expiresAt: now + ttl, result });
+  return result;
+}
+
+export function buildApprovedTemplateMetaCacheKey(
+  companyId: string,
+  wabaId: string | null | undefined,
+  templateName: string,
+  languageCode?: string | null,
+): string {
+  return [
+    companyId,
+    String(wabaId ?? "").trim(),
+    String(templateName ?? "").trim(),
+    String(languageCode ?? "").trim().toLowerCase(),
+  ].join("|");
+}
+
 export async function sendWhatsAppApprovedTemplate(
   config: SailaConfig,
   phoneSetting: SailaPhoneSetting,

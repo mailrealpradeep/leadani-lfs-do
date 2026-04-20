@@ -8041,13 +8041,71 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           : null;
         const baseVars: string[] = clientVars ?? (template.approved_template_variables as string[]);
         resolvedVariables = baseVars.map((v) => substitute(String(v ?? "")));
-        // Validate variable count against admin-declared expectation when configured
-        if (typeof template.approved_template_variable_count === "number") {
-          const expected = template.approved_template_variable_count;
-          if (resolvedVariables.length !== expected) {
-            return res.status(400).json({
-              error: `Template '${tplName}' expects ${expected} variable${expected === 1 ? "" : "s"} but received ${resolvedVariables.length}`,
-            });
+
+        // Live variable count from Meta is the source of truth — pad/trim
+        // resolvedVariables to match it so sends self-heal when admins
+        // haven't re-saved a row that Meta has since changed (Task #88).
+        // The saved `approved_template_variable_count` is only used as a
+        // fallback when the live lookup is unavailable.
+        try {
+          const cloudCfg = await storage.getWhatsAppCloudConfig(req.companyId!);
+          const liveAccessToken = phoneSetting.access_token || cloudCfg?.access_token || null;
+          const liveWabaId = cloudCfg?.waba_id || null;
+          if (liveAccessToken && liveWabaId) {
+            const {
+              fetchApprovedTemplateMetadataCached,
+              buildApprovedTemplateMetaCacheKey,
+            } = await import("./saila-engine");
+            const cacheKey = buildApprovedTemplateMetaCacheKey(
+              req.companyId!,
+              liveWabaId,
+              tplName,
+              tplLang,
+            );
+            const meta = await fetchApprovedTemplateMetadataCached(
+              cacheKey,
+              config,
+              liveAccessToken,
+              liveWabaId,
+              tplName,
+              tplLang,
+            );
+            if (meta.ok) {
+              const liveExpected = meta.expectedVariableCount;
+              if (resolvedVariables.length > liveExpected) {
+                resolvedVariables = resolvedVariables.slice(0, liveExpected);
+              } else if (resolvedVariables.length < liveExpected) {
+                while (resolvedVariables.length < liveExpected) {
+                  resolvedVariables.push("");
+                }
+              }
+            } else if (typeof template.approved_template_variable_count === "number") {
+              // Live lookup failed — fall back to the stored hint.
+              const expected = template.approved_template_variable_count;
+              if (resolvedVariables.length !== expected) {
+                return res.status(400).json({
+                  error: `Template '${tplName}' expects ${expected} variable${expected === 1 ? "" : "s"} but received ${resolvedVariables.length}`,
+                });
+              }
+            }
+          } else if (typeof template.approved_template_variable_count === "number") {
+            const expected = template.approved_template_variable_count;
+            if (resolvedVariables.length !== expected) {
+              return res.status(400).json({
+                error: `Template '${tplName}' expects ${expected} variable${expected === 1 ? "" : "s"} but received ${resolvedVariables.length}`,
+              });
+            }
+          }
+        } catch (metaErr) {
+          console.error("[Send WhatsApp] live template metadata lookup failed:", metaErr);
+          // Fall back to the stored hint if present so we still validate.
+          if (typeof template.approved_template_variable_count === "number") {
+            const expected = template.approved_template_variable_count;
+            if (resolvedVariables.length !== expected) {
+              return res.status(400).json({
+                error: `Template '${tplName}' expects ${expected} variable${expected === 1 ? "" : "s"} but received ${resolvedVariables.length}`,
+              });
+            }
           }
         }
         // History record: name + language + resolved variables (plus optional body_text preview)
@@ -8264,8 +8322,73 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
       const tpls = await storage.getWhatsAppMessageTemplates(req.companyId!);
       const byKey = new Map(tpls.map((t) => [t.call_response, t]));
+
+      // Resolve live template metadata (variable count + body) for approved
+      // templates so the dialog can render N inputs based on Meta's source
+      // of truth instead of the admin-saved hint. Cached for 5 minutes per
+      // template+language; missing/failed lookups are reported as such so
+      // the UI can fall back to the saved count gracefully.
+      const cloudCfgForLive = await storage.getWhatsAppCloudConfig(req.companyId!);
+      const sailaCfgForLive = await storage.getSailaConfig(req.companyId!);
+      const liveDomainCfg = sailaCfgForLive ?? {
+        company_id: req.companyId!,
+        wauper_domain: "https://crmapi.wauper.com",
+        wauper_api_version: "v1",
+      };
+      const phoneSettingsForLive = phoneSettings.find((p) => p.access_token && p.waba_phone_number_id);
+      const liveAccessToken = phoneSettingsForLive?.access_token || cloudCfgForLive?.access_token || null;
+      const liveWabaId = cloudCfgForLive?.waba_id || null;
+      const {
+        fetchApprovedTemplateMetadataCached,
+        buildApprovedTemplateMetaCacheKey,
+      } = await import("./saila-engine");
+
+      const liveLookups = await Promise.all(
+        WHATSAPP_CALL_RESPONSES.map(async (cr) => {
+          const t = byKey.get(cr);
+          const isApproved = (t?.template_type ?? "freeform") === "approved";
+          const tplName = String(t?.approved_template_name ?? "").trim();
+          const tplLang = String(t?.approved_template_language ?? "en_US").trim() || "en_US";
+          if (!isApproved || !tplName) {
+            return { cr, status: "no_lookup" as const, count: null as number | null, body: null as string | null };
+          }
+          if (!liveAccessToken || !liveWabaId) {
+            return { cr, status: "no_lookup" as const, count: null, body: null };
+          }
+          try {
+            const cacheKey = buildApprovedTemplateMetaCacheKey(req.companyId!, liveWabaId, tplName, tplLang);
+            const meta = await fetchApprovedTemplateMetadataCached(
+              cacheKey,
+              liveDomainCfg,
+              liveAccessToken,
+              liveWabaId,
+              tplName,
+              tplLang,
+            );
+            if (meta.ok) {
+              return {
+                cr,
+                status: "ok" as const,
+                count: meta.expectedVariableCount,
+                body: null as string | null, // body text not surfaced for now to keep payload small
+              };
+            }
+            return {
+              cr,
+              status: meta.reason === "not_found" ? ("not_found" as const) : ("error" as const),
+              count: null,
+              body: null,
+            };
+          } catch {
+            return { cr, status: "error" as const, count: null, body: null };
+          }
+        }),
+      );
+      const liveByCr = new Map(liveLookups.map((l) => [l.cr, l]));
+
       const templates = WHATSAPP_CALL_RESPONSES.map((cr) => {
         const t = byKey.get(cr);
+        const live = liveByCr.get(cr)!;
         return {
           call_response: cr,
           label: WHATSAPP_CALL_RESPONSE_LABELS[cr],
@@ -8275,6 +8398,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           approved_template_language: t?.approved_template_language ?? "en_US",
           approved_template_variables: Array.isArray(t?.approved_template_variables) ? t!.approved_template_variables : [],
           approved_template_variable_count: typeof t?.approved_template_variable_count === "number" ? t!.approved_template_variable_count : null,
+          live_variable_count: live.count,
+          live_status: live.status,
           enabled: t?.enabled ?? true,
         };
       });
