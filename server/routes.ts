@@ -7968,10 +7968,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       let tplLang = "en_US";
 
       if (isApproved) {
-        const tplName = String(template.approved_template_name || "").trim();
-        if (!tplName) {
-          return res.status(400).json({ error: "Approved template name is not configured for this call response" });
+        const { validateApprovedTemplateConfig } = await import("./saila-engine");
+        const cfgError = validateApprovedTemplateConfig({
+          template_type: template.template_type,
+          approved_template_name: template.approved_template_name,
+        });
+        if (cfgError) {
+          return res.status(400).json({ error: cfgError });
         }
+        const tplName = String(template.approved_template_name || "").trim();
         tplLang = String(template.approved_template_language || "en_US").trim() || "en_US";
         // Body parameters: prefer client-provided overrides, otherwise use configured variables (with placeholder substitution)
         const rawClientVars: unknown = (req.body && typeof req.body === "object")

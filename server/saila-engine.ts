@@ -281,6 +281,27 @@ async function callSarvamLLM(
   }
 }
 
+/**
+ * Validate the approved-template portion of a saved WhatsApp message template.
+ * Returns null when the configuration is acceptable, or a human-readable
+ * error string suitable for surfacing in an HTTP 400 response.
+ *
+ * The send route depends on this helper for the "missing template name"
+ * pre-flight check so that misconfigured templates fail loudly without ever
+ * touching Wauper / Meta or creating a `lead_updates` row.
+ */
+export function validateApprovedTemplateConfig(template: {
+  template_type?: string | null;
+  approved_template_name?: string | null;
+}): string | null {
+  if ((template?.template_type ?? "") !== "approved") return null;
+  const name = String(template?.approved_template_name ?? "").trim();
+  if (!name) {
+    return "Approved template name is not configured for this call response";
+  }
+  return null;
+}
+
 export async function sendWhatsAppApprovedTemplate(
   config: SailaConfig,
   phoneSetting: SailaPhoneSetting,
