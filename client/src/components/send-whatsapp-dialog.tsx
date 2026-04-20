@@ -29,6 +29,7 @@ interface SendOption {
   user_id: string;
   user_name: string | null;
   is_lead_owner: boolean;
+  last_incoming_at: string | null;
 }
 
 interface TemplateOption {
@@ -39,6 +40,7 @@ interface TemplateOption {
   approved_template_name: string;
   approved_template_language: string;
   approved_template_variables: string[];
+  approved_template_variable_count: number | null;
   enabled: boolean;
 }
 
@@ -138,13 +140,44 @@ export function SendWhatsAppDialog({
     }
     // Always re-seed template variables when the selected template changes
     if (selectedTemplate.template_type === "approved") {
-      setTemplateVars(
-        (selectedTemplate.approved_template_variables || []).map((v) => applyPlaceholders(v, vars))
+      const defaults = (selectedTemplate.approved_template_variables || []).map((v) =>
+        applyPlaceholders(v, vars)
       );
+      const configuredCount = selectedTemplate.approved_template_variable_count;
+      const count =
+        typeof configuredCount === "number" ? configuredCount : defaults.length;
+      const next: string[] = [];
+      for (let i = 0; i < count; i++) {
+        next.push(defaults[i] ?? "");
+      }
+      setTemplateVars(next);
     } else {
       setTemplateVars([]);
     }
   }, [selectedTemplate, data, customerName, touched]);
+
+  // Selected sender option (for session-window badge)
+  const selectedSenderOption = useMemo(
+    () => (data?.options || []).find((o) => o.display_phone_number === sendFromPhone) || null,
+    [data, sendFromPhone],
+  );
+
+  // Compute 24h session window state
+  const sessionInfo = useMemo(() => {
+    if (!selectedSenderOption) return { state: "unknown" as const };
+    const ts = selectedSenderOption.last_incoming_at;
+    if (!ts) return { state: "closed" as const };
+    const last = new Date(ts).getTime();
+    const now = Date.now();
+    const diffMs = now - last;
+    const windowMs = 24 * 60 * 60 * 1000;
+    if (diffMs >= windowMs) return { state: "closed" as const };
+    const remainingMs = windowMs - diffMs;
+    const hours = Math.floor(remainingMs / (60 * 60 * 1000));
+    const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+    const expiresAt = new Date(last + windowMs);
+    return { state: "open" as const, hours, minutes, expiresAt };
+  }, [selectedSenderOption]);
 
   const sendMutation = useMutation({
     mutationFn: async () => {
@@ -179,12 +212,15 @@ export function SendWhatsAppDialog({
   });
 
   const isApprovedTemplate = selectedTemplate?.template_type === "approved";
+  const sessionClosedForFreeform =
+    !isApprovedTemplate && !!selectedTemplate && sessionInfo.state === "closed";
   const canSend =
     !sendMutation.isPending &&
     !!callResponse &&
     !!sendFromPhone &&
     !!recipientPhone &&
-    !!selectedTemplate?.enabled;
+    !!selectedTemplate?.enabled &&
+    !sessionClosedForFreeform;
 
   const openWaWeb = () => {
     const cleanNumber = String(recipientPhone).replace(/[\s-]/g, "");
@@ -279,6 +315,41 @@ export function SendWhatsAppDialog({
                 </Select>
               </div>
 
+              {selectedTemplate && (
+                <div className="flex items-center gap-2 flex-wrap" data-testid="session-status">
+                  <Label className="text-xs text-muted-foreground">24h Session:</Label>
+                  {sessionInfo.state === "open" ? (
+                    <Badge
+                      variant="secondary"
+                      className="bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-200"
+                      title={`Expires ${sessionInfo.expiresAt.toLocaleString()}`}
+                      data-testid="badge-session-open"
+                    >
+                      Open · expires in {sessionInfo.hours}h {sessionInfo.minutes}m
+                    </Badge>
+                  ) : sessionInfo.state === "closed" ? (
+                    <Badge
+                      variant="secondary"
+                      className="bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+                      data-testid="badge-session-closed"
+                    >
+                      Closed · approved template required
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" data-testid="badge-session-unknown">Unknown</Badge>
+                  )}
+                </div>
+              )}
+
+              {sessionClosedForFreeform && (
+                <Alert variant="destructive" data-testid="alert-session-closed-freeform">
+                  <AlertDescription className="text-sm">
+                    This is a session message but the 24-hour window is closed for{" "}
+                    <span className="font-mono">{sendFromPhone}</span>. Pick an approved template instead.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {isApprovedTemplate && (
                 <Alert>
                   <AlertDescription className="text-sm">
@@ -286,6 +357,13 @@ export function SendWhatsAppDialog({
                     <span className="font-mono">{selectedTemplate?.approved_template_name}</span>{" "}
                     (<span className="font-mono">{selectedTemplate?.approved_template_language || "en_US"}</span>).
                     Works outside the 24-hour window. The text below is recorded in lead history.
+                    {typeof selectedTemplate?.approved_template_variable_count === "number" && (
+                      <>
+                        {" "}This template expects{" "}
+                        <span className="font-mono">{selectedTemplate.approved_template_variable_count}</span>{" "}
+                        body variable{selectedTemplate.approved_template_variable_count === 1 ? "" : "s"}.
+                      </>
+                    )}
                   </AlertDescription>
                 </Alert>
               )}

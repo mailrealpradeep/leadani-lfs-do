@@ -2849,6 +2849,7 @@ interface MessageTemplateRow {
   approved_template_name: string;
   approved_template_language: string;
   approved_template_variables: string[];
+  approved_template_variable_count: number | null;
   enabled: boolean;
 }
 
@@ -2912,6 +2913,7 @@ function MessageTemplatesPanel() {
           approved_template_name: row.approved_template_name,
           approved_template_language: row.approved_template_language,
           approved_template_variables: row.approved_template_variables,
+          approved_template_variable_count: row.approved_template_variable_count,
           enabled: row.enabled,
         }
       );
@@ -3067,6 +3069,37 @@ function MessageTemplatesPanel() {
                     <div className="text-xs text-muted-foreground">
                       Each line maps to a positional variable (<code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>, …) in the approved template body. Placeholders <code>{"{customer_name}"}</code>, <code>{"{executive_name}"}</code>, <code>{"{company_name}"}</code>, <code>{"{lead_id}"}</code> are substituted at send time.
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {row.template_type === "approved" && (
+                <div className="space-y-1 max-w-xs">
+                  <Label className="text-xs">Body Variables Count</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={10}
+                    step={1}
+                    value={row.approved_template_variable_count ?? ""}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        updateRow(row.call_response, { approved_template_variable_count: null });
+                      } else {
+                        const n = parseInt(raw, 10);
+                        if (Number.isFinite(n)) {
+                          updateRow(row.call_response, {
+                            approved_template_variable_count: Math.max(0, Math.min(10, n)),
+                          });
+                        }
+                      }
+                    }}
+                    placeholder="Auto"
+                    data-testid={`input-approved-var-count-${row.call_response}`}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    Number of <code>{"{{N}}"}</code> body variables this Meta template expects (0–10). Leave blank to derive from the defaults above. Inputs always render in the send dialog so executives can fill ad-hoc values.
                   </div>
                 </div>
               )}

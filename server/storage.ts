@@ -1164,7 +1164,8 @@ export interface IStorage {
 
   // WhatsApp Message Templates (Per-call-response outgoing message templates)
   getWhatsAppMessageTemplates(companyId: string): Promise<WhatsAppMessageTemplateRecord[]>;
-  upsertWhatsAppMessageTemplate(companyId: string, callResponse: string, data: { template_type?: string; body_text?: string; approved_template_name?: string; approved_template_language?: string; approved_template_variables?: string[]; enabled?: boolean }): Promise<WhatsAppMessageTemplateRecord>;
+  upsertWhatsAppMessageTemplate(companyId: string, callResponse: string, data: { template_type?: string; body_text?: string; approved_template_name?: string; approved_template_language?: string; approved_template_variables?: string[]; approved_template_variable_count?: number | null; enabled?: boolean }): Promise<WhatsAppMessageTemplateRecord>;
+  getLastIncomingWhatsAppTimestamps(companyId: string, senderPhoneLast10: string, displayPhoneNumbers: string[]): Promise<Record<string, string>>;
 
   // WhatsApp Message Logs (Track processed messages)
   getWhatsAppMessageLogs(companyId: string, options?: { 
@@ -12524,10 +12525,38 @@ export class PgStorage implements IStorage {
       .where(eq(dbSchema.whatsapp_message_templates.company_id, companyId));
   }
 
+  async getLastIncomingWhatsAppTimestamps(
+    companyId: string,
+    senderPhoneLast10: string,
+    displayPhoneNumbers: string[],
+  ): Promise<Record<string, string>> {
+    const result: Record<string, string> = {};
+    if (!senderPhoneLast10 || displayPhoneNumbers.length === 0) return result;
+    const rows = await db
+      .select({
+        display_phone_number: dbSchema.whatsapp_message_logs.display_phone_number,
+        processed_at: sql<Date>`MAX(${dbSchema.whatsapp_message_logs.processed_at})`,
+      })
+      .from(dbSchema.whatsapp_message_logs)
+      .where(and(
+        eq(dbSchema.whatsapp_message_logs.company_id, companyId),
+        eq(dbSchema.whatsapp_message_logs.direction, 'incoming'),
+        eq(dbSchema.whatsapp_message_logs.sender_phone, senderPhoneLast10),
+        inArray(dbSchema.whatsapp_message_logs.display_phone_number, displayPhoneNumbers),
+      ))
+      .groupBy(dbSchema.whatsapp_message_logs.display_phone_number);
+    for (const r of rows) {
+      if (r.processed_at) {
+        result[r.display_phone_number] = new Date(r.processed_at as any).toISOString();
+      }
+    }
+    return result;
+  }
+
   async upsertWhatsAppMessageTemplate(
     companyId: string,
     callResponse: string,
-    data: { template_type?: string; body_text?: string; approved_template_name?: string; approved_template_language?: string; approved_template_variables?: string[]; enabled?: boolean }
+    data: { template_type?: string; body_text?: string; approved_template_name?: string; approved_template_language?: string; approved_template_variables?: string[]; approved_template_variable_count?: number | null; enabled?: boolean }
   ): Promise<WhatsAppMessageTemplateRecord> {
     const existing = await db.select().from(dbSchema.whatsapp_message_templates)
       .where(and(
@@ -12551,6 +12580,7 @@ export class PgStorage implements IStorage {
         approved_template_name: data.approved_template_name ?? "",
         approved_template_language: data.approved_template_language ?? "en_US",
         approved_template_variables: data.approved_template_variables ?? [],
+        approved_template_variable_count: data.approved_template_variable_count ?? null,
         enabled: data.enabled ?? true,
       })
       .returning();

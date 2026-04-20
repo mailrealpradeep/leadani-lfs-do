@@ -7797,6 +7797,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           approved_template_name: t.approved_template_name ?? "",
           approved_template_language: t.approved_template_language ?? "en_US",
           approved_template_variables: Array.isArray(t.approved_template_variables) ? t.approved_template_variables : [],
+          approved_template_variable_count: typeof t.approved_template_variable_count === "number" ? t.approved_template_variable_count : null,
           enabled: t.enabled ?? true,
         };
       });
@@ -7815,7 +7816,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!(WHATSAPP_CALL_RESPONSES as readonly string[]).includes(callResponse)) {
         return res.status(400).json({ error: "Invalid call response key" });
       }
-      const { template_type, body_text, approved_template_name, approved_template_language, approved_template_variables, enabled } = req.body;
+      const { template_type, body_text, approved_template_name, approved_template_language, approved_template_variables, approved_template_variable_count, enabled } = req.body;
       if (template_type && template_type !== "freeform" && template_type !== "approved") {
         return res.status(400).json({ error: "template_type must be 'freeform' or 'approved'" });
       }
@@ -7829,12 +7830,23 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
         normalizedVars = approved_template_variables.map((v) => String(v));
       }
+      let normalizedVarCount: number | null | undefined = undefined;
+      if (approved_template_variable_count !== undefined) {
+        if (approved_template_variable_count === null) {
+          normalizedVarCount = null;
+        } else if (typeof approved_template_variable_count === "number" && Number.isInteger(approved_template_variable_count) && approved_template_variable_count >= 0 && approved_template_variable_count <= 10) {
+          normalizedVarCount = approved_template_variable_count;
+        } else {
+          return res.status(400).json({ error: "approved_template_variable_count must be an integer between 0 and 10, or null" });
+        }
+      }
       const saved = await storage.upsertWhatsAppMessageTemplate(req.companyId, callResponse, {
         template_type,
         body_text,
         approved_template_name,
         approved_template_language,
         approved_template_variables: normalizedVars,
+        approved_template_variable_count: normalizedVarCount,
         enabled,
       });
       res.json(saved);
@@ -7913,6 +7925,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         approved_template_variables: Array.isArray(stored?.approved_template_variables)
           ? stored!.approved_template_variables
           : [],
+        approved_template_variable_count:
+          typeof stored?.approved_template_variable_count === "number"
+            ? stored!.approved_template_variable_count
+            : null,
       };
 
       // Build context for placeholder substitution
@@ -7967,6 +7983,15 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           : null;
         const baseVars: string[] = clientVars ?? (template.approved_template_variables as string[]);
         resolvedVariables = baseVars.map((v) => substitute(String(v ?? "")));
+        // Validate variable count against admin-declared expectation when configured
+        if (typeof template.approved_template_variable_count === "number") {
+          const expected = template.approved_template_variable_count;
+          if (resolvedVariables.length !== expected) {
+            return res.status(400).json({
+              error: `Template '${tplName}' expects ${expected} variable${expected === 1 ? "" : "s"} but received ${resolvedVariables.length}`,
+            });
+          }
+        }
         // History record: name + language + resolved variables (plus optional body_text preview)
         const previewBody = sourceText.trim().length > 0 ? ` — ${substitute(sourceText)}` : "";
         const varsPart = resolvedVariables.length > 0 ? ` [${resolvedVariables.join(" | ")}]` : "";
@@ -8114,10 +8139,34 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
 
-      const options = Array.from(seen.values()).sort((a, b) => {
+      const sortedOptions = Array.from(seen.values()).sort((a, b) => {
         if (a.is_lead_owner !== b.is_lead_owner) return a.is_lead_owner ? -1 : 1;
         return a.display_phone_number.localeCompare(b.display_phone_number);
       });
+
+      // Compute last incoming WA timestamp per sender option (for 24h session window)
+      const cfForPhone: any = lead.custom_fields || {};
+      const leadPhones = [cfForPhone.mobile_no, cfForPhone.mobile, cfForPhone.phone, cfForPhone.whatsapp_no, cfForPhone.whatsapp]
+        .filter((v: any) => v != null)
+        .map((v: any) => String(v).replace(/\D/g, "").slice(-10))
+        .filter((v: string) => v.length === 10);
+      let lastIncomingMap: Record<string, string> = {};
+      if (leadPhones.length > 0) {
+        const phones = sortedOptions.map((o) => o.display_phone_number);
+        // Try each lead phone (usually only one); merge results, keeping the latest per display number
+        for (const last10 of Array.from(new Set(leadPhones))) {
+          const partial = await storage.getLastIncomingWhatsAppTimestamps(req.companyId!, last10, phones);
+          for (const [k, v] of Object.entries(partial)) {
+            if (!lastIncomingMap[k] || new Date(v) > new Date(lastIncomingMap[k])) {
+              lastIncomingMap[k] = v;
+            }
+          }
+        }
+      }
+      const options = sortedOptions.map((o) => ({
+        ...o,
+        last_incoming_at: lastIncomingMap[o.display_phone_number] ?? null,
+      }));
 
       // Templates
       const { WHATSAPP_CALL_RESPONSES, WHATSAPP_CALL_RESPONSE_LABELS } = await import("@shared/schema");
@@ -8133,6 +8182,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           approved_template_name: t?.approved_template_name ?? "",
           approved_template_language: t?.approved_template_language ?? "en_US",
           approved_template_variables: Array.isArray(t?.approved_template_variables) ? t!.approved_template_variables : [],
+          approved_template_variable_count: typeof t?.approved_template_variable_count === "number" ? t!.approved_template_variable_count : null,
           enabled: t?.enabled ?? true,
         };
       });
