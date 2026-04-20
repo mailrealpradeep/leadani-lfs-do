@@ -144,8 +144,10 @@ export function SendWhatsAppDialog({
         applyPlaceholders(v, vars)
       );
       const configuredCount = selectedTemplate.approved_template_variable_count;
-      const count =
-        typeof configuredCount === "number" ? configuredCount : defaults.length;
+      const count = Math.max(
+        typeof configuredCount === "number" ? configuredCount : 0,
+        defaults.length,
+      );
       const next: string[] = [];
       for (let i = 0; i < count; i++) {
         next.push(defaults[i] ?? "");

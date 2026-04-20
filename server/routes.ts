@@ -8043,6 +8043,25 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       if (!sendResult.success) {
+        // Record the failed attempt in lead history so the failure is visible
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          await storage.createLeadUpdate({
+            lead_id: lead.id,
+            update_via: "whatsapp_outgoing",
+            update_on: today,
+            remark: `WA Send Failed (${label}): ${sendResult.error || "Unknown error"} — ${renderedText}`,
+            created_by_user_id: req.userId!,
+            whatsapp_message_id: sendResult.messageId || null,
+            whatsapp_status: "failed",
+            whatsapp_status_at: new Date(),
+            whatsapp_template_name: isApproved ? template.approved_template_name : null,
+            whatsapp_template_language: isApproved ? template.approved_template_language : null,
+            whatsapp_template_variables: isApproved ? resolvedVariables : null,
+          } as any);
+        } catch (histErr) {
+          console.error("[Send WhatsApp] Failed to record failure in lead history:", histErr);
+        }
         return res.status(502).json({ error: sendResult.error || "Failed to send WhatsApp message" });
       }
 
@@ -8153,14 +8172,20 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       let lastIncomingMap: Record<string, string> = {};
       if (leadPhones.length > 0) {
         const phones = sortedOptions.map((o) => o.display_phone_number);
-        // Try each lead phone (usually only one); merge results, keeping the latest per display number
-        for (const last10 of Array.from(new Set(leadPhones))) {
-          const partial = await storage.getLastIncomingWhatsAppTimestamps(req.companyId!, last10, phones);
-          for (const [k, v] of Object.entries(partial)) {
-            if (!lastIncomingMap[k] || new Date(v) > new Date(lastIncomingMap[k])) {
-              lastIncomingMap[k] = v;
+        // Try each lead phone (usually only one); merge results, keeping the latest per display number.
+        // Failure here must NOT block sending — degrade gracefully to "unknown" session state.
+        try {
+          for (const last10 of Array.from(new Set(leadPhones))) {
+            const partial = await storage.getLastIncomingWhatsAppTimestamps(req.companyId!, last10, phones);
+            for (const [k, v] of Object.entries(partial)) {
+              if (!lastIncomingMap[k] || new Date(v) > new Date(lastIncomingMap[k])) {
+                lastIncomingMap[k] = v;
+              }
             }
           }
+        } catch (lookupErr) {
+          console.error("[Send WhatsApp] last-incoming lookup failed:", lookupErr);
+          lastIncomingMap = {};
         }
       }
       const options = sortedOptions.map((o) => ({
