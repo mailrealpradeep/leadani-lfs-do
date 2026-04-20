@@ -8,6 +8,7 @@ delete process.env.DATABASE_URL;
 import {
   sendWhatsAppApprovedTemplate,
   validateApprovedTemplateConfig,
+  fetchApprovedTemplateMetadata,
 } from "../saila-engine";
 import type { SailaConfig, SailaPhoneSetting } from "@shared/schema";
 
@@ -240,8 +241,120 @@ describe("sendWhatsAppApprovedTemplate", () => {
     assert.equal(result.success, false);
     assert.match(String(result.error), /ECONNREFUSED/);
   });
+});
 
-  it("omits components when no body parameters are passed", async () => {
+describe("fetchApprovedTemplateMetadata", () => {
+  it("returns no_access_token when token is empty", async () => {
+    const result = await fetchApprovedTemplateMetadata(baseConfig, "", "WABA1", "welcome_v1", "en_US");
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "no_access_token");
+  });
+
+  it("returns no_waba_id when waba_id is missing", async () => {
+    const result = await fetchApprovedTemplateMetadata(baseConfig, "tok", "", "welcome_v1", "en_US");
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "no_waba_id");
+  });
+
+  it("counts {{N}} placeholders in BODY component for a matching language", async () => {
+    mockFetch(() =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              name: "welcome_v1",
+              language: "en_US",
+              components: [
+                { type: "BODY", text: "Hi {{1}}, your code is {{2}} from {{3}}." },
+              ],
+            },
+            {
+              name: "welcome_v1",
+              language: "hi",
+              components: [{ type: "BODY", text: "Namaste {{1}}." }],
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const result = await fetchApprovedTemplateMetadata(baseConfig, "tok", "WABA1", "welcome_v1", "en_US");
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.expectedVariableCount, 3);
+      assert.equal(result.matchedLanguage, "en_US");
+    }
+    const url = String(fetchCalls[0].url);
+    assert.match(url, /\/WABA1\/message_templates\?name=welcome_v1/);
+    assert.equal((fetchCalls[0].init.headers as any).Authorization, "Bearer tok");
+  });
+
+  it("returns not_found when the template name doesn't appear in Meta's response", async () => {
+    mockFetch(() =>
+      new Response(
+        JSON.stringify({ data: [{ name: "other_template", language: "en_US", components: [] }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const result = await fetchApprovedTemplateMetadata(baseConfig, "tok", "WABA1", "welcome_v1", "en_US");
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "not_found");
+  });
+
+  it("returns not_found on HTTP 404", async () => {
+    mockFetch(() => new Response("not found", { status: 404 }));
+    const result = await fetchApprovedTemplateMetadata(baseConfig, "tok", "WABA1", "welcome_v1", "en_US");
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "not_found");
+  });
+
+  it("uses example.body_text when it exceeds the placeholder count", async () => {
+    mockFetch(() =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              name: "promo_v2",
+              language: "en_US",
+              components: [
+                {
+                  type: "BODY",
+                  text: "Static greeting with no placeholders.",
+                  example: { body_text: [["Alice", "10%", "April"]] },
+                },
+              ],
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const result = await fetchApprovedTemplateMetadata(baseConfig, "tok", "WABA1", "promo_v2", "en_US");
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.expectedVariableCount, 3);
+  });
+
+  it("falls back to first match when language doesn't match exactly", async () => {
+    mockFetch(() =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              name: "welcome_v1",
+              language: "hi",
+              components: [{ type: "BODY", text: "Namaste {{1}}, welcome {{2}}." }],
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const result = await fetchApprovedTemplateMetadata(baseConfig, "tok", "WABA1", "welcome_v1", "en_US");
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.expectedVariableCount, 2);
+  });
+
+  it("omits components when sendWhatsAppApprovedTemplate is called with no body parameters", async () => {
     mockFetch(() =>
       new Response(
         JSON.stringify({ messages: [{ id: "wamid.NOPARAMS" }] }),

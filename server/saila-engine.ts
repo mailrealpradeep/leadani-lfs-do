@@ -302,6 +302,131 @@ export function validateApprovedTemplateConfig(template: {
   return null;
 }
 
+/**
+ * Result of fetching an approved template's metadata from Wauper / Meta.
+ *
+ * The route layer uses this to validate that the configured
+ * `approved_template_variables` length (or `approved_template_variable_count`)
+ * matches what the template actually expects, so admins can be warned at
+ * save time instead of at send time.
+ *
+ *  - `ok: true`  — Meta returned the template; `expectedVariableCount` is the
+ *    number of `{{N}}` placeholders in the BODY component.
+ *  - `ok: false` — We could not determine the expected count (no waba_id,
+ *    network error, template not found, etc). The caller should treat this
+ *    as "skip validation" rather than blocking the save, so the feature
+ *    degrades gracefully when admins have not connected the Cloud API yet.
+ */
+export type ApprovedTemplateMetadataResult =
+  | { ok: true; expectedVariableCount: number; matchedLanguage: string }
+  | { ok: false; reason: "no_waba_id" | "no_access_token" | "not_found" | "network_error" | "no_body_component"; error?: string };
+
+function countBodyPlaceholders(text: string): number {
+  if (!text) return 0;
+  const matches = String(text).match(/\{\{\s*\d+\s*\}\}/g);
+  if (!matches) return 0;
+  // Use the highest index seen rather than match count, since Meta numbers
+  // body parameters positionally and may repeat the same {{N}} token multiple
+  // times in the body.
+  let maxIdx = 0;
+  for (const m of matches) {
+    const n = parseInt(m.replace(/[^0-9]/g, ""), 10);
+    if (Number.isFinite(n) && n > maxIdx) maxIdx = n;
+  }
+  return maxIdx;
+}
+
+/**
+ * Fetch metadata for a single approved WhatsApp template from Wauper / Meta.
+ *
+ * Returns the expected number of body variables so the route layer can warn
+ * admins about a mismatch BEFORE a real send fails. We use the WhatsApp
+ * Business Cloud API style endpoint that Wauper proxies:
+ *   GET {wauper_domain}/{wauper_api_version}/{waba_id}/message_templates?name={name}
+ */
+export async function fetchApprovedTemplateMetadata(
+  config: SailaConfig,
+  accessToken: string | null | undefined,
+  wabaId: string | null | undefined,
+  templateName: string,
+  languageCode?: string | null,
+): Promise<ApprovedTemplateMetadataResult> {
+  const token = String(accessToken ?? "").trim();
+  if (!token) return { ok: false, reason: "no_access_token" };
+  const wid = String(wabaId ?? "").trim();
+  if (!wid) return { ok: false, reason: "no_waba_id" };
+
+  const domain = (config.wauper_domain || "https://crmapi.wauper.com").replace(/\/$/, "");
+  const version = config.wauper_api_version || "v1";
+  const name = encodeURIComponent(String(templateName).trim());
+  const url = `${domain}/${version}/${wid}/message_templates?name=${name}&limit=50`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+    });
+  } catch (err: any) {
+    console.error("[Saila] Wauper template metadata fetch error:", err?.message || err);
+    return { ok: false, reason: "network_error", error: err?.message };
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    console.warn("[Saila] Wauper template metadata fetch non-OK:", response.status, text.slice(0, 200));
+    if (response.status === 404) return { ok: false, reason: "not_found" };
+    return { ok: false, reason: "network_error", error: `HTTP ${response.status}` };
+  }
+
+  let payload: any;
+  try {
+    payload = await response.json();
+  } catch (err: any) {
+    return { ok: false, reason: "network_error", error: "Invalid JSON" };
+  }
+
+  const candidates: any[] = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.templates)
+      ? payload.templates
+      : Array.isArray(payload)
+        ? payload
+        : [];
+
+  const namedMatches = candidates.filter((t) => String(t?.name ?? "").trim() === String(templateName).trim());
+  if (namedMatches.length === 0) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  // Prefer a language match when one was requested; otherwise use the first.
+  const wantedLang = String(languageCode ?? "").trim().toLowerCase();
+  const langMatch = wantedLang
+    ? namedMatches.find((t) => String(t?.language ?? "").trim().toLowerCase() === wantedLang)
+    : null;
+  const tpl = langMatch || namedMatches[0];
+
+  const components: any[] = Array.isArray(tpl?.components) ? tpl.components : [];
+  const body = components.find((c) => String(c?.type ?? "").toUpperCase() === "BODY");
+  if (!body) {
+    // Some templates legitimately have no BODY (e.g. media-only). Treat as zero variables.
+    return { ok: true, expectedVariableCount: 0, matchedLanguage: String(tpl?.language ?? "") };
+  }
+
+  // Prefer an explicit example.body_text length when present, fall back to
+  // counting {{N}} placeholders in the body text.
+  let expected = countBodyPlaceholders(String(body?.text ?? ""));
+  const exampleRow: unknown = body?.example?.body_text?.[0];
+  if (Array.isArray(exampleRow) && exampleRow.length > expected) {
+    expected = exampleRow.length;
+  }
+
+  return { ok: true, expectedVariableCount: expected, matchedLanguage: String(tpl?.language ?? "") };
+}
+
 export async function sendWhatsAppApprovedTemplate(
   config: SailaConfig,
   phoneSetting: SailaPhoneSetting,

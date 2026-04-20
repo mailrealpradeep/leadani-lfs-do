@@ -2888,6 +2888,7 @@ function MessageTemplatesPanel() {
   const { toast } = useToast();
   const [rows, setRows] = useState<MessageTemplateRow[]>([]);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<string, string | null>>({});
   const [languageOtherMode, setLanguageOtherMode] = useState<Record<string, boolean>>({});
 
   const { data, isLoading } = useQuery<{ templates: MessageTemplateRow[] }>({
@@ -2918,12 +2919,15 @@ function MessageTemplatesPanel() {
         }
       );
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      setRowErrors((prev) => ({ ...prev, [variables.call_response]: null }));
       toast({ title: "Saved", description: "Template updated." });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/company/whatsapp/message-templates"] });
     },
-    onError: (err: any) => {
-      toast({ title: "Save failed", description: err?.message || "Could not save template", variant: "destructive" });
+    onError: (err: any, variables) => {
+      const msg = err?.message || "Could not save template";
+      setRowErrors((prev) => ({ ...prev, [variables.call_response]: msg }));
+      toast({ title: "Save failed", description: msg, variant: "destructive" });
     },
     onSettled: () => setSavingKey(null),
   });
@@ -3118,10 +3122,20 @@ function MessageTemplatesPanel() {
                 </div>
               )}
 
+              {rowErrors[row.call_response] && (
+                <div
+                  className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  data-testid={`error-template-${row.call_response}`}
+                >
+                  {rowErrors[row.call_response]}
+                </div>
+              )}
+
               <div className="flex justify-end">
                 <Button
                   size="sm"
                   onClick={() => {
+                    setRowErrors((prev) => ({ ...prev, [row.call_response]: null }));
                     setSavingKey(row.call_response);
                     saveMutation.mutate(row);
                   }}

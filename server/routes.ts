@@ -7840,6 +7840,59 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           return res.status(400).json({ error: "approved_template_variable_count must be an integer between 0 and 10, or null" });
         }
       }
+      // Pre-flight validation: when saving an approved template, fetch the
+      // template's expected body-variable count from Meta/Wauper and warn
+      // the admin if the configured count (or variables list length) doesn't
+      // match. This prevents the "everything looks fine in the UI but every
+      // send fails at Meta" trap.
+      const effectiveType = template_type ?? "approved";
+      const candidateName = String(approved_template_name ?? "").trim();
+      if (effectiveType === "approved" && candidateName) {
+        try {
+          const sailaConfig = await storage.getSailaConfig(req.companyId);
+          if (sailaConfig) {
+            const cloudConfigs = await db
+              .select()
+              .from(dbSchema.whatsapp_cloud_config)
+              .where(eq(dbSchema.whatsapp_cloud_config.company_id, req.companyId));
+            const cloudConfig = cloudConfigs.find((c: any) => c.access_token && c.waba_id) || cloudConfigs[0];
+            const accessToken = cloudConfig?.access_token || null;
+            const wabaId = cloudConfig?.waba_id || null;
+            if (accessToken && wabaId) {
+              const { fetchApprovedTemplateMetadata } = await import("./saila-engine");
+              const langForLookup = approved_template_language ?? undefined;
+              const meta = await fetchApprovedTemplateMetadata(
+                sailaConfig,
+                accessToken,
+                wabaId,
+                candidateName,
+                langForLookup,
+              );
+              if (meta.ok) {
+                // Determine the count the admin is configuring. Explicit count
+                // wins; otherwise use the variables list length.
+                const configuredCount = normalizedVarCount != null
+                  ? normalizedVarCount
+                  : (normalizedVars ? normalizedVars.length : null);
+                if (configuredCount != null && configuredCount !== meta.expectedVariableCount) {
+                  return res.status(400).json({
+                    error: `This template expects ${meta.expectedVariableCount} variable${meta.expectedVariableCount === 1 ? "" : "s"}, you provided ${configuredCount}.`,
+                    expected_variable_count: meta.expectedVariableCount,
+                    configured_variable_count: configuredCount,
+                  });
+                }
+              }
+              // meta.ok === false: gracefully skip (no waba_id, network issue,
+              // template not found in Meta yet, etc). We don't block the save
+              // because the admin may be configuring ahead of Meta approval.
+            }
+          }
+        } catch (preflightErr: any) {
+          console.warn("[WhatsApp Templates] Pre-flight metadata check failed:", preflightErr?.message || preflightErr);
+          // Never block the save on a metadata-fetch crash.
+        }
+      }
+
       const saved = await storage.upsertWhatsAppMessageTemplate(req.companyId, callResponse, {
         template_type,
         body_text,
