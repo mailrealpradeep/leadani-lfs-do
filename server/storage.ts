@@ -294,6 +294,7 @@ import type {
   InsertWhatsAppTransferSettingsData,
   WhatsAppMessageTemplateRecord,
   WhatsAppMessageLogRecord,
+  WhatsAppCloudConfig,
   InsertWhatsAppMessageLogData,
   SailaConfig,
   InsertSailaConfig,
@@ -1189,6 +1190,9 @@ export interface IStorage {
   
   // Helper methods for WhatsApp processing
   getLeadsForSheet(sheetId: string): Promise<Lead[]>;
+
+  // WhatsApp Cloud Config (Meta Embedded Signup)
+  getWhatsAppCloudConfig(companyId: string): Promise<WhatsAppCloudConfig | undefined>;
 
   // Saila.AI - Config
   getSailaConfig(companyId: string): Promise<SailaConfig | undefined>;
@@ -3962,6 +3966,8 @@ export class MemStorage implements IStorage {
   async getLeadsForSheet(sheetId: string): Promise<Lead[]> {
     return Array.from(this.leads.values()).filter(lead => lead.sheet_id === sheetId && !lead.is_deleted);
   }
+
+  async getWhatsAppCloudConfig(_companyId: string): Promise<WhatsAppCloudConfig | undefined> { return undefined; }
 
   // Saila.AI stubs (MemStorage - not implemented)
   async getSailaConfig(_companyId: string): Promise<SailaConfig | undefined> { return undefined; }
@@ -12768,6 +12774,15 @@ export class PgStorage implements IStorage {
         isNull(dbSchema.leads.deleted_at)
       ));
     return result.map(this.mapLead);
+  }
+
+  // WhatsApp Cloud Config (Meta Embedded Signup)
+  async getWhatsAppCloudConfig(companyId: string): Promise<WhatsAppCloudConfig | undefined> {
+    const result = await db.select()
+      .from(dbSchema.whatsapp_cloud_config)
+      .where(eq(dbSchema.whatsapp_cloud_config.company_id, companyId))
+      .limit(1);
+    return result[0];
   }
 
   // Saila.AI Methods

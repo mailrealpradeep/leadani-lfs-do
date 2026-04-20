@@ -26,10 +26,10 @@ depend on a live Wauper/Meta connection.
 - The drawer also has a separate "Send WhatsApp" header button that opens its
   own modal — that is **not** what this test covers. Always interact with the
   inline composer (`data-testid="composer-whatsapp-reply"`).
-- The `/api/leads/:leadId/send-whatsapp/options` endpoint is mocked because
-  there is a missing storage method (`getWhatsAppCloudConfig`) on the dev DB
-  that causes it to 500 — see follow-up tasks. Mocking lets us exercise the
-  optimistic UI without coupling to that bug.
+- The `/api/leads/:leadId/send-whatsapp/options` endpoint is still mocked in
+  this test so we can exercise the optimistic UI without coupling to the
+  template/Meta lookup chain. The underlying `getWhatsAppCloudConfig` storage
+  method now exists, so the endpoint itself no longer 500s in production.
 
 ## Test plan
 
