@@ -47,7 +47,12 @@ import { LeadEditDialog } from "./lead-edit-dialog";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { SendWhatsAppDialog } from "./send-whatsapp-dialog";
-import { WhatsAppInlineComposer } from "./whatsapp-inline-composer";
+import {
+  WhatsAppInlineComposer,
+  type OptimisticSendMeta,
+  type SendWhatsAppPayload,
+} from "./whatsapp-inline-composer";
+import { useToast } from "@/hooks/use-toast";
 import {
   WhatsAppTemplateUpdateCard,
   parseTemplateFromUpdate,
@@ -163,13 +168,113 @@ function WhatsAppOutgoingStatusIndicator({
   );
 }
 
+type PendingSend = {
+  tempId: string;
+  status: "pending" | "failed";
+  bodyText: string;
+  messageType: "text" | "template";
+  recipientPhone: string;
+  displayPhoneNumber: string;
+  payload: SendWhatsAppPayload;
+  errorText?: string;
+  createdAt: string;
+};
+
 export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDetailDrawerProps) {
   const { formatDateOnly, formatDateTime, formatInTimezone } = useCompanyTimezone();
+  const { toast } = useToast();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [addUpdateDialogOpen, setAddUpdateDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [sendWaOpen, setSendWaOpen] = useState(false);
+  const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Reset pending bubbles when switching leads.
+  useEffect(() => {
+    setPendingSends([]);
+  }, [leadId]);
+
+  const handleOptimisticAdd = (tempId: string, meta: OptimisticSendMeta) => {
+    setPendingSends((prev) => [
+      ...prev,
+      {
+        tempId,
+        status: "pending",
+        bodyText: meta.bodyText,
+        messageType: meta.messageType,
+        recipientPhone: meta.recipientPhone,
+        displayPhoneNumber: meta.displayPhoneNumber,
+        payload: meta.payload,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  };
+
+  const handleOptimisticResolve = async (tempId: string) => {
+    if (!leadId) {
+      setPendingSends((prev) => prev.filter((p) => p.tempId !== tempId));
+      return;
+    }
+    // Wait for the conversation to refetch so the real bubble is in place
+    // before we remove the optimistic one — avoids a brief flash where the
+    // message disappears and reappears.
+    try {
+      await queryClient.refetchQueries({
+        queryKey: ["/api/leads", leadId, "whatsapp-messages"],
+      });
+    } finally {
+      setPendingSends((prev) => prev.filter((p) => p.tempId !== tempId));
+    }
+  };
+
+  const handleOptimisticFail = (tempId: string, errorText: string) => {
+    setPendingSends((prev) =>
+      prev.map((p) =>
+        p.tempId === tempId ? { ...p, status: "failed", errorText } : p,
+      ),
+    );
+  };
+
+  const handleRetryPending = async (tempId: string) => {
+    if (!leadId) return;
+    const target = pendingSends.find((p) => p.tempId === tempId);
+    if (!target) return;
+    setPendingSends((prev) =>
+      prev.map((p) =>
+        p.tempId === tempId ? { ...p, status: "pending", errorText: undefined } : p,
+      ),
+    );
+    try {
+      await apiRequest("POST", `/api/leads/${leadId}/send-whatsapp`, target.payload);
+      setPendingSends((prev) => prev.filter((p) => p.tempId !== tempId));
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "whatsapp-messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "updates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "send-whatsapp/options"] });
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+          ? err
+          : "Could not send WhatsApp message";
+      setPendingSends((prev) =>
+        prev.map((p) =>
+          p.tempId === tempId ? { ...p, status: "failed", errorText: message } : p,
+        ),
+      );
+      toast({
+        title: "Retry failed",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDiscardPending = (tempId: string) => {
+    setPendingSends((prev) => prev.filter((p) => p.tempId !== tempId));
+  };
 
   const { data: lead, isLoading, isError, refetch, isFetching } = useQuery<Lead>({
     queryKey: ["/api/leads", leadId],
@@ -322,12 +427,12 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
   // when a new WhatsApp message arrives, or after a successful reply.
   useEffect(() => {
     if (!open || waLoading) return;
-    if (waMessages.length === 0) return;
+    if (waMessages.length === 0 && pendingSends.length === 0) return;
     const id = window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     });
     return () => window.cancelAnimationFrame(id);
-  }, [open, waLoading, waMessages.length]);
+  }, [open, waLoading, waMessages.length, pendingSends.length]);
 
   const handleCall = () => {
     if (hasValidMobile) {
@@ -595,7 +700,7 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                         <Skeleton className="h-16 w-full" />
                         <Skeleton className="h-16 w-3/4" />
                       </div>
-                    ) : waMessages.length === 0 ? (
+                    ) : waMessages.length === 0 && pendingSends.length === 0 ? (
                       <div className="text-center py-6 text-muted-foreground bg-muted/30 rounded-lg">
                         <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
                         <p className="text-sm">No WhatsApp messages yet</p>
@@ -672,6 +777,85 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                             </div>
                           );
                         })}
+                        {pendingSends.map((p) => (
+                          <div
+                            key={p.tempId}
+                            className={`p-3 rounded-lg border ml-4 ${
+                              p.status === "failed"
+                                ? "bg-destructive/5 border-destructive/30"
+                                : "bg-green-500/5 border-green-500/20 opacity-80"
+                            }`}
+                            data-testid={`wa-pending-${p.tempId}`}
+                          >
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <ArrowUpRight className="h-3 w-3 text-green-600" />
+                              <span className="text-xs font-medium">Sent</span>
+                              <Badge variant="secondary" className="text-[10px] font-normal">
+                                {p.messageType}
+                              </Badge>
+                              {p.status === "pending" ? (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+                                  data-testid={`wa-pending-status-sending-${p.tempId}`}
+                                >
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Sending…
+                                </span>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[11px] text-destructive"
+                                  data-testid={`wa-pending-status-failed-${p.tempId}`}
+                                >
+                                  <XCircle className="h-3 w-3" />
+                                  Failed to send
+                                </span>
+                              )}
+                              <span className="text-xs text-muted-foreground ml-auto">
+                                {formatInTimezone(p.createdAt, "MMM d, h:mm a")}
+                              </span>
+                            </div>
+                            {p.bodyText && (
+                              <p className="text-sm text-foreground/80 whitespace-pre-wrap break-words">
+                                {p.bodyText}
+                              </p>
+                            )}
+                            <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
+                              <div>To {p.recipientPhone}</div>
+                              <div>From business {p.displayPhoneNumber}</div>
+                            </div>
+                            {p.status === "failed" && (
+                              <div className="mt-2 space-y-1.5">
+                                {p.errorText && (
+                                  <p className="text-xs text-destructive break-words" data-testid={`wa-pending-error-${p.tempId}`}>
+                                    {p.errorText}
+                                  </p>
+                                )}
+                                <div className="flex gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleRetryPending(p.tempId)}
+                                    disabled={p.status !== "failed"}
+                                    data-testid={`button-wa-pending-retry-${p.tempId}`}
+                                  >
+                                    <RefreshCw className="h-3 w-3 mr-1.5" />
+                                    Retry
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDiscardPending(p.tempId)}
+                                    data-testid={`button-wa-pending-discard-${p.tempId}`}
+                                  >
+                                    Discard
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
                         <div ref={messagesEndRef} data-testid="anchor-wa-conversation-end" />
                       </div>
                     )}
@@ -681,6 +865,9 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                         leadId={leadId!}
                         customerName={customerDisplayName}
                         recipientPhone={mobileNumber}
+                        onOptimisticAdd={handleOptimisticAdd}
+                        onOptimisticResolve={handleOptimisticResolve}
+                        onOptimisticFail={handleOptimisticFail}
                       />
                     )}
                   </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,10 +47,29 @@ interface OptionsResponse {
   };
 }
 
+export interface SendWhatsAppPayload {
+  call_response: string;
+  send_from_phone: string;
+  recipient_phone: string;
+  message_text: string;
+  template_variables?: string[];
+}
+
+export interface OptimisticSendMeta {
+  bodyText: string;
+  messageType: "text" | "template";
+  recipientPhone: string;
+  displayPhoneNumber: string;
+  payload: SendWhatsAppPayload;
+}
+
 interface WhatsAppInlineComposerProps {
   leadId: string;
   customerName: string;
   recipientPhone: string;
+  onOptimisticAdd?: (tempId: string, meta: OptimisticSendMeta) => void;
+  onOptimisticResolve?: (tempId: string) => void;
+  onOptimisticFail?: (tempId: string, errorText: string) => void;
 }
 
 function applyPlaceholders(
@@ -68,6 +87,9 @@ export function WhatsAppInlineComposer({
   leadId,
   customerName,
   recipientPhone,
+  onOptimisticAdd,
+  onOptimisticResolve,
+  onOptimisticFail,
 }: WhatsAppInlineComposerProps) {
   const { toast } = useToast();
   const [callResponse, setCallResponse] = useState<string>("");
@@ -165,27 +187,45 @@ export function WhatsAppInlineComposer({
   const sessionClosedForFreeform =
     !isApprovedTemplate && !!selectedTemplate && sessionInfo.state === "closed";
 
+  const tempIdRef = useRef<string | null>(null);
+
   const sendMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", `/api/leads/${leadId}/send-whatsapp`, {
+      const payload: SendWhatsAppPayload = {
         call_response: callResponse,
         send_from_phone: sendFromPhone,
         recipient_phone: recipientPhone,
         message_text: messageText,
         ...(isApprovedTemplate ? { template_variables: templateVars } : {}),
+      };
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      tempIdRef.current = tempId;
+      onOptimisticAdd?.(tempId, {
+        bodyText: messageText,
+        messageType: isApprovedTemplate ? "template" : "text",
+        recipientPhone,
+        displayPhoneNumber: sendFromPhone,
+        payload,
       });
+      // Clear composer immediately so the user can prep their next reply.
+      setMessageText("");
+      setTouched(false);
+      return await apiRequest("POST", `/api/leads/${leadId}/send-whatsapp`, payload);
     },
     onSuccess: () => {
-      toast({
-        title: "Message sent",
-        description: "WhatsApp message sent and recorded in lead history.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "whatsapp-messages"] });
+      const tempId = tempIdRef.current;
+      tempIdRef.current = null;
+      // When wired to optimistic UI, the parent waits for the messages
+      // refetch before clearing the pending bubble (avoids a flash of
+      // disappearance). Without optimistic UI, fall back to invalidating.
+      if (tempId && onOptimisticResolve) {
+        onOptimisticResolve(tempId);
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "whatsapp-messages"] });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "updates"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", leadId, "send-whatsapp/options"] });
-      setMessageText("");
-      setTouched(false);
     },
     onError: (err: unknown) => {
       const message =
@@ -194,11 +234,17 @@ export function WhatsAppInlineComposer({
           : typeof err === "string"
           ? err
           : "Could not send WhatsApp message";
-      toast({
-        title: "Failed to send",
-        description: message,
-        variant: "destructive",
-      });
+      const tempId = tempIdRef.current;
+      tempIdRef.current = null;
+      if (tempId) {
+        onOptimisticFail?.(tempId, message);
+      } else {
+        toast({
+          title: "Failed to send",
+          description: message,
+          variant: "destructive",
+        });
+      }
     },
   });
 
