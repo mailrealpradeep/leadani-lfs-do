@@ -882,6 +882,15 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                                     formatInTimezone={formatInTimezone}
                                   />
                                 )}
+                                {update.update_via === "whatsapp_outgoing" && update.sent_from_phone && (
+                                  <Badge
+                                    variant="outline"
+                                    className="h-5 px-1.5 text-[10px] gap-1 font-normal"
+                                    data-testid={`badge-wa-sent-from-${update.id}`}
+                                  >
+                                    From {update.sent_from_phone}
+                                  </Badge>
+                                )}
                                 <span className="text-xs text-muted-foreground ml-auto">
                                   {formatInTimezone(update.created_at, "MMM d, h:mm a")}
                                 </span>

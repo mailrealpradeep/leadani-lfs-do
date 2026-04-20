@@ -110,6 +110,11 @@ export function UpdateHistoryHoverCard({ leadId, onOpenFullDialog }: UpdateHisto
                         <span className="font-medium capitalize text-xs">
                           {update.update_via}
                         </span>
+                        {update.update_via === "whatsapp_outgoing" && update.sent_from_phone && (
+                          <span className="text-[9px] px-1 py-0.5 rounded border text-muted-foreground">
+                            From {update.sent_from_phone}
+                          </span>
+                        )}
                         {update.created_by_first_name && (
                           <span className="text-[10px] text-muted-foreground">
                             by {update.created_by_first_name}

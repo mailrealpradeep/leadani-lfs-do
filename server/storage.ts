@@ -5961,6 +5961,7 @@ export class PgStorage implements IStorage {
         : (row.whatsapp_status_at ?? null),
       whatsapp_error: row.whatsapp_error ?? null,
       whatsapp_template: row.whatsapp_template ?? null,
+      sent_from_phone: row.sent_from_phone ?? null,
     };
   }
 

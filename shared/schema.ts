@@ -765,6 +765,7 @@ export interface LeadUpdate {
   whatsapp_status_at?: string | null;
   whatsapp_error?: string | null;
   whatsapp_template?: WhatsAppTemplateSendInfo | null;
+  sent_from_phone?: string | null;
 }
 
 export const whatsAppTemplateSendInfoSchema = z.object({
@@ -787,6 +788,7 @@ export const insertLeadUpdateSchema = z.object({
   whatsapp_status_at: z.union([z.string(), z.date()]).nullable().optional(),
   whatsapp_error: z.string().nullable().optional(),
   whatsapp_template: whatsAppTemplateSendInfoSchema.nullable().optional(),
+  sent_from_phone: z.string().nullable().optional(),
 });
 
 export type InsertLeadUpdate = z.infer<typeof insertLeadUpdateSchema>;
@@ -1177,6 +1179,7 @@ export const lead_updates = pgTable('lead_updates', {
   whatsapp_status_at: timestamp('whatsapp_status_at'),
   whatsapp_error: text('whatsapp_error'),
   whatsapp_template: json('whatsapp_template').$type<WhatsAppTemplateSendInfo>(),
+  sent_from_phone: varchar('sent_from_phone', { length: 64 }),
 }, (table) => ({
   waMsgIdIdx: index('lead_updates_wa_message_id_idx').on(table.whatsapp_message_id),
 }));

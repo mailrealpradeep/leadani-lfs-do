@@ -8214,6 +8214,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
                   call_response_label: label,
                 }
               : null,
+            sent_from_phone: send_from_phone,
           });
         } catch (histErr) {
           console.error("[Send WhatsApp] Failed to record failure in lead history:", histErr);
@@ -8243,6 +8244,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
               call_response_label: label,
             }
           : null,
+        sent_from_phone: send_from_phone,
       });
 
       await storage.markLeadAttended(lead.id, req.userId!);

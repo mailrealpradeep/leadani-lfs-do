@@ -127,6 +127,14 @@ export function LeadUpdateHistoryDialog({
                         <span className="font-semibold capitalize text-sm">
                           {update.update_via}
                         </span>
+                        {update.update_via === "whatsapp_outgoing" && update.sent_from_phone && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded border text-muted-foreground"
+                            data-testid={`text-wa-sent-from-${update.id}`}
+                          >
+                            From {update.sent_from_phone}
+                          </span>
+                        )}
                         {update.created_by_first_name && (
                           <span className="text-xs text-muted-foreground">
                             by {update.created_by_first_name}

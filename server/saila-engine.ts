@@ -983,6 +983,45 @@ async function _finalizeAndSend(
         send_error: sendResult.success ? null : (sendResult.error || "Unknown send error"),
       });
 
+      // Mirror Saila's outgoing message into the lead's update history so
+      // executives can see the AI's reply in the lead drawer / history dialog,
+      // tagged with the business number it was sent from.
+      if (leadId) {
+        try {
+          const lead = await storage.getLead(leadId);
+          if (lead) {
+            const today = new Date().toISOString().slice(0, 10);
+            const sourceTag = response.source === "fixed_reply"
+              ? "Fixed Reply"
+              : response.source === "keyword"
+                ? `Keyword${response.keywordMatched ? ` (${response.keywordMatched})` : ""}`
+                : response.source === "sarvam_llm"
+                  ? "AI"
+                  : "AI";
+            const remarkText = sendResult.success
+              ? `Saila ${sourceTag} sent: ${response.responseText}`
+              : `Saila ${sourceTag} send failed (${sendResult.error || "Unknown error"}): ${response.responseText}`;
+            // Saila replies are sent by the AI engine, not a specific user.
+            // Leave created_by_user_id null so the UI doesn't mis-attribute
+            // the message to the lead's owner (who may differ from the
+            // executive owning the business number).
+            await storage.createLeadUpdate({
+              lead_id: lead.id,
+              update_via: "whatsapp_outgoing",
+              update_on: today,
+              remark: remarkText,
+              whatsapp_message_id: sendResult.messageId || null,
+              whatsapp_status: sendResult.success ? "sent" : "failed",
+              whatsapp_status_at: new Date(),
+              whatsapp_error: sendResult.success ? null : (sendResult.error || null),
+              sent_from_phone: executivePhone,
+            });
+          }
+        } catch (err) {
+          console.error("[Saila] Failed to mirror outgoing message into lead history:", err);
+        }
+      }
+
       console.log(`[Saila] Response sent to ${senderPhone} via ${response.source} (confidence: ${response.confidenceScore}%, status: ${sendResult.success ? "sent" : "failed"})`);
     }
   }
