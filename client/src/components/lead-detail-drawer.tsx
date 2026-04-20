@@ -121,6 +121,48 @@ function WhatsAppDeliveryPill({
   );
 }
 
+function WhatsAppOutgoingStatusIndicator({
+  outcome,
+  errorText,
+  messageId,
+}: {
+  outcome: string;
+  errorText: string | null;
+  messageId: string;
+}) {
+  type Cfg = {
+    label: string;
+    Icon: typeof Check;
+    iconClass: string;
+    testId: string;
+  };
+  const map: Record<string, Cfg> = {
+    sent: { label: "Sent", Icon: Check, iconClass: "text-muted-foreground", testId: "sent" },
+    delivered: { label: "Delivered", Icon: CheckCheck, iconClass: "text-muted-foreground", testId: "delivered" },
+    read: { label: "Read", Icon: CheckCheck, iconClass: "text-blue-500", testId: "read" },
+    failed: { label: "Failed", Icon: XCircle, iconClass: "text-destructive", testId: "failed" },
+  };
+  const cfg = map[outcome];
+  if (!cfg) return null;
+  const tooltipText = outcome === "failed" && errorText ? `Failed — ${errorText}` : cfg.label;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className={`inline-flex items-center ${cfg.iconClass}`}
+            data-testid={`wa-message-status-${cfg.testId}-${messageId}`}
+            aria-label={cfg.label}
+          >
+            <cfg.Icon className="h-3.5 w-3.5" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{tooltipText}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDetailDrawerProps) {
   const { formatDateOnly, formatDateTime, formatInTimezone } = useCompanyTimezone();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -142,6 +184,8 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
   const { data: waMessages = [], isLoading: waLoading } = useQuery<WhatsAppLeadMessage[]>({
     queryKey: ["/api/leads", leadId, "whatsapp-messages"],
     enabled: !!leadId && open,
+    refetchInterval: open ? 15000 : false,
+    refetchOnWindowFocus: true,
   });
 
   const { data: columns = [] } = useQuery<CustomColumn[]>({
@@ -563,7 +607,7 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                               }`}
                               data-testid={`wa-message-${msg.id}`}
                             >
-                              <div className="flex items-center gap-2 mb-1">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 {isOutgoing ? (
                                   <ArrowUpRight className="h-3 w-3 text-green-600" />
                                 ) : (
@@ -575,6 +619,17 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                                 <Badge variant="secondary" className="text-[10px] font-normal">
                                   {msg.message_type}
                                 </Badge>
+                                {isOutgoing && (
+                                  <WhatsAppOutgoingStatusIndicator
+                                    outcome={msg.outcome}
+                                    errorText={
+                                      typeof msg.outcome_details?.error === "string"
+                                        ? msg.outcome_details.error
+                                        : null
+                                    }
+                                    messageId={msg.id}
+                                  />
+                                )}
                                 <span className="text-xs text-muted-foreground ml-auto">
                                   {formatInTimezone(msg.processed_at, "MMM d, h:mm a")}
                                 </span>
