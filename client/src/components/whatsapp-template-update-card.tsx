@@ -2,40 +2,16 @@ import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { LeadUpdate, WhatsAppTemplateSendInfo } from "@shared/schema";
 
-const TEMPLATE_TAG_RE = /\[Approved Template:\s*([^()\]]+?)\s*\(([^)]+)\)\]\s*(?:\[([^\]]*)\])?(?:\s*—\s*([\s\S]*))?/;
-const PREFIX_RE = /^WA Sent\s*(?:\(([^)]*)\))?\s*:\s*/i;
-
 export interface ParsedWhatsAppTemplateUpdate {
   template: WhatsAppTemplateSendInfo;
 }
 
 export function parseTemplateFromUpdate(
-  update: Pick<LeadUpdate, "update_via" | "remark" | "whatsapp_template">,
+  update: Pick<LeadUpdate, "update_via" | "whatsapp_template">,
 ): ParsedWhatsAppTemplateUpdate | null {
   if (update.update_via !== "whatsapp_outgoing") return null;
-  if (update.whatsapp_template) {
-    return { template: update.whatsapp_template };
-  }
-  // Backwards-compat: parse from the rendered remark text.
-  const remark = update.remark || "";
-  const m = TEMPLATE_TAG_RE.exec(remark);
-  if (!m) return null;
-  const [, name, language, varsStr, body] = m;
-  const variables = varsStr
-    ? varsStr.split("|").map((s) => s.trim()).filter((s) => s.length > 0)
-    : [];
-  const prefixMatch = PREFIX_RE.exec(remark);
-  const callResponseLabel = prefixMatch?.[1]?.trim() || null;
-  return {
-    template: {
-      name: name.trim(),
-      language: language.trim(),
-      variables,
-      body: body ? body.trim() : null,
-      call_response: null,
-      call_response_label: callResponseLabel,
-    },
-  };
+  if (!update.whatsapp_template) return null;
+  return { template: update.whatsapp_template };
 }
 
 interface WhatsAppTemplateUpdateCardProps {
