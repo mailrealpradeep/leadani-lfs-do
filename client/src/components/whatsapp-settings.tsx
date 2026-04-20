@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { useQuery, useQueries, useMutation } from "@tanstack/react-query";
 import { Plus, Trash2, AlertCircle, Check, Settings, Phone, MessageSquare, Zap, FileText, GripVertical, ToggleLeft, ToggleRight, RefreshCw, Eye, Clock, Search, ChevronLeft, ChevronRight, Calendar, ArrowLeftRight, Users, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -128,6 +129,9 @@ interface WhatsAppMessageLog {
   trigger_matched: boolean;
   matched_rule_id: string | null;
   processed_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
+  failed_at: string | null;
   created_at: string;
 }
 
@@ -177,6 +181,7 @@ interface CompanySettings {
 
 export function WhatsAppSettings() {
   const { toast } = useToast();
+  const { formatInTimezone } = useCompanyTimezone();
   const [activeTab, setActiveTab] = useState("allocations");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ type: string; id: string } | null>(null);
@@ -1776,7 +1781,35 @@ export function WhatsAppSettings() {
                                 <span className="text-muted-foreground italic">[{log.message_type}]</span>
                               )}
                             </TableCell>
-                            <TableCell>{getOutcomeBadge(log.outcome, log.outcome_details)}</TableCell>
+                            <TableCell data-testid={`cell-outcome-${log.id}`}>
+                              {(() => {
+                                const badge = getOutcomeBadge(log.outcome, log.outcome_details);
+                                const lines: string[] = [];
+                                if (log.delivered_at) lines.push(`Delivered at ${formatInTimezone(log.delivered_at, "MMM d, h:mm a")}`);
+                                if (log.read_at) lines.push(`Read at ${formatInTimezone(log.read_at, "MMM d, h:mm a")}`);
+                                if (log.failed_at) lines.push(`Failed at ${formatInTimezone(log.failed_at, "MMM d, h:mm a")}`);
+                                if (lines.length === 0) return badge;
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="cursor-help">{badge}</span>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">
+                                        <div className="space-y-0.5 text-xs" data-testid={`tooltip-outcome-${log.id}`}>
+                                          {lines.map((l, i) => <div key={i}>{l}</div>)}
+                                        </div>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                    <div className="text-[10px] text-muted-foreground leading-tight">
+                                      {log.read_at ? `Read ${formatInTimezone(log.read_at, "h:mm a")}` :
+                                        log.delivered_at ? `Delivered ${formatInTimezone(log.delivered_at, "h:mm a")}` :
+                                        log.failed_at ? `Failed ${formatInTimezone(log.failed_at, "h:mm a")}` : null}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </TableCell>
                           </TableRow>
                         );
                       })

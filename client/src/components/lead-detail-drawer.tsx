@@ -79,6 +79,9 @@ type WhatsAppLeadMessage = {
   message_type: string;
   outcome: string;
   processed_at: string;
+  delivered_at?: string | null;
+  read_at?: string | null;
+  failed_at?: string | null;
   sent_by_user_id: string | null;
   sent_by_name?: string | null;
   outcome_details?: Record<string, any> | null;
@@ -130,10 +133,16 @@ function WhatsAppOutgoingStatusIndicator({
   outcome,
   errorText,
   messageId,
+  deliveredAtLabel,
+  readAtLabel,
+  failedAtLabel,
 }: {
   outcome: string;
   errorText: string | null;
   messageId: string;
+  deliveredAtLabel?: string | null;
+  readAtLabel?: string | null;
+  failedAtLabel?: string | null;
 }) {
   type Cfg = {
     label: string;
@@ -149,7 +158,15 @@ function WhatsAppOutgoingStatusIndicator({
   };
   const cfg = map[outcome];
   if (!cfg) return null;
-  const tooltipText = outcome === "failed" && errorText ? `Failed — ${errorText}` : cfg.label;
+  const tooltipLines: string[] = [];
+  if (outcome === "failed") {
+    tooltipLines.push(errorText ? `Failed — ${errorText}` : "Failed");
+    if (failedAtLabel) tooltipLines.push(`at ${failedAtLabel}`);
+  } else {
+    tooltipLines.push(cfg.label);
+  }
+  if (deliveredAtLabel) tooltipLines.push(`Delivered at ${deliveredAtLabel}`);
+  if (readAtLabel) tooltipLines.push(`Read at ${readAtLabel}`);
   return (
     <TooltipProvider>
       <Tooltip>
@@ -162,7 +179,13 @@ function WhatsAppOutgoingStatusIndicator({
             <cfg.Icon className="h-3.5 w-3.5" />
           </span>
         </TooltipTrigger>
-        <TooltipContent>{tooltipText}</TooltipContent>
+        <TooltipContent>
+          <div className="space-y-0.5 text-xs" data-testid={`wa-message-status-tooltip-${messageId}`}>
+            {tooltipLines.map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+          </div>
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
@@ -745,6 +768,9 @@ export function LeadDetailDrawer({ leadId, sheetId, open, onOpenChange }: LeadDe
                                         : null
                                     }
                                     messageId={msg.id}
+                                    deliveredAtLabel={msg.delivered_at ? formatInTimezone(msg.delivered_at, "MMM d, h:mm a") : null}
+                                    readAtLabel={msg.read_at ? formatInTimezone(msg.read_at, "MMM d, h:mm a") : null}
+                                    failedAtLabel={msg.failed_at ? formatInTimezone(msg.failed_at, "MMM d, h:mm a") : null}
                                   />
                                 )}
                                 <span className="text-xs text-muted-foreground ml-auto">

@@ -5060,6 +5060,9 @@ export const whatsapp_message_logs = pgTable('whatsapp_message_logs', {
   trigger_matched: boolean('trigger_matched').notNull().default(false),
   matched_rule_id: varchar('matched_rule_id').references(() => whatsapp_trigger_rules.id, { onDelete: 'set null' }),
   processed_at: timestamp('processed_at').defaultNow().notNull(),
+  delivered_at: timestamp('delivered_at'),
+  read_at: timestamp('read_at'),
+  failed_at: timestamp('failed_at'),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 

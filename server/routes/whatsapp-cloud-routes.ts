@@ -394,12 +394,26 @@ export function registerWhatsAppCloudRoutes(app: Express): void {
 
                 if (existingLog.length > 0) {
                   const current = existingLog[0];
-                  if (shouldAdvanceWhatsAppStatus(current.outcome, status)) {
-                    const patch: Record<string, unknown> = { outcome: status };
+                  const advance = shouldAdvanceWhatsAppStatus(current.outcome, status);
+                  const patch: Record<string, unknown> = {};
+                  if (advance) {
+                    patch.outcome = status;
                     if (status === "failed" && errorText) {
                       const prevDetails = (current.outcome_details as Record<string, unknown> | null) ?? {};
                       patch.outcome_details = { ...prevDetails, error: errorText };
                     }
+                  }
+                  // Always record the first time each transition was seen so
+                  // the lead drawer can show "Delivered at …, Read at …" even
+                  // if the status events arrive out of order.
+                  if (status === "delivered" && !current.delivered_at) {
+                    patch.delivered_at = statusAt;
+                  } else if (status === "read" && !current.read_at) {
+                    patch.read_at = statusAt;
+                  } else if (status === "failed" && !current.failed_at) {
+                    patch.failed_at = statusAt;
+                  }
+                  if (Object.keys(patch).length > 0) {
                     await db.update(dbSchema.whatsapp_message_logs)
                       .set(patch)
                       .where(eq(dbSchema.whatsapp_message_logs.id, current.id));
