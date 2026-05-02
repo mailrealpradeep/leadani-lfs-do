@@ -8033,14 +8033,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const sender = await storage.getUser(req.userId!);
       const customerName = String(cf.full_name || cf.name || cf.first_name || "");
       const executiveName = String(owner?.name || sender?.name || "");
+      // Resolve {executive_mobno}: the WhatsApp Business number assigned
+      // to the lead's owning executive in the Phone Number Allocations
+      // table. Not to be confused with `send_from_phone` (which the user
+      // can override in the Send From dropdown).
+      const { resolveExecutiveBusinessPhone } = await import("./whatsapp-executive-phone");
+      const splitsByPhoneForMobno = await storage.getAllWhatsAppAllocationSplits(req.companyId!);
+      const executiveMobno = resolveExecutiveBusinessPhone({
+        ownerUserId: lead.owner_user_id ?? null,
+        leadSheetId: lead.sheet_id,
+        allocations,
+        splitsByPhone: splitsByPhoneForMobno,
+      });
       const placeholders: Record<string, string> = {
         customer_name: customerName,
         executive_name: executiveName,
         company_name: String(company?.name || ""),
         lead_id: lead.id,
+        executive_mobno: executiveMobno,
       };
       const substitute = (text: string): string =>
-        text.replace(/\{(customer_name|executive_name|company_name|lead_id)\}/g, (_m, k) => placeholders[k] ?? "");
+        text.replace(/\{(customer_name|executive_name|company_name|lead_id|executive_mobno)\}/g, (_m, k) => placeholders[k] ?? "");
 
       // Load Saila config (used by sender for domain/version)
       const sailaConfig = await storage.getSailaConfig(req.companyId!);
@@ -8452,6 +8465,18 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const company = await storage.getCompany(req.companyId!);
       const owner = lead.owner_user_id ? usersMap.get(lead.owner_user_id) || (await storage.getUser(lead.owner_user_id)) : null;
 
+      // Resolve {executive_mobno} for the dialog's live preview so the
+      // client renders identically to what the server will substitute
+      // at send time (no extra round-trip needed).
+      const { resolveExecutiveBusinessPhone } = await import("./whatsapp-executive-phone");
+      const splitsByPhoneForMobno = await storage.getAllWhatsAppAllocationSplits(req.companyId!);
+      const executiveMobno = resolveExecutiveBusinessPhone({
+        ownerUserId: lead.owner_user_id ?? null,
+        leadSheetId: lead.sheet_id,
+        allocations,
+        splitsByPhone: splitsByPhoneForMobno,
+      });
+
       res.json({
         options,
         templates,
@@ -8460,6 +8485,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           company_name: company?.name || "",
           lead_id: lead.id,
           executive_name: owner?.name || "",
+          executive_mobno: executiveMobno,
         },
       });
     } catch (error: any) {

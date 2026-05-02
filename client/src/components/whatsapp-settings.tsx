@@ -3106,7 +3106,7 @@ function MessageTemplatesPanel() {
         <CardDescription>
           Configure message bodies for each call response. Executives will pick one when sending WhatsApp from a lead.
           Use placeholders <code>{"{customer_name}"}</code>, <code>{"{executive_name}"}</code>, <code>{"{company_name}"}</code>,
-          and <code>{"{lead_id}"}</code>.
+          <code>{"{lead_id}"}</code>, and <code>{"{executive_mobno}"}</code> (the executive's allocated WhatsApp Business number from Phone Number Allocations).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -3244,7 +3244,7 @@ function MessageTemplatesPanel() {
                       data-testid={`textarea-approved-vars-${row.call_response}`}
                     />
                     <div className="text-xs text-muted-foreground">
-                      Each line maps to a positional variable (<code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>, …) in the approved template body. Placeholders <code>{"{customer_name}"}</code>, <code>{"{executive_name}"}</code>, <code>{"{company_name}"}</code>, <code>{"{lead_id}"}</code> are substituted at send time.
+                      Each line maps to a positional variable (<code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>, …) in the approved template body. Placeholders <code>{"{customer_name}"}</code>, <code>{"{executive_name}"}</code>, <code>{"{company_name}"}</code>, <code>{"{lead_id}"}</code>, <code>{"{executive_mobno}"}</code> are substituted at send time.
                     </div>
                   </div>
                 </div>

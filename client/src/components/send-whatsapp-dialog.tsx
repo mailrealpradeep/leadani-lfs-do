@@ -62,6 +62,13 @@ interface SendWhatsAppOptionsResponse {
     company_name: string;
     lead_id: string;
     executive_name: string;
+    /**
+     * Executive's allocated WhatsApp Business number from Phone Number
+     * Allocations — substituted for `{executive_mobno}` in template
+     * bodies. Tied to the lead owner; does NOT change when the user
+     * switches the Send From dropdown.
+     */
+    executive_mobno: string;
   };
 }
 
@@ -75,13 +82,20 @@ interface SendWhatsAppDialogProps {
 
 function applyPlaceholders(
   text: string,
-  vars: { customer_name: string; executive_name: string; company_name: string; lead_id: string }
+  vars: {
+    customer_name: string;
+    executive_name: string;
+    company_name: string;
+    lead_id: string;
+    executive_mobno: string;
+  }
 ): string {
   return text
     .replace(/\{customer_name\}/g, vars.customer_name)
     .replace(/\{executive_name\}/g, vars.executive_name)
     .replace(/\{company_name\}/g, vars.company_name)
-    .replace(/\{lead_id\}/g, vars.lead_id);
+    .replace(/\{lead_id\}/g, vars.lead_id)
+    .replace(/\{executive_mobno\}/g, vars.executive_mobno);
 }
 
 /**
@@ -218,6 +232,7 @@ export function SendWhatsAppDialog({
       executive_name: data.context.executive_name || "",
       company_name: data.context.company_name || "",
       lead_id: data.context.lead_id || "",
+      executive_mobno: data.context.executive_mobno || "",
     };
     if (!touched) {
       const source = selectedTemplate.body_text
@@ -351,8 +366,9 @@ export function SendWhatsAppDialog({
         executive_name: data.context.executive_name || "",
         company_name: data.context.company_name || "",
         lead_id: data.context.lead_id || "",
+        executive_mobno: data.context.executive_mobno || "",
       }
-    : { customer_name: customerName || "", executive_name: "", company_name: "", lead_id: "" };
+    : { customer_name: customerName || "", executive_name: "", company_name: "", lead_id: "", executive_mobno: "" };
   const approvedPreviewBody = useMemo(() => {
     if (!isApprovedTemplate || !selectedTemplate) return "";
     const raw = selectedTemplate.body_text?.trim()
