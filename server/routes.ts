@@ -8312,6 +8312,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       if (!access) return res.status(403).json({ error: "Access denied" });
 
       const allocations = await storage.getWhatsAppAllocations(req.companyId!);
+      const splitsByPhone = await storage.getAllWhatsAppAllocationSplits(req.companyId!);
       const phoneSettings = await storage.getSailaPhoneSettings(req.companyId!);
       const connectedSet = new Set(
         phoneSettings
@@ -8319,29 +8320,27 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           .map((p) => p.display_phone_number)
       );
 
-      // Dedupe by display_phone_number; mark which one is the lead owner's
-      const seen = new Map<string, { display_phone_number: string; user_id: string; user_name: string | null; is_lead_owner: boolean }>();
-      const userIds = Array.from(new Set(allocations.map((a) => a.user_id)));
-      const usersMap = new Map((await storage.getUsersByIds(userIds)).map((u) => [u.id, u]));
-
-      for (const a of allocations) {
-        if (!a.enabled) continue;
-        if (!connectedSet.has(a.display_phone_number)) continue;
-        const existing = seen.get(a.display_phone_number);
-        const isOwner = a.user_id === lead.owner_user_id;
-        if (!existing || (isOwner && !existing.is_lead_owner)) {
-          seen.set(a.display_phone_number, {
-            display_phone_number: a.display_phone_number,
-            user_id: a.user_id,
-            user_name: usersMap.get(a.user_id)?.name || null,
-            is_lead_owner: isOwner,
-          });
-        }
+      // Collect every user_id we may need a name for: parent allocation rows
+      // PLUS split contributors (split-mode phones label by contributors,
+      // not by the parent row's stale user_id).
+      const userIdSet = new Set<string>();
+      for (const a of allocations) userIdSet.add(a.user_id);
+      for (const splits of Object.values(splitsByPhone)) {
+        for (const s of splits) userIdSet.add(s.user_id);
       }
+      const usersList = await storage.getUsersByIds(Array.from(userIdSet));
+      const usersMap = new Map(usersList.map((u) => [u.id, u]));
+      const userNamesById = new Map<string, string | null | undefined>(
+        usersList.map((u) => [u.id, u.name]),
+      );
 
-      const sortedOptions = Array.from(seen.values()).sort((a, b) => {
-        if (a.is_lead_owner !== b.is_lead_owner) return a.is_lead_owner ? -1 : 1;
-        return a.display_phone_number.localeCompare(b.display_phone_number);
+      const { buildSendFromOptions } = await import("./whatsapp-send-from-options");
+      const sortedOptions = buildSendFromOptions({
+        ownerUserId: lead.owner_user_id ?? null,
+        allocations,
+        splitsByPhone,
+        connectedPhones: connectedSet,
+        userNamesById,
       });
 
       // Compute last incoming WA timestamp per sender option (for 24h session window)
@@ -8467,14 +8466,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       // Resolve {executive_mobno} for the dialog's live preview so the
       // client renders identically to what the server will substitute
-      // at send time (no extra round-trip needed).
+      // at send time (no extra round-trip needed). Reuses the splits we
+      // already loaded above for the Send From dropdown — no second DB hit.
       const { resolveExecutiveBusinessPhone } = await import("./whatsapp-executive-phone");
-      const splitsByPhoneForMobno = await storage.getAllWhatsAppAllocationSplits(req.companyId!);
       const executiveMobno = resolveExecutiveBusinessPhone({
         ownerUserId: lead.owner_user_id ?? null,
         leadSheetId: lead.sheet_id,
         allocations,
-        splitsByPhone: splitsByPhoneForMobno,
+        splitsByPhone,
       });
 
       res.json({

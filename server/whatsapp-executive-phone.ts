@@ -48,19 +48,25 @@ export function resolveExecutiveBusinessPhone(args: {
   const isPhoneEnabled = (phone: string): boolean =>
     allocByPhone.get(phone)?.enabled === true;
 
-  // 1 & 2 — single-user allocations (phones with no split rows)
+  // 1 & 2 — single-user allocations (phones with no split rows).
+  // Both rules use a deterministic tiebreak by lowest phone number so
+  // iteration order over `allocations` cannot affect the result when
+  // multiple rows match the same priority.
   const singleMatches = allocations.filter(
     (a) =>
       a.enabled &&
       a.user_id === ownerUserId &&
       !isSplitPhone(a.display_phone_number),
   );
-  const exactSingle = singleMatches.find((a) => a.sheet_id === leadSheetId);
-  if (exactSingle) return exactSingle.display_phone_number;
+  const sortByPhone = (a: WhatsAppAllocationRecord, b: WhatsAppAllocationRecord) =>
+    a.display_phone_number.localeCompare(b.display_phone_number);
+
+  const exactSingleMatches = singleMatches.filter((a) => a.sheet_id === leadSheetId);
+  if (exactSingleMatches.length > 0) {
+    return [...exactSingleMatches].sort(sortByPhone)[0].display_phone_number;
+  }
   if (singleMatches.length > 0) {
-    return [...singleMatches].sort((a, b) =>
-      a.display_phone_number.localeCompare(b.display_phone_number),
-    )[0].display_phone_number;
+    return [...singleMatches].sort(sortByPhone)[0].display_phone_number;
   }
 
   // 3 & 4 — split allocations containing this user

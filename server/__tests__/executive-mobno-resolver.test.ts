@@ -58,6 +58,24 @@ describe("resolveExecutiveBusinessPhone — {executive_mobno} resolution rules",
     );
   });
 
+  it("Rule 1 deterministic tiebreak: two single-user matches for same (user, sheet) pick lowest phone", () => {
+    // Insertion order intentionally puts the larger phone first so we'd
+    // pick the wrong one if iteration order leaked into the result.
+    const allocations = [
+      alloc({ display_phone_number: "919999999999", user_id: "u-ankita", sheet_id: "sheet-ankita" }),
+      alloc({ display_phone_number: "918249344757", user_id: "u-ankita", sheet_id: "sheet-ankita" }),
+    ];
+    assert.equal(
+      resolveExecutiveBusinessPhone({
+        ownerUserId: "u-ankita",
+        leadSheetId: "sheet-ankita",
+        allocations,
+        splitsByPhone: {},
+      }),
+      "918249344757",
+    );
+  });
+
   it("Rule 2: falls back to single-user allocation on any sheet (lowest phone wins)", () => {
     const allocations = [
       alloc({ display_phone_number: "919999999999", user_id: "u-ankita", sheet_id: "sheet-other" }),
@@ -193,6 +211,32 @@ describe("resolveExecutiveBusinessPhone — {executive_mobno} resolution rules",
         splitsByPhone: {},
       }),
       "",
+    );
+  });
+
+  it("All India Marine repro: stale split-parent row points to lead owner, but real single-user line still wins", () => {
+    // Phone 919437986561 is in split mode (Ankita+Subhasmita), but its parent
+    // row still references Sasmita from before the split conversion. Sasmita
+    // also has her own legitimate single-user allocation 917978849875. The
+    // resolver must pick 917978849875, not the stale 919437986561 parent.
+    const allocations = [
+      alloc({ display_phone_number: "919437986561", user_id: "u-sasmita", sheet_id: "s-sasmita-leads" }), // stale split parent
+      alloc({ display_phone_number: "917978849875", user_id: "u-sasmita", sheet_id: "s-sasmita-leads" }), // real single-user line
+    ];
+    const splitsByPhone = {
+      "919437986561": [
+        split({ display_phone_number: "919437986561", user_id: "u-ankita", percentage: 50, sheet_id: "s-shared" }),
+        split({ display_phone_number: "919437986561", user_id: "u-subhasmita", percentage: 50, sheet_id: "s-shared" }),
+      ],
+    };
+    assert.equal(
+      resolveExecutiveBusinessPhone({
+        ownerUserId: "u-sasmita",
+        leadSheetId: "s-sasmita-leads",
+        allocations,
+        splitsByPhone,
+      }),
+      "917978849875",
     );
   });
 
