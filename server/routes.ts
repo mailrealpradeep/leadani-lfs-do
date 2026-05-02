@@ -1680,13 +1680,18 @@ ${questionsList}`;
                     }
                   }
                   
-                  // Store in whatsapp_message_logs
+                  // Store in whatsapp_message_logs.
+                  // sender_phone column is contractually "last 10 digits"
+                  // (see shared/schema.ts). Normalise here so the 24h
+                  // session-state lookup matches reliably.
+                  const fromRaw = message.from || "";
+                  const fromLast10 = String(fromRaw).replace(/\D/g, "").slice(-10);
                   await storage.createWhatsAppMessageLog({
                     company_id: companyId,
                     webhook_request_id: entry.id || "",
-                    sender_phone: message.from || "",
+                    sender_phone: fromLast10,
                     sender_name: contact.profile?.name || null,
-                    sender_wa_id: message.from || contact.wa_id || "",
+                    sender_wa_id: fromRaw || contact.wa_id || "",
                     display_phone_number: displayPhoneNumber,
                     message_id: message.id || "",
                     message_text: messageText || null,
@@ -1709,12 +1714,17 @@ ${questionsList}`;
           const messages = payload.messages || [payload];
           
           for (const msg of messages) {
+            // sender_phone column is contractually "last 10 digits"
+            // (see shared/schema.ts). Normalise here so the 24h
+            // session-state lookup matches reliably.
+            const fromRawAlt = msg.from || payload.from || "";
+            const fromLast10Alt = String(fromRawAlt).replace(/\D/g, "").slice(-10);
             await storage.createWhatsAppMessageLog({
               company_id: companyId,
               webhook_request_id: payload.id || payload.webhook_id || "",
-              sender_phone: msg.from || payload.from || "",
+              sender_phone: fromLast10Alt,
               sender_name: msg.sender_name || payload.sender_name || null,
-              sender_wa_id: msg.wa_id || msg.from || payload.from || "",
+              sender_wa_id: msg.wa_id || fromRawAlt || "",
               display_phone_number: msg.display_phone_number || payload.display_phone_number || "",
               message_id: msg.id || msg.message_id || "",
               message_text: msg.text?.body || msg.body || msg.text || null,

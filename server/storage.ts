@@ -12539,6 +12539,13 @@ export class PgStorage implements IStorage {
   ): Promise<Record<string, string>> {
     const result: Record<string, string> = {};
     if (!senderPhoneLast10 || displayPhoneNumbers.length === 0) return result;
+    // Match the trailing 10 digits of sender_phone, since legacy rows may
+    // store the full international number (e.g. "919438743969") instead of
+    // the schema-intended last-10 form. Using RIGHT(REGEXP_REPLACE(...))
+    // makes the comparison robust regardless of how the row was originally
+    // written, which fixes the wrong "Session closed" detection for leads
+    // whose inbound message was ingested through a non-normalising webhook
+    // path.
     const rows = await db
       .select({
         display_phone_number: dbSchema.whatsapp_message_logs.display_phone_number,
@@ -12548,7 +12555,7 @@ export class PgStorage implements IStorage {
       .where(and(
         eq(dbSchema.whatsapp_message_logs.company_id, companyId),
         eq(dbSchema.whatsapp_message_logs.direction, 'incoming'),
-        eq(dbSchema.whatsapp_message_logs.sender_phone, senderPhoneLast10),
+        sql`RIGHT(REGEXP_REPLACE(${dbSchema.whatsapp_message_logs.sender_phone}, '[^0-9]', '', 'g'), 10) = ${senderPhoneLast10}`,
         inArray(dbSchema.whatsapp_message_logs.display_phone_number, displayPhoneNumbers),
       ))
       .groupBy(dbSchema.whatsapp_message_logs.display_phone_number);
