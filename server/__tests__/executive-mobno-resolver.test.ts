@@ -12,8 +12,8 @@ function alloc(partial: Partial<WhatsAppAllocationRecord>): WhatsAppAllocationRe
     sheet_id: partial.sheet_id ?? "sheet-ankita",
     enabled: partial.enabled ?? true,
     catch_all_enabled: partial.catch_all_enabled ?? false,
-    created_at: new Date() as any,
-    updated_at: new Date() as any,
+    created_at: new Date(),
+    updated_at: new Date(),
   };
 }
 
@@ -25,7 +25,7 @@ function split(partial: Partial<WhatsAppAllocationSplit>): WhatsAppAllocationSpl
     user_id: partial.user_id ?? "u-ankita",
     sheet_id: partial.sheet_id ?? "sheet-shared",
     percentage: partial.percentage ?? 50,
-    created_at: new Date() as any,
+    created_at: new Date(),
   };
 }
 

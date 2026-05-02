@@ -3289,7 +3289,7 @@ function MessageTemplatesPanel() {
                     onChange={(e) => updateRow(row.call_response, { body_text: e.target.value })}
                     rows={4}
                     className="w-full rounded-md border bg-background p-2 text-sm"
-                    placeholder="Hi {customer_name}, this is {executive_name} from {company_name}..."
+                    placeholder="Hi {customer_name}, this is {executive_name} from {company_name}. Please call {executive_mobno}."
                     data-testid={`textarea-body-${row.call_response}`}
                   />
                 </div>
