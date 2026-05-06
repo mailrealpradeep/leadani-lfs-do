@@ -136,7 +136,21 @@ export function registerSailaIntakeRoutes(app: Express): void {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // ── Sessions (read-only log) ────────────────────────────────────────────
+  // ── Sessions ────────────────────────────────────────────────────────────
+  // Manual cancel — admin can abort any active/paused session for a lead.
+  app.post("/api/saila/intake/sessions/:id/cancel", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const session = await intakeStore.getSession(req.params.id);
+      if (!session) return res.status(404).json({ error: "Session not found" });
+      if (session.company_id !== req.companyId) return res.status(404).json({ error: "Session not found" });
+      if (session.status !== 'active' && session.status !== 'paused') {
+        return res.status(400).json({ error: `Cannot cancel session in status '${session.status}'` });
+      }
+      await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get("/api/saila/intake/sessions", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       const companyId = req.companyId!;

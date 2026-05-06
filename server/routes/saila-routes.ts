@@ -362,7 +362,7 @@ export function registerSailaRoutes(app: Express): void {
       // session for the recipient (test sends are admin-driven → counts as human takeover).
       try {
         const normalized = String(toPhone).replace(/\D/g, "").slice(-10);
-        await storage.createWhatsAppMessageLog({
+        const logRow: Parameters<typeof storage.createWhatsAppMessageLog>[0] = {
           company_id: companyId,
           webhook_request_id: null,
           direction: "outgoing",
@@ -380,7 +380,8 @@ export function registerSailaRoutes(app: Express): void {
           trigger_matched: false,
           processed_at: new Date(),
           origin: "human",
-        } as any);
+        };
+        await storage.createWhatsAppMessageLog(logRow);
         const { findExistingLeadByPhone } = await import("../whatsapp-processor");
         const found = await findExistingLeadByPhone(companyId, normalized);
         if (found?.lead?.id) {

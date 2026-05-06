@@ -25,7 +25,7 @@ import type {
 
 export interface IntakeHandled {
   handled: true;
-  source: "intake_question" | "intake_completion" | "intake_cancelled" | "intake_off_topic" | "intake_silence_timeout" | "intake_paused_silent";
+  source: "intake_question" | "intake_completion" | "intake_cancelled" | "intake_off_topic" | "intake_silence_timeout" | "intake_paused_silent" | "intake_silent_no_text";
   responseText: string;
   sessionId: string;
 }
@@ -155,7 +155,7 @@ export async function isAnswerRelevant(
       message_text: answer,
       reason: "intake_relevance_error",
       reason_detail: `Sarvam relevance error: ${err.message}`,
-    } as any).catch(() => {});
+    } as Parameters<typeof storage.createSailaErrorLog>[0]).catch(() => {});
     return { relevant: true, reason: "sarvam_exception_fail_open" };
   }
 }
@@ -209,7 +209,7 @@ async function sendBotMessage(
 ): Promise<void> {
   const result = await sendWhatsAppMessage(config, phoneSetting, recipientPhone, text);
   try {
-    await storage.createWhatsAppMessageLog({
+    const logRow: Parameters<typeof storage.createWhatsAppMessageLog>[0] = {
       company_id: companyId,
       webhook_request_id: null,
       direction: "outgoing",
@@ -227,7 +227,8 @@ async function sendBotMessage(
       trigger_matched: false,
       processed_at: new Date(),
       origin: "bot",
-    } as Parameters<typeof storage.createWhatsAppMessageLog>[0]);
+    };
+    await storage.createWhatsAppMessageLog(logRow);
   } catch (err) {
     console.error("[Intake] WA log insert failed:", err);
   }
@@ -261,26 +262,13 @@ async function startOrResumeSession(args: {
     return { handled: false, reason: "flow_has_no_questions" };
   }
 
-  const lead = await storage.getLead(leadId);
-  const startIdx = findNextUnansweredIndex(questions, (lead as Lead | undefined)?.custom_fields || {});
-
-  if (startIdx >= questions.length) {
-    // Already fully answered → mark complete, no re-ask
-    if (existingSession && existingSession.flow_id === trigger.flow_id) {
-      await intakeStore.updateIntakeSession(existingSession.id, {
-        status: 'completed',
-        depth_reached: questions.length,
-        completed_at: new Date(),
-        last_activity_at: new Date(),
-      });
-    }
-    return { handled: false, reason: "all_questions_already_answered" };
-  }
-
   let sessionId: string;
-  // If we can reuse the same-flow paused/abandoned session, do so to preserve depth_reached.
+  let startIdx: number;
+  // Same-flow paused/abandoned session → resume at the SESSION's current_question_index
+  // (session-scoped, not lead-scoped, so prefilled CRM data does not skip questions).
   if (existingSession && existingSession.flow_id === trigger.flow_id &&
       (existingSession.status === 'paused' || existingSession.status === 'abandoned')) {
+    startIdx = Math.min(existingSession.current_question_index, questions.length - 1);
     const updated = await intakeStore.updateIntakeSession(existingSession.id, {
       status: 'active',
       paused_until: null,
@@ -293,6 +281,7 @@ async function startOrResumeSession(args: {
     sessionId = updated?.id || existingSession.id;
     await logLeadUpdate(leadId, "whatsapp", `[Intake] Keyword "${matchedKeyword}" resumed flow "${trigger.flow.name}" at Q${startIdx + 1}/${questions.length}`);
   } else {
+    startIdx = 0;
     // Different-flow active session? Mark abandoned (new keyword overrides).
     if (existingSession && existingSession.status === 'active' && existingSession.flow_id !== trigger.flow_id) {
       await intakeStore.updateIntakeSession(existingSession.id, { status: 'abandoned' });
@@ -301,8 +290,8 @@ async function startOrResumeSession(args: {
       company_id: companyId,
       lead_id: leadId,
       flow_id: trigger.flow_id,
-      current_question_index: startIdx,
-      depth_reached: startIdx,
+      current_question_index: 0,
+      depth_reached: 0,
       status: 'active',
       fallback_attempts: 0,
       last_activity_at: new Date(),
@@ -336,23 +325,31 @@ export async function processInboundForIntake(params: {
 
   if (!leadId) return { handled: false, reason: "no_lead_id" };
 
+  const now = new Date();
+  // We need ALL recent sessions (not just active/paused) to enforce the
+  // "completed flow no-ops on keyword" rule.
   const session = await intakeStore.getActiveSessionForLead(leadId);
+  const latest = await intakeStore.getLatestSessionForLead(leadId);
   const triggers = await intakeStore.listAllIntakeTriggersForCompany(companyId);
 
-  // ── 1. PAUSED session: stay silent unless a new keyword arrives ──
+  // ── 1. PAUSED session gating ──
+  // <24h pause: silent regardless of message content (even keywords are no-ops).
+  // >=24h pause: keyword arrives → resume; otherwise fall through to existing handlers.
   if (session && session.status === 'paused') {
+    const expired = session.paused_until ? now >= new Date(session.paused_until) : false;
+    if (!expired) {
+      return { handled: true, source: "intake_paused_silent", responseText: "", sessionId: session.id };
+    }
+    // Expired → keyword can resume
     const trig = pickMatchingTrigger(triggers, messageText, businessNumber);
     if (trig) {
-      // New keyword while paused → resume (or restart on different flow) from next-unanswered Q.
       return await startOrResumeSession({
         companyId, leadId, trigger: trig, existingSession: session,
         senderPhone, businessNumber, matchedKeyword: trig.keyword,
         config, phoneSetting, matchedMessageText: messageText,
       });
     }
-    // No keyword → bot silent during pause window. Returning handled:true short-circuits
-    // Fixed Reply / keyword fast-path / LLM so they don't speak on top of human handoff.
-    return { handled: true, source: "intake_paused_silent", responseText: "", sessionId: session.id };
+    return { handled: false, reason: "paused_expired_no_keyword" };
   }
 
   // ── 2. ACTIVE session: continue answering current question ──
@@ -362,6 +359,12 @@ export async function processInboundForIntake(params: {
       await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
       return { handled: false, reason: "flow_missing_or_disabled" };
     }
+    // Reject non-text / empty messages: do NOT advance, do NOT speak. Tick worker
+    // owns silence-timeout escalation. Return handled:true silent so other handlers
+    // also stay silent during an in-progress qualification.
+    if (!messageText || !messageText.trim()) {
+      return { handled: true, source: "intake_silent_no_text", responseText: "", sessionId: session.id };
+    }
     if (isCancelMessage(messageText, flow.cancel_keywords || [])) {
       await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
       await logLeadUpdate(leadId, "whatsapp", `[Intake] Cancelled by lead ("${messageText.slice(0, 60)}") — flow "${flow.name}"`);
@@ -370,17 +373,24 @@ export async function processInboundForIntake(params: {
     return await advanceSession({ session, flow, params });
   }
 
-  // ── 3. No active session → try to start (or resume from drop-off) via keyword ──
+  // ── 3. No active/paused session → keyword can start (or resume drop-off) ──
   const trig = pickMatchingTrigger(triggers, messageText, businessNumber);
-  if (trig && shouldStartNewSession(session, trig.flow_id)) {
+  if (!trig) return { handled: false, reason: "no_trigger_matched" };
+
+  // Completed-session no-op: if the latest session for this lead already completed
+  // the SAME flow, do not re-trigger on keyword.
+  if (latest && latest.status === 'completed' && latest.flow_id === trig.flow_id) {
+    return { handled: false, reason: "flow_already_completed" };
+  }
+
+  if (shouldStartNewSession(latest, trig.flow_id)) {
     return await startOrResumeSession({
-      companyId, leadId, trigger: trig, existingSession: session,
+      companyId, leadId, trigger: trig, existingSession: latest,
       senderPhone, businessNumber, matchedKeyword: trig.keyword,
       config, phoneSetting, matchedMessageText: messageText,
     });
   }
-
-  return { handled: false, reason: "no_trigger_matched" };
+  return { handled: false, reason: "no_session_eligible" };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
