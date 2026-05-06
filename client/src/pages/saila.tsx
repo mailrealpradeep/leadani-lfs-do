@@ -2279,7 +2279,6 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
   const [newQPrompt, setNewQPrompt] = useState("");
   const [newQField, setNewQField] = useState("");
   const [newQTimeout, setNewQTimeout] = useState(86400);
-  const [newQType, setNewQType] = useState<"free_text" | "single_select" | "multi_select" | "yes_no">("free_text");
   const [newQMaxFallback, setNewQMaxFallback] = useState<string>("");
   const [newQOffTopicAction, setNewQOffTopicAction] = useState<"reask" | "end_immediately">("reask");
   const [newQRelevance, setNewQRelevance] = useState(false);
@@ -2336,7 +2335,7 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
       primary_prompt: newQPrompt,
       target_field: newQField,
       silence_timeout_seconds: newQTimeout,
-      question_type: newQType,
+      question_type: 'free_text',
       max_fallback_attempts: newQMaxFallback.trim() === "" ? null : parseInt(newQMaxFallback) || null,
       on_off_topic_action: newQOffTopicAction,
       llm_relevance_check_enabled: newQRelevance,
@@ -2344,7 +2343,7 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
     }),
     onSuccess: () => {
       setNewQPrompt(""); setNewQField(""); setNewQTopic(""); setNewQRelevance(false);
-      setNewQType("free_text"); setNewQMaxFallback(""); setNewQOffTopicAction("reask");
+      setNewQMaxFallback(""); setNewQOffTopicAction("reask");
       refetch();
     },
   });
@@ -2468,18 +2467,6 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
               <div>
                 <Label>Silence Timeout (seconds)</Label>
                 <Input type="number" value={newQTimeout} onChange={(e) => setNewQTimeout(parseInt(e.target.value) || 86400)} data-testid="input-new-timeout" />
-              </div>
-              <div>
-                <Label>Question Type</Label>
-                <Select value={newQType} onValueChange={(v) => setNewQType(v as any)}>
-                  <SelectTrigger data-testid="select-question-type"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="free_text">Free text</SelectItem>
-                    <SelectItem value="single_select">Single select</SelectItem>
-                    <SelectItem value="multi_select">Multi select</SelectItem>
-                    <SelectItem value="yes_no">Yes / No</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
               <div>
                 <Label>Max Fallback Attempts (override flow default)</Label>

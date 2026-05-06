@@ -96,6 +96,12 @@ export function registerSailaIntakeRoutes(app: Express): void {
         return res.status(400).json({ error: "primary_prompt and target_field are required" });
       }
       const existing = await intakeStore.listIntakeQuestions(flow.id);
+      // v1: only free_text question type is supported. Reject other types until the
+      // single_select / multi_select / yes_no UIs are implemented (follow-up #119).
+      const requestedType = req.body.question_type || 'free_text';
+      if (requestedType !== 'free_text') {
+        return res.status(400).json({ error: `question_type '${requestedType}' is not supported in v1. Only 'free_text' is allowed.` });
+      }
       const q = await intakeStore.createIntakeQuestion({
         flow_id: flow.id,
         order_index: req.body.order_index ?? existing.length,
@@ -103,7 +109,7 @@ export function registerSailaIntakeRoutes(app: Express): void {
         target_field: req.body.target_field,
         silence_timeout_seconds: req.body.silence_timeout_seconds ?? 86400,
         max_fallback_attempts: req.body.max_fallback_attempts ?? null,
-        question_type: req.body.question_type || 'free_text',
+        question_type: 'free_text',
         next_question_config: req.body.next_question_config ?? null,
         llm_relevance_check_enabled: req.body.llm_relevance_check_enabled ?? false,
         relevance_topic_hint: req.body.relevance_topic_hint ?? null,
@@ -120,6 +126,9 @@ export function registerSailaIntakeRoutes(app: Express): void {
       const flow = await intakeStore.getIntakeFlow(existing.flow_id);
       if (!flow || flow.company_id !== req.companyId) return res.status(404).json({ error: "Flow not found" });
       const { id, flow_id, created_at, ...patch } = req.body;
+      if (patch.question_type && patch.question_type !== 'free_text') {
+        return res.status(400).json({ error: `question_type '${patch.question_type}' is not supported in v1.` });
+      }
       const q = await intakeStore.updateIntakeQuestion(req.params.id, patch);
       res.json(q);
     } catch (e: any) { res.status(500).json({ error: e.message }); }

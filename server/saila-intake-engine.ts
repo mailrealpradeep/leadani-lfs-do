@@ -99,7 +99,8 @@ export function pickMatchingTrigger(
   for (const t of triggers) {
     if (!t.flow.enabled) continue;
     if (!flowAppliesToBusinessNumber(t.flow, businessNumber)) continue;
-    if (keywordMatches(messageText, t.keyword, (t.match_mode as any) || 'contains')) return t;
+    const mode: "contains" | "exact" = t.match_mode === 'exact' ? 'exact' : 'contains';
+    if (keywordMatches(messageText, t.keyword, mode)) return t;
   }
   return null;
 }
@@ -326,72 +327,74 @@ export async function processInboundForIntake(params: {
   if (!leadId) return { handled: false, reason: "no_lead_id" };
 
   const now = new Date();
-  // We need ALL recent sessions (not just active/paused) to enforce the
-  // "completed flow no-ops on keyword" rule.
-  const session = await intakeStore.getActiveSessionForLead(leadId);
-  const latest = await intakeStore.getLatestSessionForLead(leadId);
+  const session = await intakeStore.getActiveSessionForLead(leadId); // active or paused
   const triggers = await intakeStore.listAllIntakeTriggersForCompany(companyId);
 
+  // Helper: keyword-driven start/resume. Always uses PER-FLOW history for the
+  // matched trigger so completed/abandoned/paused state is evaluated correctly
+  // even when the lead has prior sessions in OTHER flows.
+  const startFromKeyword = async (
+    currentActive: SailaIntakeSession | undefined,
+  ): Promise<IntakeResult | null> => {
+    const trig = pickMatchingTrigger(triggers, messageText, businessNumber);
+    if (!trig) return null;
+    const priorForFlow = await intakeStore.getLatestSessionForLeadAndFlow(leadId, trig.flow_id);
+    if (priorForFlow && priorForFlow.status === 'completed') {
+      return { handled: false, reason: "flow_already_completed" };
+    }
+    // Different-flow active/paused session → abandon so this lead has only one active.
+    if (currentActive && currentActive.flow_id !== trig.flow_id) {
+      await intakeStore.updateIntakeSession(currentActive.id, { status: 'abandoned' });
+    }
+    return await startOrResumeSession({
+      companyId, leadId, trigger: trig, existingSession: priorForFlow,
+      senderPhone, businessNumber, matchedKeyword: trig.keyword,
+      config, phoneSetting, matchedMessageText: messageText,
+    });
+  };
+
   // ── 1. PAUSED session gating ──
-  // <24h pause: silent regardless of message content (even keywords are no-ops).
-  // >=24h pause: keyword arrives → resume; otherwise fall through to existing handlers.
   if (session && session.status === 'paused') {
     const expired = session.paused_until ? now >= new Date(session.paused_until) : false;
     if (!expired) {
+      // <24h: silent regardless of message content (no resume even on keyword).
       return { handled: true, source: "intake_paused_silent", responseText: "", sessionId: session.id };
     }
-    // Expired → keyword can resume
-    const trig = pickMatchingTrigger(triggers, messageText, businessNumber);
-    if (trig) {
-      return await startOrResumeSession({
-        companyId, leadId, trigger: trig, existingSession: session,
-        senderPhone, businessNumber, matchedKeyword: trig.keyword,
-        config, phoneSetting, matchedMessageText: messageText,
-      });
-    }
+    // >=24h: keyword (per-flow eligibility) can start/resume; otherwise fall through.
+    const r = await startFromKeyword(session);
+    if (r) return r;
     return { handled: false, reason: "paused_expired_no_keyword" };
   }
 
-  // ── 2. ACTIVE session: continue answering current question ──
+  // ── 2. ACTIVE session: continue current question ──
   if (session && session.status === 'active') {
     const flow = await intakeStore.getIntakeFlow(session.flow_id);
     if (!flow || !flow.enabled) {
       await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
       return { handled: false, reason: "flow_missing_or_disabled" };
     }
-    // Reject non-text / empty messages: do NOT advance, do NOT speak. Tick worker
-    // owns silence-timeout escalation. Return handled:true silent so other handlers
-    // also stay silent during an in-progress qualification.
     if (!messageText || !messageText.trim()) {
+      // Non-text / empty: do NOT advance, do NOT speak. Tick worker owns silence escalation.
       return { handled: true, source: "intake_silent_no_text", responseText: "", sessionId: session.id };
     }
     if (isCancelMessage(messageText, flow.cancel_keywords || [])) {
+      // Polite termination — send a friendly close-out before abandoning.
+      const cancelMsg = flow.completion_message?.trim() || POLITE_CANCEL_MESSAGE;
+      await sendBotMessage(config, phoneSetting, senderPhone, cancelMsg, leadId, companyId);
       await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
-      await logLeadUpdate(leadId, "whatsapp", `[Intake] Cancelled by lead ("${messageText.slice(0, 60)}") — flow "${flow.name}"`);
-      return { handled: true, source: "intake_cancelled", responseText: "", sessionId: session.id };
+      await logLeadUpdate(leadId, "whatsapp", `[Intake] Cancelled by lead ("${messageText.slice(0, 60)}") — flow "${flow.name}" (sent polite cancel reply)`);
+      return { handled: true, source: "intake_cancelled", responseText: cancelMsg, sessionId: session.id };
     }
     return await advanceSession({ session, flow, params });
   }
 
   // ── 3. No active/paused session → keyword can start (or resume drop-off) ──
-  const trig = pickMatchingTrigger(triggers, messageText, businessNumber);
-  if (!trig) return { handled: false, reason: "no_trigger_matched" };
-
-  // Completed-session no-op: if the latest session for this lead already completed
-  // the SAME flow, do not re-trigger on keyword.
-  if (latest && latest.status === 'completed' && latest.flow_id === trig.flow_id) {
-    return { handled: false, reason: "flow_already_completed" };
-  }
-
-  if (shouldStartNewSession(latest, trig.flow_id)) {
-    return await startOrResumeSession({
-      companyId, leadId, trigger: trig, existingSession: latest,
-      senderPhone, businessNumber, matchedKeyword: trig.keyword,
-      config, phoneSetting, matchedMessageText: messageText,
-    });
-  }
-  return { handled: false, reason: "no_session_eligible" };
+  const r = await startFromKeyword(undefined);
+  if (r) return r;
+  return { handled: false, reason: "no_trigger_matched" };
 }
+
+const POLITE_CANCEL_MESSAGE = "No problem — we'll stop here. Reply anytime if you'd like to continue.";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // State machine: process a lead's reply to the current question

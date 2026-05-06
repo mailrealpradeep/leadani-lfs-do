@@ -143,6 +143,20 @@ export async function getLatestSessionForLead(leadId: string): Promise<SailaInta
   return r[0];
 }
 
+// Per-flow history — used for restart/resume eligibility on a specific flow.
+// CRITICAL: completed/abandoned/paused checks for a triggered flow must use this,
+// not the global getLatestSessionForLead (which would mis-attribute history).
+export async function getLatestSessionForLeadAndFlow(leadId: string, flowId: string): Promise<SailaIntakeSession | undefined> {
+  const r = await db.select().from(dbSchema.saila_intake_sessions)
+    .where(and(
+      eq(dbSchema.saila_intake_sessions.lead_id, leadId),
+      eq(dbSchema.saila_intake_sessions.flow_id, flowId),
+    ))
+    .orderBy(desc(dbSchema.saila_intake_sessions.last_activity_at))
+    .limit(1);
+  return r[0];
+}
+
 export async function createIntakeSession(data: InsertSailaIntakeSession): Promise<SailaIntakeSession> {
   const r = await db.insert(dbSchema.saila_intake_sessions).values(data).returning();
   return r[0];
