@@ -9,9 +9,12 @@ let running = false; // re-entrancy guard so overlapping ticks (>60s) don't doub
 export function startSailaIntakeScheduler(): void {
   if (started) return;
   started = true;
-  const intervalMs = 60_000;
-  console.log("[Saila Intake] Starting tick scheduler (1-minute interval)");
-  setTimeout(runOnce, 30_000);
+  // 15s interval so per-question silence_timeout values shorter than a minute
+  // (e.g. 30s) can actually fire their fallback. The re-entrancy guard below
+  // skips a tick if a previous one is still running.
+  const intervalMs = 15_000;
+  console.log("[Saila Intake] Starting tick scheduler (15-second interval)");
+  setTimeout(runOnce, 5_000);
   timer = setInterval(runOnce, intervalMs);
 }
 

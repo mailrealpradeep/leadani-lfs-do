@@ -5070,6 +5070,10 @@ export const whatsapp_message_logs = pgTable('whatsapp_message_logs', {
   read_at: timestamp('read_at'),
   failed_at: timestamp('failed_at'),
   origin: varchar('origin', { length: 16 }).notNull().default('human'),
+  // WhatsApp-reported send time (parsed from messages[].timestamp). Used by Saila Intake
+  // to ignore inbound messages typed by the lead BEFORE the bot's most recent question
+  // was actually sent (rapid follow-up race). Nullable for backward compatibility.
+  wa_message_timestamp: timestamp('wa_message_timestamp'),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -5677,6 +5681,11 @@ export const saila_intake_sessions = pgTable('saila_intake_sessions', {
   paused_until: timestamp('paused_until'),
   // Last business number (display_phone_number) the customer was talking to
   last_business_number: varchar('last_business_number', { length: 30 }),
+  // Server time when the bot last sent a question (start, advance, fallback re-ask).
+  // Used to: (a) reject lead messages whose WA timestamp predates the prompt
+  // (typed before they could possibly have seen the question), and (b) coalesce
+  // rapid same-question follow-ups (only the first reply advances the flow).
+  last_question_sent_at: timestamp('last_question_sent_at'),
   created_at: timestamp('created_at').defaultNow().notNull(),
   updated_at: timestamp('updated_at').defaultNow().notNull(),
 }, (t) => ({

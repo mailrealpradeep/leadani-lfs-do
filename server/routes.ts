@@ -1701,7 +1701,13 @@ ${questionsList}`;
                     trigger_matched: false,
                     matched_rule_id: null,
                     outcome_details: null,
-                    processed_at: null
+                    processed_at: null,
+                    // Meta sends `messages[].timestamp` as unix-second string. Used by
+                    // Saila Intake to detect rapid follow-ups typed before the bot's
+                    // most recent question was actually sent (Task #124).
+                    wa_message_timestamp: message.timestamp
+                      ? new Date(parseInt(String(message.timestamp), 10) * 1000)
+                      : null,
                   });
                   
                   console.log("[WhatsApp Webhook] Message stored from:", message.from, "type:", message.type);
@@ -1719,6 +1725,7 @@ ${questionsList}`;
             // session-state lookup matches reliably.
             const fromRawAlt = msg.from || payload.from || "";
             const fromLast10Alt = String(fromRawAlt).replace(/\D/g, "").slice(-10);
+            const altTsRaw = msg.timestamp || payload.timestamp;
             await storage.createWhatsAppMessageLog({
               company_id: companyId,
               webhook_request_id: payload.id || payload.webhook_id || "",
@@ -1734,7 +1741,12 @@ ${questionsList}`;
               trigger_matched: false,
               matched_rule_id: null,
               outcome_details: null,
-              processed_at: null
+              processed_at: null,
+              wa_message_timestamp: altTsRaw
+                ? new Date(typeof altTsRaw === "string" && /^\d+$/.test(altTsRaw)
+                    ? parseInt(altTsRaw, 10) * 1000
+                    : (typeof altTsRaw === "number" ? altTsRaw * 1000 : Date.parse(String(altTsRaw))))
+                : null,
             });
             
             console.log("[WhatsApp Webhook] Alternative format message stored");
@@ -6634,7 +6646,10 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
                         trigger_matched: false,
                         matched_rule_id: null,
                         outcome_details: {},
-                        processed_at: null
+                        processed_at: null,
+                        wa_message_timestamp: msg.timestamp
+                          ? new Date(parseInt(String(msg.timestamp), 10) * 1000)
+                          : null,
                       });
                     }
 

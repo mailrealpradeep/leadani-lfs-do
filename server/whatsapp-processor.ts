@@ -57,7 +57,8 @@ async function triggerSailaAI(
   displayPhoneNumber: string,
   messageText: string,
   leadId?: string,
-  referralData?: Record<string, any>
+  referralData?: Record<string, any>,
+  inboundMessageTimestamp?: Date | null
 ): Promise<void> {
   try {
     await generateSailaResponse(
@@ -68,7 +69,8 @@ async function triggerSailaAI(
       "",
       messageText,
       leadId,
-      referralData
+      referralData,
+      inboundMessageTimestamp || null
     );
   } catch (err) {
     console.error("[WhatsApp Processor] Saila.AI error (non-blocking):", err);
@@ -227,7 +229,14 @@ export async function processWhatsAppMessage(
     const displayPhoneNumber = log.display_phone_number;
     
     const normalizedPhone = normalizePhoneNumber(senderPhone);
-    
+
+    // WhatsApp-reported send time (parsed from messages[].timestamp by the webhook).
+    // Plumbed into Saila Intake so rapid follow-ups typed BEFORE the bot's most recent
+    // question can be detected and not mis-attributed to the next question.
+    const waInboundTs: Date | null = (log as any).wa_message_timestamp
+      ? new Date((log as any).wa_message_timestamp)
+      : null;
+
     if (!normalizedPhone || normalizedPhone.length < 10) {
       await storage.updateWhatsAppMessageLog(log.id, {
         outcome: "error",
@@ -293,7 +302,7 @@ export async function processWhatsAppMessage(
           processed_at: new Date()
         });
         
-        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData).catch(() => {});
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData, waInboundTs).catch(() => {});
 
         return {
           success: true,
@@ -330,7 +339,7 @@ export async function processWhatsAppMessage(
         console.error("[WhatsApp Processor] Intake auto-create check failed (non-fatal):", intakeErr);
       }
 
-      triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, undefined, referralData).catch(() => {});
+      triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, undefined, referralData, waInboundTs).catch(() => {});
 
       await storage.updateWhatsAppMessageLog(log.id, {
         outcome: "ignored_no_trigger",
@@ -352,7 +361,7 @@ export async function processWhatsAppMessage(
       
       if (!allocation) {
         const followupResult = await addFollowupToLead(existingLead.lead, log, messageText, senderName, matchedRule.id);
-        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData).catch(() => {});
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData, waInboundTs).catch(() => {});
         return followupResult;
       }
 
@@ -361,11 +370,11 @@ export async function processWhatsAppMessage(
           console.log("[WhatsApp Processor] Lead already in same sheet (different owner) - adding follow-up instead of transfer request");
         }
         const followupResult = await addFollowupToLead(existingLead.lead, log, messageText, senderName, matchedRule.id);
-        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData).catch(() => {});
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData, waInboundTs).catch(() => {});
         return followupResult;
       } else {
         const transferResult = await createTransferRequest(existingLead, allocation, log, messageText, senderName, matchedRule.id);
-        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData).catch(() => {});
+        triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData, waInboundTs).catch(() => {});
         return transferResult;
       }
     } else {
@@ -707,7 +716,16 @@ async function createNewLead(
     processed_at: new Date()
   });
   
-  triggerSailaAI(companyId, log.sender_phone || normalizedPhone, senderName, log.display_phone_number || "", messageText, lead.id).catch(() => {});
+  triggerSailaAI(
+    companyId,
+    log.sender_phone || normalizedPhone,
+    senderName,
+    log.display_phone_number || "",
+    messageText,
+    lead.id,
+    undefined,
+    (log as any).wa_message_timestamp ? new Date((log as any).wa_message_timestamp) : null,
+  ).catch(() => {});
 
   return {
     success: true,

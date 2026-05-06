@@ -2324,6 +2324,7 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
   const [newQPrompt, setNewQPrompt] = useState("");
   const [newQField, setNewQField] = useState("");
   const [newQTimeout, setNewQTimeout] = useState(86400);
+  const MIN_SILENCE_TIMEOUT_SECONDS = 30;
   const [newQMaxFallback, setNewQMaxFallback] = useState<string>("");
   const [newQOffTopicAction, setNewQOffTopicAction] = useState<"reask" | "end_immediately">("reask");
   const [newQRelevance, setNewQRelevance] = useState(false);
@@ -2541,7 +2542,19 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
               </div>
               <div>
                 <Label>Silence Timeout (seconds)</Label>
-                <Input type="number" value={newQTimeout} onChange={(e) => setNewQTimeout(parseInt(e.target.value) || 86400)} data-testid="input-new-timeout" />
+                <Input
+                  type="number"
+                  min={MIN_SILENCE_TIMEOUT_SECONDS}
+                  value={newQTimeout}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value) || 86400;
+                    setNewQTimeout(Math.max(MIN_SILENCE_TIMEOUT_SECONDS, v));
+                  }}
+                  data-testid="input-new-timeout"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Minimum {MIN_SILENCE_TIMEOUT_SECONDS}s. The background tick worker checks every 15s, so values below ~30s aren't reliable.
+                </p>
               </div>
               <div>
                 <Label>Max Fallback Attempts (override flow default)</Label>

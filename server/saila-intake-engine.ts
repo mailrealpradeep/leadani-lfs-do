@@ -25,7 +25,7 @@ import type {
 
 export interface IntakeHandled {
   handled: true;
-  source: "intake_question" | "intake_completion" | "intake_cancelled" | "intake_off_topic" | "intake_silence_timeout" | "intake_paused_silent" | "intake_silent_no_text";
+  source: "intake_question" | "intake_completion" | "intake_cancelled" | "intake_off_topic" | "intake_silence_timeout" | "intake_paused_silent" | "intake_silent_no_text" | "intake_late_reply" | "intake_coalesced";
   responseText: string;
   sessionId: string;
 }
@@ -88,6 +88,36 @@ export function findNextUnansweredIndex(
     if (v === undefined || v === null || String(v).trim() === "") return i;
   }
   return questions.length; // all answered
+}
+
+// Rapid-reply classifier (Task #124). Pure function — exported for unit tests.
+//
+// Two race-condition guards:
+//   • "late_for_previous": the inbound was typed BEFORE the bot sent its current
+//     question (WA send time predates last_question_sent_at). It's logically a
+//     stray reply to the PREVIOUS prompt, not an answer to the current Q.
+//   • "coalesce_already_answered": this question already received an accepted
+//     answer (last_activity_at later than last_question_sent_at), but the bot
+//     hasn't yet advanced to the next Q. Subsequent rapid follow-ups must be
+//     coalesced (transcript-only) so they don't get mis-attributed to Q+1.
+//
+// Returns "accept" when neither guard fires (or when timestamps are missing,
+// preserving legacy behaviour for backfilled rows).
+export type RapidReplyDecision = "late_for_previous" | "coalesce_already_answered" | "accept";
+
+export function classifyInbound(args: {
+  inboundTimestamp: Date | null;
+  lastQuestionSentAt: Date | null;
+  lastActivityAt: Date;
+}): RapidReplyDecision {
+  const { inboundTimestamp, lastQuestionSentAt, lastActivityAt } = args;
+  if (inboundTimestamp && lastQuestionSentAt && inboundTimestamp.getTime() < lastQuestionSentAt.getTime()) {
+    return "late_for_previous";
+  }
+  if (lastQuestionSentAt && lastActivityAt.getTime() > lastQuestionSentAt.getTime()) {
+    return "coalesce_already_answered";
+  }
+  return "accept";
 }
 
 // Best-trigger picker for inbound text. Returns highest-priority match.
@@ -305,14 +335,37 @@ async function startOrResumeSession(args: {
 
   const firstQ = questions[startIdx];
   await sendBotMessage(config, phoneSetting, senderPhone, firstQ.primary_prompt, leadId, companyId);
+  // Stamp last_question_sent_at AFTER the WA send completes (Task #124).
+  // Used by classifyInbound to gate rapid follow-ups.
+  await intakeStore.updateIntakeSession(sessionId, { last_question_sent_at: new Date() });
   return { handled: true, source: "intake_question", responseText: firstQ.primary_prompt, sessionId };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-lead async mutex (Task #124). Serialises ALL inbound messages for the
+// same lead through the intake engine so two near-simultaneous webhooks cannot
+// race past the session-state read and double-advance the flow.
+// In-memory only — fine for single-process Node.js (current deployment shape);
+// horizontal scaling would need an external lock (Postgres advisory / Redis).
+// ─────────────────────────────────────────────────────────────────────────────
+const leadLocks = new Map<string, Promise<unknown>>();
+
+function withLeadLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = leadLocks.get(key) ?? Promise.resolve();
+  const next: Promise<T> = prev.then(fn, fn);
+  const tracked: Promise<unknown> = next.catch(() => {});
+  leadLocks.set(key, tracked);
+  tracked.then(() => {
+    if (leadLocks.get(key) === tracked) leadLocks.delete(key);
+  });
+  return next;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public entry — called BEFORE Fixed Reply / keyword / LLM by saila-engine.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function processInboundForIntake(params: {
+export interface ProcessInboundParams {
   companyId: string;
   leadId: string | null;
   senderPhone: string;
@@ -321,8 +374,19 @@ export async function processInboundForIntake(params: {
   messageText: string;
   config: SailaConfig;
   phoneSetting: SailaPhoneSetting;
-}): Promise<IntakeResult> {
+  // WA-reported send time of this inbound. Used to detect rapid follow-ups
+  // typed BEFORE the bot's most recent question was actually sent.
+  inboundMessageTimestamp?: Date | null;
+}
+
+export async function processInboundForIntake(params: ProcessInboundParams): Promise<IntakeResult> {
+  if (!params.leadId) return { handled: false, reason: "no_lead_id" };
+  return withLeadLock(params.leadId, () => processInboundForIntakeInner(params));
+}
+
+async function processInboundForIntakeInner(params: ProcessInboundParams): Promise<IntakeResult> {
   const { companyId, leadId, senderPhone, businessNumber, messageText, config, phoneSetting } = params;
+  const inboundTs = params.inboundMessageTimestamp || null;
 
   if (!leadId) return { handled: false, reason: "no_lead_id" };
 
@@ -384,6 +448,22 @@ export async function processInboundForIntake(params: {
       await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
       await logLeadUpdate(leadId, "whatsapp", `[Intake] Cancelled by lead ("${messageText.slice(0, 60)}") — flow "${flow.name}" (sent polite cancel reply)`);
       return { handled: true, source: "intake_cancelled", responseText: cancelMsg, sessionId: session.id };
+    }
+    // Rapid-reply ordering guards (Task #124). Inside the per-lead mutex so
+    // session state is fresh; runs BEFORE advanceSession to prevent
+    // double-advance and mis-attributed-answer races.
+    const decision = classifyInbound({
+      inboundTimestamp: inboundTs,
+      lastQuestionSentAt: session.last_question_sent_at ? new Date(session.last_question_sent_at as any) : null,
+      lastActivityAt: new Date(session.last_activity_at as any),
+    });
+    if (decision === "late_for_previous") {
+      await logLeadUpdate(leadId, "whatsapp", `[Intake] Late inbound (typed before Q${session.current_question_index + 1} prompt was sent) — transcript only, not advancing: ${messageText.slice(0, 200)}`);
+      return { handled: true, source: "intake_late_reply", responseText: "", sessionId: session.id };
+    }
+    if (decision === "coalesce_already_answered") {
+      await logLeadUpdate(leadId, "whatsapp", `[Intake] Coalesced rapid follow-up at Q${session.current_question_index + 1} (current Q already answered) — transcript only: ${messageText.slice(0, 200)}`);
+      return { handled: true, source: "intake_coalesced", responseText: "", sessionId: session.id };
     }
     return await advanceSession({ session, flow, params });
   }
@@ -453,6 +533,9 @@ async function advanceSession(args: {
         fallback_attempts: newAttempts,
         last_activity_at: new Date(),
         last_business_number: businessNumber,
+        // Re-ask = the bot prompted again. Refresh last_question_sent_at so
+        // the next inbound is judged against this newer prompt time.
+        last_question_sent_at: new Date(),
       });
       return { handled: true, source: "intake_question", responseText: reaskText, sessionId: session.id };
     }
@@ -483,14 +566,22 @@ async function advanceSession(args: {
   }
 
   const nextQ = questions[nextIdx];
+  // Two-phase update so classifyInbound's "already answered" guard works (Task #124):
+  //   (1) bump last_activity_at = now1 BEFORE sending next Q (records the accepted answer)
+  //   (2) stamp last_question_sent_at = now2 AFTER the WA send (now2 > now1)
+  // Any rapid follow-up arriving between (1) and (2) sees last_activity_at >= last_question_sent_at
+  // (still equal-or-old) and gets coalesced; an inbound arriving after (2) with a WA timestamp
+  // before now2 is classified as late_for_previous.
+  const acceptedAt = new Date();
   await intakeStore.updateIntakeSession(session.id, {
     current_question_index: nextIdx,
     depth_reached: newDepth,
     fallback_attempts: 0,
-    last_activity_at: new Date(),
+    last_activity_at: acceptedAt,
     last_business_number: businessNumber,
   });
   await sendBotMessage(config, phoneSetting, senderPhone, nextQ.primary_prompt, leadId, companyId);
+  await intakeStore.updateIntakeSession(session.id, { last_question_sent_at: new Date() });
   return { handled: true, source: "intake_question", responseText: nextQ.primary_prompt, sessionId: session.id };
 }
 
@@ -566,9 +657,13 @@ export async function tickAllActiveSessions(): Promise<{ checked: number; sentFa
       await sendBotMessage(config, phoneSetting, recipientPhone, text, session.lead_id, session.company_id);
       // Conditional update to guard against duplicate sends from a parallel worker:
       // only bump attempts if fallback_attempts is still what we expected.
+      // Also refresh last_question_sent_at so subsequent rapid-reply classification
+      // is judged against this newer fallback-prompt time (Task #124).
+      const tickStamp = new Date();
       await intakeStore.updateIntakeSession(session.id, {
         fallback_attempts: decision.newAttempts,
-        last_activity_at: new Date(),
+        last_activity_at: tickStamp,
+        last_question_sent_at: tickStamp,
       });
       sentFallback++;
     } catch (err: any) {

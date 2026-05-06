@@ -11,6 +11,7 @@ import {
   decideFallbackTick,
   findNextUnansweredIndex,
   pickMatchingTrigger,
+  classifyInbound,
 } from "./saila-intake-engine";
 
 let passed = 0;
@@ -106,6 +107,56 @@ eq("timed out, attempts at cap → abandon",
 eq("default 24h timeout, 1 day later → send fallback",
   decideFallbackTick({ lastActivityAt: baseLast, silenceTimeoutSeconds: 86400, fallbackAttempts: 0, maxFallbackAttempts: 2, now: day_later }),
   { action: "send_fallback", newAttempts: 1 });
+
+// ── Task #124: short-timeout fallback (under 60s) must fire on the 15s tick ──
+const t0 = new Date("2026-05-06T00:00:00Z");
+const t30s = new Date("2026-05-06T00:00:30Z");
+const t45s = new Date("2026-05-06T00:00:45Z");
+eq("30s timeout, 30s elapsed → send fallback (15s tick can fire it)",
+  decideFallbackTick({ lastActivityAt: t0, silenceTimeoutSeconds: 30, fallbackAttempts: 0, maxFallbackAttempts: 2, now: t30s }),
+  { action: "send_fallback", newAttempts: 1 });
+eq("45s timeout, 30s elapsed → noop",
+  decideFallbackTick({ lastActivityAt: t0, silenceTimeoutSeconds: 45, fallbackAttempts: 0, maxFallbackAttempts: 2, now: t30s }),
+  { action: "noop", newAttempts: 0 });
+eq("45s timeout, 45s elapsed → send fallback",
+  decideFallbackTick({ lastActivityAt: t0, silenceTimeoutSeconds: 45, fallbackAttempts: 0, maxFallbackAttempts: 2, now: t45s }),
+  { action: "send_fallback", newAttempts: 1 });
+
+// ── Task #124: rapid-reply classifier ────────────────────────────────────────
+console.log("\n[classifyInbound]");
+const tQ  = new Date("2026-05-06T10:00:00Z"); // bot sent current question at this time
+const tA  = new Date("2026-05-06T09:59:00Z"); // last accepted answer (before Q)
+const before = new Date("2026-05-06T09:59:30Z"); // typed BEFORE bot sent Q
+const after  = new Date("2026-05-06T10:00:01Z"); // typed AFTER bot sent Q
+
+eq("inbound typed before current Q was sent → late_for_previous",
+  classifyInbound({ inboundTimestamp: before, lastQuestionSentAt: tQ, lastActivityAt: tA }),
+  "late_for_previous");
+
+eq("inbound typed after Q, no prior accepted answer → accept",
+  classifyInbound({ inboundTimestamp: after, lastQuestionSentAt: tQ, lastActivityAt: tA }),
+  "accept");
+
+const tAnsweredAt = new Date("2026-05-06T10:00:05Z");
+eq("current Q already answered (last_activity > last_question_sent) → coalesce",
+  classifyInbound({ inboundTimestamp: after, lastQuestionSentAt: tQ, lastActivityAt: tAnsweredAt }),
+  "coalesce_already_answered");
+
+eq("missing inboundTimestamp + no prior answer → accept (legacy)",
+  classifyInbound({ inboundTimestamp: null, lastQuestionSentAt: tQ, lastActivityAt: tA }),
+  "accept");
+
+eq("missing inboundTimestamp but coalesce condition still triggers",
+  classifyInbound({ inboundTimestamp: null, lastQuestionSentAt: tQ, lastActivityAt: tAnsweredAt }),
+  "coalesce_already_answered");
+
+eq("missing lastQuestionSentAt (legacy session) → accept",
+  classifyInbound({ inboundTimestamp: before, lastQuestionSentAt: null, lastActivityAt: tA }),
+  "accept");
+
+eq("equal timestamps → accept (boundary, NOT late)",
+  classifyInbound({ inboundTimestamp: tQ, lastQuestionSentAt: tQ, lastActivityAt: tA }),
+  "accept");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

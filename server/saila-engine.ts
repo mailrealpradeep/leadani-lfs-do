@@ -677,7 +677,10 @@ export async function generateSailaResponse(
   executiveName: string,
   messageText: string,
   leadId?: string,
-  referralData?: Record<string, any>
+  referralData?: Record<string, any>,
+  // WhatsApp-reported send time (from messages[].timestamp). Used by Saila Intake
+  // to detect rapid follow-ups typed BEFORE the bot's most recent question was sent.
+  inboundMessageTimestamp?: Date | null
 ): Promise<SailaResponse> {
   const config = await storage.getSailaConfig(companyId);
   if (!config || !config.enabled) {
@@ -764,6 +767,7 @@ export async function generateSailaResponse(
         messageText,
         config,
         phoneSetting,
+        inboundMessageTimestamp: inboundMessageTimestamp || null,
       });
       if (intakeResult.handled) {
         // Mirror outgoing into conversation messages so admins see it in chat history
