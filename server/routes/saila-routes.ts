@@ -382,12 +382,16 @@ export function registerSailaRoutes(app: Express): void {
           origin: "human",
         };
         await storage.createWhatsAppMessageLog(logRow);
-        const { findExistingLeadByPhone } = await import("../whatsapp-processor");
-        const found = await findExistingLeadByPhone(companyId, normalized);
-        if (found?.lead?.id) {
-          const intakeStore = await import("../saila-intake-storage");
-          const pauseUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
-          await intakeStore.pauseActiveSessionsForLead(found.lead.id, pauseUntil);
+        // Only pause intake on a SUCCESSFUL human-origin send. A failed test send
+        // is not a takeover and must not silence the bot for 24h.
+        if (result.success) {
+          const { findExistingLeadByPhone } = await import("../whatsapp-processor");
+          const found = await findExistingLeadByPhone(companyId, normalized);
+          if (found?.lead?.id) {
+            const intakeStore = await import("../saila-intake-storage");
+            const pauseUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            await intakeStore.pauseActiveSessionsForLead(found.lead.id, pauseUntil);
+          }
         }
       } catch (logErr) {
         console.error("[Saila test-send] log/pause error (non-fatal):", logErr);

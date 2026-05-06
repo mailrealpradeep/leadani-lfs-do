@@ -1,6 +1,51 @@
 import type { Express } from "express";
+import { z } from "zod";
 import { authMiddleware, requireCompanyAdmin, type AuthRequest } from "../middleware/auth";
 import * as intakeStore from "../saila-intake-storage";
+
+// ── Zod contracts (admin write paths) ─────────────────────────────────────────
+// Hardens admin POST/PUT bodies so malformed config cannot reach storage.
+const flowCreateSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  description: z.string().max(2000).optional().nullable(),
+  enabled: z.boolean().optional(),
+  applied_business_numbers: z.array(z.string().min(1)).optional(),
+  cancel_keywords: z.array(z.string().min(1)).optional(),
+  default_silence_timeout_seconds: z.number().int().positive().max(7 * 24 * 60 * 60).optional(),
+  completion_message: z.string().max(2000).optional().nullable(),
+  default_max_fallback_attempts: z.number().int().min(0).max(10).optional(),
+  fallback_prompt_template: z.string().max(2000).optional(),
+});
+const flowUpdateSchema = flowCreateSchema.partial();
+const triggerCreateSchema = z.object({
+  keyword: z.string().trim().min(1).max(120),
+  match_mode: z.enum(["contains", "exact"]).optional(),
+});
+const QUESTION_TYPE_V1 = z.literal("free_text");
+const questionCreateSchema = z.object({
+  primary_prompt: z.string().trim().min(1).max(2000),
+  target_field: z.string().trim().min(1).max(200),
+  silence_timeout_seconds: z.number().int().positive().max(7 * 24 * 60 * 60).optional(),
+  max_fallback_attempts: z.number().int().min(0).max(10).nullable().optional(),
+  question_type: QUESTION_TYPE_V1.optional(),
+  next_question_config: z.any().optional().nullable(),
+  llm_relevance_check_enabled: z.boolean().optional(),
+  relevance_topic_hint: z.string().max(500).optional().nullable(),
+  on_off_topic_action: z.enum(["reask", "end_immediately"]).optional(),
+  order_index: z.number().int().min(0).optional(),
+});
+const questionUpdateSchema = questionCreateSchema.partial().extend({
+  question_type: QUESTION_TYPE_V1.optional(),
+});
+
+function parseOr400<T>(schema: z.ZodType<T>, body: unknown, res: any): T | null {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request body", issues: parsed.error.flatten() });
+    return null;
+  }
+  return parsed.data;
+}
 
 export function registerSailaIntakeRoutes(app: Express): void {
   // ── Flows ────────────────────────────────────────────────────────────────
@@ -22,9 +67,10 @@ export function registerSailaIntakeRoutes(app: Express): void {
 
   app.post("/api/saila/intake/flows", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
+      const data = parseOr400(flowCreateSchema, req.body, res);
+      if (!data) return;
       const companyId = req.companyId!;
-      if (!req.body.name) return res.status(400).json({ error: "name is required" });
-      const flow = await intakeStore.createIntakeFlow({ ...req.body, company_id: companyId });
+      const flow = await intakeStore.createIntakeFlow({ ...data, company_id: companyId });
       res.json(flow);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -45,7 +91,9 @@ export function registerSailaIntakeRoutes(app: Express): void {
     try {
       const existing = await intakeStore.getIntakeFlow(req.params.id);
       if (!existing || existing.company_id !== req.companyId) return res.status(404).json({ error: "Flow not found" });
-      const { id, company_id, created_at, ...patch } = req.body;
+      const { id, company_id, created_at, ...rawPatch } = req.body;
+      const patch = parseOr400(flowUpdateSchema, rawPatch, res);
+      if (!patch) return;
       const flow = await intakeStore.updateIntakeFlow(req.params.id, patch);
       res.json(flow);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -65,11 +113,12 @@ export function registerSailaIntakeRoutes(app: Express): void {
     try {
       const flow = await intakeStore.getIntakeFlow(req.params.flowId);
       if (!flow || flow.company_id !== req.companyId) return res.status(404).json({ error: "Flow not found" });
-      if (!req.body.keyword) return res.status(400).json({ error: "keyword is required" });
+      const data = parseOr400(triggerCreateSchema, req.body, res);
+      if (!data) return;
       const trigger = await intakeStore.createIntakeTrigger({
         flow_id: flow.id,
-        keyword: req.body.keyword,
-        match_mode: req.body.match_mode || 'contains',
+        keyword: data.keyword,
+        match_mode: data.match_mode || 'contains',
       });
       res.json(trigger);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -92,28 +141,21 @@ export function registerSailaIntakeRoutes(app: Express): void {
     try {
       const flow = await intakeStore.getIntakeFlow(req.params.flowId);
       if (!flow || flow.company_id !== req.companyId) return res.status(404).json({ error: "Flow not found" });
-      if (!req.body.primary_prompt || !req.body.target_field) {
-        return res.status(400).json({ error: "primary_prompt and target_field are required" });
-      }
+      const data = parseOr400(questionCreateSchema, req.body, res);
+      if (!data) return;
       const existing = await intakeStore.listIntakeQuestions(flow.id);
-      // v1: only free_text question type is supported. Reject other types until the
-      // single_select / multi_select / yes_no UIs are implemented (follow-up #119).
-      const requestedType = req.body.question_type || 'free_text';
-      if (requestedType !== 'free_text') {
-        return res.status(400).json({ error: `question_type '${requestedType}' is not supported in v1. Only 'free_text' is allowed.` });
-      }
       const q = await intakeStore.createIntakeQuestion({
         flow_id: flow.id,
-        order_index: req.body.order_index ?? existing.length,
-        primary_prompt: req.body.primary_prompt,
-        target_field: req.body.target_field,
-        silence_timeout_seconds: req.body.silence_timeout_seconds ?? 86400,
-        max_fallback_attempts: req.body.max_fallback_attempts ?? null,
+        order_index: data.order_index ?? existing.length,
+        primary_prompt: data.primary_prompt,
+        target_field: data.target_field,
+        silence_timeout_seconds: data.silence_timeout_seconds ?? 86400,
+        max_fallback_attempts: data.max_fallback_attempts ?? null,
         question_type: 'free_text',
-        next_question_config: req.body.next_question_config ?? null,
-        llm_relevance_check_enabled: req.body.llm_relevance_check_enabled ?? false,
-        relevance_topic_hint: req.body.relevance_topic_hint ?? null,
-        on_off_topic_action: req.body.on_off_topic_action || 'reask',
+        next_question_config: data.next_question_config ?? null,
+        llm_relevance_check_enabled: data.llm_relevance_check_enabled ?? false,
+        relevance_topic_hint: data.relevance_topic_hint ?? null,
+        on_off_topic_action: data.on_off_topic_action || 'reask',
       });
       res.json(q);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -125,10 +167,9 @@ export function registerSailaIntakeRoutes(app: Express): void {
       if (!existing) return res.status(404).json({ error: "Question not found" });
       const flow = await intakeStore.getIntakeFlow(existing.flow_id);
       if (!flow || flow.company_id !== req.companyId) return res.status(404).json({ error: "Flow not found" });
-      const { id, flow_id, created_at, ...patch } = req.body;
-      if (patch.question_type && patch.question_type !== 'free_text') {
-        return res.status(400).json({ error: `question_type '${patch.question_type}' is not supported in v1.` });
-      }
+      const { id, flow_id, created_at, ...rawPatch } = req.body;
+      const patch = parseOr400(questionUpdateSchema, rawPatch, res);
+      if (!patch) return;
       const q = await intakeStore.updateIntakeQuestion(req.params.id, patch);
       res.json(q);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
