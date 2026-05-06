@@ -5,16 +5,17 @@ import * as intakeStore from "../saila-intake-storage";
 
 // ── Zod contracts (admin write paths) ─────────────────────────────────────────
 // Hardens admin POST/PUT bodies so malformed config cannot reach storage.
+// Field names mirror saila_intake_flows columns exactly.
 const flowCreateSchema = z.object({
-  name: z.string().trim().min(1).max(200),
+  name: z.string().trim().min(1).max(255),
   description: z.string().max(2000).optional().nullable(),
   enabled: z.boolean().optional(),
+  priority: z.number().int().min(0).max(1000).optional(),
   applied_business_numbers: z.array(z.string().min(1)).optional(),
   cancel_keywords: z.array(z.string().min(1)).optional(),
-  default_silence_timeout_seconds: z.number().int().positive().max(7 * 24 * 60 * 60).optional(),
   completion_message: z.string().max(2000).optional().nullable(),
-  default_max_fallback_attempts: z.number().int().min(0).max(10).optional(),
   fallback_prompt_template: z.string().max(2000).optional(),
+  max_fallback_attempts: z.number().int().min(0).max(10).optional(),
 });
 const flowUpdateSchema = flowCreateSchema.partial();
 const triggerCreateSchema = z.object({
