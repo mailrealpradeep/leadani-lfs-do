@@ -1,10 +1,11 @@
 // Saila Intake Engine — keyword detection, state machine, fallback tick, Sarvam relevance check.
 //
 // PRECEDENCE (within Saila inbound pipeline, see saila-engine.ts):
-//   1. Fixed Reply Mode (Meta Ad 2nd-message-in-3h)        ← runs first, untouched
-//   2. Active intake session continuation                   ← THIS module
-//   3. New intake session (keyword trigger)                 ← THIS module
-//   4. Keyword fast-path / template / LLM (existing)        ← unchanged
+//   1. Active intake session continuation                   ← THIS module
+//   2. Paused intake session (silent unless new keyword)    ← THIS module
+//   3. Intake keyword start (new or resume from drop-off)   ← THIS module
+//   4. Fixed Reply Mode (Meta Ad 2nd-message-in-3h)         ← unchanged
+//   5. Keyword fast-path / template / LLM (existing)        ← unchanged
 //
 // Strict additivity: returns { handled: false } when intake should NOT respond, so the
 // existing pipeline runs unchanged.
@@ -16,13 +17,15 @@ import type {
   SailaIntakeFlow,
   SailaIntakeQuestion,
   SailaIntakeSession,
+  SailaIntakeTrigger,
   SailaConfig,
   SailaPhoneSetting,
+  Lead,
 } from "@shared/schema";
 
 export interface IntakeHandled {
   handled: true;
-  source: "intake_question" | "intake_completion" | "intake_cancelled" | "intake_off_topic" | "intake_silence_timeout";
+  source: "intake_question" | "intake_completion" | "intake_cancelled" | "intake_off_topic" | "intake_silence_timeout" | "intake_paused_silent";
   responseText: string;
   sessionId: string;
 }
@@ -60,11 +63,9 @@ export function flowAppliesToBusinessNumber(flow: SailaIntakeFlow, businessNumbe
 
 // "Restart eligibility": a brand-new keyword-match starts a fresh session if and only if
 // there is no in-progress active session OR the existing session is for a different flow.
-// (Spec: industry-agnostic; keyword arriving while same flow active is treated as the user's
-// answer to the current question — never re-triggers a restart.)
 export function shouldStartNewSession(existing: SailaIntakeSession | undefined, candidateFlowId: string): boolean {
   if (!existing) return true;
-  if (existing.status === 'completed' || existing.status === 'abandoned') return true;
+  if (existing.status === 'completed' || existing.status === 'abandoned' || existing.status === 'paused') return true;
   if (existing.flow_id !== candidateFlowId) return true;
   return false;
 }
@@ -74,13 +75,42 @@ export function renderFallbackPrompt(template: string, question: string): string
   return template.replace(/\{question\}/g, question);
 }
 
+// Resume helper — given the lead's existing custom_fields, return the index of the
+// FIRST question whose target_field is missing/empty. Used so an abandoned session
+// re-triggered by a keyword resumes from the next unanswered question.
+export function findNextUnansweredIndex(
+  questions: SailaIntakeQuestion[],
+  customFields: Record<string, any> | null | undefined,
+): number {
+  const cf = customFields || {};
+  for (let i = 0; i < questions.length; i++) {
+    const v = cf[questions[i].target_field];
+    if (v === undefined || v === null || String(v).trim() === "") return i;
+  }
+  return questions.length; // all answered
+}
+
+// Best-trigger picker for inbound text. Returns highest-priority match.
+export function pickMatchingTrigger(
+  triggers: (SailaIntakeTrigger & { flow: SailaIntakeFlow })[],
+  messageText: string,
+  businessNumber: string,
+): (SailaIntakeTrigger & { flow: SailaIntakeFlow }) | null {
+  for (const t of triggers) {
+    if (!t.flow.enabled) continue;
+    if (!flowAppliesToBusinessNumber(t.flow, businessNumber)) continue;
+    if (keywordMatches(messageText, t.keyword, (t.match_mode as any) || 'contains')) return t;
+  }
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Sarvam relevance check (fail-open: returns true on any error / no key)
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getSarvamApiKey(companyId: string): Promise<string | null> {
   const company = await storage.getCompany(companyId);
-  const settings = (company as any)?.settings;
+  const settings = (company as { settings?: Record<string, any> } | undefined)?.settings;
   return settings?.quality_check_settings?.sarvam_api_key || process.env.SARVAM_API_KEY || null;
 }
 
@@ -125,7 +155,7 @@ export async function isAnswerRelevant(
       message_text: answer,
       reason: "intake_relevance_error",
       reason_detail: `Sarvam relevance error: ${err.message}`,
-    }).catch(() => {});
+    } as any).catch(() => {});
     return { relevant: true, reason: "sarvam_exception_fail_open" };
   }
 }
@@ -147,8 +177,8 @@ async function logLeadUpdate(
       update_via: via,
       update_on: today,
       remark,
-      created_by_user_id: null as any, // bot/system updates
-    } as any);
+      created_by_user_id: null,
+    } as Parameters<typeof storage.createLeadUpdate>[0]);
   } catch (err) {
     console.error("[Intake] logLeadUpdate failed:", err);
   }
@@ -158,8 +188,8 @@ async function writeAnswerToLead(leadId: string, fieldKey: string, value: string
   try {
     const lead = await storage.getLead(leadId);
     if (!lead) return;
-    const customFields = { ...(lead.custom_fields || {}), [fieldKey]: value };
-    await storage.updateLead(leadId, { custom_fields: customFields } as any);
+    const customFields = { ...((lead as Lead).custom_fields || {}), [fieldKey]: value };
+    await storage.updateLead(leadId, { custom_fields: customFields } as Parameters<typeof storage.updateLead>[1]);
   } catch (err) {
     console.error("[Intake] writeAnswerToLead failed:", err);
   }
@@ -178,7 +208,6 @@ async function sendBotMessage(
   companyId: string,
 ): Promise<void> {
   const result = await sendWhatsAppMessage(config, phoneSetting, recipientPhone, text);
-  // Log outgoing into whatsapp_message_logs with origin='bot'
   try {
     await storage.createWhatsAppMessageLog({
       company_id: companyId,
@@ -198,13 +227,95 @@ async function sendBotMessage(
       trigger_matched: false,
       processed_at: new Date(),
       origin: "bot",
-    } as any);
+    } as Parameters<typeof storage.createWhatsAppMessageLog>[0]);
   } catch (err) {
     console.error("[Intake] WA log insert failed:", err);
   }
   if (leadId) {
     await logLeadUpdate(leadId, "whatsapp_outgoing", `[Intake/bot] ${text}`);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal: start a session OR resume an abandoned/paused one from next-unanswered Q.
+// Returns the resulting handled IntakeResult (sent first prompt).
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function startOrResumeSession(args: {
+  companyId: string;
+  leadId: string;
+  trigger: SailaIntakeTrigger & { flow: SailaIntakeFlow };
+  existingSession: SailaIntakeSession | undefined;
+  senderPhone: string;
+  businessNumber: string;
+  matchedKeyword: string;
+  config: SailaConfig;
+  phoneSetting: SailaPhoneSetting;
+  matchedMessageText: string;
+}): Promise<IntakeResult> {
+  const { companyId, leadId, trigger, existingSession, senderPhone, businessNumber,
+    matchedKeyword, config, phoneSetting, matchedMessageText } = args;
+
+  const questions = await intakeStore.listIntakeQuestions(trigger.flow_id);
+  if (questions.length === 0) {
+    return { handled: false, reason: "flow_has_no_questions" };
+  }
+
+  const lead = await storage.getLead(leadId);
+  const startIdx = findNextUnansweredIndex(questions, (lead as Lead | undefined)?.custom_fields || {});
+
+  if (startIdx >= questions.length) {
+    // Already fully answered → mark complete, no re-ask
+    if (existingSession && existingSession.flow_id === trigger.flow_id) {
+      await intakeStore.updateIntakeSession(existingSession.id, {
+        status: 'completed',
+        depth_reached: questions.length,
+        completed_at: new Date(),
+        last_activity_at: new Date(),
+      });
+    }
+    return { handled: false, reason: "all_questions_already_answered" };
+  }
+
+  let sessionId: string;
+  // If we can reuse the same-flow paused/abandoned session, do so to preserve depth_reached.
+  if (existingSession && existingSession.flow_id === trigger.flow_id &&
+      (existingSession.status === 'paused' || existingSession.status === 'abandoned')) {
+    const updated = await intakeStore.updateIntakeSession(existingSession.id, {
+      status: 'active',
+      paused_until: null,
+      current_question_index: startIdx,
+      depth_reached: Math.max(existingSession.depth_reached, startIdx),
+      fallback_attempts: 0,
+      last_activity_at: new Date(),
+      last_business_number: businessNumber,
+    });
+    sessionId = updated?.id || existingSession.id;
+    await logLeadUpdate(leadId, "whatsapp", `[Intake] Keyword "${matchedKeyword}" resumed flow "${trigger.flow.name}" at Q${startIdx + 1}/${questions.length}`);
+  } else {
+    // Different-flow active session? Mark abandoned (new keyword overrides).
+    if (existingSession && existingSession.status === 'active' && existingSession.flow_id !== trigger.flow_id) {
+      await intakeStore.updateIntakeSession(existingSession.id, { status: 'abandoned' });
+    }
+    const newSession = await intakeStore.createIntakeSession({
+      company_id: companyId,
+      lead_id: leadId,
+      flow_id: trigger.flow_id,
+      current_question_index: startIdx,
+      depth_reached: startIdx,
+      status: 'active',
+      fallback_attempts: 0,
+      last_activity_at: new Date(),
+      started_at: new Date(),
+      last_business_number: businessNumber,
+    });
+    sessionId = newSession.id;
+    await logLeadUpdate(leadId, "whatsapp", `[Intake] Lead message "${matchedMessageText.slice(0, 60)}" matched keyword "${matchedKeyword}" → started flow "${trigger.flow.name}" at Q${startIdx + 1}/${questions.length}`);
+  }
+
+  const firstQ = questions[startIdx];
+  await sendBotMessage(config, phoneSetting, senderPhone, firstQ.primary_prompt, leadId, companyId);
+  return { handled: true, source: "intake_question", responseText: firstQ.primary_prompt, sessionId };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,34 +327,41 @@ export async function processInboundForIntake(params: {
   leadId: string | null;
   senderPhone: string;
   senderName: string;
-  businessNumber: string; // display_phone_number
+  businessNumber: string;
   messageText: string;
   config: SailaConfig;
   phoneSetting: SailaPhoneSetting;
 }): Promise<IntakeResult> {
   const { companyId, leadId, senderPhone, businessNumber, messageText, config, phoneSetting } = params;
 
-  // No lead → cannot anchor a session; skip (lead is created upstream by whatsapp-processor)
   if (!leadId) return { handled: false, reason: "no_lead_id" };
 
-  // ── 1. Continue existing session if active OR resume from paused-until-elapsed ──
-  let session = await intakeStore.getActiveSessionForLead(leadId);
+  const session = await intakeStore.getActiveSessionForLead(leadId);
+  const triggers = await intakeStore.listAllIntakeTriggersForCompany(companyId);
+
+  // ── 1. PAUSED session: stay silent unless a new keyword arrives ──
   if (session && session.status === 'paused') {
-    if (session.paused_until && new Date(session.paused_until) <= new Date()) {
-      session = await intakeStore.updateIntakeSession(session.id, { status: 'active', paused_until: null }) || session;
-    } else {
-      // Still paused (within human-takeover window) — let normal pipeline handle this message
-      return { handled: false, reason: "session_paused" };
+    const trig = pickMatchingTrigger(triggers, messageText, businessNumber);
+    if (trig) {
+      // New keyword while paused → resume (or restart on different flow) from next-unanswered Q.
+      return await startOrResumeSession({
+        companyId, leadId, trigger: trig, existingSession: session,
+        senderPhone, businessNumber, matchedKeyword: trig.keyword,
+        config, phoneSetting, matchedMessageText: messageText,
+      });
     }
+    // No keyword → bot silent during pause window. Returning handled:true short-circuits
+    // Fixed Reply / keyword fast-path / LLM so they don't speak on top of human handoff.
+    return { handled: true, source: "intake_paused_silent", responseText: "", sessionId: session.id };
   }
 
+  // ── 2. ACTIVE session: continue answering current question ──
   if (session && session.status === 'active') {
     const flow = await intakeStore.getIntakeFlow(session.flow_id);
     if (!flow || !flow.enabled) {
       await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
       return { handled: false, reason: "flow_missing_or_disabled" };
     }
-    // Cancel-keyword aborts session
     if (isCancelMessage(messageText, flow.cancel_keywords || [])) {
       await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
       await logLeadUpdate(leadId, "whatsapp", `[Intake] Cancelled by lead ("${messageText.slice(0, 60)}") — flow "${flow.name}"`);
@@ -252,43 +370,14 @@ export async function processInboundForIntake(params: {
     return await advanceSession({ session, flow, params });
   }
 
-  // ── 2. Try to start a NEW session via keyword ──
-  const triggers = await intakeStore.listAllIntakeTriggersForCompany(companyId);
-  for (const trig of triggers) {
-    if (!flowAppliesToBusinessNumber(trig.flow, businessNumber)) continue;
-    if (!keywordMatches(messageText, trig.keyword, (trig.match_mode as any) || 'contains')) continue;
-
-    if (!shouldStartNewSession(session, trig.flow_id)) continue;
-
-    // If a different-flow session existed, mark it abandoned (new keyword overrides)
-    if (session && session.status === 'active' && session.flow_id !== trig.flow_id) {
-      await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
-    }
-
-    const questions = await intakeStore.listIntakeQuestions(trig.flow_id);
-    if (questions.length === 0) {
-      console.log(`[Intake] Flow "${trig.flow.name}" has no questions — skipping`);
-      continue;
-    }
-
-    const newSession = await intakeStore.createIntakeSession({
-      company_id: companyId,
-      lead_id: leadId,
-      flow_id: trig.flow_id,
-      current_question_index: 0,
-      depth_reached: 0,
-      status: 'active',
-      fallback_attempts: 0,
-      last_activity_at: new Date(),
-      started_at: new Date(),
-      last_business_number: businessNumber,
+  // ── 3. No active session → try to start (or resume from drop-off) via keyword ──
+  const trig = pickMatchingTrigger(triggers, messageText, businessNumber);
+  if (trig && shouldStartNewSession(session, trig.flow_id)) {
+    return await startOrResumeSession({
+      companyId, leadId, trigger: trig, existingSession: session,
+      senderPhone, businessNumber, matchedKeyword: trig.keyword,
+      config, phoneSetting, matchedMessageText: messageText,
     });
-
-    const firstQ = questions[0];
-    await sendBotMessage(config, phoneSetting, senderPhone, firstQ.primary_prompt, leadId, companyId);
-    await logLeadUpdate(leadId, "whatsapp", `[Intake] Lead message "${messageText.slice(0, 60)}" matched keyword "${trig.keyword}" → started flow "${trig.flow.name}" (Q1/${questions.length})`);
-
-    return { handled: true, source: "intake_question", responseText: firstQ.primary_prompt, sessionId: newSession.id };
   }
 
   return { handled: false, reason: "no_trigger_matched" };
@@ -321,34 +410,48 @@ async function advanceSession(args: {
     return { handled: false, reason: "question_index_out_of_range" };
   }
 
-  // Record the incoming answer to lead history
   if (leadId) await logLeadUpdate(leadId, "whatsapp", `[Intake] Q${idx + 1}/${questions.length} reply: ${messageText.slice(0, 200)}`);
 
   // Optional Sarvam relevance check
   if (currentQ.llm_relevance_check_enabled) {
     const { relevant } = await isAnswerRelevant(companyId, currentQ.primary_prompt, currentQ.relevance_topic_hint, messageText);
     if (!relevant) {
+      const maxAttempts = currentQ.max_fallback_attempts ?? flow.max_fallback_attempts;
+
       if (currentQ.on_off_topic_action === 'end_immediately') {
+        // Send goodbye/completion BEFORE marking abandoned so the lead knows the flow ended.
+        const goodbye = (flow.completion_message?.trim() || "Thanks for your time — we'll be in touch shortly.");
+        await sendBotMessage(config, phoneSetting, senderPhone, goodbye, leadId, companyId);
         await intakeStore.updateIntakeSession(session.id, { status: 'abandoned', last_business_number: businessNumber });
-        if (leadId) await logLeadUpdate(leadId, "whatsapp", `[Intake] Off-topic answer → session ended (Q${idx + 1}/${questions.length})`);
+        if (leadId) await logLeadUpdate(leadId, "whatsapp", `[Intake] Off-topic answer at Q${idx + 1}/${questions.length} → flow ended (sent completion message)`);
+        return { handled: true, source: "intake_off_topic", responseText: goodbye, sessionId: session.id };
+      }
+
+      // 'reask' (default): increment fallback_attempts and check max. If exceeded → abandon.
+      const newAttempts = session.fallback_attempts + 1;
+      if (newAttempts > maxAttempts) {
+        await intakeStore.updateIntakeSession(session.id, { status: 'abandoned', last_business_number: businessNumber });
+        if (leadId) await logLeadUpdate(leadId, "whatsapp", `[Intake] Off-topic answers exceeded ${maxAttempts} re-asks at Q${idx + 1}/${questions.length} → abandoned`);
         return { handled: true, source: "intake_off_topic", responseText: "", sessionId: session.id };
       }
-      // Default: re-ask via fallback prompt
       const reaskText = renderFallbackPrompt(flow.fallback_prompt_template, currentQ.primary_prompt);
       await sendBotMessage(config, phoneSetting, senderPhone, reaskText, leadId, companyId);
-      await intakeStore.updateIntakeSession(session.id, { last_activity_at: new Date(), last_business_number: businessNumber });
+      await intakeStore.updateIntakeSession(session.id, {
+        fallback_attempts: newAttempts,
+        last_activity_at: new Date(),
+        last_business_number: businessNumber,
+      });
       return { handled: true, source: "intake_question", responseText: reaskText, sessionId: session.id };
     }
   }
 
-  // Accept answer → write to lead.custom_fields[target_field]
+  // Accept answer
   if (leadId) await writeAnswerToLead(leadId, currentQ.target_field, messageText.trim());
 
   const nextIdx = idx + 1;
   const newDepth = Math.max(session.depth_reached, nextIdx);
 
   if (nextIdx >= questions.length) {
-    // Done!
     await intakeStore.updateIntakeSession(session.id, {
       status: 'completed',
       current_question_index: nextIdx,
@@ -366,7 +469,6 @@ async function advanceSession(args: {
     return { handled: true, source: "intake_completion", responseText: completionText, sessionId: session.id };
   }
 
-  // Advance to next question
   const nextQ = questions[nextIdx];
   await intakeStore.updateIntakeSession(session.id, {
     current_question_index: nextIdx,
@@ -381,7 +483,7 @@ async function advanceSession(args: {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tick worker — silence timeout / fallback / abandonment.
-// Called by saila-intake-scheduler every minute.
+// Only operates on status='active' sessions (paused/completed/abandoned never tick).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface FallbackTickDecision {
@@ -440,19 +542,17 @@ export async function tickAllActiveSessions(): Promise<{ checked: number; sentFa
         abandoned++;
         continue;
       }
-      // send_fallback
       const config = await storage.getSailaConfig(session.company_id);
       const businessNumber = session.last_business_number || "";
       const phoneSetting = businessNumber ? await storage.getSailaPhoneSettingByNumber(session.company_id, businessNumber) : undefined;
-      if (!config || !phoneSetting || !phoneSetting.enabled || !session.lead_id) {
-        // Cannot send → do not bump attempts
-        continue;
-      }
+      if (!config || !phoneSetting || !phoneSetting.enabled || !session.lead_id) continue;
       const lead = await storage.getLead(session.lead_id);
-      const recipientPhone = (lead as any)?.mobile || "";
+      const recipientPhone = (lead as Lead | undefined)?.mobile || "";
       if (!recipientPhone) continue;
       const text = renderFallbackPrompt(flow.fallback_prompt_template, currentQ.primary_prompt);
       await sendBotMessage(config, phoneSetting, recipientPhone, text, session.lead_id, session.company_id);
+      // Conditional update to guard against duplicate sends from a parallel worker:
+      // only bump attempts if fallback_attempts is still what we expected.
       await intakeStore.updateIntakeSession(session.id, {
         fallback_attempts: decision.newAttempts,
         last_activity_at: new Date(),

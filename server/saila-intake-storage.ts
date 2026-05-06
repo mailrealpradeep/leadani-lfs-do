@@ -167,8 +167,9 @@ export async function pauseActiveSessionsForLead(leadId: string, untilDate: Date
   return r.length;
 }
 
-// Active sessions whose silence timeout has elapsed (used by tick worker).
-export async function getActiveSessionsDueForTick(now: Date): Promise<SailaIntakeSession[]> {
+// Active sessions only (the tick decides per-row whether timeout elapsed).
+// Paused/completed/abandoned sessions never tick.
+export async function getActiveSessionsDueForTick(_now: Date): Promise<SailaIntakeSession[]> {
   return db.select().from(dbSchema.saila_intake_sessions)
     .where(eq(dbSchema.saila_intake_sessions.status, 'active'));
 }

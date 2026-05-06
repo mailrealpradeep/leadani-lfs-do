@@ -9,6 +9,8 @@ import {
   shouldStartNewSession,
   renderFallbackPrompt,
   decideFallbackTick,
+  findNextUnansweredIndex,
+  pickMatchingTrigger,
 } from "./saila-intake-engine";
 
 let passed = 0;
@@ -50,6 +52,31 @@ eq("completed existing → start", shouldStartNewSession({ status: "completed", 
 eq("abandoned existing → start", shouldStartNewSession({ status: "abandoned", flow_id: "flow-A" } as any, "flow-A"), true);
 eq("active same-flow → DO NOT restart", shouldStartNewSession({ status: "active", flow_id: "flow-A" } as any, "flow-A"), false);
 eq("active different-flow → start (new keyword overrides)", shouldStartNewSession({ status: "active", flow_id: "flow-A" } as any, "flow-B"), true);
+eq("paused existing → start/resume eligible", shouldStartNewSession({ status: "paused", flow_id: "flow-A" } as any, "flow-A"), true);
+
+console.log("\n[findNextUnansweredIndex]");
+const qs = [
+  { target_field: "name" } as any,
+  { target_field: "budget" } as any,
+  { target_field: "city" } as any,
+];
+eq("no fields answered → 0", findNextUnansweredIndex(qs, {}), 0);
+eq("first answered → 1", findNextUnansweredIndex(qs, { name: "John" }), 1);
+eq("first+second answered → 2", findNextUnansweredIndex(qs, { name: "John", budget: "50L" }), 2);
+eq("all answered → length (signals done)", findNextUnansweredIndex(qs, { name: "J", budget: "5", city: "Mum" }), 3);
+eq("middle gap still resumes at first gap (idempotent fill)", findNextUnansweredIndex(qs, { name: "J", city: "Mum" }), 1);
+eq("empty-string treated as unanswered", findNextUnansweredIndex(qs, { name: "  " }), 0);
+
+console.log("\n[pickMatchingTrigger]");
+const trigA = { keyword: "buy", match_mode: "contains", flow: { enabled: true, applied_business_numbers: [], priority: 0 } } as any;
+const trigB = { keyword: "sell property", match_mode: "contains", flow: { enabled: true, applied_business_numbers: [], priority: 5 } } as any;
+const trigDisabled = { keyword: "rent", match_mode: "contains", flow: { enabled: false, applied_business_numbers: [], priority: 10 } } as any;
+const trigOtherNumber = { keyword: "lease", match_mode: "contains", flow: { enabled: true, applied_business_numbers: ["919999999999"], priority: 10 } } as any;
+eq("matches first applicable trigger", pickMatchingTrigger([trigB, trigA], "i want to BUY a flat", "918888")?.keyword, "buy");
+eq("ignores disabled flows", pickMatchingTrigger([trigDisabled], "I want to rent a place", "918888"), null);
+eq("ignores trigger when business number not in allowlist", pickMatchingTrigger([trigOtherNumber], "lease please", "918888"), null);
+eq("respects allowlist on match", pickMatchingTrigger([trigOtherNumber], "lease please", "919999999999")?.keyword, "lease");
+eq("no match → null", pickMatchingTrigger([trigA, trigB], "hello there", "918888"), null);
 
 console.log("\n[renderFallbackPrompt]");
 eq("substitutes {question} placeholder",

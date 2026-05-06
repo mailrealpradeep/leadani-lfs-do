@@ -355,12 +355,42 @@ export function registerSailaRoutes(app: Express): void {
       const phoneSetting = phoneSettings.find(s => s.display_phone_number === fromPhone);
       if (!phoneSetting) return res.status(404).json({ error: `No phone setting found for ${fromPhone}` });
 
-      const result = await sendWhatsAppMessage(
-        config,
-        phoneSetting,
-        toPhone,
-        "This is a test message from Saila.AI to verify your Wauper connection is working correctly."
-      );
+      const testText = "This is a test message from Saila.AI to verify your Wauper connection is working correctly.";
+      const result = await sendWhatsAppMessage(config, phoneSetting, toPhone, testText);
+
+      // Mirror to whatsapp_message_logs as a human-origin send and pause any active intake
+      // session for the recipient (test sends are admin-driven → counts as human takeover).
+      try {
+        const normalized = String(toPhone).replace(/\D/g, "").slice(-10);
+        await storage.createWhatsAppMessageLog({
+          company_id: companyId,
+          webhook_request_id: null,
+          direction: "outgoing",
+          lead_id: null,
+          sent_by_user_id: req.userId || null,
+          sender_phone: normalized,
+          sender_name: null,
+          sender_wa_id: toPhone,
+          display_phone_number: phoneSetting.display_phone_number,
+          message_id: result.messageId || `test_${Date.now()}`,
+          message_text: testText,
+          message_type: "text",
+          outcome: result.success ? "sent" : "send_failed",
+          outcome_details: { error: result.error || undefined, channel: "saila_test_send" },
+          trigger_matched: false,
+          processed_at: new Date(),
+          origin: "human",
+        } as any);
+        const { findExistingLeadByPhone } = await import("../whatsapp-processor");
+        const found = await findExistingLeadByPhone(companyId, normalized);
+        if (found?.lead?.id) {
+          const intakeStore = await import("../saila-intake-storage");
+          const pauseUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          await intakeStore.pauseActiveSessionsForLead(found.lead.id, pauseUntil);
+        }
+      } catch (logErr) {
+        console.error("[Saila test-send] log/pause error (non-fatal):", logErr);
+      }
 
       if (result.success) {
         res.json({ success: true, messageId: result.messageId });

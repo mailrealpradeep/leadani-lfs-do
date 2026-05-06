@@ -311,6 +311,25 @@ export async function processWhatsAppMessage(
         return createResult;
       }
       
+      // Saila Intake fallback: if the message matches an intake keyword AND there's an
+      // allocation for the business number, auto-create the lead so intake can run on it.
+      try {
+        const intakeStore = await import("./saila-intake-storage");
+        const { pickMatchingTrigger } = await import("./saila-intake-engine");
+        const triggers = await intakeStore.listAllIntakeTriggersForCompany(companyId);
+        const matchedTrig = pickMatchingTrigger(triggers, messageText, displayPhoneNumber);
+        if (matchedTrig) {
+          const allocation = await findAllocationByPhone(companyId, displayPhoneNumber);
+          if (allocation) {
+            console.log(`[WhatsApp Processor] No trigger rule, but intake keyword "${matchedTrig.keyword}" matched — auto-creating lead`);
+            const createResult = await createNewLead(companyId, allocation, log, normalizedPhone, messageText, senderName, null);
+            return createResult;
+          }
+        }
+      } catch (intakeErr) {
+        console.error("[WhatsApp Processor] Intake auto-create check failed (non-fatal):", intakeErr);
+      }
+
       triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, undefined, referralData).catch(() => {});
 
       await storage.updateWhatsAppMessageLog(log.id, {

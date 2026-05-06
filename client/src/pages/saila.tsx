@@ -2272,12 +2272,16 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
   const [fallbackTemplate, setFallbackTemplate] = useState("");
   const [maxFallback, setMaxFallback] = useState(2);
   const [completionMsg, setCompletionMsg] = useState("");
+  const [appliedNumbers, setAppliedNumbers] = useState("");
 
   const [newKeyword, setNewKeyword] = useState("");
   const [newKeywordMode, setNewKeywordMode] = useState<"contains" | "exact">("contains");
   const [newQPrompt, setNewQPrompt] = useState("");
   const [newQField, setNewQField] = useState("");
   const [newQTimeout, setNewQTimeout] = useState(86400);
+  const [newQType, setNewQType] = useState<"free_text" | "single_select" | "multi_select" | "yes_no">("free_text");
+  const [newQMaxFallback, setNewQMaxFallback] = useState<string>("");
+  const [newQOffTopicAction, setNewQOffTopicAction] = useState<"reask" | "end_immediately">("reask");
   const [newQRelevance, setNewQRelevance] = useState(false);
   const [newQTopic, setNewQTopic] = useState("");
 
@@ -2290,6 +2294,7 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
       setFallbackTemplate(data.fallback_prompt_template || "");
       setMaxFallback(data.max_fallback_attempts ?? 2);
       setCompletionMsg(data.completion_message || "");
+      setAppliedNumbers((data.applied_business_numbers || []).join(", "));
     }
   }, [data]);
 
@@ -2300,6 +2305,7 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
       fallback_prompt_template: fallbackTemplate,
       max_fallback_attempts: maxFallback,
       completion_message: completionMsg,
+      applied_business_numbers: appliedNumbers.split(',').map(s => s.trim()).filter(Boolean),
     }),
     onSuccess: () => {
       toast({ title: "Saved" });
@@ -2330,11 +2336,15 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
       primary_prompt: newQPrompt,
       target_field: newQField,
       silence_timeout_seconds: newQTimeout,
+      question_type: newQType,
+      max_fallback_attempts: newQMaxFallback.trim() === "" ? null : parseInt(newQMaxFallback) || null,
+      on_off_topic_action: newQOffTopicAction,
       llm_relevance_check_enabled: newQRelevance,
       relevance_topic_hint: newQTopic || null,
     }),
     onSuccess: () => {
       setNewQPrompt(""); setNewQField(""); setNewQTopic(""); setNewQRelevance(false);
+      setNewQType("free_text"); setNewQMaxFallback(""); setNewQOffTopicAction("reask");
       refetch();
     },
   });
@@ -2383,6 +2393,10 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
           <div>
             <Label>Completion Message</Label>
             <Textarea value={completionMsg} onChange={(e) => setCompletionMsg(e.target.value)} rows={2} data-testid="textarea-completion-message" />
+          </div>
+          <div>
+            <Label>Applied Business Numbers (comma-separated, leave blank for ALL)</Label>
+            <Input value={appliedNumbers} onChange={(e) => setAppliedNumbers(e.target.value)} placeholder="919876543210, 919812345678" data-testid="input-applied-numbers" />
           </div>
           <div className="flex gap-2">
             <Button onClick={() => saveFlow.mutate()} disabled={saveFlow.isPending} data-testid="button-save-flow">
@@ -2437,8 +2451,9 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                → field <code>{q.target_field}</code> · timeout {q.silence_timeout_seconds}s
-                {q.llm_relevance_check_enabled && ' · relevance check ON'}
+                → field <code>{q.target_field}</code> · type {q.question_type || 'free_text'} · timeout {q.silence_timeout_seconds}s
+                {q.max_fallback_attempts != null && ` · max-retries ${q.max_fallback_attempts}`}
+                {q.llm_relevance_check_enabled && ` · relevance ON (${q.on_off_topic_action || 'reask'})`}
               </p>
             </div>
           ))}
@@ -2454,15 +2469,43 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
                 <Label>Silence Timeout (seconds)</Label>
                 <Input type="number" value={newQTimeout} onChange={(e) => setNewQTimeout(parseInt(e.target.value) || 86400)} data-testid="input-new-timeout" />
               </div>
+              <div>
+                <Label>Question Type</Label>
+                <Select value={newQType} onValueChange={(v) => setNewQType(v as any)}>
+                  <SelectTrigger data-testid="select-question-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="free_text">Free text</SelectItem>
+                    <SelectItem value="single_select">Single select</SelectItem>
+                    <SelectItem value="multi_select">Multi select</SelectItem>
+                    <SelectItem value="yes_no">Yes / No</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Max Fallback Attempts (override flow default)</Label>
+                <Input value={newQMaxFallback} onChange={(e) => setNewQMaxFallback(e.target.value)} placeholder="leave blank to inherit" data-testid="input-new-max-fallback" />
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Switch checked={newQRelevance} onCheckedChange={setNewQRelevance} data-testid="switch-relevance" />
-              <Label>Sarvam relevance check (re-ask if off-topic)</Label>
+              <Label>Sarvam relevance check</Label>
             </div>
             {newQRelevance && (
-              <div>
-                <Label>Topic Hint (optional)</Label>
-                <Input value={newQTopic} onChange={(e) => setNewQTopic(e.target.value)} placeholder="monetary amount in INR" data-testid="input-relevance-topic" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <Label>Topic Hint (optional)</Label>
+                  <Input value={newQTopic} onChange={(e) => setNewQTopic(e.target.value)} placeholder="monetary amount in INR" data-testid="input-relevance-topic" />
+                </div>
+                <div>
+                  <Label>If off-topic</Label>
+                  <Select value={newQOffTopicAction} onValueChange={(v) => setNewQOffTopicAction(v as any)}>
+                    <SelectTrigger data-testid="select-off-topic-action"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="reask">Re-ask (counts toward max retries)</SelectItem>
+                      <SelectItem value="end_immediately">End flow immediately (send completion msg)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             )}
             <Button onClick={() => addQuestion.mutate()} disabled={!newQPrompt.trim() || !newQField.trim()} data-testid="button-add-question">
