@@ -162,6 +162,18 @@ export function registerSailaIntakeRoutes(app: Express): void {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  app.put("/api/saila/intake/flows/:flowId/questions/reorder", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+    try {
+      const flow = await intakeStore.getIntakeFlow(req.params.flowId);
+      if (!flow || flow.company_id !== req.companyId) return res.status(404).json({ error: "Flow not found" });
+      const parsed = z.object({ ordered_ids: z.array(z.string().uuid()).min(1) }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid request body", issues: parsed.error.flatten() });
+      await intakeStore.reorderIntakeQuestions(flow.id, parsed.data.ordered_ids);
+      const questions = await intakeStore.listIntakeQuestions(flow.id);
+      res.json({ success: true, questions });
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
   app.put("/api/saila/intake/questions/:id", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
     try {
       const existing = await intakeStore.getIntakeQuestion(req.params.id);

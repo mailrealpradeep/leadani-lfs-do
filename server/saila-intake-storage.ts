@@ -122,6 +122,33 @@ export async function deleteIntakeQuestion(id: string): Promise<void> {
   await db.delete(dbSchema.saila_intake_questions).where(eq(dbSchema.saila_intake_questions.id, id));
 }
 
+// Atomically rewrite order_index for a flow's questions in the supplied order.
+// `orderedIds` must be the full set of question ids belonging to `flowId`.
+export async function reorderIntakeQuestions(flowId: string, orderedIds: string[]): Promise<void> {
+  await db.transaction(async (tx) => {
+    const existing = await tx.select({ id: dbSchema.saila_intake_questions.id })
+      .from(dbSchema.saila_intake_questions)
+      .where(eq(dbSchema.saila_intake_questions.flow_id, flowId));
+    const existingIds = new Set(existing.map(r => r.id));
+    const uniqueIds = new Set(orderedIds);
+    if (uniqueIds.size !== orderedIds.length) {
+      throw new Error("Reorder payload contains duplicate question ids");
+    }
+    if (existing.length !== orderedIds.length || !orderedIds.every(id => existingIds.has(id))) {
+      throw new Error("Reorder payload does not match current questions for this flow");
+    }
+    const now = new Date();
+    for (let i = 0; i < orderedIds.length; i++) {
+      await tx.update(dbSchema.saila_intake_questions)
+        .set({ order_index: i, updated_at: now })
+        .where(and(
+          eq(dbSchema.saila_intake_questions.id, orderedIds[i]),
+          eq(dbSchema.saila_intake_questions.flow_id, flowId),
+        ));
+    }
+  });
+}
+
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
 export async function getActiveSessionForLead(leadId: string): Promise<SailaIntakeSession | undefined> {

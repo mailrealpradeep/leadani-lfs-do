@@ -20,8 +20,17 @@ import {
   Link as LinkIcon, Image, Video, FileUp, X, Check, Clock,
   PhoneCall, User, Sparkles, AlertTriangle, CheckCircle2, XCircle,
   MinusCircle, RefreshCw, Activity, ChevronDown, ChevronRight, ChevronLeft,
-  ListChecks, Pause, PlayCircle
+  ListChecks, Pause, PlayCircle, GripVertical
 } from "lucide-react";
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor,
+  useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove, SortableContext, useSortable, verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type {
   SailaConfig, SailaPhoneSetting, SailaTemplate, SailaTemplateMessage,
   SailaKeyword, SailaMedia, SailaConversation, SailaConversationMessage,
@@ -2261,6 +2270,42 @@ function IntakeTab() {
   );
 }
 
+function SortableQuestionRow({ q, index, onDelete }: { q: any; index: number; onDelete: (id: string) => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: q.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="p-3 border rounded-md space-y-1 bg-card" data-testid={`row-question-${q.id}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="cursor-grab hover-elevate active-elevate-2 rounded p-1 -ml-1"
+            aria-label="Drag to reorder"
+            data-testid={`drag-handle-question-${q.id}`}
+          >
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
+          </button>
+          <p className="font-medium text-sm truncate">Q{index + 1}. {q.primary_prompt}</p>
+        </div>
+        <Button size="icon" variant="ghost" onClick={() => onDelete(q.id)} data-testid={`button-delete-question-${q.id}`}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground pl-6">
+        → field <code>{q.target_field}</code> · type {q.question_type || 'free_text'} · timeout {q.silence_timeout_seconds}s
+        {q.max_fallback_attempts != null && ` · max-retries ${q.max_fallback_attempts}`}
+        {q.llm_relevance_check_enabled && ` · relevance ON (${q.on_off_topic_action || 'reask'})`}
+      </p>
+    </div>
+  );
+}
+
 function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => void }) {
   const { toast } = useToast();
   const { data, isLoading, refetch } = useQuery<any>({ queryKey: ['/api/saila/intake/flows', flowId] });
@@ -2352,6 +2397,39 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
     onSuccess: () => refetch(),
   });
 
+  const [orderedQuestions, setOrderedQuestions] = useState<any[]>([]);
+  useEffect(() => {
+    setOrderedQuestions(data?.questions || []);
+  }, [data?.questions]);
+
+  const reorderQuestions = useMutation({
+    mutationFn: async (orderedIds: string[]) =>
+      apiRequest('PUT', `/api/saila/intake/flows/${flowId}/questions/reorder`, { ordered_ids: orderedIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/saila/intake/flows', flowId] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Reorder failed", description: err?.message || "Could not save new order", variant: "destructive" });
+      setOrderedQuestions(data?.questions || []);
+    },
+  });
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleQuestionDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = orderedQuestions.findIndex((q) => q.id === active.id);
+    const newIndex = orderedQuestions.findIndex((q) => q.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(orderedQuestions, oldIndex, newIndex);
+    setOrderedQuestions(next);
+    reorderQuestions.mutate(next.map((q) => q.id));
+  };
+
   if (isLoading || !data) return <p className="text-sm text-muted-foreground p-4">Loading…</p>;
 
   return (
@@ -2439,23 +2517,20 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Questions (asked in order)</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Questions (asked in order)</CardTitle>
+          <CardDescription>Drag the handle to reorder questions. The new order is saved automatically.</CardDescription>
+        </CardHeader>
         <CardContent className="space-y-2">
-          {(data.questions || []).map((q: any, i: number) => (
-            <div key={q.id} className="p-3 border rounded-md space-y-1" data-testid={`row-question-${q.id}`}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-medium text-sm">Q{i + 1}. {q.primary_prompt}</p>
-                <Button size="icon" variant="ghost" onClick={() => delQuestion.mutate(q.id)} data-testid={`button-delete-question-${q.id}`}>
-                  <X className="h-4 w-4" />
-                </Button>
+          <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleQuestionDragEnd}>
+            <SortableContext items={orderedQuestions.map((q) => q.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2">
+                {orderedQuestions.map((q: any, i: number) => (
+                  <SortableQuestionRow key={q.id} q={q} index={i} onDelete={(id) => delQuestion.mutate(id)} />
+                ))}
               </div>
-              <p className="text-xs text-muted-foreground">
-                → field <code>{q.target_field}</code> · type {q.question_type || 'free_text'} · timeout {q.silence_timeout_seconds}s
-                {q.max_fallback_attempts != null && ` · max-retries ${q.max_fallback_attempts}`}
-                {q.llm_relevance_check_enabled && ` · relevance ON (${q.on_off_topic_action || 'reask'})`}
-              </p>
-            </div>
-          ))}
+            </SortableContext>
+          </DndContext>
           <div className="space-y-2 pt-2 border-t">
             <Label>New Question Prompt</Label>
             <Textarea value={newQPrompt} onChange={(e) => setNewQPrompt(e.target.value)} rows={2} placeholder="What is your budget?" data-testid="textarea-new-question" />
