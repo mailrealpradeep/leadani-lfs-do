@@ -211,6 +211,31 @@ export function registerSailaIntakeRoutes(app: Express): void {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // Bulk per-company badge map: { [leadId]: { depth, total, status, flow_name } }
+  // Powers the spreadsheet grid's per-row Intake badge in one round-trip.
+  app.get("/api/saila/intake/lead-badges", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const companyId = req.companyId!;
+      const sessions = await intakeStore.listLatestSessionsByCompany(companyId);
+      if (sessions.length === 0) return res.json({});
+      const flowIds = Array.from(new Set(sessions.map(s => s.flow_id)));
+      const flows = await Promise.all(flowIds.map(id => intakeStore.getIntakeFlow(id)));
+      const flowMap: Record<string, { name: string }> = {};
+      for (const f of flows) if (f) flowMap[f.id] = { name: f.name };
+      const counts = await intakeStore.getQuestionCountsByFlowIds(flowIds);
+      const out: Record<string, { depth: number; total: number; status: string; flow_name: string | null }> = {};
+      for (const s of sessions) {
+        out[s.lead_id] = {
+          depth: s.depth_reached || 0,
+          total: counts[s.flow_id] || 0,
+          status: s.status,
+          flow_name: flowMap[s.flow_id]?.name || null,
+        };
+      }
+      res.json(out);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // Per-lead session lookup (used by lead-row badge)
   app.get("/api/saila/intake/lead/:leadId", authMiddleware, async (req: AuthRequest, res) => {
     try {

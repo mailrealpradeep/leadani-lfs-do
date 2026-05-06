@@ -131,6 +131,7 @@ import { evaluateHighlightingRules } from "@/lib/highlighting-evaluator";
 import { LeadUpdateDialog } from "./lead-update-dialog";
 import { LeadUpdateHistoryDialog } from "./lead-update-history-dialog";
 import { AIRatingCell } from "./ai-rating-badge";
+import { IntakeProgressBadge, type IntakeBadgeData } from "./intake-progress-badge";
 import { NextFollowupDateDialog } from "./next-followup-date-dialog";
 import { UpdateHistoryHoverCard } from "./update-history-hover-card";
 import { LeadEditDialog } from "./lead-edit-dialog";
@@ -714,7 +715,17 @@ export function SpreadsheetGrid({
     enabled: !!activeSheetId && !isMultiMode && !isLoadingSingleColumns,
   });
 
-  // Flatten single-sheet infinite data
+  // Per-company Saila Intake badge map ({ leadId -> { depth, total, status, flow_name } }).
+  // One round-trip powers the per-row "Intake N/M" badge plus synthetic
+  // "Intake Status" / "Intake Depth" columns. Cached for 60s — these update
+  // slowly relative to grid interactions.
+  const { data: intakeBadgesData } = useQuery<Record<string, IntakeBadgeData>>({
+    queryKey: ["/api/saila/intake/lead-badges"],
+    staleTime: 60_000,
+  });
+  const intakeBadges = useMemo(() => intakeBadgesData || {}, [intakeBadgesData]);
+
+  // Flatten single-sheet infinite data (intake sort/filter handled server-side)
   const singleSheetLeads = useMemo(() => {
     if (!singleSheetInfiniteData?.pages) return [];
     return singleSheetInfiniteData.pages.flatMap(page => page.leads);
@@ -758,7 +769,7 @@ export function SpreadsheetGrid({
     enabled: isMultiMode && !hotLeadsMode && !customViewMode && activeSheetIds.length > 0 && companyColumns.length > 0,
   });
 
-  // Flatten multi-sheet infinite data
+  // Flatten multi-sheet infinite data (intake sort/filter handled server-side)
   const multiSheetLeads = useMemo(() => {
     if (!multiSheetInfiniteData?.pages) return [];
     return multiSheetInfiniteData.pages.flatMap(page => page.leads);
@@ -832,6 +843,15 @@ export function SpreadsheetGrid({
             const aiRating = (lead.ai_rating || "New").toLowerCase().trim();
             return aiRating === filterLower;
           }
+          // Saila Intake synthetic columns
+          if (key === "intake_status") {
+            const status = (intakeBadges[lead.id]?.status || "none").toLowerCase().trim();
+            return status === filterLower;
+          }
+          if (key === "intake_depth") {
+            const depth = String(intakeBadges[lead.id]?.depth ?? "");
+            return depth === filterLower.trim();
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -861,6 +881,12 @@ export function SpreadsheetGrid({
           // Sort by ai_rating native column
           aVal = a.ai_rating || "New";
           bVal = b.ai_rating || "New";
+        } else if (sortColumn === "intake_status") {
+          aVal = intakeBadges[a.id]?.status || "";
+          bVal = intakeBadges[b.id]?.status || "";
+        } else if (sortColumn === "intake_depth") {
+          aVal = intakeBadges[a.id]?.depth ?? -1;
+          bVal = intakeBadges[b.id]?.depth ?? -1;
         } else {
           aVal = a.custom_fields?.[sortColumn] || "";
           bVal = b.custom_fields?.[sortColumn] || "";
@@ -876,7 +902,7 @@ export function SpreadsheetGrid({
     }
     
     return filtered;
-  }, [hotLeadsData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection]);
+  }, [hotLeadsData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection, intakeBadges]);
 
   const hotLeadsSheetNames = useMemo(() => {
     if (!hotLeadsData?.leads) return {};
@@ -953,6 +979,15 @@ export function SpreadsheetGrid({
             const aiRating = (lead.ai_rating || "New").toLowerCase().trim();
             return aiRating === filterLower;
           }
+          // Saila Intake synthetic columns
+          if (key === "intake_status") {
+            const status = (intakeBadges[lead.id]?.status || "none").toLowerCase().trim();
+            return status === filterLower;
+          }
+          if (key === "intake_depth") {
+            const depth = String(intakeBadges[lead.id]?.depth ?? "");
+            return depth === filterLower.trim();
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -1019,6 +1054,12 @@ export function SpreadsheetGrid({
           // Sort by ai_rating native column
           aVal = a.ai_rating || "New";
           bVal = b.ai_rating || "New";
+        } else if (sortColumn === "intake_status") {
+          aVal = intakeBadges[a.id]?.status || "";
+          bVal = intakeBadges[b.id]?.status || "";
+        } else if (sortColumn === "intake_depth") {
+          aVal = intakeBadges[a.id]?.depth ?? -1;
+          bVal = intakeBadges[b.id]?.depth ?? -1;
         } else {
           aVal = a.custom_fields?.[sortColumn] || "";
           bVal = b.custom_fields?.[sortColumn] || "";
@@ -1034,7 +1075,7 @@ export function SpreadsheetGrid({
     }
     
     return filtered;
-  }, [watchlistData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection]);
+  }, [watchlistData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection, intakeBadges]);
 
   const watchlistSheetNames = useMemo(() => {
     if (!watchlistData?.leads) return {};
@@ -1148,6 +1189,15 @@ export function SpreadsheetGrid({
             const aiRating = (lead.ai_rating || "New").toLowerCase().trim();
             return aiRating === filterLower;
           }
+          // Saila Intake synthetic columns
+          if (key === "intake_status") {
+            const status = (intakeBadges[lead.id]?.status || "none").toLowerCase().trim();
+            return status === filterLower;
+          }
+          if (key === "intake_depth") {
+            const depth = String(intakeBadges[lead.id]?.depth ?? "");
+            return depth === filterLower.trim();
+          }
           const fieldValue = lead.custom_fields?.[key]?.toString().toLowerCase() || "";
           return fieldValue.includes(filterLower);
         });
@@ -1177,6 +1227,12 @@ export function SpreadsheetGrid({
           // Sort by ai_rating native column
           aVal = a.ai_rating || "New";
           bVal = b.ai_rating || "New";
+        } else if (sortColumn === "intake_status") {
+          aVal = intakeBadges[a.id]?.status || "";
+          bVal = intakeBadges[b.id]?.status || "";
+        } else if (sortColumn === "intake_depth") {
+          aVal = intakeBadges[a.id]?.depth ?? -1;
+          bVal = intakeBadges[b.id]?.depth ?? -1;
         } else {
           aVal = a.custom_fields?.[sortColumn] || "";
           bVal = b.custom_fields?.[sortColumn] || "";
@@ -1192,7 +1248,7 @@ export function SpreadsheetGrid({
     }
     
     return filtered;
-  }, [customViewData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection]);
+  }, [customViewData?.leads, searchQuery, columnFilters, thoughtFilter, sortColumn, sortDirection, intakeBadges]);
 
   const customViewSheetNames = useMemo(() => {
     if (!customViewData?.leads) return {};
@@ -2293,6 +2349,13 @@ export function SpreadsheetGrid({
     if (columnKey === "ai_rating") {
       return lead.ai_rating || "New";
     }
+    // Synthetic Saila Intake columns sourced from the per-company badge map.
+    if (columnKey === "intake_status") {
+      return intakeBadges[lead.id]?.status || "none";
+    }
+    if (columnKey === "intake_depth") {
+      return intakeBadges[lead.id]?.depth ?? 0;
+    }
     return lead.custom_fields[columnKey];
   };
 
@@ -2453,7 +2516,38 @@ export function SpreadsheetGrid({
         },
       });
     }
-    
+
+    // Saila Intake synthetic columns — sortable/filterable, sourced from
+    // /api/saila/intake/lead-badges. "Intake Status" renders the rich badge;
+    // "Intake Depth" exposes raw question depth for sort/filter on numbers.
+    if (!existingKeys.has("intake_status")) {
+      systemColumnsToAdd.push({
+        key: "intake_status",
+        label: "Intake Status",
+        width: "150px",
+        sortable: true,
+        dropdown: true,
+        type: "dropdown" as const,
+        config: {
+          dropdown_options: ["active", "paused", "completed", "abandoned", "none"],
+          is_intake_status: true,
+        },
+      });
+    }
+    if (!existingKeys.has("intake_depth")) {
+      systemColumnsToAdd.push({
+        key: "intake_depth",
+        label: "Intake Depth",
+        width: "100px",
+        sortable: true,
+        dropdown: false,
+        type: "number" as const,
+        config: {
+          is_intake_depth: true,
+        },
+      });
+    }
+
     return [...customCols, ...systemColumnsToAdd];
   }, [customColumns, columnWidths]);
 
@@ -4010,7 +4104,15 @@ export function SpreadsheetGrid({
                         </div>
 
                         {/* Compact Action Row - All icon buttons */}
-                        <div className="flex items-center gap-1.5 pt-1.5 border-t" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5 pt-1.5 border-t flex-wrap" onClick={(e) => e.stopPropagation()}>
+                          {/* Saila Intake progress badge (mobile) */}
+                          {intakeBadges[lead.id] && (
+                            <IntakeProgressBadge
+                              data={intakeBadges[lead.id]}
+                              size="xs"
+                              testId={`badge-intake-mobile-${lead.id}`}
+                            />
+                          )}
                           {/* AI Rating Badge */}
                           {lead.ai_rating && lead.ai_rating !== "New" && (
                             <Badge 
@@ -4914,6 +5016,19 @@ export function SpreadsheetGrid({
                             details={lead.ai_rating_details as any}
                             updatedAt={lead.ai_rating_updated_at as any}
                           />
+                        ) : col.key === "intake_status" ? (
+                          intakeBadges[lead.id] ? (
+                            <IntakeProgressBadge
+                              data={intakeBadges[lead.id]}
+                              testId={`badge-intake-${lead.id}`}
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )
+                        ) : col.key === "intake_depth" ? (
+                          <span className="text-sm" data-testid={`text-intake-depth-${lead.id}`}>
+                            {intakeBadges[lead.id]?.depth ?? "-"}
+                          </span>
                         ) : (
                           <div className="flex items-center gap-1.5 w-full">
                             {/* Lock icon for final values (non-admin users) */}

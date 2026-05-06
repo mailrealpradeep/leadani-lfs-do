@@ -4526,6 +4526,35 @@ export class PgStorage implements IStorage {
         continue;
       }
       
+      // Saila Intake synthetic columns — resolved against the latest session
+      // per lead (highest last_activity_at). Filtering by 'none' matches leads
+      // that have no session at all.
+      if (key === 'intake_status') {
+        const filterValue = (typeof value === 'object' && value !== null && 'exactMatch' in value)
+          ? (value as { value: string }).value
+          : (typeof value === 'string' ? value : null);
+        if (filterValue) {
+          if (filterValue === 'none') {
+            conditions.push(sql`NOT EXISTS (SELECT 1 FROM ${dbSchema.saila_intake_sessions} WHERE lead_id = ${dbSchema.leads.id})`);
+          } else {
+            conditions.push(sql`(SELECT status FROM ${dbSchema.saila_intake_sessions} WHERE lead_id = ${dbSchema.leads.id} ORDER BY last_activity_at DESC LIMIT 1) = ${filterValue}`);
+          }
+        }
+        continue;
+      }
+      if (key === 'intake_depth') {
+        const filterValue = (typeof value === 'object' && value !== null && 'exactMatch' in value)
+          ? (value as { value: string }).value
+          : (typeof value === 'string' ? value : (typeof value === 'number' ? String(value) : null));
+        if (filterValue !== null && filterValue !== '') {
+          const num = Number(filterValue);
+          if (!Number.isNaN(num)) {
+            conditions.push(sql`(SELECT depth_reached FROM ${dbSchema.saila_intake_sessions} WHERE lead_id = ${dbSchema.leads.id} ORDER BY last_activity_at DESC LIMIT 1) = ${num}`);
+          }
+        }
+        continue;
+      }
+
       // Handle ai_rating filter (native column on leads table, not custom_fields)
       if (key === 'ai_rating') {
         if (typeof value === 'object' && value !== null && 'exactMatch' in value) {
@@ -4820,6 +4849,13 @@ export class PgStorage implements IStorage {
       orderClause = sortOrder === 'asc' 
         ? asc(dbSchema.leads.updated_at) 
         : desc(dbSchema.leads.updated_at);
+    } else if (sortBy === 'intake_status') {
+      // Sort by status of the latest session per lead; leads with no session sort last/first via empty string.
+      const expr = sql`COALESCE((SELECT status FROM ${dbSchema.saila_intake_sessions} WHERE lead_id = ${dbSchema.leads.id} ORDER BY last_activity_at DESC LIMIT 1), '')`;
+      orderClause = sortOrder === 'asc' ? asc(expr) : desc(expr);
+    } else if (sortBy === 'intake_depth') {
+      const expr = sql`COALESCE((SELECT depth_reached FROM ${dbSchema.saila_intake_sessions} WHERE lead_id = ${dbSchema.leads.id} ORDER BY last_activity_at DESC LIMIT 1), -1)`;
+      orderClause = sortOrder === 'asc' ? asc(expr) : desc(expr);
     } else if (sortBy) {
       orderClause = sortOrder === 'asc'
         ? asc(sql`${dbSchema.leads.custom_fields}->>${sortBy}`)

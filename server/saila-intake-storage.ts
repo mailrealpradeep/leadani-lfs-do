@@ -202,3 +202,36 @@ export async function getSession(id: string): Promise<SailaIntakeSession | undef
     .where(eq(dbSchema.saila_intake_sessions.id, id)).limit(1);
   return r[0];
 }
+
+// Latest session per lead for an entire company. Used to power the
+// per-row "Intake N/M" badge on the spreadsheet without firing one
+// HTTP request per lead. Dedupes in JS by lead_id (Postgres DISTINCT ON
+// would also work; JS dedup keeps Drizzle typing simple).
+export async function listLatestSessionsByCompany(companyId: string): Promise<SailaIntakeSession[]> {
+  const rows = await db.select().from(dbSchema.saila_intake_sessions)
+    .where(eq(dbSchema.saila_intake_sessions.company_id, companyId))
+    .orderBy(desc(dbSchema.saila_intake_sessions.last_activity_at));
+  const seen = new Set<string>();
+  const out: SailaIntakeSession[] = [];
+  for (const r of rows) {
+    if (seen.has(r.lead_id)) continue;
+    seen.add(r.lead_id);
+    out.push(r);
+  }
+  return out;
+}
+
+// Question counts grouped by flow id. One round-trip instead of N.
+export async function getQuestionCountsByFlowIds(flowIds: string[]): Promise<Record<string, number>> {
+  if (flowIds.length === 0) return {};
+  const rows = await db.select({
+    flow_id: dbSchema.saila_intake_questions.flow_id,
+    count: sql<number>`count(*)::int`,
+  })
+    .from(dbSchema.saila_intake_questions)
+    .where(inArray(dbSchema.saila_intake_questions.flow_id, flowIds))
+    .groupBy(dbSchema.saila_intake_questions.flow_id);
+  const map: Record<string, number> = {};
+  for (const r of rows) map[r.flow_id] = Number(r.count) || 0;
+  return map;
+}

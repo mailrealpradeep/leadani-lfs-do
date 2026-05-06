@@ -381,6 +381,9 @@ export interface CustomColumn {
     is_system_column?: boolean; // System columns (Full Name, Mobile No) cannot be deleted
     system_values?: string[]; // Values defined by Super Admin (locked, can't be deleted)
     hidden_system_values?: string[]; // System values this company has chosen to hide
+    is_ai_rating?: boolean; // Marker for the synthetic AI Rating column (not persisted)
+    is_intake_status?: boolean; // Marker for the synthetic Intake Status column (not persisted)
+    is_intake_depth?: boolean; // Marker for the synthetic Intake Depth column (not persisted)
   };
   order_index: number; // for column ordering
   is_system: boolean; // true = system-defined column that cannot be deleted
