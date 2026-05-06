@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { getCompanyTimezone, getTodayDateString } from "./timezone-utils";
+import { processInboundForIntake } from "./saila-intake-engine";
 import type {
   SailaConfig,
   SailaPhoneSetting,
@@ -746,6 +747,57 @@ export async function generateSailaResponse(
     message_type: "text",
     sent_status: "received",
   });
+
+  // ── Saila Intake (highest precedence) ─────────────────────────────────────
+  // Continues an in-progress qualifier flow OR starts one when an admin-defined
+  // keyword is matched. When intake handles the message, we short-circuit and
+  // do NOT invoke Fixed Reply / keyword fast-path / template / LLM.
+  // Strict additivity: when handled=false, the rest of this function runs unchanged.
+  if (leadId) {
+    try {
+      const intakeResult = await processInboundForIntake({
+        companyId,
+        leadId,
+        senderPhone,
+        senderName: senderName || "",
+        businessNumber: executivePhone,
+        messageText,
+        config,
+        phoneSetting,
+      });
+      if (intakeResult.handled) {
+        // Mirror outgoing into conversation messages so admins see it in chat history
+        if (intakeResult.responseText) {
+          await storage.createSailaConversationMessage({
+            conversation_id: conversation.id,
+            direction: "outgoing",
+            message_text: intakeResult.responseText,
+            message_type: "text",
+            sent_status: "sent",
+            template_used: `intake:${intakeResult.source}`,
+          });
+        }
+        return {
+          shouldRespond: !!intakeResult.responseText,
+          responseText: intakeResult.responseText,
+          confidenceScore: 100,
+          source: "keyword",
+          keywordMatched: intakeResult.source,
+        };
+      }
+    } catch (err: any) {
+      console.error("[Saila] Intake processing error (non-blocking):", err.message);
+      storage.createSailaErrorLog({
+        company_id: companyId,
+        sender_phone: senderPhone,
+        sender_name: senderName || null,
+        executive_phone: executivePhone,
+        message_text: messageText,
+        reason: "intake_engine_error",
+        reason_detail: err.message,
+      }).catch(() => {});
+    }
+  }
 
   // ── Fixed Reply Mode ──────────────────────────────────────────────────────
   // Trigger when: Fixed Reply enabled for this phone + message came from a Meta Ad

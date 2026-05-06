@@ -5066,6 +5066,7 @@ export const whatsapp_message_logs = pgTable('whatsapp_message_logs', {
   delivered_at: timestamp('delivered_at'),
   read_at: timestamp('read_at'),
   failed_at: timestamp('failed_at'),
+  origin: varchar('origin', { length: 16 }).notNull().default('human'),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -5583,3 +5584,103 @@ export const saila_call_time_slots = pgTable('saila_call_time_slots', {
 export type SailaCallTimeSlot = typeof saila_call_time_slots.$inferSelect;
 export type InsertSailaCallTimeSlot = typeof saila_call_time_slots.$inferInsert;
 export const insertSailaCallTimeSlotSchema = createInsertSchema(saila_call_time_slots).omit({ id: true, created_at: true });
+
+// ============================================================================
+// SAILA INTAKE — keyword-triggered, sequential Q&A lead-qualifier
+// ============================================================================
+
+export const saila_intake_flows = pgTable('saila_intake_flows', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  enabled: boolean('enabled').notNull().default(true),
+  priority: integer('priority').notNull().default(0),
+  // Empty array = applies to ALL business numbers; non-empty = restrict to listed display_phone_numbers
+  applied_business_numbers: text('applied_business_numbers').array().notNull().default(sql`ARRAY[]::text[]`),
+  // Lead-typed cancel words (case-insensitive contains-match) that abort an active session
+  cancel_keywords: text('cancel_keywords').array().notNull().default(sql`ARRAY[]::text[]`),
+  // Final message sent when every question has been answered. Optional.
+  completion_message: text('completion_message'),
+  // Re-prompt template used on silence-timeout. Supports {question} placeholder.
+  fallback_prompt_template: text('fallback_prompt_template').notNull().default('Hi, just checking — {question}'),
+  // Default fallback attempts at flow level (per-question may override)
+  max_fallback_attempts: integer('max_fallback_attempts').notNull().default(2),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaIntakeFlow = typeof saila_intake_flows.$inferSelect;
+export type InsertSailaIntakeFlow = typeof saila_intake_flows.$inferInsert;
+export const insertSailaIntakeFlowSchema = createInsertSchema(saila_intake_flows).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_intake_triggers = pgTable('saila_intake_triggers', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  flow_id: varchar('flow_id').notNull().references(() => saila_intake_flows.id, { onDelete: 'cascade' }),
+  keyword: varchar('keyword', { length: 255 }).notNull(),
+  match_mode: varchar('match_mode', { length: 16 }).notNull().default('contains'), // 'contains' | 'exact'
+  created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type SailaIntakeTrigger = typeof saila_intake_triggers.$inferSelect;
+export type InsertSailaIntakeTrigger = typeof saila_intake_triggers.$inferInsert;
+export const insertSailaIntakeTriggerSchema = createInsertSchema(saila_intake_triggers).omit({ id: true, created_at: true });
+
+export const saila_intake_questions = pgTable('saila_intake_questions', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  flow_id: varchar('flow_id').notNull().references(() => saila_intake_flows.id, { onDelete: 'cascade' }),
+  order_index: integer('order_index').notNull().default(0),
+  primary_prompt: text('primary_prompt').notNull(),
+  // Custom field key on the lead (lead.custom_fields[target_field]) where the answer is written
+  target_field: varchar('target_field', { length: 255 }).notNull(),
+  silence_timeout_seconds: integer('silence_timeout_seconds').notNull().default(86400), // 24h default
+  // Per-question override of flow-level max_fallback_attempts; null = use flow default
+  max_fallback_attempts: integer('max_fallback_attempts'),
+  // Future-proofing — only 'free_text' is implemented in v1
+  question_type: varchar('question_type', { length: 32 }).notNull().default('free_text'),
+  // Future-proof config for typed questions (choices, regex, range, etc.); null in v1
+  next_question_config: json('next_question_config').$type<Record<string, any>>(),
+  // Optional Sarvam-AI relevance check
+  llm_relevance_check_enabled: boolean('llm_relevance_check_enabled').notNull().default(false),
+  relevance_topic_hint: text('relevance_topic_hint'),
+  // 'reask' = log + send fallback prompt and stay on this question; 'end_immediately' = abandon session
+  on_off_topic_action: varchar('on_off_topic_action', { length: 32 }).notNull().default('reask'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type SailaIntakeQuestion = typeof saila_intake_questions.$inferSelect;
+export type InsertSailaIntakeQuestion = typeof saila_intake_questions.$inferInsert;
+export const insertSailaIntakeQuestionSchema = createInsertSchema(saila_intake_questions).omit({ id: true, created_at: true, updated_at: true });
+
+export const saila_intake_sessions = pgTable('saila_intake_sessions', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  company_id: varchar('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  lead_id: varchar('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  flow_id: varchar('flow_id').notNull().references(() => saila_intake_flows.id, { onDelete: 'cascade' }),
+  // Index into flow's ordered questions; the question currently awaiting an answer
+  current_question_index: integer('current_question_index').notNull().default(0),
+  // Highest index ever reached (qualifier signal — never decreases)
+  depth_reached: integer('depth_reached').notNull().default(0),
+  // 'active' | 'completed' | 'abandoned' | 'paused'
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  // Number of fallback prompts already sent for the CURRENT question; reset on advance
+  fallback_attempts: integer('fallback_attempts').notNull().default(0),
+  last_activity_at: timestamp('last_activity_at').defaultNow().notNull(),
+  started_at: timestamp('started_at').defaultNow().notNull(),
+  completed_at: timestamp('completed_at'),
+  paused_at: timestamp('paused_at'),
+  // When set and in the future, session is paused (human takeover); resumes on next inbound after this time
+  paused_until: timestamp('paused_until'),
+  // Last business number (display_phone_number) the customer was talking to
+  last_business_number: varchar('last_business_number', { length: 30 }),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+  leadIdx: index('saila_intake_sessions_lead_idx').on(t.lead_id),
+  statusIdx: index('saila_intake_sessions_status_idx').on(t.company_id, t.status),
+}));
+
+export type SailaIntakeSession = typeof saila_intake_sessions.$inferSelect;
+export type InsertSailaIntakeSession = typeof saila_intake_sessions.$inferInsert;
+export const insertSailaIntakeSessionSchema = createInsertSchema(saila_intake_sessions).omit({ id: true, created_at: true, updated_at: true });

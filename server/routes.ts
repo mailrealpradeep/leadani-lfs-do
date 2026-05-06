@@ -8208,8 +8208,17 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           },
           trigger_matched: false,
           processed_at: new Date(),
-        };
+          origin: "human",
+        } as any;
         await storage.createWhatsAppMessageLog(outgoingLog);
+        // Pause any active intake session for this lead — human took over the conversation.
+        try {
+          const { pauseActiveSessionsForLead } = await import("./saila-intake-storage");
+          const pauseUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          await pauseActiveSessionsForLead(lead.id, pauseUntil);
+        } catch (intakeErr) {
+          console.error("[Send WhatsApp] Failed to pause intake session:", intakeErr);
+        }
       } catch (logErr) {
         console.error("[Send WhatsApp] Failed to record outgoing log:", logErr);
       }
@@ -27612,6 +27621,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // SAILA.AI - WhatsApp AI Response Engine
   // ============================================================================
   registerSailaRoutes(app);
+  const { registerSailaIntakeRoutes } = await import("./routes/saila-intake-routes");
+  registerSailaIntakeRoutes(app);
 
   // ============================================================================
   // BACKUP SCHEDULER (Hourly Google Sheets Sync)

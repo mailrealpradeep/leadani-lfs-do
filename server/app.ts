@@ -9,6 +9,7 @@ import express, {
 
 import { registerRoutes } from "./routes";
 import { startSnapshotScheduler } from "./snapshot-scheduler";
+import { startSailaIntakeScheduler } from "./saila-intake-scheduler";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -125,6 +126,7 @@ export default async function runApp(
       log(`Server is ready and listening on 0.0.0.0:${port}`);
       
       startSnapshotScheduler();
+      startSailaIntakeScheduler();
     });
 
     // Handle server errors

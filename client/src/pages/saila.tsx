@@ -19,7 +19,8 @@ import {
   Plus, Trash2, Save, Edit, Bot, ArrowRight, ArrowLeft, Eye,
   Link as LinkIcon, Image, Video, FileUp, X, Check, Clock,
   PhoneCall, User, Sparkles, AlertTriangle, CheckCircle2, XCircle,
-  MinusCircle, RefreshCw, Activity, ChevronDown, ChevronRight, ChevronLeft
+  MinusCircle, RefreshCw, Activity, ChevronDown, ChevronRight, ChevronLeft,
+  ListChecks, Pause, PlayCircle
 } from "lucide-react";
 import type {
   SailaConfig, SailaPhoneSetting, SailaTemplate, SailaTemplateMessage,
@@ -2078,7 +2079,7 @@ export default function SailaAI() {
         </div>
 
         <Tabs defaultValue="settings">
-          <TabsList className="grid grid-cols-5 sm:grid-cols-9 w-full h-auto gap-1" data-testid="tabs-saila">
+          <TabsList className="grid grid-cols-5 sm:grid-cols-10 w-full h-auto gap-1" data-testid="tabs-saila">
             <TabsTrigger value="settings" className="text-xs sm:text-sm" data-testid="tab-settings">
               <Settings className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Settings</span>
@@ -2115,6 +2116,10 @@ export default function SailaAI() {
               <PhoneCall className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Fixed Reply</span>
             </TabsTrigger>
+            <TabsTrigger value="intake" className="text-xs sm:text-sm" data-testid="tab-intake">
+              <ListChecks className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">Intake</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="settings"><SettingsTab /></TabsContent>
@@ -2126,8 +2131,346 @@ export default function SailaAI() {
           <TabsContent value="bookings"><BookingsTab /></TabsContent>
           <TabsContent value="error-log"><ErrorLogTab /></TabsContent>
           <TabsContent value="fixed-reply"><FixedReplyTab /></TabsContent>
+          <TabsContent value="intake"><IntakeTab /></TabsContent>
         </Tabs>
       </div>
     </ScrollArea>
+  );
+}
+
+// ─── Saila Intake Tab ──────────────────────────────────────────────────────
+function IntakeTab() {
+  const { toast } = useToast();
+  const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newFlowName, setNewFlowName] = useState("");
+  const [view, setView] = useState<"flows" | "sessions">("flows");
+
+  const { data: flows = [], isLoading } = useQuery<any[]>({ queryKey: ['/api/saila/intake/flows'] });
+  const { data: sessions = [] } = useQuery<any[]>({
+    queryKey: ['/api/saila/intake/sessions'],
+    enabled: view === 'sessions',
+  });
+
+  const createFlow = useMutation({
+    mutationFn: async (name: string) => apiRequest('POST', '/api/saila/intake/flows', {
+      name,
+      enabled: false,
+      priority: 0,
+      cancel_keywords: ['stop', 'cancel'],
+      fallback_prompt_template: 'Just checking in — could you share: {question}',
+      max_fallback_attempts: 2,
+      completion_message: 'Thanks! Our team will reach out shortly.',
+      applied_business_numbers: [],
+    }),
+    onSuccess: (created: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/saila/intake/flows'] });
+      setCreateOpen(false); setNewFlowName("");
+      setSelectedFlowId(created.id);
+    },
+  });
+
+  if (selectedFlowId) {
+    return <IntakeFlowEditor flowId={selectedFlowId} onBack={() => setSelectedFlowId(null)} />;
+  }
+
+  return (
+    <div className="space-y-4 mt-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-2">
+          <Button size="sm" variant={view === 'flows' ? 'default' : 'outline'} onClick={() => setView('flows')} data-testid="button-intake-view-flows">
+            <ListChecks className="h-4 w-4 mr-1" /> Flows
+          </Button>
+          <Button size="sm" variant={view === 'sessions' ? 'default' : 'outline'} onClick={() => setView('sessions')} data-testid="button-intake-view-sessions">
+            <Activity className="h-4 w-4 mr-1" /> Sessions
+          </Button>
+        </div>
+        {view === 'flows' && (
+          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-intake-new-flow">
+            <Plus className="h-4 w-4 mr-1" /> New Flow
+          </Button>
+        )}
+      </div>
+
+      {view === 'flows' && (
+        <div className="space-y-2">
+          {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {!isLoading && flows.length === 0 && (
+            <Card><CardContent className="p-6 text-center text-sm text-muted-foreground">
+              No intake flows yet. Create one to start qualifying leads via WhatsApp Q&A.
+            </CardContent></Card>
+          )}
+          {flows.map((f: any) => (
+            <Card key={f.id} className="hover-elevate cursor-pointer" onClick={() => setSelectedFlowId(f.id)} data-testid={`card-intake-flow-${f.id}`}>
+              <CardContent className="p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium truncate">{f.name}</p>
+                    {f.enabled
+                      ? <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">Enabled</Badge>
+                      : <Badge variant="outline">Disabled</Badge>}
+                    <Badge variant="outline">P{f.priority}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {f.question_count} question{f.question_count === 1 ? '' : 's'} · {f.trigger_count} keyword{f.trigger_count === 1 ? '' : 's'}
+                  </p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {view === 'sessions' && (
+        <div className="space-y-2">
+          {sessions.length === 0 && (
+            <Card><CardContent className="p-6 text-center text-sm text-muted-foreground">No sessions yet.</CardContent></Card>
+          )}
+          {sessions.map((s: any) => (
+            <Card key={s.id} data-testid={`card-intake-session-${s.id}`}>
+              <CardContent className="p-3 flex items-center justify-between gap-2 text-sm">
+                <div>
+                  <p className="font-mono text-xs text-muted-foreground">{s.id.slice(0, 8)}</p>
+                  <p>Lead: <span className="font-mono">{s.lead_id?.slice(0, 8) || '—'}</span></p>
+                </div>
+                <div className="text-right">
+                  <Badge variant={s.status === 'completed' ? 'default' : s.status === 'active' ? 'secondary' : 'outline'}>{s.status}</Badge>
+                  <p className="text-xs text-muted-foreground mt-1">Q{s.current_question_index + 1} · depth {s.depth_reached}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>New Intake Flow</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="flow-name">Flow Name</Label>
+            <Input id="flow-name" value={newFlowName} onChange={(e) => setNewFlowName(e.target.value)} placeholder="e.g. Property Qualification" data-testid="input-new-flow-name" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={() => newFlowName.trim() && createFlow.mutate(newFlowName.trim())} disabled={!newFlowName.trim() || createFlow.isPending} data-testid="button-create-flow-confirm">Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => void }) {
+  const { toast } = useToast();
+  const { data, isLoading, refetch } = useQuery<any>({ queryKey: ['/api/saila/intake/flows', flowId] });
+
+  const [name, setName] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [priority, setPriority] = useState(0);
+  const [cancelKeywords, setCancelKeywords] = useState("");
+  const [fallbackTemplate, setFallbackTemplate] = useState("");
+  const [maxFallback, setMaxFallback] = useState(2);
+  const [completionMsg, setCompletionMsg] = useState("");
+
+  const [newKeyword, setNewKeyword] = useState("");
+  const [newKeywordMode, setNewKeywordMode] = useState<"contains" | "exact">("contains");
+  const [newQPrompt, setNewQPrompt] = useState("");
+  const [newQField, setNewQField] = useState("");
+  const [newQTimeout, setNewQTimeout] = useState(86400);
+  const [newQRelevance, setNewQRelevance] = useState(false);
+  const [newQTopic, setNewQTopic] = useState("");
+
+  useEffect(() => {
+    if (data) {
+      setName(data.name || "");
+      setEnabled(!!data.enabled);
+      setPriority(data.priority || 0);
+      setCancelKeywords((data.cancel_keywords || []).join(", "));
+      setFallbackTemplate(data.fallback_prompt_template || "");
+      setMaxFallback(data.max_fallback_attempts ?? 2);
+      setCompletionMsg(data.completion_message || "");
+    }
+  }, [data]);
+
+  const saveFlow = useMutation({
+    mutationFn: async () => apiRequest('PUT', `/api/saila/intake/flows/${flowId}`, {
+      name, enabled, priority,
+      cancel_keywords: cancelKeywords.split(',').map(s => s.trim()).filter(Boolean),
+      fallback_prompt_template: fallbackTemplate,
+      max_fallback_attempts: maxFallback,
+      completion_message: completionMsg,
+    }),
+    onSuccess: () => {
+      toast({ title: "Saved" });
+      queryClient.invalidateQueries({ queryKey: ['/api/saila/intake/flows'] });
+      refetch();
+    },
+  });
+
+  const deleteFlow = useMutation({
+    mutationFn: async () => apiRequest('DELETE', `/api/saila/intake/flows/${flowId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/saila/intake/flows'] });
+      onBack();
+    },
+  });
+
+  const addKeyword = useMutation({
+    mutationFn: async () => apiRequest('POST', `/api/saila/intake/flows/${flowId}/triggers`, { keyword: newKeyword, match_mode: newKeywordMode }),
+    onSuccess: () => { setNewKeyword(""); refetch(); },
+  });
+  const delKeyword = useMutation({
+    mutationFn: async (id: string) => apiRequest('DELETE', `/api/saila/intake/triggers/${id}`),
+    onSuccess: () => refetch(),
+  });
+
+  const addQuestion = useMutation({
+    mutationFn: async () => apiRequest('POST', `/api/saila/intake/flows/${flowId}/questions`, {
+      primary_prompt: newQPrompt,
+      target_field: newQField,
+      silence_timeout_seconds: newQTimeout,
+      llm_relevance_check_enabled: newQRelevance,
+      relevance_topic_hint: newQTopic || null,
+    }),
+    onSuccess: () => {
+      setNewQPrompt(""); setNewQField(""); setNewQTopic(""); setNewQRelevance(false);
+      refetch();
+    },
+  });
+  const delQuestion = useMutation({
+    mutationFn: async (id: string) => apiRequest('DELETE', `/api/saila/intake/questions/${id}`),
+    onSuccess: () => refetch(),
+  });
+
+  if (isLoading || !data) return <p className="text-sm text-muted-foreground p-4">Loading…</p>;
+
+  return (
+    <div className="space-y-4 mt-4">
+      <Button variant="outline" size="sm" onClick={onBack} data-testid="button-intake-back">
+        <ArrowLeft className="h-4 w-4 mr-1" /> Back to Flows
+      </Button>
+
+      <Card>
+        <CardHeader><CardTitle>Flow Settings</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} data-testid="input-flow-name" />
+            </div>
+            <div>
+              <Label>Priority (higher wins on keyword conflicts)</Label>
+              <Input type="number" value={priority} onChange={(e) => setPriority(parseInt(e.target.value) || 0)} data-testid="input-flow-priority" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch checked={enabled} onCheckedChange={setEnabled} data-testid="switch-flow-enabled" />
+            <Label>Enabled</Label>
+          </div>
+          <div>
+            <Label>Cancel Keywords (comma-separated)</Label>
+            <Input value={cancelKeywords} onChange={(e) => setCancelKeywords(e.target.value)} placeholder="stop, cancel, exit" data-testid="input-cancel-keywords" />
+          </div>
+          <div>
+            <Label>Fallback Prompt Template (use {`{question}`} to inject the current question)</Label>
+            <Textarea value={fallbackTemplate} onChange={(e) => setFallbackTemplate(e.target.value)} rows={2} data-testid="textarea-fallback-template" />
+          </div>
+          <div>
+            <Label>Max Fallback Attempts (before abandonment)</Label>
+            <Input type="number" value={maxFallback} onChange={(e) => setMaxFallback(parseInt(e.target.value) || 0)} data-testid="input-max-fallback" />
+          </div>
+          <div>
+            <Label>Completion Message</Label>
+            <Textarea value={completionMsg} onChange={(e) => setCompletionMsg(e.target.value)} rows={2} data-testid="textarea-completion-message" />
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={() => saveFlow.mutate()} disabled={saveFlow.isPending} data-testid="button-save-flow">
+              <Save className="h-4 w-4 mr-1" /> Save
+            </Button>
+            <Button variant="destructive" onClick={() => { if (confirm('Delete this flow?')) deleteFlow.mutate(); }} data-testid="button-delete-flow">
+              <Trash2 className="h-4 w-4 mr-1" /> Delete
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Trigger Keywords</CardTitle><CardDescription>An incoming WhatsApp message containing one of these starts the flow.</CardDescription></CardHeader>
+        <CardContent className="space-y-2">
+          {(data.triggers || []).map((t: any) => (
+            <div key={t.id} className="flex items-center justify-between gap-2 p-2 border rounded-md" data-testid={`row-trigger-${t.id}`}>
+              <div className="flex items-center gap-2">
+                <code className="text-sm">{t.keyword}</code>
+                <Badge variant="outline">{t.match_mode}</Badge>
+              </div>
+              <Button size="icon" variant="ghost" onClick={() => delKeyword.mutate(t.id)} data-testid={`button-delete-trigger-${t.id}`}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Input value={newKeyword} onChange={(e) => setNewKeyword(e.target.value)} placeholder="keyword" data-testid="input-new-keyword" />
+            <Select value={newKeywordMode} onValueChange={(v) => setNewKeywordMode(v as any)}>
+              <SelectTrigger className="w-32" data-testid="select-keyword-mode"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="contains">contains</SelectItem>
+                <SelectItem value="exact">exact</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={() => newKeyword.trim() && addKeyword.mutate()} disabled={!newKeyword.trim()} data-testid="button-add-keyword">
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Questions (asked in order)</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {(data.questions || []).map((q: any, i: number) => (
+            <div key={q.id} className="p-3 border rounded-md space-y-1" data-testid={`row-question-${q.id}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-medium text-sm">Q{i + 1}. {q.primary_prompt}</p>
+                <Button size="icon" variant="ghost" onClick={() => delQuestion.mutate(q.id)} data-testid={`button-delete-question-${q.id}`}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                → field <code>{q.target_field}</code> · timeout {q.silence_timeout_seconds}s
+                {q.llm_relevance_check_enabled && ' · relevance check ON'}
+              </p>
+            </div>
+          ))}
+          <div className="space-y-2 pt-2 border-t">
+            <Label>New Question Prompt</Label>
+            <Textarea value={newQPrompt} onChange={(e) => setNewQPrompt(e.target.value)} rows={2} placeholder="What is your budget?" data-testid="textarea-new-question" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <Label>Target Field (custom_fields key)</Label>
+                <Input value={newQField} onChange={(e) => setNewQField(e.target.value)} placeholder="budget" data-testid="input-new-target-field" />
+              </div>
+              <div>
+                <Label>Silence Timeout (seconds)</Label>
+                <Input type="number" value={newQTimeout} onChange={(e) => setNewQTimeout(parseInt(e.target.value) || 86400)} data-testid="input-new-timeout" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={newQRelevance} onCheckedChange={setNewQRelevance} data-testid="switch-relevance" />
+              <Label>Sarvam relevance check (re-ask if off-topic)</Label>
+            </div>
+            {newQRelevance && (
+              <div>
+                <Label>Topic Hint (optional)</Label>
+                <Input value={newQTopic} onChange={(e) => setNewQTopic(e.target.value)} placeholder="monetary amount in INR" data-testid="input-relevance-topic" />
+              </div>
+            )}
+            <Button onClick={() => addQuestion.mutate()} disabled={!newQPrompt.trim() || !newQField.trim()} data-testid="button-add-question">
+              <Plus className="h-4 w-4 mr-1" /> Add Question
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
