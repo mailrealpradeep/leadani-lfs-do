@@ -13,6 +13,7 @@
 import { storage } from "./storage";
 import { sendWhatsAppMessage } from "./saila-engine";
 import * as intakeStore from "./saila-intake-storage";
+import { pool } from "./db";
 import type {
   SailaIntakeFlow,
   SailaIntakeQuestion,
@@ -342,23 +343,73 @@ async function startOrResumeSession(args: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Per-lead async mutex (Task #124). Serialises ALL inbound messages for the
-// same lead through the intake engine so two near-simultaneous webhooks cannot
-// race past the session-state read and double-advance the flow.
-// In-memory only — fine for single-process Node.js (current deployment shape);
-// horizontal scaling would need an external lock (Postgres advisory / Redis).
+// Per-lead distributed mutex (Task #124, hardened in Task #125).
+//
+// Serialises ALL inbound messages for the same lead through the intake engine
+// so two near-simultaneous webhooks cannot race past the session-state read
+// and double-advance the flow.
+//
+// Uses a Postgres SESSION-level advisory lock keyed by
+// (SAILA_INTAKE_LOCK_NS, hashtext('saila_intake:' || lead_id)). This protects
+// across multiple Node.js processes / instances if/when the app is scaled
+// horizontally (the in-memory Map used previously did not).
+//
+// The lock is held on a dedicated checked-out client for the duration of the
+// callback and released in `finally`. A `lock_timeout` is set on the session
+// so a crashed/hung peer cannot block this one indefinitely; if the lock
+// cannot be acquired we fall back to running the callback unguarded (better
+// to risk the rare race than to drop the inbound message entirely).
 // ─────────────────────────────────────────────────────────────────────────────
-const leadLocks = new Map<string, Promise<unknown>>();
+const SAILA_INTAKE_LOCK_NS = 0x5A11A1; // arbitrary 32-bit namespace tag
+const LEAD_LOCK_TIMEOUT_MS = 60_000;
 
-function withLeadLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prev = leadLocks.get(key) ?? Promise.resolve();
-  const next: Promise<T> = prev.then(fn, fn);
-  const tracked: Promise<unknown> = next.catch(() => {});
-  leadLocks.set(key, tracked);
-  tracked.then(() => {
-    if (leadLocks.get(key) === tracked) leadLocks.delete(key);
-  });
-  return next;
+export async function withLeadLock<T>(leadId: string, fn: () => Promise<T>): Promise<T> {
+  const lockKeyText = `saila_intake:${leadId}`;
+  let client: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  let locked = false;
+  try {
+    client = await pool.connect();
+    try {
+      await client.query(`SET lock_timeout = ${LEAD_LOCK_TIMEOUT_MS}`);
+      await client.query(
+        `SELECT pg_advisory_lock($1::int, hashtext($2)::int)`,
+        [SAILA_INTAKE_LOCK_NS, lockKeyText],
+      );
+      locked = true;
+    } catch (err) {
+      // Lock acquisition failed (timeout, connection issue, etc.). Log and
+      // proceed without the cross-instance guarantee rather than dropping the
+      // inbound message — single-instance correctness is still preserved by
+      // Postgres row-level concurrency in saila-intake-storage.
+      console.error(`[saila-intake] advisory lock acquire failed for lead ${leadId}:`, err);
+    }
+    return await fn();
+  } finally {
+    if (client) {
+      if (locked) {
+        try {
+          await client.query(
+            `SELECT pg_advisory_unlock($1::int, hashtext($2)::int)`,
+            [SAILA_INTAKE_LOCK_NS, lockKeyText],
+          );
+        } catch (err) {
+          console.error(`[saila-intake] advisory unlock failed for lead ${leadId}:`, err);
+        }
+      }
+      // Reset any session-level GUCs we tweaked so the next borrower of this
+      // pooled connection doesn't inherit our 60s lock_timeout.
+      try {
+        await client.query(`RESET lock_timeout`);
+      } catch {
+        // best-effort
+      }
+      try {
+        client.release();
+      } catch {
+        // ignore
+      }
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
