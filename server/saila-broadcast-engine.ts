@@ -138,6 +138,29 @@ async function runBroadcast(broadcastId: string): Promise<void> {
   }
 }
 
+/**
+ * Pure helper — decides whether a recipient counts as a successful send
+ * vs a failure for the broadcast counters.
+ *
+ * A "success" requires BOTH:
+ *   - the WhatsApp send returned ok
+ *   - the message-log write succeeded
+ *
+ * The second clause matters because the cooldown filter joins on
+ * whatsapp_message_logs.broadcast_id — if we silently dropped the log row
+ * we'd re-include the same contact in the next broadcast, which would
+ * surprise the admin.
+ *
+ * Exported for unit tests (server/__tests__/saila-broadcast.test.ts).
+ */
+export function deriveRecipientOutcome(
+  sendOk: boolean,
+  logWriteOk: boolean,
+): { isSuccess: boolean; counter: "sent" | "failed" } {
+  const isSuccess = sendOk && logWriteOk;
+  return { isSuccess, counter: isSuccess ? "sent" : "failed" };
+}
+
 async function sendOne(
   broadcast: SailaBroadcast,
   phoneSetting: SailaPhoneSetting,
@@ -237,7 +260,7 @@ async function sendOne(
   // If we sent but couldn't log, count as failed — otherwise the cooldown
   // filter (which depends on the log row) will silently re-include this
   // contact in the next broadcast.
-  const isSuccess = sendResult.success && !logWriteFailed;
+  const { isSuccess } = deriveRecipientOutcome(sendResult.success, !logWriteFailed);
 
   // Mirror to lead_updates when we know the lead — both success AND failure,
   // matching the per-lead send route's behaviour (whatsapp_status='sent' or 'failed').
@@ -282,7 +305,8 @@ async function sendOne(
     }
   }
 
-  await incrementBroadcastCounters(broadcast.id, isSuccess ? { sent: 1 } : { failed: 1 });
+  const { counter } = deriveRecipientOutcome(sendResult.success, !logWriteFailed);
+  await incrementBroadcastCounters(broadcast.id, counter === "sent" ? { sent: 1 } : { failed: 1 });
 }
 
 function sleep(ms: number): Promise<void> {

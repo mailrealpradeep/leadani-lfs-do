@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { deriveRecipientOutcome } from "../saila-broadcast-engine";
 import {
   resolveRecipientsPure,
   throttleDelayMs,
@@ -177,5 +178,43 @@ describe("throttleDelayMs — pacing math", () => {
 
   it("at 5 msg/sec, message #25 should expect 5000ms after start", () => {
     assert.equal(throttleDelayMs({ index: 25, ratePerSec: 5, startedAt: 0, now: 0 }), 5000);
+  });
+});
+
+describe("deriveRecipientOutcome — counter accumulation under partial failure", () => {
+  // Both sides ok → sent. Both sides bad → failed. Either side bad → failed.
+  // The "log-write failure demotes a successful WA send" path matters for
+  // cooldown correctness — covered explicitly here.
+
+  it("send ok + log ok → sent", () => {
+    assert.deepEqual(deriveRecipientOutcome(true, true), { isSuccess: true, counter: "sent" });
+  });
+
+  it("send failed + log ok → failed (we still wrote a send_failed log row)", () => {
+    assert.deepEqual(deriveRecipientOutcome(false, true), { isSuccess: false, counter: "failed" });
+  });
+
+  it("send ok BUT log write failed → demoted to failed (cooldown safety)", () => {
+    assert.deepEqual(deriveRecipientOutcome(true, false), { isSuccess: false, counter: "failed" });
+  });
+
+  it("send failed AND log write failed → failed", () => {
+    assert.deepEqual(deriveRecipientOutcome(false, false), { isSuccess: false, counter: "failed" });
+  });
+
+  it("simulated mixed batch: 5 sent, 2 transient send fails, 1 log-write fail → 5/3", () => {
+    const batch: Array<[boolean, boolean]> = [
+      [true, true], [true, true], [true, true], [true, true], [true, true],
+      [false, true], [false, true],
+      [true, false],
+    ];
+    let sent = 0, failed = 0;
+    for (const [s, l] of batch) {
+      const { counter } = deriveRecipientOutcome(s, l);
+      if (counter === "sent") sent++; else failed++;
+    }
+    assert.equal(sent, 5);
+    assert.equal(failed, 3);
+    assert.equal(sent + failed, batch.length);
   });
 });

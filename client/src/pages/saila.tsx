@@ -2692,11 +2692,27 @@ function BroadcastTab() {
     },
   });
 
-  // Recent history
+  // Recent history. Polled while there's a known active broadcast OR when
+  // any history row is still pending/running — so rehydration kicks in even
+  // if the admin reloads the tab during a long broadcast.
   const { data: history = [] } = useQuery<BroadcastRow[]>({
     queryKey: ["/api/saila/broadcast"],
-    refetchInterval: activeBroadcastId ? 5000 : false,
+    refetchInterval: (query) => {
+      const rows = (query.state.data as BroadcastRow[] | undefined) ?? [];
+      const hasInflight = rows.some((r) => r.status === "running" || r.status === "pending");
+      return activeBroadcastId || hasInflight ? 3000 : false;
+    },
   });
+
+  // Server-backed rehydration: if we don't have a current activeBroadcastId
+  // (e.g. admin navigated away and came back, or page reloaded mid-send),
+  // adopt the most-recent pending/running row from history so the progress
+  // card + 2-second status polling resume automatically.
+  useEffect(() => {
+    if (activeBroadcastId) return;
+    const inflight = history.find((r) => r.status === "running" || r.status === "pending");
+    if (inflight) setActiveBroadcastId(inflight.id);
+  }, [history, activeBroadcastId]);
 
   const sendMutation = useMutation({
     mutationFn: async () => {

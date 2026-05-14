@@ -24,11 +24,21 @@ function parseMedia(body: any): { type: string | null; url: string | null; capti
   return { type, url, caption: caption || null };
 }
 
-function parseCooldown(v: unknown): number | null {
-  if (v == null || v === "" || v === "off") return null;
+// Returns { value } on success or { error } when the input is non-null
+// but invalid. null/empty/'off' all mean "no cooldown" and pass.
+function parseCooldownStrict(v: unknown): { value: number | null; error?: string } {
+  if (v == null || v === "" || v === "off") return { value: null };
   const n = typeof v === "number" ? v : parseInt(String(v), 10);
-  if (!Number.isFinite(n)) return null;
-  return ALLOWED_COOLDOWNS.has(n) ? n : null;
+  if (!Number.isFinite(n) || !ALLOWED_COOLDOWNS.has(n)) {
+    return { value: null, error: "cooldown_hours must be one of off, 24, 48, 72, 168" };
+  }
+  return { value: n };
+}
+
+// Loose variant for the preview endpoint where bad input shouldn't block UX —
+// it just falls back to "off" so the operator sees the unfiltered count.
+function parseCooldown(v: unknown): number | null {
+  return parseCooldownStrict(v).value;
 }
 
 export function registerSailaBroadcastRoutes(app: Express): void {
@@ -94,7 +104,9 @@ export function registerSailaBroadcastRoutes(app: Express): void {
       if (!sendFromPhone) return res.status(400).json({ error: "send_from_phone is required" });
 
       const messageType = req.body?.message_type === "template" ? "template" : "text";
-      const cooldown = parseCooldown(req.body?.cooldown_hours);
+      const cooldownParsed = parseCooldownStrict(req.body?.cooldown_hours);
+      if (cooldownParsed.error) return res.status(400).json({ error: cooldownParsed.error });
+      const cooldown = cooldownParsed.value;
 
       let messageText: string | null = null;
       let approvedName: string | null = null;
