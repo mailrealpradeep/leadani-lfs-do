@@ -120,19 +120,21 @@ async function runBroadcast(broadcastId: string): Promise<void> {
       const recipient = resolved.recipients[i];
       try {
         await sendOne(broadcast, phoneSetting, config, recipient.recipient_phone, recipient.lead_id, isApproved);
-      } catch (sendErr: any) {
-        console.error(`[Broadcast ${broadcastId}] Recipient ${recipient.recipient_phone} unhandled error:`, sendErr?.message || sendErr);
+      } catch (sendErr: unknown) {
+        const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+        console.error(`[Broadcast ${broadcastId}] Recipient ${recipient.recipient_phone} unhandled error:`, msg);
         await incrementBroadcastCounters(broadcastId, { failed: 1 });
       }
     }
 
     await updateBroadcast(broadcastId, { status: 'completed', completed_at: new Date() });
     console.log(`[Broadcast ${broadcastId}] Completed`);
-  } catch (err: any) {
-    console.error(`[Broadcast ${broadcastId}] Fatal:`, err?.message || err);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[Broadcast ${broadcastId}] Fatal:`, msg);
     await updateBroadcast(broadcastId, {
       status: 'failed',
-      error_message: err?.message || String(err),
+      error_message: msg,
       completed_at: new Date(),
     });
   }

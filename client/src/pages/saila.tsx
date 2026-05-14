@@ -2720,7 +2720,19 @@ function BroadcastTab() {
         .split("|")
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      const body: any = {
+      type BroadcastSendBody = {
+        send_from_phone: string;
+        cooldown_hours: number | null;
+        message_type: "text" | "template";
+        message_text?: string;
+        approved_template_name?: string;
+        approved_template_language?: string;
+        approved_template_variables?: string[];
+        media_type?: "image" | "document" | "video";
+        media_url?: string;
+        media_caption?: string;
+      };
+      const body: BroadcastSendBody = {
         send_from_phone: sendFrom,
         cooldown_hours: cooldown === "off" ? null : parseInt(cooldown, 10),
         message_type: messageType,

@@ -12,7 +12,7 @@ import { startBroadcastRun } from "../saila-broadcast-engine";
 const ALLOWED_COOLDOWNS = new Set([24, 48, 72, 168]);
 const ALLOWED_MEDIA_TYPES = new Set(["image", "document", "video"]);
 
-function parseMedia(body: any): { type: string | null; url: string | null; caption: string | null; error?: string } {
+function parseMedia(body: Record<string, unknown> | null | undefined): { type: string | null; url: string | null; caption: string | null; error?: string } {
   const rawType = body?.media_type;
   if (!rawType || rawType === "none") return { type: null, url: null, caption: null };
   const type = String(rawType).toLowerCase();
@@ -63,9 +63,9 @@ export function registerSailaBroadcastRoutes(app: Express): void {
       );
 
       res.json({ options });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[Broadcast] options error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error instanceof Error ? error.message : String(error)) });
     }
   });
 
@@ -88,9 +88,9 @@ export function registerSailaBroadcastRoutes(app: Express): void {
         sample_names: sampleNames,
         cooldown_hours: cooldown,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[Broadcast] preview error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error instanceof Error ? error.message : String(error)) });
     }
   });
 
@@ -190,9 +190,9 @@ export function registerSailaBroadcastRoutes(app: Express): void {
         total_recipients: broadcast.total_recipients,
         suppressed_count: broadcast.suppressed_count,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[Broadcast] send error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error instanceof Error ? error.message : String(error)) });
     }
   });
 
@@ -204,8 +204,8 @@ export function registerSailaBroadcastRoutes(app: Express): void {
       const b = await getBroadcast(req.params.id);
       if (!b || b.company_id !== companyId) return res.status(404).json({ error: "Not found" });
       res.json(b);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      res.status(500).json({ error: (error instanceof Error ? error.message : String(error)) });
     }
   });
 
@@ -236,8 +236,8 @@ export function registerSailaBroadcastRoutes(app: Express): void {
         return { ...b, sender_name: senderName };
       }));
       res.json(enriched);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      res.status(500).json({ error: (error instanceof Error ? error.message : String(error)) });
     }
   });
 }
