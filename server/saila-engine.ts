@@ -562,6 +562,74 @@ export async function sendWhatsAppApprovedTemplate(
   }
 }
 
+/**
+ * Send a media WhatsApp message (image, document, or video) via Wauper Session
+ * Messaging API. Recipient must already have an open 24h session window with
+ * this business number — same constraint as sendWhatsAppMessage.
+ *
+ * Used by Saila Broadcast (and any future per-lead media composer). Caption is
+ * optional for image/video; for document it doubles as the filename in some
+ * Wauper builds.
+ */
+export async function sendWhatsAppMedia(
+  config: SailaConfig,
+  phoneSetting: SailaPhoneSetting,
+  recipientPhone: string,
+  mediaType: "image" | "document" | "video",
+  mediaUrl: string,
+  caption: string | null = null,
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const accessToken = (phoneSetting.access_token || "").trim();
+  if (!accessToken) return { success: false, error: `No access token configured for channel ${phoneSetting.display_phone_number}` };
+  const phoneNumberId = (phoneSetting.waba_phone_number_id || "").trim();
+  if (!phoneNumberId) return { success: false, error: `No phone number ID configured for channel ${phoneSetting.display_phone_number}` };
+  const url = String(mediaUrl || "").trim();
+  if (!url || !/^https?:\/\//i.test(url)) return { success: false, error: "Media URL must be an absolute http(s) URL" };
+
+  const domain = (config.wauper_domain || "https://crmapi.wauper.com").replace(/\/$/, "");
+  const version = config.wauper_api_version || "v1";
+
+  try {
+    const cleanPhone = recipientPhone.replace(/\D/g, "");
+    const apiUrl = `${domain}/api/meta/${version}/${phoneNumberId}/messages`;
+
+    const mediaPayload: Record<string, any> = { link: url };
+    if (caption && mediaType !== "document") mediaPayload.caption = caption;
+    if (caption && mediaType === "document") mediaPayload.filename = caption;
+
+    const body = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: cleanPhone,
+      type: mediaType,
+      [mediaType]: mediaPayload,
+    };
+
+    console.log(`[Saila] Sending ${mediaType} media to ${cleanPhone} (channel: ${phoneSetting.display_phone_number})`);
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Saila] Wauper media send failed:", response.status, errorText);
+      return { success: false, error: `Wauper API error: ${response.status} — ${errorText.slice(0, 200)}` };
+    }
+    const data = await response.json();
+    if (data.success === false) {
+      return { success: false, error: `Wauper error: ${data.error || "Unknown error"}` };
+    }
+    return { success: true, messageId: data.id || data.messageId || data.messages?.[0]?.id };
+  } catch (err: any) {
+    console.error("[Saila] Wauper media send error:", err);
+    return { success: false, error: err.message };
+  }
+}
+
 export async function sendWhatsAppMessage(
   config: SailaConfig,
   phoneSetting: SailaPhoneSetting,

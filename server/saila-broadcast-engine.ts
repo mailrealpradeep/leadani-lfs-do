@@ -10,11 +10,12 @@
 
 import crypto from "crypto";
 import { storage } from "./storage";
-import { sendWhatsAppMessage, sendWhatsAppApprovedTemplate } from "./saila-engine";
+import { sendWhatsAppMessage, sendWhatsAppApprovedTemplate, sendWhatsAppMedia } from "./saila-engine";
 import type {
   SailaBroadcast,
   SailaPhoneSetting,
   SailaConfig,
+  InsertWhatsAppMessageLogData,
 } from "@shared/schema";
 import {
   resolveBroadcastRecipients,
@@ -149,6 +150,10 @@ async function sendOne(
   let sendResult: { success: boolean; messageId?: string; error?: string };
   let renderedText: string;
 
+  const mediaType = broadcast.media_type as ("image" | "document" | "video" | null);
+  const mediaUrl = broadcast.media_url;
+  const mediaCaption = broadcast.media_caption;
+
   if (isApproved) {
     const tplName = String(broadcast.approved_template_name || "").trim();
     const tplLang = String(broadcast.approved_template_language || "en_US").trim() || "en_US";
@@ -158,6 +163,20 @@ async function sendOne(
     sendResult = await sendWhatsAppApprovedTemplate(config, phoneSetting, recipientPhone, tplName, tplLang, vars);
     const varsPart = vars.length > 0 ? ` [${vars.join(" | ")}]` : "";
     renderedText = `[Broadcast Approved Template: ${tplName} (${tplLang})]${varsPart}`;
+  } else if (mediaType && mediaUrl) {
+    // Media-first text broadcast: send the media payload (caption inlined when
+    // image/video). If a separate text body is also configured, send it as a
+    // follow-up text so users see both. A media-send failure short-circuits the
+    // follow-up text — same recipient is counted as failed once.
+    const text = String(broadcast.message_text || "").trim();
+    const captionForMedia = mediaCaption || (mediaType !== "document" && text ? text : null);
+    sendResult = await sendWhatsAppMedia(config, phoneSetting, recipientPhone, mediaType, mediaUrl, captionForMedia);
+    if (sendResult.success && text && mediaType === "document") {
+      // Document captions don't render as text on WhatsApp — send body separately.
+      const followup = await sendWhatsAppMessage(config, phoneSetting, recipientPhone, text);
+      if (!followup.success) sendResult = followup;
+    }
+    renderedText = `[Broadcast ${mediaType}: ${mediaUrl}]${captionForMedia ? ` ${captionForMedia}` : ""}${text && mediaType === "document" ? `\n${text}` : ""}`;
   } else {
     const text = String(broadcast.message_text || "").trim();
     if (!text) {
@@ -172,10 +191,10 @@ async function sendOne(
   // If the log write itself fails we DEMOTE the recipient to 'failed' so
   // future cooldown windows are accurate (no orphaned-but-counted-as-sent rows).
   const logId = crypto.randomUUID();
-  const log = {
+  const log: InsertWhatsAppMessageLogData = {
     company_id: broadcast.company_id,
     webhook_request_id: null,
-    direction: 'outgoing',
+    direction: "outgoing",
     lead_id: leadId,
     sent_by_user_id: broadcast.sent_by_user_id ?? null,
     sender_phone: recipientLast10,
@@ -184,26 +203,31 @@ async function sendOne(
     display_phone_number: broadcast.send_from_phone,
     message_id: sendResult.messageId || `bcast_${logId}`,
     message_text: renderedText,
-    message_type: isApproved ? 'template' : 'text',
-    outcome: sendResult.success ? 'sent' : 'send_failed',
+    message_type: isApproved ? "template" : (mediaType && mediaUrl ? mediaType : "text"),
+    outcome: sendResult.success ? "sent" : "send_failed",
+    // outcome_details is a Record<string, any> JSON column. The drizzle-zod
+    // schema generator (re-)narrows it to a non-empty-tuple value type that
+    // doesn't match plain object literals — same as elsewhere in the codebase.
+    // Cast just this one field instead of widening the whole insert object.
     outcome_details: {
-      direction: 'outgoing',
+      direction: "outgoing",
       broadcast_id: broadcast.id,
       lead_id: leadId,
       sent_by_user_id: broadcast.sent_by_user_id,
-      template_type: isApproved ? 'approved' : 'freeform',
+      template_type: isApproved ? "approved" : "freeform",
       approved_template_name: isApproved ? broadcast.approved_template_name : undefined,
+      media_type: mediaType || undefined,
+      media_url: mediaUrl || undefined,
       error: sendResult.success ? undefined : sendResult.error,
-    },
+    } as unknown as InsertWhatsAppMessageLogData["outcome_details"],
     trigger_matched: false,
     processed_at: new Date(),
-    origin: 'human',
+    origin: "human",
     broadcast_id: broadcast.id,
   };
   let logWriteFailed = false;
   try {
-    // Cast to bypass literal-widening (drizzle-zod-inferred type vs inferred local).
-    await storage.createWhatsAppMessageLog(log as any);
+    await storage.createWhatsAppMessageLog(log);
   } catch (logErr) {
     logWriteFailed = true;
     console.error(`[Broadcast ${broadcast.id}] Failed to write message log:`, logErr);

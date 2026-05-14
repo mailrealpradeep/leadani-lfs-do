@@ -2630,8 +2630,10 @@ type BroadcastPreview = { session_open_count: number; suppressed_count: number; 
 type BroadcastRow = {
   id: string; send_from_phone: string; message_type: string; message_text: string | null;
   approved_template_name: string | null; cooldown_hours: number | null;
+  media_type: string | null; media_url: string | null; media_caption: string | null;
   total_recipients: number; sent_count: number; failed_count: number; suppressed_count: number;
   status: string; error_message: string | null; created_at: string; completed_at: string | null;
+  sender_name?: string | null;
 };
 
 type CooldownChoice = "off" | "24" | "48" | "72" | "168";
@@ -2652,6 +2654,9 @@ function BroadcastTab() {
   const [tplName, setTplName] = useState("");
   const [tplLang, setTplLang] = useState("en_US");
   const [tplVarsRaw, setTplVarsRaw] = useState("");
+  const [mediaType, setMediaType] = useState<"none" | "image" | "document" | "video">("none");
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [mediaCaption, setMediaCaption] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [activeBroadcastId, setActiveBroadcastId] = useState<string | null>(null);
 
@@ -2711,6 +2716,11 @@ function BroadcastTab() {
         body.approved_template_language = tplLang;
         body.approved_template_variables = vars;
       }
+      if (mediaType !== "none") {
+        body.media_type = mediaType;
+        body.media_url = mediaUrl.trim();
+        if (mediaCaption.trim()) body.media_caption = mediaCaption.trim();
+      }
       return await apiRequest<{ broadcast_id: string; total_recipients: number; suppressed_count: number }>(
         "POST",
         "/api/saila/broadcast/send",
@@ -2729,10 +2739,14 @@ function BroadcastTab() {
   });
 
   const willSendCount = preview?.will_receive_count ?? 0;
+  const mediaUrlValid = mediaType === "none" || /^https?:\/\/.+/i.test(mediaUrl.trim());
   const composerInvalid =
     !sendFrom ||
     willSendCount === 0 ||
-    (messageType === "text" ? messageText.trim().length === 0 : tplName.trim().length === 0);
+    !mediaUrlValid ||
+    (messageType === "text"
+      ? (messageText.trim().length === 0 && mediaType === "none")
+      : tplName.trim().length === 0);
 
   return (
     <div className="space-y-6 mt-4" data-testid="broadcast-tab">
@@ -2849,6 +2863,49 @@ function BroadcastTab() {
                 </div>
               </div>
             )}
+
+            {/* Media attachment (text broadcasts only) */}
+            {messageType === "text" && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-2">
+                  <Label>Media Attachment (optional)</Label>
+                  <Select value={mediaType} onValueChange={(v) => setMediaType(v as typeof mediaType)}>
+                    <SelectTrigger data-testid="select-broadcast-media-type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="image">Image</SelectItem>
+                      <SelectItem value="document">Document (PDF)</SelectItem>
+                      <SelectItem value="video">Video</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {mediaType !== "none" && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Public URL (https)</Label>
+                      <Input
+                        value={mediaUrl}
+                        onChange={(e) => setMediaUrl(e.target.value)}
+                        placeholder="https://example.com/poster.jpg"
+                        data-testid="input-broadcast-media-url"
+                      />
+                      {mediaUrl.trim().length > 0 && !mediaUrlValid && (
+                        <p className="text-xs text-destructive">Must be an absolute http(s) URL.</p>
+                      )}
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>{mediaType === "document" ? "Filename (optional)" : "Caption (optional)"}</Label>
+                      <Input
+                        value={mediaCaption}
+                        onChange={(e) => setMediaCaption(e.target.value)}
+                        placeholder={mediaType === "document" ? "price-list.pdf" : "Limited time offer!"}
+                        data-testid="input-broadcast-media-caption"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end">
@@ -2925,14 +2982,22 @@ function BroadcastTab() {
                       </Badge>
                       <span className="text-xs text-muted-foreground">{new Date(b.created_at).toLocaleString()}</span>
                       <span className="text-xs text-muted-foreground">from {b.send_from_phone}</span>
+                      {b.sender_name && (
+                        <span className="text-xs text-muted-foreground" data-testid={`text-broadcast-sender-${b.id}`}>
+                          by {b.sender_name}
+                        </span>
+                      )}
                       {b.cooldown_hours != null && (
                         <span className="text-xs text-muted-foreground">cooldown {b.cooldown_hours}h</span>
+                      )}
+                      {b.media_type && (
+                        <Badge variant="outline" data-testid={`badge-broadcast-media-${b.id}`}>{b.media_type}</Badge>
                       )}
                     </div>
                     <p className="text-sm truncate" data-testid={`text-broadcast-msg-${b.id}`}>
                       {b.message_type === "template"
                         ? `Template: ${b.approved_template_name}`
-                        : (b.message_text || "")}
+                        : (b.message_text || b.media_caption || (b.media_url ? `[${b.media_type}] ${b.media_url}` : ""))}
                     </p>
                   </div>
                   <div className="flex gap-2 flex-wrap">
@@ -2956,7 +3021,10 @@ function BroadcastTab() {
           <div className="space-y-2 text-sm">
             <p><span className="text-muted-foreground">From:</span> {sendFrom}</p>
             <p><span className="text-muted-foreground">Cooldown:</span> {COOLDOWN_LABELS[cooldown]}</p>
-            <p><span className="text-muted-foreground">Type:</span> {messageType === "template" ? `Approved template "${tplName}"` : "Text"}</p>
+            <p><span className="text-muted-foreground">Type:</span> {messageType === "template" ? `Approved template "${tplName}"` : "Text"}{mediaType !== "none" ? ` + ${mediaType}` : ""}</p>
+            {mediaType !== "none" && (
+              <p className="text-xs text-muted-foreground break-all" data-testid="text-confirm-media-url">Media: {mediaUrl}</p>
+            )}
             {(preview?.suppressed_count ?? 0) > 0 && (
               <p className="text-xs text-muted-foreground">
                 {preview?.suppressed_count} contact(s) will be skipped because of the cooldown filter.

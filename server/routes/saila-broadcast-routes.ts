@@ -10,6 +10,19 @@ import {
 import { startBroadcastRun } from "../saila-broadcast-engine";
 
 const ALLOWED_COOLDOWNS = new Set([24, 48, 72, 168]);
+const ALLOWED_MEDIA_TYPES = new Set(["image", "document", "video"]);
+
+function parseMedia(body: any): { type: string | null; url: string | null; caption: string | null; error?: string } {
+  const rawType = body?.media_type;
+  if (!rawType || rawType === "none") return { type: null, url: null, caption: null };
+  const type = String(rawType).toLowerCase();
+  if (!ALLOWED_MEDIA_TYPES.has(type)) return { type: null, url: null, caption: null, error: "media_type must be image, document, or video" };
+  const url = String(body?.media_url || "").trim();
+  if (!url) return { type: null, url: null, caption: null, error: "media_url is required when media_type is set" };
+  if (!/^https?:\/\//i.test(url)) return { type: null, url: null, caption: null, error: "media_url must be an absolute http(s) URL" };
+  const caption = body?.media_caption ? String(body.media_caption).trim() : null;
+  return { type, url, caption: caption || null };
+}
 
 function parseCooldown(v: unknown): number | null {
   if (v == null || v === "" || v === "off") return null;
@@ -88,10 +101,15 @@ export function registerSailaBroadcastRoutes(app: Express): void {
       let approvedLang: string | null = null;
       let approvedVars: string[] = [];
 
+      const media = parseMedia(req.body);
+      if (media.error) return res.status(400).json({ error: media.error });
+
       if (messageType === "text") {
         messageText = String(req.body?.message_text || "").trim();
-        if (!messageText) return res.status(400).json({ error: "message_text is required" });
+        // Text broadcasts: either text body OR media is required (caption can stand in for text).
+        if (!messageText && !media.url) return res.status(400).json({ error: "message_text or media is required" });
         if (messageText.length > 4096) return res.status(400).json({ error: "message_text too long (max 4096 chars)" });
+        if (!messageText) messageText = null; // allow media-only sends
       } else {
         approvedName = String(req.body?.approved_template_name || "").trim();
         if (!approvedName) return res.status(400).json({ error: "approved_template_name is required" });
@@ -125,6 +143,9 @@ export function registerSailaBroadcastRoutes(app: Express): void {
         approved_template_name: approvedName,
         approved_template_language: approvedLang,
         approved_template_variables: approvedVars,
+        media_type: media.type,
+        media_url: media.url,
+        media_caption: media.caption,
         cooldown_hours: cooldown,
         total_recipients: resolved.recipients.length,
         suppressed_count: resolved.suppressedCount,
@@ -183,7 +204,26 @@ export function registerSailaBroadcastRoutes(app: Express): void {
       if (!companyId) return res.status(400).json({ error: "No company" });
       const limit = Math.min(parseInt(String(req.query.limit || "20"), 10) || 20, 100);
       const rows = await listBroadcasts(companyId, limit);
-      res.json(rows);
+
+      // Enrich each row with the sender's display name so the history table can
+      // show "fired by" without an N+1 from the client. Cache by user id.
+      const userCache = new Map<string, string>();
+      const enriched = await Promise.all(rows.map(async (b) => {
+        let senderName: string | null = null;
+        if (b.sent_by_user_id) {
+          if (userCache.has(b.sent_by_user_id)) {
+            senderName = userCache.get(b.sent_by_user_id)!;
+          } else {
+            try {
+              const u = await storage.getUser(b.sent_by_user_id);
+              senderName = u?.name || u?.email || null;
+              if (senderName) userCache.set(b.sent_by_user_id, senderName);
+            } catch { /* ignore */ }
+          }
+        }
+        return { ...b, sender_name: senderName };
+      }));
+      res.json(enriched);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

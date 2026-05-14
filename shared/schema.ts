@@ -5344,6 +5344,11 @@ export const saila_broadcasts = pgTable('saila_broadcasts', {
   approved_template_name: varchar('approved_template_name', { length: 255 }),
   approved_template_language: varchar('approved_template_language', { length: 20 }),
   approved_template_variables: json('approved_template_variables').$type<string[]>(),
+  // Optional media attachment — when set, the engine sends a media message
+  // (image / document / video) before/with the text caption. Null = no media.
+  media_type: varchar('media_type', { length: 20 }),       // image | document | video
+  media_url: text('media_url'),                             // public https URL
+  media_caption: text('media_caption'),                     // optional caption (image/video) or filename (document)
   // Cooldown window in hours (24 / 48 / 72 / 168). NULL = off (no cooldown filter).
   cooldown_hours: integer('cooldown_hours'),
   total_recipients: integer('total_recipients').notNull().default(0),
