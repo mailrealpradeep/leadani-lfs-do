@@ -127,6 +127,14 @@ export default async function runApp(
       
       startSnapshotScheduler();
       startSailaIntakeScheduler();
+      // Broadcast crash recovery: any 'running' broadcast from before this
+      // restart is no longer being sent — mark it failed so the UI doesn't
+      // poll forever.
+      import("./saila-broadcast-storage").then(({ failStaleRunningBroadcasts }) => {
+        failStaleRunningBroadcasts(60 * 60 * 1000)
+          .then((n) => { if (n > 0) log(`[Broadcast] Crash recovery: marked ${n} stale running broadcast(s) as failed`); })
+          .catch((e) => log(`[Broadcast] Crash recovery error: ${e?.message || e}`));
+      }).catch(() => { /* module not loadable yet — boot continues */ });
     });
 
     // Handle server errors

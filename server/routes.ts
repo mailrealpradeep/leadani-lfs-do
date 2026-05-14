@@ -27651,6 +27651,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   registerSailaRoutes(app);
   const { registerSailaIntakeRoutes } = await import("./routes/saila-intake-routes");
   registerSailaIntakeRoutes(app);
+  const { registerSailaBroadcastRoutes } = await import("./routes/saila-broadcast-routes");
+  registerSailaBroadcastRoutes(app);
 
   // ============================================================================
   // BACKUP SCHEDULER (Hourly Google Sheets Sync)

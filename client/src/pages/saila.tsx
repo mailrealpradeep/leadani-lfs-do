@@ -20,7 +20,7 @@ import {
   Link as LinkIcon, Image, Video, FileUp, X, Check, Clock,
   PhoneCall, User, Sparkles, AlertTriangle, CheckCircle2, XCircle,
   MinusCircle, RefreshCw, Activity, ChevronDown, ChevronRight, ChevronLeft,
-  ListChecks, Pause, PlayCircle, GripVertical
+  ListChecks, Pause, PlayCircle, GripVertical, Send, Megaphone, Loader2
 } from "lucide-react";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
@@ -2115,7 +2115,7 @@ export default function SailaAI() {
         </div>
 
         <Tabs defaultValue="settings">
-          <TabsList className="grid grid-cols-5 sm:grid-cols-10 w-full h-auto gap-1" data-testid="tabs-saila">
+          <TabsList className="grid grid-cols-4 sm:grid-cols-11 w-full h-auto gap-1" data-testid="tabs-saila">
             <TabsTrigger value="settings" className="text-xs sm:text-sm" data-testid="tab-settings">
               <Settings className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Settings</span>
@@ -2156,6 +2156,10 @@ export default function SailaAI() {
               <ListChecks className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Intake</span>
             </TabsTrigger>
+            <TabsTrigger value="broadcast" className="text-xs sm:text-sm" data-testid="tab-broadcast">
+              <Megaphone className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">Broadcast</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="settings"><SettingsTab /></TabsContent>
@@ -2168,6 +2172,7 @@ export default function SailaAI() {
           <TabsContent value="error-log"><ErrorLogTab /></TabsContent>
           <TabsContent value="fixed-reply"><FixedReplyTab /></TabsContent>
           <TabsContent value="intake"><IntakeTab /></TabsContent>
+          <TabsContent value="broadcast"><BroadcastTab /></TabsContent>
         </Tabs>
       </div>
     </ScrollArea>
@@ -2616,6 +2621,366 @@ function IntakeFlowEditor({ flowId, onBack }: { flowId: string; onBack: () => vo
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+// ─── Saila Broadcast Tab ──────────────────────────────────────────────────────
+type BroadcastOption = { display_phone_number: string; executive_name: string | null; session_open_count: number };
+type BroadcastPreview = { session_open_count: number; suppressed_count: number; will_receive_count: number; sample_names: string[]; cooldown_hours: number | null };
+type BroadcastRow = {
+  id: string; send_from_phone: string; message_type: string; message_text: string | null;
+  approved_template_name: string | null; cooldown_hours: number | null;
+  total_recipients: number; sent_count: number; failed_count: number; suppressed_count: number;
+  status: string; error_message: string | null; created_at: string; completed_at: string | null;
+};
+
+type CooldownChoice = "off" | "24" | "48" | "72" | "168";
+const COOLDOWN_LABELS: Record<CooldownChoice, string> = {
+  off: "Off",
+  "24": "24 hours",
+  "48": "48 hours",
+  "72": "72 hours",
+  "168": "7 days",
+};
+
+function BroadcastTab() {
+  const { toast } = useToast();
+  const [sendFrom, setSendFrom] = useState<string>("");
+  const [cooldown, setCooldown] = useState<CooldownChoice>("24");
+  const [messageType, setMessageType] = useState<"text" | "template">("text");
+  const [messageText, setMessageText] = useState("");
+  const [tplName, setTplName] = useState("");
+  const [tplLang, setTplLang] = useState("en_US");
+  const [tplVarsRaw, setTplVarsRaw] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [activeBroadcastId, setActiveBroadcastId] = useState<string | null>(null);
+
+  const { data: optionsData } = useQuery<{ options: BroadcastOption[] }>({
+    queryKey: ["/api/saila/broadcast/options"],
+  });
+  const options = optionsData?.options ?? [];
+
+  // Auto-pick the first connected number
+  useEffect(() => {
+    if (!sendFrom && options.length > 0) setSendFrom(options[0].display_phone_number);
+  }, [options, sendFrom]);
+
+  // Live preview — fires when sendFrom or cooldown changes
+  const { data: preview, isFetching: previewLoading } = useQuery<BroadcastPreview>({
+    queryKey: ["/api/saila/broadcast/preview", sendFrom, cooldown],
+    queryFn: async () => {
+      return await apiRequest<BroadcastPreview>("POST", "/api/saila/broadcast/preview", {
+        send_from_phone: sendFrom,
+        cooldown_hours: cooldown === "off" ? null : parseInt(cooldown, 10),
+      });
+    },
+    enabled: !!sendFrom,
+  });
+
+  // Polling for active broadcast status
+  const { data: activeBroadcast } = useQuery<BroadcastRow>({
+    queryKey: ["/api/saila/broadcast", activeBroadcastId],
+    enabled: !!activeBroadcastId,
+    refetchInterval: (query) => {
+      const status = (query.state.data as BroadcastRow | undefined)?.status;
+      return status === "running" || status === "pending" ? 2000 : false;
+    },
+  });
+
+  // Recent history
+  const { data: history = [] } = useQuery<BroadcastRow[]>({
+    queryKey: ["/api/saila/broadcast"],
+    refetchInterval: activeBroadcastId ? 5000 : false,
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      const vars = tplVarsRaw
+        .split("|")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      const body: any = {
+        send_from_phone: sendFrom,
+        cooldown_hours: cooldown === "off" ? null : parseInt(cooldown, 10),
+        message_type: messageType,
+      };
+      if (messageType === "text") {
+        body.message_text = messageText;
+      } else {
+        body.approved_template_name = tplName;
+        body.approved_template_language = tplLang;
+        body.approved_template_variables = vars;
+      }
+      return await apiRequest<{ broadcast_id: string; total_recipients: number; suppressed_count: number }>(
+        "POST",
+        "/api/saila/broadcast/send",
+        body,
+      );
+    },
+    onSuccess: (data) => {
+      setActiveBroadcastId(data.broadcast_id);
+      setConfirmOpen(false);
+      toast({ title: "Broadcast started", description: `Sending to ${data.total_recipients} recipient(s)` });
+      queryClient.invalidateQueries({ queryKey: ["/api/saila/broadcast"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to start broadcast", description: err?.message || String(err), variant: "destructive" });
+    },
+  });
+
+  const willSendCount = preview?.will_receive_count ?? 0;
+  const composerInvalid =
+    !sendFrom ||
+    willSendCount === 0 ||
+    (messageType === "text" ? messageText.trim().length === 0 : tplName.trim().length === 0);
+
+  return (
+    <div className="space-y-6 mt-4" data-testid="broadcast-tab">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Megaphone className="h-5 w-5" /> Broadcast
+          </CardTitle>
+          <CardDescription>
+            One-shot WhatsApp send to every contact whose 24-hour session is open on the chosen business number.
+            Cooldown suppresses contacts who already received a broadcast recently — per-lead human messages don't count.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Sender + cooldown row */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Send From</Label>
+              <Select value={sendFrom} onValueChange={setSendFrom}>
+                <SelectTrigger data-testid="select-broadcast-sender"><SelectValue placeholder="Pick a connected number" /></SelectTrigger>
+                <SelectContent>
+                  {options.length === 0 && (
+                    <SelectItem value="__none__" disabled>No connected business numbers</SelectItem>
+                  )}
+                  {options.map((o) => (
+                    <SelectItem key={o.display_phone_number} value={o.display_phone_number}>
+                      {o.executive_name ? `${o.executive_name} — ` : ""}{o.display_phone_number}
+                      {" — "}<span className="text-muted-foreground">{o.session_open_count} open</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Cooldown</Label>
+              <Select value={cooldown} onValueChange={(v) => setCooldown(v as CooldownChoice)}>
+                <SelectTrigger data-testid="select-broadcast-cooldown"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(COOLDOWN_LABELS) as CooldownChoice[]).map((k) => (
+                    <SelectItem key={k} value={k}>{COOLDOWN_LABELS[k]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="rounded-md border p-4 space-y-2 bg-muted/20" data-testid="broadcast-preview">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Badge variant="default" data-testid="badge-will-send">{willSendCount} will receive</Badge>
+              <Badge variant="secondary">{preview?.session_open_count ?? 0} session-open</Badge>
+              {(preview?.suppressed_count ?? 0) > 0 && (
+                <Badge variant="outline" data-testid="badge-suppressed">{preview?.suppressed_count} suppressed by cooldown</Badge>
+              )}
+              {previewLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+            {preview && preview.sample_names.length > 0 && (
+              <p className="text-xs text-muted-foreground" data-testid="text-sample-names">
+                Sample: {preview.sample_names.join(", ")}{preview.will_receive_count > preview.sample_names.length ? ` and ${preview.will_receive_count - preview.sample_names.length} more` : ""}
+              </p>
+            )}
+          </div>
+
+          {/* Composer */}
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={messageType === "text" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setMessageType("text")}
+                data-testid="button-msg-type-text"
+              >
+                Text
+              </Button>
+              <Button
+                type="button"
+                variant={messageType === "template" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setMessageType("template")}
+                data-testid="button-msg-type-template"
+              >
+                Approved Template
+              </Button>
+            </div>
+
+            {messageType === "text" ? (
+              <div className="space-y-2">
+                <Label>Message</Label>
+                <Textarea
+                  rows={5}
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder="Write the broadcast message…"
+                  data-testid="textarea-broadcast-text"
+                />
+                <p className="text-xs text-muted-foreground">
+                  No personalization placeholders — every recipient receives the exact same text.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Template Name</Label>
+                  <Input value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="e.g. order_update" data-testid="input-template-name" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Language</Label>
+                  <Input value={tplLang} onChange={(e) => setTplLang(e.target.value)} placeholder="en_US" data-testid="input-template-lang" />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Variables (pipe-separated, in order)</Label>
+                  <Input value={tplVarsRaw} onChange={(e) => setTplVarsRaw(e.target.value)} placeholder="e.g. Ravi | INV-1234 | tomorrow" data-testid="input-template-vars" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => setConfirmOpen(true)}
+              disabled={composerInvalid || sendMutation.isPending}
+              data-testid="button-open-confirm"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              Send to {willSendCount}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Active broadcast progress */}
+      {activeBroadcast && (
+        <Card data-testid="card-active-broadcast">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              {activeBroadcast.status === "running" || activeBroadcast.status === "pending" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : activeBroadcast.status === "completed" ? (
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+              ) : (
+                <XCircle className="h-4 w-4 text-destructive" />
+              )}
+              Current Broadcast
+            </CardTitle>
+            <CardDescription>
+              Status: <span data-testid="text-active-status">{activeBroadcast.status}</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="default">{activeBroadcast.sent_count} sent</Badge>
+              <Badge variant="secondary">{activeBroadcast.total_recipients} total</Badge>
+              {activeBroadcast.failed_count > 0 && <Badge variant="destructive">{activeBroadcast.failed_count} failed</Badge>}
+              {activeBroadcast.suppressed_count > 0 && <Badge variant="outline">{activeBroadcast.suppressed_count} suppressed</Badge>}
+            </div>
+            {activeBroadcast.error_message && (
+              <p className="text-xs text-destructive" data-testid="text-active-error">{activeBroadcast.error_message}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent history */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Broadcasts</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {history.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No broadcasts yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {history.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex items-center justify-between gap-3 rounded-md border p-3 flex-wrap"
+                  data-testid={`row-broadcast-${b.id}`}
+                >
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge
+                        variant={
+                          b.status === "completed" ? "default" :
+                          b.status === "failed" ? "destructive" :
+                          b.status === "running" || b.status === "pending" ? "secondary" : "outline"
+                        }
+                      >
+                        {b.status}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">{new Date(b.created_at).toLocaleString()}</span>
+                      <span className="text-xs text-muted-foreground">from {b.send_from_phone}</span>
+                      {b.cooldown_hours != null && (
+                        <span className="text-xs text-muted-foreground">cooldown {b.cooldown_hours}h</span>
+                      )}
+                    </div>
+                    <p className="text-sm truncate" data-testid={`text-broadcast-msg-${b.id}`}>
+                      {b.message_type === "template"
+                        ? `Template: ${b.approved_template_name}`
+                        : (b.message_text || "")}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Badge variant="default">{b.sent_count}/{b.total_recipients}</Badge>
+                    {b.failed_count > 0 && <Badge variant="destructive">{b.failed_count} failed</Badge>}
+                    {b.suppressed_count > 0 && <Badge variant="outline">{b.suppressed_count} suppressed</Badge>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Confirm dialog */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent data-testid="dialog-broadcast-confirm">
+          <DialogHeader>
+            <DialogTitle>Send broadcast to {willSendCount} contact{willSendCount === 1 ? "" : "s"}?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <p><span className="text-muted-foreground">From:</span> {sendFrom}</p>
+            <p><span className="text-muted-foreground">Cooldown:</span> {COOLDOWN_LABELS[cooldown]}</p>
+            <p><span className="text-muted-foreground">Type:</span> {messageType === "template" ? `Approved template "${tplName}"` : "Text"}</p>
+            {(preview?.suppressed_count ?? 0) > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {preview?.suppressed_count} contact(s) will be skipped because of the cooldown filter.
+              </p>
+            )}
+            <div className="rounded-md border p-3 bg-muted/30 max-h-40 overflow-auto">
+              <p className="text-xs whitespace-pre-wrap">
+                {messageType === "text"
+                  ? messageText
+                  : `Template: ${tplName} (${tplLang})\nVariables: ${tplVarsRaw || "—"}`}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={sendMutation.isPending} data-testid="button-cancel-confirm">
+              Cancel
+            </Button>
+            <Button onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending} data-testid="button-confirm-send">
+              {sendMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              Send now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
