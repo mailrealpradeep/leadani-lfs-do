@@ -969,6 +969,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error("Failed to backfill conversion dates:", error);
   }
 
+  // Task #127: repair legacy comma-joined Saila keyword rows. Idempotent.
+  try {
+    const { rowsSplit, rowsCreated } = await storage.repairCommaSeparatedSailaKeywords();
+    if (rowsSplit > 0) {
+      console.log(`[Seed] Saila keywords repair: split ${rowsSplit} polluted row(s) into ${rowsCreated} new row(s)`);
+    }
+  } catch (error) {
+    console.error("Failed to repair Saila keywords:", error);
+  }
+
   // Socket.io connection handling with company isolation
   io.on("connection", (socket) => {
     console.log("Socket connected:", socket.id);

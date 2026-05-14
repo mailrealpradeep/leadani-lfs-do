@@ -1223,6 +1223,7 @@ export interface IStorage {
   createSailaKeyword(data: InsertSailaKeyword): Promise<SailaKeyword>;
   updateSailaKeyword(id: string, data: Partial<InsertSailaKeyword>): Promise<SailaKeyword | undefined>;
   deleteSailaKeyword(id: string): Promise<void>;
+  repairCommaSeparatedSailaKeywords(): Promise<{ rowsSplit: number; rowsCreated: number }>;
 
   // Saila.AI - Media
   getSailaMedia(companyId: string): Promise<SailaMedia[]>;
@@ -3990,6 +3991,7 @@ export class MemStorage implements IStorage {
   async createSailaKeyword(_data: InsertSailaKeyword): Promise<SailaKeyword> { throw new Error("Not implemented"); }
   async updateSailaKeyword(_id: string, _data: Partial<InsertSailaKeyword>): Promise<SailaKeyword | undefined> { return undefined; }
   async deleteSailaKeyword(_id: string): Promise<void> {}
+  async repairCommaSeparatedSailaKeywords(): Promise<{ rowsSplit: number; rowsCreated: number }> { return { rowsSplit: 0, rowsCreated: 0 }; }
   async getSailaMedia(_companyId: string): Promise<SailaMedia[]> { return []; }
   async getSailaMediaItem(_id: string): Promise<SailaMedia | undefined> { return undefined; }
   async createSailaMedia(_data: InsertSailaMedia): Promise<SailaMedia> { throw new Error("Not implemented"); }
@@ -12981,6 +12983,57 @@ export class PgStorage implements IStorage {
   async deleteSailaKeyword(id: string): Promise<void> {
     await db.delete(dbSchema.saila_keywords)
       .where(eq(dbSchema.saila_keywords.id, id));
+  }
+
+  // One-shot, idempotent repair (Task #127). Splits any legacy
+  // `saila_keywords.keyword` rows that contain commas — historically the
+  // Edit dialog saved comma-joined strings into a single row, which the
+  // matcher then could not match. The first token replaces the existing row
+  // (preserves id), and any remaining tokens become new rows sharing
+  // company_id / match_type / response_text / priority / enabled.
+  // Returns { rowsSplit, rowsCreated }. Idempotent: subsequent boots find
+  // no comma rows and return zeros.
+  async repairCommaSeparatedSailaKeywords(): Promise<{ rowsSplit: number; rowsCreated: number }> {
+    const polluted = await db.select().from(dbSchema.saila_keywords)
+      .where(sql`${dbSchema.saila_keywords.keyword} LIKE '%,%'`);
+    if (polluted.length === 0) return { rowsSplit: 0, rowsCreated: 0 };
+
+    let rowsCreated = 0;
+    let rowsSplit = 0;
+    for (const row of polluted) {
+      // Per-row transaction — re-read with FOR UPDATE so a concurrent boot on
+      // another instance can't split the same row twice and create duplicates.
+      const created = await db.transaction(async (tx) => {
+        const fresh = await tx.execute(sql`
+          SELECT id, company_id, keyword, match_type, response_text, priority, enabled
+          FROM saila_keywords
+          WHERE id = ${row.id} AND keyword LIKE '%,%'
+          FOR UPDATE
+        `);
+        const r: any = (fresh as any).rows?.[0] ?? (Array.isArray(fresh) ? (fresh as any)[0] : undefined);
+        if (!r) return 0; // already split by a peer between SELECT and lock
+        const tokens = String(r.keyword).split(",").map((k: string) => k.trim()).filter((k: string) => k.length > 0);
+        if (tokens.length === 0) return 0;
+        const [first, ...rest] = tokens;
+        await tx.update(dbSchema.saila_keywords)
+          .set({ keyword: first, updated_at: new Date() })
+          .where(eq(dbSchema.saila_keywords.id, r.id));
+        if (rest.length > 0) {
+          await tx.insert(dbSchema.saila_keywords).values(rest.map((k: string) => ({
+            company_id: r.company_id,
+            keyword: k,
+            match_type: r.match_type,
+            response_text: r.response_text,
+            priority: r.priority,
+            enabled: r.enabled,
+          })));
+        }
+        return rest.length;
+      });
+      if (created > 0 || polluted.length > 0) rowsSplit++;
+      rowsCreated += created;
+    }
+    return { rowsSplit, rowsCreated };
   }
 
   async getSailaMedia(companyId: string): Promise<SailaMedia[]> {

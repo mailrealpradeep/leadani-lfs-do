@@ -132,6 +132,12 @@ function selectTopTemplates(
   return scored.slice(0, 10).map(({ template, messages }) => ({ template, messages }));
 }
 
+// CONTRACT (Task #127): each row in `saila_keywords.keyword` MUST hold a
+// SINGLE keyword token — never a comma-joined list. Splitting happens at
+// write-time (Admin UI + POST/PUT validators in saila-routes.ts) and a one-shot
+// boot repair (`repairCommaSeparatedSailaKeywords` in storage.ts) splits any
+// legacy rows. This function therefore matches `kw.keyword` directly without
+// further parsing.
 async function matchKeyword(
   companyId: string,
   messageText: string

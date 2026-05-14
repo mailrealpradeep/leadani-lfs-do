@@ -163,6 +163,12 @@ export function registerSailaRoutes(app: Express): void {
       if (!companyId) return res.status(400).json({ error: "No company" });
       if (!req.body.keyword) return res.status(400).json({ error: "Keyword is required" });
       if (!req.body.response_text) return res.status(400).json({ error: "Response text is required" });
+      // Defence-in-depth: matchKeyword compares the inbound message against the
+      // raw stored string, so a comma-joined keyword can never match. Reject
+      // it here so REST/script callers can't reintroduce the bug. (Task #127)
+      if (typeof req.body.keyword === "string" && req.body.keyword.includes(",")) {
+        return res.status(400).json({ error: "Keyword cannot contain commas. Create a separate entry per keyword." });
+      }
       const keyword = await storage.createSailaKeyword({ ...req.body, company_id: companyId });
       res.json(keyword);
     } catch (error: any) {
@@ -175,6 +181,10 @@ export function registerSailaRoutes(app: Express): void {
       const existing = await storage.getSailaKeyword(req.params.id);
       if (!existing || existing.company_id !== req.companyId) {
         return res.status(404).json({ error: "Keyword not found" });
+      }
+      // Same comma rule as POST. (Task #127)
+      if (typeof req.body.keyword === "string" && req.body.keyword.includes(",")) {
+        return res.status(400).json({ error: "Keyword cannot contain commas. Create a separate entry per keyword." });
       }
       const keyword = await storage.updateSailaKeyword(req.params.id, req.body);
       res.json(keyword);

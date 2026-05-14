@@ -697,16 +697,17 @@ function TemplateMessageEditor({ template, onClose }: { template: SailaTemplate;
 function KeywordsTab() {
   const { toast } = useToast();
   const { data: keywords = [] } = useQuery<SailaKeyword[]>({ queryKey: ["/api/saila/keywords"] });
-  const emptyForm = { keyword: "", match_type: "contains", response_text: "", priority: 0 };
+  const emptyForm = { keyword: "", match_type: "contains", response_text: "", priority: 0, enabled: true };
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formValues, setFormValues] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
 
   const isEditing = editingId !== null;
-  const parsedKeywords = isEditing
-    ? [formValues.keyword.trim()].filter(k => k.length > 0)
-    : formValues.keyword.split(",").map(k => k.trim()).filter(k => k.length > 0);
+  // Always split on commas — both Create and Edit. The matching engine compares
+  // an inbound message against the raw stored `keyword` string, so a row that
+  // contains commas can never match anything. (Task #127)
+  const parsedKeywords = formValues.keyword.split(",").map(k => k.trim()).filter(k => k.length > 0);
 
   const openCreate = () => {
     setEditingId(null);
@@ -721,6 +722,7 @@ function KeywordsTab() {
       match_type: kw.match_type,
       response_text: kw.response_text ?? "",
       priority: kw.priority,
+      enabled: kw.enabled,
     });
     setDialogOpen(true);
   };
@@ -738,14 +740,37 @@ function KeywordsTab() {
     setIsSaving(true);
     try {
       if (isEditing && editingId) {
+        // First token replaces the existing row (preserves id → Logs/Test
+        // History references survive). Any extra tokens become brand-new rows
+        // sharing the same match_type / response_text / priority. (Task #127)
+        const [firstToken, ...extraTokens] = parsedKeywords;
         await apiRequest("PUT", `/api/saila/keywords/${editingId}`, {
-          keyword: formValues.keyword.trim(),
+          keyword: firstToken,
           match_type: formValues.match_type,
           response_text: formValues.response_text,
           priority: formValues.priority,
         });
+        if (extraTokens.length > 0) {
+          // Preserve the original row's enabled flag so splitting a disabled
+          // keyword doesn't silently activate the new variants.
+          await Promise.all(
+            extraTokens.map(kw =>
+              apiRequest("POST", "/api/saila/keywords", {
+                keyword: kw,
+                match_type: formValues.match_type,
+                response_text: formValues.response_text,
+                priority: formValues.priority,
+                enabled: formValues.enabled,
+              })
+            )
+          );
+        }
         await queryClient.invalidateQueries({ queryKey: ["/api/saila/keywords"] });
-        toast({ title: "Keyword updated" });
+        toast({
+          title: extraTokens.length > 0
+            ? `Keyword updated and split into ${parsedKeywords.length} rules`
+            : "Keyword updated",
+        });
       } else {
         await Promise.all(
           parsedKeywords.map(kw =>
@@ -856,14 +881,16 @@ function KeywordsTab() {
                 placeholder={isEditing ? "Trigger text" : "e.g. hi, Hi, Hey, hiii"}
                 data-testid="input-keyword"
               />
-              {!isEditing && (
-                <p className="text-xs text-muted-foreground">
-                  Separate multiple keywords with commas — each gets its own rule with the same response.
-                </p>
-              )}
-              {!isEditing && parsedKeywords.length > 1 && (
+              <p className="text-xs text-muted-foreground">
+                Separate multiple keywords with commas — each becomes its own rule with the same response. Each rule is matched independently against incoming messages.
+              </p>
+              {parsedKeywords.length > 1 && (
                 <div className="flex items-center gap-1 flex-wrap">
-                  <span className="text-xs text-muted-foreground">{parsedKeywords.length} keywords:</span>
+                  <span className="text-xs text-muted-foreground">
+                    {isEditing
+                      ? `Will split into ${parsedKeywords.length} rules:`
+                      : `${parsedKeywords.length} keywords:`}
+                  </span>
                   {parsedKeywords.map((kw, i) => (
                     <Badge key={i} variant="secondary" className="text-xs">{kw}</Badge>
                   ))}
