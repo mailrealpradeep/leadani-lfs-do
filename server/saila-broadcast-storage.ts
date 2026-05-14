@@ -76,7 +76,7 @@ export async function resolveBroadcastRecipients(
   for (const r of incomingRows) {
     const last10 = String(r.sender_phone || "").replace(/\D/g, "").slice(-10);
     if (last10.length !== 10) continue;
-    const ts = new Date(r.processed_at as any);
+    const ts = new Date(r.processed_at as Date | string);
     const existing = byPhone.get(last10);
     if (!existing || ts > existing.last_incoming_at) {
       byPhone.set(last10, {

@@ -15,7 +15,7 @@ import type {
   SailaBroadcast,
   SailaPhoneSetting,
   SailaConfig,
-  InsertWhatsAppMessageLogData,
+  InsertWhatsAppMessageLog,
 } from "@shared/schema";
 import {
   resolveBroadcastRecipients,
@@ -216,7 +216,7 @@ async function sendOne(
   // If the log write itself fails we DEMOTE the recipient to 'failed' so
   // future cooldown windows are accurate (no orphaned-but-counted-as-sent rows).
   const logId = crypto.randomUUID();
-  const log: InsertWhatsAppMessageLogData = {
+  const log: InsertWhatsAppMessageLog = {
     company_id: broadcast.company_id,
     webhook_request_id: null,
     direction: "outgoing",
@@ -230,10 +230,6 @@ async function sendOne(
     message_text: renderedText,
     message_type: isApproved ? "template" : (mediaType && mediaUrl ? mediaType : "text"),
     outcome: sendResult.success ? "sent" : "send_failed",
-    // outcome_details is a Record<string, any> JSON column. The drizzle-zod
-    // schema generator (re-)narrows it to a non-empty-tuple value type that
-    // doesn't match plain object literals — same as elsewhere in the codebase.
-    // Cast just this one field instead of widening the whole insert object.
     outcome_details: {
       direction: "outgoing",
       broadcast_id: broadcast.id,
@@ -244,7 +240,7 @@ async function sendOne(
       media_type: mediaType || undefined,
       media_url: mediaUrl || undefined,
       error: sendResult.success ? undefined : sendResult.error,
-    } as unknown as InsertWhatsAppMessageLogData["outcome_details"],
+    },
     trigger_matched: false,
     processed_at: new Date(),
     origin: "human",

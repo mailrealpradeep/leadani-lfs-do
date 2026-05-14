@@ -593,7 +593,7 @@ export async function sendWhatsAppMedia(
     const cleanPhone = recipientPhone.replace(/\D/g, "");
     const apiUrl = `${domain}/api/meta/${version}/${phoneNumberId}/messages`;
 
-    const mediaPayload: Record<string, any> = { link: url };
+    const mediaPayload: { link: string; caption?: string; filename?: string } = { link: url };
     if (caption && mediaType !== "document") mediaPayload.caption = caption;
     if (caption && mediaType === "document") mediaPayload.filename = caption;
 
@@ -624,9 +624,10 @@ export async function sendWhatsAppMedia(
       return { success: false, error: `Wauper error: ${data.error || "Unknown error"}` };
     }
     return { success: true, messageId: data.id || data.messageId || data.messages?.[0]?.id };
-  } catch (err: any) {
-    console.error("[Saila] Wauper media send error:", err);
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[Saila] Wauper media send error:", msg);
+    return { success: false, error: msg };
   }
 }
 
