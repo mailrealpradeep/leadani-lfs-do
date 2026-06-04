@@ -276,8 +276,47 @@ export async function processWhatsAppMessage(
     const existingLead = await findExistingLeadByPhone(companyId, normalizedPhone);
     
     if (!matchedRule) {
-      // No trigger match, but if there's an existing lead, still add follow-up
+      // No trigger match, but if there's an existing lead, check allocation before deciding what to do
       if (existingLead) {
+        // Check if the existing lead is assigned to a user/sheet that is NOT in the allocation
+        // config for this WA business number. If so, create a transfer request to the correct
+        // allocated user/sheet instead of blindly adding a follow-up in the wrong place.
+        const allocationForNoTrigger = await findAllocationByPhone(companyId, displayPhoneNumber);
+
+        if (
+          allocationForNoTrigger &&
+          existingLead.lead.owner_user_id !== allocationForNoTrigger.user_id &&
+          existingLead.lead.sheet_id !== allocationForNoTrigger.sheet_id
+        ) {
+          // Existing lead is NOT in the allocated sheet/user — re-route via transfer request.
+          // Pass an empty string as matchedRuleId (no rule matched); createTransferRequest
+          // accepts this for the message log.
+          console.log(
+            "[WhatsApp Processor] No trigger match, existing lead not in allocation — creating transfer request"
+          );
+          const transferResult = await createTransferRequest(
+            existingLead,
+            allocationForNoTrigger,
+            log,
+            messageText,
+            senderName,
+            null // no matched rule
+          );
+          // Override outcome_details reason for observability
+          await storage.updateWhatsAppMessageLog(log.id, {
+            outcome_details: {
+              ...((transferResult as { transferRequestId?: string }).transferRequestId
+                ? { transfer_request_id: (transferResult as { transferRequestId?: string }).transferRequestId }
+                : {}),
+              lead_id: existingLead.lead.id,
+              reason: "No trigger match — existing lead not in allocation config",
+            },
+          });
+          triggerSailaAI(companyId, senderPhone, senderName, displayPhoneNumber, messageText, existingLead.lead.id, referralData, waInboundTs).catch(() => {});
+          return transferResult;
+        }
+
+        // Existing lead IS in the allocated sheet/user (or no allocation configured) — add follow-up as before.
         console.log("[WhatsApp Processor] No trigger match, but existing lead found - adding follow-up");
         const remarkText = `WA Update: ${messageText}`;
         const today = new Date().toISOString().split('T')[0];
@@ -531,7 +570,7 @@ async function createTransferRequest(
   log: WhatsAppMessageLogRecord,
   messageText: string,
   senderName: string,
-  matchedRuleId: string
+  matchedRuleId: string | null
 ): Promise<ProcessedMessageResult> {
   const fromUser = await storage.getUser(existingLead.lead.owner_user_id);
   const toUser = await storage.getUser(allocation.user_id);
@@ -593,8 +632,8 @@ async function createTransferRequest(
   
   await storage.updateWhatsAppMessageLog(log.id, {
     outcome: "transfer_request_created",
-    trigger_matched: true,
-    matched_rule_id: matchedRuleId,
+    trigger_matched: matchedRuleId !== null && matchedRuleId !== "",
+    matched_rule_id: matchedRuleId || null,
     outcome_details: { 
       lead_id: existingLead.lead.id, 
       transfer_request_id: transferRequest.id,

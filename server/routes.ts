@@ -2762,11 +2762,16 @@ ${questionsList}`;
         }
         
         // Check if lead needs to be transferred to different sheet
-        // If skip_allocation_on_match is true, don't transfer - keep lead in its current sheet
-        // If targetSheetId is null (no allocation rules), don't transfer
+        // If skip_allocation_on_match is true, don't transfer — UNLESS the existing lead is in a
+        // sheet that is not part of the allocation config at all (it has no business staying there).
+        // In that case we override the skip so the lead lands in the correct allocated sheet.
         const skipAllocationOnMatch = webhook.skip_allocation_on_match === true;
-        
-        if (!skipAllocationOnMatch && targetSheetId && existingLead.sheet_id !== targetSheetId) {
+        const allocatedSheetIds = new Set(applicableRules.map(r => r.sheet_id));
+        const existingLeadIsInAllocatedSheet = allocatedSheetIds.has(existingLead.sheet_id);
+        // Honour skip_allocation_on_match only when the lead is already in one of the configured sheets.
+        const effectivelySkip = skipAllocationOnMatch && existingLeadIsInAllocatedSheet;
+
+        if (!effectivelySkip && targetSheetId && existingLead.sheet_id !== targetSheetId) {
           oldSheetId = existingLead.sheet_id;
           
           // Get source and target sheet names for the transfer log
