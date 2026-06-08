@@ -82,6 +82,7 @@ import { getLeadFollowupCount, calculateAndUpdateLeadRating } from "./ai-lead-ra
 import { processPendingWhatsAppMessages } from "./whatsapp-processor";
 import { registerSailaRoutes } from "./routes/saila-routes";
 import { registerWhatsAppCloudRoutes } from "./routes/whatsapp-cloud-routes";
+import { registerNoticeRoutes } from "./routes/notice-routes";
 import { db } from "./db";
 import { activity_logs } from "@shared/schema";
 import * as dbSchema from "@shared/schema";
@@ -27658,6 +27659,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   registerSailaIntakeRoutes(app);
   const { registerSailaBroadcastRoutes } = await import("./routes/saila-broadcast-routes");
   registerSailaBroadcastRoutes(app);
+  registerNoticeRoutes(app);
 
   // ============================================================================
   // BACKUP SCHEDULER (Hourly Google Sheets Sync)

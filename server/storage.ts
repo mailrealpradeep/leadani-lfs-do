@@ -1273,6 +1273,11 @@ export interface IStorage {
   getSailaCallTimeSlots(companyId: string): Promise<SailaCallTimeSlot[]>;
   createSailaCallTimeSlot(data: InsertSailaCallTimeSlot): Promise<SailaCallTimeSlot>;
   deleteSailaCallTimeSlot(id: string): Promise<void>;
+
+  // Company Notices
+  getCompanyNotice(companyId: string): Promise<import("@shared/schema").CompanyNotice | undefined>;
+  upsertCompanyNotice(data: import("@shared/schema").InsertCompanyNotice): Promise<import("@shared/schema").CompanyNotice>;
+  deleteCompanyNotice(companyId: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -4026,6 +4031,10 @@ export class MemStorage implements IStorage {
   async getSailaCallTimeSlots(_companyId: string): Promise<SailaCallTimeSlot[]> { return []; }
   async createSailaCallTimeSlot(_data: InsertSailaCallTimeSlot): Promise<SailaCallTimeSlot> { throw new Error("Not implemented"); }
   async deleteSailaCallTimeSlot(_id: string): Promise<void> {}
+
+  async getCompanyNotice(_companyId: string): Promise<import("@shared/schema").CompanyNotice | undefined> { return undefined; }
+  async upsertCompanyNotice(_data: import("@shared/schema").InsertCompanyNotice): Promise<import("@shared/schema").CompanyNotice> { throw new Error("Not implemented"); }
+  async deleteCompanyNotice(_companyId: string): Promise<void> {}
 }
 
 // ============================================================================
@@ -13522,6 +13531,34 @@ export class PgStorage implements IStorage {
 
   async deleteSailaCallTimeSlot(id: string): Promise<void> {
     await db.delete(dbSchema.saila_call_time_slots).where(eq(dbSchema.saila_call_time_slots.id, id));
+  }
+
+  async getCompanyNotice(companyId: string): Promise<dbSchema.CompanyNotice | undefined> {
+    const rows = await db.select().from(dbSchema.company_notices)
+      .where(eq(dbSchema.company_notices.company_id, companyId))
+      .limit(1);
+    return rows[0];
+  }
+
+  async upsertCompanyNotice(data: dbSchema.InsertCompanyNotice): Promise<dbSchema.CompanyNotice> {
+    const result = await db.insert(dbSchema.company_notices)
+      .values(data)
+      .onConflictDoUpdate({
+        target: dbSchema.company_notices.company_id,
+        set: {
+          file_path: data.file_path,
+          original_filename: data.original_filename,
+          uploaded_by: data.uploaded_by,
+          uploaded_at: new Date(),
+        },
+      })
+      .returning();
+    return result[0];
+  }
+
+  async deleteCompanyNotice(companyId: string): Promise<void> {
+    await db.delete(dbSchema.company_notices)
+      .where(eq(dbSchema.company_notices.company_id, companyId));
   }
 }
 

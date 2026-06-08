@@ -958,7 +958,7 @@ export function getDefaultColumnsForCompany(companyId: string): InsertCustomColu
 // ============================================================================
 // DRIZZLE ORM TABLE DEFINITIONS (for PostgreSQL)
 // ============================================================================
-import { pgTable, varchar, text, boolean, json, jsonb, timestamp, integer, doublePrecision, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, json, jsonb, timestamp, integer, doublePrecision, uniqueIndex, index, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const companies = pgTable('companies', {
@@ -5748,3 +5748,18 @@ export const saila_intake_sessions = pgTable('saila_intake_sessions', {
 export type SailaIntakeSession = typeof saila_intake_sessions.$inferSelect;
 export type InsertSailaIntakeSession = typeof saila_intake_sessions.$inferInsert;
 export const insertSailaIntakeSessionSchema = createInsertSchema(saila_intake_sessions).omit({ id: true, created_at: true, updated_at: true });
+
+// ============================================================================
+// COMPANY NOTICES (Per-company PDF notice board)
+// ============================================================================
+export const company_notices = pgTable('company_notices', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  company_id: varchar('company_id', { length: 255 }).notNull().unique(),
+  file_path: varchar('file_path', { length: 1000 }).notNull(),
+  original_filename: varchar('original_filename', { length: 500 }).notNull(),
+  uploaded_by: varchar('uploaded_by', { length: 255 }).notNull(),
+  uploaded_at: timestamp('uploaded_at').defaultNow().notNull(),
+});
+
+export type CompanyNotice = typeof company_notices.$inferSelect;
+export type InsertCompanyNotice = typeof company_notices.$inferInsert;
