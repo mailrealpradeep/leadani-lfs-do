@@ -56,7 +56,7 @@ export function registerNoticeRoutes(app: Express): void {
     async (req: AuthRequest, res) => {
     try {
       const companyId = req.companyId!;
-      const userId = req.user!.id;
+      const userId = req.userId!;
       const { filename, data } = req.body as { filename?: string; data?: string };
 
       if (!filename || !data) {
