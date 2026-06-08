@@ -1,10 +1,13 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Upload, Trash2, FileText, Loader2 } from "lucide-react";
+import { Upload, Trash2, FileText, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +19,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+
 interface NoticeMetadata {
   id: string;
   original_filename: string;
@@ -23,8 +28,53 @@ interface NoticeMetadata {
   uploaded_at: string;
 }
 
-interface ViewTokenResponse {
-  token: string;
+function usePdfBlobUrl(noticeKey: string | null) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [blobLoading, setBlobLoading] = useState(false);
+
+  useEffect(() => {
+    if (!noticeKey) {
+      setBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setBlobLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setBlobLoading(true);
+
+    const token =
+      sessionStorage.getItem("auth_token") ||
+      localStorage.getItem("auth_token");
+
+    fetch("/api/notice/file", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load notice");
+        return res.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setBlobUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+        setBlobLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setBlobLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [noticeKey]);
+
+  return { blobUrl, blobLoading };
 }
 
 export default function NoticePage() {
@@ -32,7 +82,11 @@ export default function NoticePage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileInputEmptyRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [numPages, setNumPages] = useState<number | null>(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [containerWidth, setContainerWidth] = useState<number>(800);
   const canManage = isCompanyAdmin || isSuperAdmin;
 
   const { data: notice, isLoading, error } = useQuery<NoticeMetadata>({
@@ -41,28 +95,23 @@ export default function NoticePage() {
   });
 
   const hasNotice = !isLoading && !error && !!notice;
+  const noticeKey = notice ? `${notice.id}::${notice.uploaded_at}` : null;
+  const { blobUrl, blobLoading } = usePdfBlobUrl(noticeKey);
 
-  // Fetch a short-lived view token when a notice exists.
-  // The token key encodes id + uploaded_at so it refetches when the notice is replaced.
-  const tokenQueryKey = notice ? `/api/notice/view-token::${notice.id}::${notice.uploaded_at}` : null;
-  const { data: tokenData, isLoading: tokenLoading } = useQuery<ViewTokenResponse>({
-    queryKey: [tokenQueryKey],
-    queryFn: async () => {
-      const res = await fetch("/api/notice/view-token", {
-        headers: {
-          Authorization: `Bearer ${sessionStorage.getItem("auth_token") || localStorage.getItem("auth_token") || ""}`,
-        },
-      });
-      if (!res.ok) throw new Error("Failed to get view token");
-      return res.json();
-    },
-    enabled: hasNotice,
-    staleTime: 4 * 60 * 1000,
-    retry: false,
-  });
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) setContainerWidth(Math.floor(width) - 32);
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
-  // Build the direct view URL from the token — safe to use as embed src
-  const viewUrl = tokenData?.token ? `/api/notice/view?t=${encodeURIComponent(tokenData.token)}` : null;
+  const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
+    setNumPages(numPages);
+    setPageNumber(1);
+  }, []);
 
   const uploadMutation = useMutation({
     mutationFn: async ({ filename, data }: { filename: string; data: string }) => {
@@ -70,6 +119,8 @@ export default function NoticePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notice"] });
+      setNumPages(null);
+      setPageNumber(1);
       toast({ title: "Notice uploaded successfully" });
     },
     onError: (e: any) => {
@@ -84,6 +135,8 @@ export default function NoticePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notice"] });
       setIsDeleteOpen(false);
+      setNumPages(null);
+      setPageNumber(1);
       toast({ title: "Notice deleted" });
     },
     onError: (e: any) => {
@@ -108,7 +161,7 @@ export default function NoticePage() {
     e.target.value = "";
   };
 
-  const isBusy = isLoading || (hasNotice && tokenLoading);
+  const isBusy = isLoading || (hasNotice && blobLoading);
 
   return (
     <div className="flex flex-col h-full">
@@ -157,19 +210,63 @@ export default function NoticePage() {
       )}
 
       {/* Content area */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto bg-muted/30">
         {isBusy ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : hasNotice && viewUrl ? (
-          <embed
-            key={viewUrl}
-            src={viewUrl}
-            type="application/pdf"
-            className="w-full h-full"
-            data-testid="embed-notice-pdf"
-          />
+        ) : hasNotice && blobUrl ? (
+          <div className="flex flex-col items-center py-4 gap-3">
+            {/* Page navigation */}
+            {numPages && numPages > 1 && (
+              <div className="flex items-center gap-3 bg-background border rounded-md px-3 py-1.5 shadow-sm">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                  disabled={pageNumber <= 1}
+                  data-testid="button-notice-prev-page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground select-none">
+                  Page {pageNumber} of {numPages}
+                </span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
+                  disabled={pageNumber >= numPages}
+                  data-testid="button-notice-next-page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+            <Document
+              file={blobUrl}
+              onLoadSuccess={onDocumentLoadSuccess}
+              loading={
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              }
+              error={
+                <div className="flex flex-col items-center justify-center py-20 gap-2 text-muted-foreground">
+                  <FileText className="h-10 w-10 opacity-30" />
+                  <p className="text-sm">Could not render PDF.</p>
+                </div>
+              }
+              data-testid="document-notice-pdf"
+            >
+              <Page
+                pageNumber={pageNumber}
+                width={Math.min(containerWidth, 900)}
+                renderTextLayer
+                renderAnnotationLayer
+              />
+            </Document>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-muted-foreground">
             <FileText className="h-16 w-16 opacity-20" />
