@@ -188,11 +188,11 @@ export default function NoticePage() {
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : hasNotice && blobUrl ? (
-          <iframe
+          <embed
             src={blobUrl}
-            className="w-full h-full border-none"
-            title="Company Notice"
-            data-testid="iframe-notice-pdf"
+            type="application/pdf"
+            className="w-full h-full"
+            data-testid="embed-notice-pdf"
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
