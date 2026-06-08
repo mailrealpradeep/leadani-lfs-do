@@ -23,54 +23,8 @@ interface NoticeMetadata {
   uploaded_at: string;
 }
 
-// noticeKey changes whenever the notice is uploaded or replaced (uses uploaded_at),
-// ensuring the PDF is refetched rather than showing a stale blob.
-function usePdfBlobUrl(noticeKey: string | null) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [blobLoading, setBlobLoading] = useState(false);
-
-  useEffect(() => {
-    if (!noticeKey) {
-      setBlobUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-      return;
-    }
-
-    let cancelled = false;
-    setBlobLoading(true);
-
-    const token =
-      sessionStorage.getItem("auth_token") ||
-      localStorage.getItem("auth_token");
-
-    fetch("/api/notice/file", {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load notice");
-        return res.blob();
-      })
-      .then((blob) => {
-        if (cancelled) return;
-        const url = URL.createObjectURL(blob);
-        setBlobUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return url;
-        });
-        setBlobLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setBlobLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [noticeKey]);
-
-  return { blobUrl, blobLoading };
+interface ViewTokenResponse {
+  token: string;
 }
 
 export default function NoticePage() {
@@ -87,9 +41,28 @@ export default function NoticePage() {
   });
 
   const hasNotice = !isLoading && !error && !!notice;
-  // noticeKey encodes id + uploaded_at so replacing a notice triggers a fresh blob fetch
-  const noticeKey = notice ? `${notice.id}::${notice.uploaded_at}` : null;
-  const { blobUrl, blobLoading } = usePdfBlobUrl(noticeKey);
+
+  // Fetch a short-lived view token when a notice exists.
+  // The token key encodes id + uploaded_at so it refetches when the notice is replaced.
+  const tokenQueryKey = notice ? `/api/notice/view-token::${notice.id}::${notice.uploaded_at}` : null;
+  const { data: tokenData, isLoading: tokenLoading } = useQuery<ViewTokenResponse>({
+    queryKey: [tokenQueryKey],
+    queryFn: async () => {
+      const res = await fetch("/api/notice/view-token", {
+        headers: {
+          Authorization: `Bearer ${sessionStorage.getItem("auth_token") || localStorage.getItem("auth_token") || ""}`,
+        },
+      });
+      if (!res.ok) throw new Error("Failed to get view token");
+      return res.json();
+    },
+    enabled: hasNotice,
+    staleTime: 4 * 60 * 1000,
+    retry: false,
+  });
+
+  // Build the direct view URL from the token — safe to use as embed src
+  const viewUrl = tokenData?.token ? `/api/notice/view?t=${encodeURIComponent(tokenData.token)}` : null;
 
   const uploadMutation = useMutation({
     mutationFn: async ({ filename, data }: { filename: string; data: string }) => {
@@ -134,6 +107,8 @@ export default function NoticePage() {
     reader.readAsDataURL(file);
     e.target.value = "";
   };
+
+  const isBusy = isLoading || (hasNotice && tokenLoading);
 
   return (
     <div className="flex flex-col h-full">
@@ -183,22 +158,23 @@ export default function NoticePage() {
 
       {/* Content area */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {isLoading || (hasNotice && blobLoading) ? (
+        {isBusy ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : hasNotice && blobUrl ? (
+        ) : hasNotice && viewUrl ? (
           <embed
-            src={blobUrl}
+            key={viewUrl}
+            src={viewUrl}
             type="application/pdf"
             className="w-full h-full"
             data-testid="embed-notice-pdf"
           />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
+          <div className="flex flex-col items-center justify-center py-20 gap-4 text-muted-foreground">
             <FileText className="h-16 w-16 opacity-20" />
             <div className="text-center">
-              <p className="text-lg font-medium">No notice posted yet</p>
+              <p className="text-lg font-medium text-foreground">No notice posted yet</p>
               {canManage ? (
                 <p className="text-sm mt-1">
                   Upload a PDF using the button above to share it with your team.

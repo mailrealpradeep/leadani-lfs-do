@@ -1,9 +1,11 @@
 import express, { type Express } from "express";
+import jwt from "jsonwebtoken";
 import { authMiddleware, requireCompanyAdmin, type AuthRequest } from "../middleware/auth";
 import { storage } from "../storage";
 import { ObjectStorage } from "../objectStorage";
 
 const objectStorage = new ObjectStorage();
+const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
 
 export function registerNoticeRoutes(app: Express): void {
   // GET /api/notice — fetch metadata for the company's current notice (all authenticated users)
@@ -23,7 +25,59 @@ export function registerNoticeRoutes(app: Express): void {
     }
   });
 
-  // GET /api/notice/file — stream the PDF bytes (all authenticated users)
+  // GET /api/notice/view-token — mint a short-lived signed URL token (all authenticated users)
+  app.get("/api/notice/view-token", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const companyId = req.companyId!;
+      const notice = await storage.getCompanyNotice(companyId);
+      if (!notice) return res.status(404).json({ error: "No notice uploaded" });
+      const token = jwt.sign(
+        { companyId, purpose: "notice-view" },
+        JWT_SECRET,
+        { expiresIn: "5m" }
+      );
+      res.json({ token });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/notice/view?t=TOKEN — serve the PDF inline using a short-lived token (no Bearer needed)
+  // This URL is safe to use directly as an embed/object src attribute.
+  app.get("/api/notice/view", async (req, res) => {
+    try {
+      const token = req.query.t as string;
+      if (!token) return res.status(401).json({ error: "Token required" });
+
+      let payload: any;
+      try {
+        payload = jwt.verify(token, JWT_SECRET);
+      } catch {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+      if (payload.purpose !== "notice-view") {
+        return res.status(401).json({ error: "Invalid token purpose" });
+      }
+
+      const notice = await storage.getCompanyNotice(payload.companyId);
+      if (!notice) return res.status(404).json({ error: "No notice found" });
+
+      const fileBuffer = await objectStorage.download(notice.file_path);
+      if (!fileBuffer) return res.status(404).json({ error: "File not found" });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${encodeURIComponent(notice.original_filename)}"`
+      );
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.send(fileBuffer);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/notice/file — stream the PDF bytes (all authenticated users, kept for compatibility)
   app.get("/api/notice/file", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const companyId = req.companyId!;
