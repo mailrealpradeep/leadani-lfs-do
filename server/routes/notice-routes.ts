@@ -57,7 +57,7 @@ export function registerNoticeRoutes(app: Express): void {
         return res.status(400).json({ error: "filename and data (base64) are required" });
       }
 
-      // Validate it's a PDF by checking base64 header or filename extension
+      // Validate filename extension
       const ext = filename.toLowerCase().split(".").pop();
       if (ext !== "pdf") {
         return res.status(400).json({ error: "Only PDF files are accepted" });
@@ -68,6 +68,17 @@ export function registerNoticeRoutes(app: Express): void {
       if (buffer.length > 20 * 1024 * 1024) {
         // 20 MB limit
         return res.status(400).json({ error: "File too large (max 20 MB)" });
+      }
+
+      // Validate PDF magic bytes: must start with %PDF (0x25 0x50 0x44 0x46)
+      if (
+        buffer.length < 4 ||
+        buffer[0] !== 0x25 ||
+        buffer[1] !== 0x50 ||
+        buffer[2] !== 0x44 ||
+        buffer[3] !== 0x46
+      ) {
+        return res.status(400).json({ error: "File does not appear to be a valid PDF" });
       }
 
       // Delete old file if it exists

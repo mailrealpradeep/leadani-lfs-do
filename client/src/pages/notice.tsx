@@ -1,10 +1,9 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Upload, Trash2, FileText, Loader2 } from "lucide-react";
 import {
   AlertDialog,
@@ -24,10 +23,57 @@ interface NoticeMetadata {
   uploaded_at: string;
 }
 
+function usePdfBlobUrl(hasNotice: boolean) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [blobLoading, setBlobLoading] = useState(false);
+
+  useEffect(() => {
+    if (!hasNotice) {
+      setBlobUrl(null);
+      return;
+    }
+
+    let revoked = false;
+    setBlobLoading(true);
+
+    const token =
+      sessionStorage.getItem("auth_token") ||
+      localStorage.getItem("auth_token");
+
+    fetch("/api/notice/file", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load notice");
+        return res.blob();
+      })
+      .then((blob) => {
+        if (revoked) return;
+        const url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+        setBlobLoading(false);
+      })
+      .catch(() => {
+        if (!revoked) setBlobLoading(false);
+      });
+
+    return () => {
+      revoked = true;
+      setBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [hasNotice]);
+
+  return { blobUrl, blobLoading };
+}
+
 export default function NoticePage() {
   const { isCompanyAdmin, isSuperAdmin } = useAuth();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputEmptyRef = useRef<HTMLInputElement>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const canManage = isCompanyAdmin || isSuperAdmin;
 
@@ -35,6 +81,9 @@ export default function NoticePage() {
     queryKey: ["/api/notice"],
     retry: false,
   });
+
+  const hasNotice = !isLoading && !error && !!notice;
+  const { blobUrl, blobLoading } = usePdfBlobUrl(hasNotice);
 
   const uploadMutation = useMutation({
     mutationFn: async ({ filename, data }: { filename: string; data: string }) => {
@@ -68,6 +117,7 @@ export default function NoticePage() {
     if (!file) return;
     if (file.type !== "application/pdf") {
       toast({ title: "Only PDF files are accepted", variant: "destructive" });
+      e.target.value = "";
       return;
     }
     const reader = new FileReader();
@@ -76,15 +126,12 @@ export default function NoticePage() {
       uploadMutation.mutate({ filename: file.name, data: base64 });
     };
     reader.readAsDataURL(file);
-    // reset so same file can be re-uploaded
     e.target.value = "";
   };
 
-  const hasNotice = !isLoading && !error && !!notice;
-
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
+      {/* Toolbar — admin only */}
       {canManage && (
         <div className="flex items-center gap-2 px-4 py-2 border-b shrink-0 flex-wrap">
           <FileText className="h-4 w-4 text-muted-foreground" />
@@ -130,13 +177,13 @@ export default function NoticePage() {
 
       {/* Content area */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {isLoading ? (
+        {isLoading || (hasNotice && blobLoading) ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : hasNotice ? (
+        ) : hasNotice && blobUrl ? (
           <iframe
-            src="/api/notice/file"
+            src={blobUrl}
             className="w-full h-full border-none"
             title="Company Notice"
             data-testid="iframe-notice-pdf"
@@ -159,14 +206,14 @@ export default function NoticePage() {
             {canManage && (
               <>
                 <input
-                  ref={fileInputRef}
+                  ref={fileInputEmptyRef}
                   type="file"
                   accept="application/pdf"
                   className="hidden"
                   onChange={handleFileChange}
                 />
                 <Button
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => fileInputEmptyRef.current?.click()}
                   disabled={uploadMutation.isPending}
                   data-testid="button-upload-notice-empty"
                 >
@@ -196,7 +243,7 @@ export default function NoticePage() {
             <AlertDialogCancel data-testid="button-cancel-delete-notice">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteMutation.mutate()}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground"
               data-testid="button-confirm-delete-notice"
             >
               Delete
