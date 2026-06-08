@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import express, { type Express } from "express";
 import { authMiddleware, requireCompanyAdmin, type AuthRequest } from "../middleware/auth";
 import { storage } from "../storage";
 import { ObjectStorage } from "../objectStorage";
@@ -47,7 +47,13 @@ export function registerNoticeRoutes(app: Express): void {
 
   // POST /api/notice — upload / replace the company's notice PDF (company admin only)
   // Accepts JSON body: { filename: string, data: string (base64) }
-  app.post("/api/notice", authMiddleware, requireCompanyAdmin, async (req: AuthRequest, res) => {
+  // Uses a higher body-size limit (30mb) to accommodate up to 20MB PDFs after base64 encoding
+  app.post(
+    "/api/notice",
+    express.json({ limit: "30mb" }),
+    authMiddleware,
+    requireCompanyAdmin,
+    async (req: AuthRequest, res) => {
     try {
       const companyId = req.companyId!;
       const userId = req.user!.id;

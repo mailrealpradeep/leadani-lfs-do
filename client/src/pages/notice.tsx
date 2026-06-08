@@ -23,17 +23,22 @@ interface NoticeMetadata {
   uploaded_at: string;
 }
 
-function usePdfBlobUrl(hasNotice: boolean) {
+// noticeKey changes whenever the notice is uploaded or replaced (uses uploaded_at),
+// ensuring the PDF is refetched rather than showing a stale blob.
+function usePdfBlobUrl(noticeKey: string | null) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [blobLoading, setBlobLoading] = useState(false);
 
   useEffect(() => {
-    if (!hasNotice) {
-      setBlobUrl(null);
+    if (!noticeKey) {
+      setBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
       return;
     }
 
-    let revoked = false;
+    let cancelled = false;
     setBlobLoading(true);
 
     const token =
@@ -48,23 +53,22 @@ function usePdfBlobUrl(hasNotice: boolean) {
         return res.blob();
       })
       .then((blob) => {
-        if (revoked) return;
+        if (cancelled) return;
         const url = URL.createObjectURL(blob);
-        setBlobUrl(url);
+        setBlobUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
         setBlobLoading(false);
       })
       .catch(() => {
-        if (!revoked) setBlobLoading(false);
+        if (!cancelled) setBlobLoading(false);
       });
 
     return () => {
-      revoked = true;
-      setBlobUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
+      cancelled = true;
     };
-  }, [hasNotice]);
+  }, [noticeKey]);
 
   return { blobUrl, blobLoading };
 }
@@ -83,7 +87,9 @@ export default function NoticePage() {
   });
 
   const hasNotice = !isLoading && !error && !!notice;
-  const { blobUrl, blobLoading } = usePdfBlobUrl(hasNotice);
+  // noticeKey encodes id + uploaded_at so replacing a notice triggers a fresh blob fetch
+  const noticeKey = notice ? `${notice.id}::${notice.uploaded_at}` : null;
+  const { blobUrl, blobLoading } = usePdfBlobUrl(noticeKey);
 
   const uploadMutation = useMutation({
     mutationFn: async ({ filename, data }: { filename: string; data: string }) => {
