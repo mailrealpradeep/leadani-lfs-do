@@ -43,6 +43,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import {
+  type CustomViewsCountsResponse,
+  getCustomViewsCountsComputedAtMs,
+} from "@/lib/custom-views-counts";
+import { CustomViewsCountsStatus } from "@/components/custom-views-counts-status";
 import { cn } from "@/lib/utils";
 import { format, differenceInDays, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
@@ -2635,19 +2640,34 @@ export default function VisionBoardPage() {
   const enabledViews = customViews.filter(v => v.is_enabled);
 
   // Fetch custom view counts — with optional per-user filter for admins
-  const { data: customViewsCounts, isLoading: isLoadingCounts } = useQuery<{ counts: Record<string, number> }>({
+  const {
+    data: customViewsCounts,
+    isLoading: isLoadingCounts,
+    isFetching: isFetchingCounts,
+    isError: isCountsError,
+    dataUpdatedAt: countsDataUpdatedAt,
+    refetch: refetchCustomViewsCounts,
+  } = useQuery<CustomViewsCountsResponse>({
     queryKey: ["/api/custom-views-counts", quickActionsUserId],
     queryFn: async () => {
       const url = quickActionsUserId !== "all"
         ? `/api/custom-views-counts?userId=${encodeURIComponent(quickActionsUserId)}`
         : "/api/custom-views-counts";
-      return apiRequest<{ counts: Record<string, number> }>("GET", url);
+      return apiRequest<CustomViewsCountsResponse>("GET", url);
     },
     enabled: enabledViews.length > 0,
-    staleTime: 0,
-    gcTime: 0,
-    refetchInterval: 60000,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    placeholderData: (previousData) => previousData,
+    refetchOnMount: "always",
+    refetchInterval: 60_000,
   });
+
+  const isInitialCountsLoading = isLoadingCounts && !customViewsCounts;
+  const countsComputedAtMs = getCustomViewsCountsComputedAtMs(
+    customViewsCounts,
+    countsDataUpdatedAt,
+  );
 
   // Fetch company settings for weekly_off_days
   const { data: companySettings } = useQuery<{ settings: { timezone?: string; weekly_off_days?: number[] } }>({
@@ -3573,6 +3593,13 @@ export default function VisionBoardPage() {
                     </Select>
                   )}
                 </div>
+                <CustomViewsCountsStatus
+                  isInitialLoading={isInitialCountsLoading}
+                  isFetching={isFetchingCounts}
+                  isError={isCountsError}
+                  computedAtMs={countsComputedAtMs}
+                  onRetry={() => refetchCustomViewsCounts()}
+                />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {sectionOrder.map((section, sectionIdx) => {
                     const views = viewsBySection[section];
@@ -3613,7 +3640,7 @@ export default function VisionBoardPage() {
                                   totalCount === 0 && "text-muted-foreground"
                                 )}>{config.title}</CardTitle>
                               </div>
-                              {isLoadingCounts ? (
+                              {isInitialCountsLoading ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />
                               ) : totalCount > 0 ? (
                                 <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-foreground/10 px-2 text-xs font-medium">
@@ -3659,7 +3686,7 @@ export default function VisionBoardPage() {
                                       </div>
                                       <div className="flex items-center gap-2">
                                         {view.show_badge && (
-                                          isLoadingCounts ? (
+                                          isInitialCountsLoading ? (
                                             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />
                                           ) : count > 0 ? (
                                             <span className={cn(

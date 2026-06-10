@@ -157,10 +157,12 @@ export function AppSidebar() {
   const achievementSection = enabledViews.filter(v => v.section === 'achievement');
 
   // Fetch custom views counts for badges
-  const { data: customViewsCounts } = useQuery<{ counts: Record<string, number> }>({
+  const { data: customViewsCounts } = useQuery<{ counts: Record<string, number>; meta?: { computed_at: string; age_seconds: number } }>({
     queryKey: ["/api/custom-views-counts"],
     enabled: !isSuperAdminAccount && enabledViews.some(v => v.show_badge),
-    refetchInterval: 60000,
+    staleTime: 60_000,
+    placeholderData: (previousData) => previousData,
+    refetchInterval: 60_000,
   });
 
   // Icon mapping for custom views

@@ -15515,27 +15515,30 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // GET /api/custom-views/counts - Get counts for all enabled custom views (for sidebar badges)
   app.get("/api/custom-views-counts", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      if (!req.companyId) {
+        return res.status(403).json({ error: "No company context" });
+      }
+
       const targetUserId = (req.userRole === "company_admin" || req.userRole === "super_admin")
         ? (req.query.userId as string | undefined) || null
         : null;
-      const result = await (async () => {
+
+      const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}:${targetUserId || "all"}`;
+
+      const payload = await customViewsCountCache.getOrComputeSwr(cacheKey, async () => {
         const views = await storage.getCustomViews(req.companyId!);
         const enabledViews = views.filter(v => v.is_enabled && v.show_badge);
 
         if (enabledViews.length === 0) {
-          return { counts: {} };
+          return { counts: {}, computed_at: Date.now() };
         }
 
         let sheets: Sheet[];
         if (targetUserId) {
-          // Admin filtering to a specific user's sheets
           sheets = await storage.getSheetsByUserId(targetUserId);
-          // Scope to this company's sheets only (guard against cross-company access)
-          if (req.companyId) {
-            const companySheets = await storage.getSheetsByCompanyId(req.companyId);
-            const companySheetIds = new Set(companySheets.map((s: any) => s.id));
-            sheets = sheets.filter((s: any) => companySheetIds.has(s.id));
-          }
+          const companySheets = await storage.getSheetsByCompanyId(req.companyId);
+          const companySheetIds = new Set(companySheets.map((s: any) => s.id));
+          sheets = sheets.filter((s: any) => companySheetIds.has(s.id));
         } else if (req.userRole === "super_admin") {
           sheets = await storage.getAllSheets();
         } else if (req.userRole === "company_admin") {
@@ -15546,32 +15549,49 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
         if (sheets.length === 0) {
           const counts: Record<string, number> = {};
-          enabledViews.forEach(v => counts[v.id] = 0);
-          return { counts };
+          enabledViews.forEach(v => { counts[v.id] = 0; });
+          return { counts, computed_at: Date.now() };
+        }
+
+        // Load each sheet's leads once, then evaluate all views against the cache.
+        const leadsBySheetId = new Map<string, Lead[]>();
+        for (const sheet of sheets) {
+          leadsBySheetId.set(sheet.id, await storage.getLeadsBySheetId(sheet.id));
         }
 
         const counts: Record<string, number> = {};
         for (const view of enabledViews) {
           if (!view.conditions || view.conditions.length === 0) {
             counts[view.id] = 0;
-          } else {
-            const viewSheets = view.sheet_ids && view.sheet_ids.length > 0
-              ? sheets.filter(s => view.sheet_ids!.includes(s.id))
-              : sheets;
-
-            let count = 0;
-            for (const sheet of viewSheets) {
-              const leads = await storage.getLeadsBySheetId(sheet.id);
-              count += leads.filter(lead => !lead.deleted_at && evaluateCustomViewConditions(lead, view.conditions)).length;
-            }
-            counts[view.id] = count;
+            continue;
           }
+
+          const viewSheets = view.sheet_ids && view.sheet_ids.length > 0
+            ? sheets.filter(s => view.sheet_ids!.includes(s.id))
+            : sheets;
+
+          let count = 0;
+          for (const sheet of viewSheets) {
+            const leads = leadsBySheetId.get(sheet.id) ?? [];
+            count += leads.filter(
+              lead => !lead.deleted_at && evaluateCustomViewConditions(lead, view.conditions)
+            ).length;
+          }
+          counts[view.id] = count;
         }
 
-        return { counts };
-      })();
+        return { counts, computed_at: Date.now() };
+      });
 
-      res.json(result);
+      const ageSeconds = Math.max(0, Math.floor((Date.now() - payload.computed_at) / 1000));
+
+      res.json({
+        counts: payload.counts,
+        meta: {
+          computed_at: new Date(payload.computed_at).toISOString(),
+          age_seconds: ageSeconds,
+        },
+      });
     } catch (error: any) {
       console.error("Get custom views counts error:", error);
       res.status(500).json({ error: error.message });

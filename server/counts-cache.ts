@@ -133,7 +133,12 @@ export class CountsCache<T = any> {
 }
 
 export const hotLeadsCountCache = new CountsCache<{ count: number }>(60);
-export const customViewsCountCache = new CountsCache<{ counts: Record<string, number> }>(60);
+export interface CustomViewsCountsCachePayload {
+  counts: Record<string, number>;
+  computed_at: number;
+}
+
+export const customViewsCountCache = new CountsCache<CustomViewsCountsCachePayload>(60);
 export const visionPipelineCache = new CountsCache<any>(60);
 export const visionProgressCache = new CountsCache<any>(60);
 export const visionTeamCache = new CountsCache<any>(60);
