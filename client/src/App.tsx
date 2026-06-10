@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type ComponentType } from "react";
 import { Switch, Route, Redirect, useLocation, Link } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -22,48 +22,54 @@ import { useBackButtonGuard, BackButtonGuardDialog } from "@/hooks/use-back-butt
 import { Button } from "@/components/ui/button";
 import { Plus, Eye } from "lucide-react";
 import type { CustomColumn, Sheet } from "@shared/schema";
+import { PageLoader } from "@/components/page-loader";
+import { LazyRouteErrorBoundary } from "@/components/lazy-route-error-boundary";
+import {
+  LazyActivityLogs,
+  LazyAdmin,
+  LazyAttendance,
+  LazyAuditLogs,
+  LazyCallSchedule,
+  LazyConversionSettings,
+  LazyCustomViewPage,
+  LazyDashboard,
+  LazyFeatures,
+  LazyFollowupTransactions,
+  LazyGuide,
+  LazyHelp,
+  LazyHotLeads,
+  LazyIncomingMessages,
+  LazyInstaSupportPage,
+  LazyLeaderboard,
+  LazyMyTargets,
+  LazyNoticePage,
+  LazyOnboarding,
+  LazyOutgoingWebhooks,
+  LazyPlan,
+  LazyPowerFlow,
+  LazyPowerScore,
+  LazyPowerScoreTransactions,
+  LazyRadar,
+  LazyReports,
+  LazySailaAI,
+  LazySuperAdmin,
+  LazyTasks,
+  LazyTeamPerformance,
+  LazyVisionBoard,
+  LazyVisited,
+  LazyVisits,
+  LazyWatchlist,
+  LazyWebhooks,
+  LazyWorkReportView,
+  LazyWorkingTarget,
+  prefetchVisionBoardPage,
+} from "@/lib/lazy-pages";
+// Keep auth-critical and lightweight entry routes eager for instant first paint.
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Landing from "@/pages/landing";
 import Signup from "@/pages/signup";
-import Onboarding from "@/pages/onboarding";
-import Dashboard from "@/pages/dashboard";
-import Reports from "@/pages/reports";
-import TeamPerformance from "@/pages/team-performance";
-import Admin from "@/pages/admin";
-import Webhooks from "@/pages/webhooks";
-import OutgoingWebhooks from "@/pages/outgoing-webhooks";
-import InstaSupportPage from "@/pages/insta-support";
-import AuditLogs from "@/pages/audit";
-import Attendance from "@/pages/attendance";
-import Tasks from "@/pages/tasks";
-import SuperAdmin from "@/pages/super-admin";
 import Impersonate from "@/pages/impersonate";
-import ActivityLogs from "@/pages/activity-logs";
-import Leaderboard from "@/pages/leaderboard";
-import MyTargets from "@/pages/my-targets";
-import WorkingTarget from "@/pages/working-target";
-import Features from "@/pages/features";
-import Help from "@/pages/help";
-import Guide from "@/pages/guide";
-import Visits from "@/pages/visits";
-import Visited from "@/pages/visited";
-import HotLeads from "@/pages/hot-leads";
-import CustomViewPage from "@/pages/custom-view";
-import Plan from "@/pages/plan";
-import Watchlist from "@/pages/watchlist";
-import PowerScore from "@/pages/powerscore";
-import PowerScoreTransactions from "@/pages/powerscore-transactions";
-import FollowupTransactions from "@/pages/followup-transactions";
-import PowerFlow from "@/pages/powerflow";
-import VisionBoard from "@/pages/vision-board";
-import ConversionSettings from "@/pages/conversion-settings";
-import SailaAI from "@/pages/saila";
-import Radar from "@/pages/radar";
-import CallSchedule from "@/pages/call-schedule";
-import IncomingMessages from "@/pages/incoming-messages";
-import WorkReportView from "@/pages/work-report-view";
-import NoticePage from "@/pages/notice";
 
 function AuthenticatedHomeRouter() {
   const { isAuthenticated, isSuperAdmin, isLoading } = useAuth();
@@ -88,7 +94,7 @@ function AuthenticatedHomeRouter() {
   return <Redirect to="/vision-board" />;
 }
 
-function ProtectedRoute({ component: Component, adminOnly = false }: { component: () => JSX.Element; adminOnly?: boolean }) {
+function ProtectedRoute({ component: Component, adminOnly = false }: { component: ComponentType; adminOnly?: boolean }) {
   const { isAuthenticated, isSuperAdmin, isCompanyAdmin, isLoading } = useAuth();
 
   if (isLoading) {
@@ -111,126 +117,128 @@ function ProtectedRoute({ component: Component, adminOnly = false }: { component
 }
 
 function Router() {
-  const { isAuthenticated } = useAuth();
-  
   return (
-    <Switch>
-      {/* Public routes */}
-      <Route path="/login" component={Login} />
-      <Route path="/signup" component={Signup} />
-      <Route path="/impersonate" component={Impersonate} />
-      <Route path="/features" component={Features} />
-      <Route path="/help" component={Help} />
-      <Route path="/guide" component={Guide} />
-      <Route path="/plan" component={Plan} />
-      
-      {/* Landing page - public, but redirect if authenticated */}
-      <Route path="/">
-        <AuthenticatedHomeRouter />
-      </Route>
-      
-      {/* Protected routes */}
-      <Route path="/onboarding">
-        {() => <ProtectedRoute component={Onboarding} />}
-      </Route>
-      <Route path="/dashboard">
-        {() => <ProtectedRoute component={Dashboard} />}
-      </Route>
-      <Route path="/reports">
-        {() => <ProtectedRoute component={Reports} />}
-      </Route>
-      <Route path="/team-performance">
-        {() => <ProtectedRoute component={TeamPerformance} />}
-      </Route>
-      <Route path="/audit">
-        {() => <ProtectedRoute component={AuditLogs} />}
-      </Route>
-      <Route path="/activity-logs">
-        {() => <ProtectedRoute component={ActivityLogs} />}
-      </Route>
-      <Route path="/visits">
-        {() => <ProtectedRoute component={Visits} />}
-      </Route>
-      <Route path="/visited">
-        {() => <ProtectedRoute component={Visited} />}
-      </Route>
-      <Route path="/hot-leads">
-        {() => <ProtectedRoute component={HotLeads} />}
-      </Route>
-      <Route path="/watchlist">
-        {() => <ProtectedRoute component={Watchlist} />}
-      </Route>
-      <Route path="/powerscore">
-        {() => <ProtectedRoute component={PowerScore} />}
-      </Route>
-      <Route path="/powerscore/transactions">
-        {() => <ProtectedRoute component={PowerScoreTransactions} adminOnly />}
-      </Route>
-      <Route path="/followup-transactions">
-        {() => <ProtectedRoute component={FollowupTransactions} adminOnly />}
-      </Route>
-      <Route path="/powerflow">
-        {() => <ProtectedRoute component={PowerFlow} />}
-      </Route>
-      <Route path="/vision-board">
-        {() => <ProtectedRoute component={VisionBoard} />}
-      </Route>
-      <Route path="/conversion-settings">
-        {() => <ProtectedRoute component={ConversionSettings} adminOnly />}
-      </Route>
-      <Route path="/radar">
-        {() => <ProtectedRoute component={Radar} />}
-      </Route>
-      <Route path="/call-schedule">
-        {() => <ProtectedRoute component={CallSchedule} />}
-      </Route>
-      <Route path="/incoming-messages">
-        {() => <ProtectedRoute component={IncomingMessages} adminOnly />}
-      </Route>
-      <Route path="/work-report-view">
-        {() => <ProtectedRoute component={WorkReportView} />}
-      </Route>
-      <Route path="/notice">
-        {() => <ProtectedRoute component={NoticePage} />}
-      </Route>
-      <Route path="/saila">
-        {() => <ProtectedRoute component={SailaAI} adminOnly />}
-      </Route>
-      <Route path="/custom-view/:viewId">
-        {() => <ProtectedRoute component={CustomViewPage} />}
-      </Route>
-      <Route path="/webhooks">
-        {() => <ProtectedRoute component={Webhooks} />}
-      </Route>
-      <Route path="/outgoing-webhooks">
-        {() => <ProtectedRoute component={OutgoingWebhooks} adminOnly />}
-      </Route>
-      <Route path="/insta-support">
-        {() => <ProtectedRoute component={InstaSupportPage} />}
-      </Route>
-      <Route path="/attendance">
-        {() => <ProtectedRoute component={Attendance} />}
-      </Route>
-      <Route path="/tasks">
-        {() => <ProtectedRoute component={Tasks} />}
-      </Route>
-      <Route path="/admin">
-        {() => <ProtectedRoute component={Admin} adminOnly />}
-      </Route>
-      <Route path="/leaderboard">
-        {() => <ProtectedRoute component={Leaderboard} />}
-      </Route>
-      <Route path="/my-targets">
-        {() => <ProtectedRoute component={MyTargets} />}
-      </Route>
-      <Route path="/working-target">
-        {() => <ProtectedRoute component={WorkingTarget} />}
-      </Route>
-      <Route path="/super-admin">
-        {() => <ProtectedRoute component={SuperAdmin} />}
-      </Route>
-      <Route component={NotFound} />
-    </Switch>
+    <LazyRouteErrorBoundary>
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          {/* Public routes — login/signup/impersonate stay eager */}
+          <Route path="/login" component={Login} />
+          <Route path="/signup" component={Signup} />
+          <Route path="/impersonate" component={Impersonate} />
+          <Route path="/features" component={LazyFeatures} />
+          <Route path="/help" component={LazyHelp} />
+          <Route path="/guide" component={LazyGuide} />
+          <Route path="/plan" component={LazyPlan} />
+
+          {/* Landing page - public, but redirect if authenticated */}
+          <Route path="/">
+            <AuthenticatedHomeRouter />
+          </Route>
+
+          {/* Protected routes — loaded on demand */}
+          <Route path="/onboarding">
+            {() => <ProtectedRoute component={LazyOnboarding} />}
+          </Route>
+          <Route path="/dashboard">
+            {() => <ProtectedRoute component={LazyDashboard} />}
+          </Route>
+          <Route path="/reports">
+            {() => <ProtectedRoute component={LazyReports} />}
+          </Route>
+          <Route path="/team-performance">
+            {() => <ProtectedRoute component={LazyTeamPerformance} />}
+          </Route>
+          <Route path="/audit">
+            {() => <ProtectedRoute component={LazyAuditLogs} />}
+          </Route>
+          <Route path="/activity-logs">
+            {() => <ProtectedRoute component={LazyActivityLogs} />}
+          </Route>
+          <Route path="/visits">
+            {() => <ProtectedRoute component={LazyVisits} />}
+          </Route>
+          <Route path="/visited">
+            {() => <ProtectedRoute component={LazyVisited} />}
+          </Route>
+          <Route path="/hot-leads">
+            {() => <ProtectedRoute component={LazyHotLeads} />}
+          </Route>
+          <Route path="/watchlist">
+            {() => <ProtectedRoute component={LazyWatchlist} />}
+          </Route>
+          <Route path="/powerscore">
+            {() => <ProtectedRoute component={LazyPowerScore} />}
+          </Route>
+          <Route path="/powerscore/transactions">
+            {() => <ProtectedRoute component={LazyPowerScoreTransactions} adminOnly />}
+          </Route>
+          <Route path="/followup-transactions">
+            {() => <ProtectedRoute component={LazyFollowupTransactions} adminOnly />}
+          </Route>
+          <Route path="/powerflow">
+            {() => <ProtectedRoute component={LazyPowerFlow} />}
+          </Route>
+          <Route path="/vision-board">
+            {() => <ProtectedRoute component={LazyVisionBoard} />}
+          </Route>
+          <Route path="/conversion-settings">
+            {() => <ProtectedRoute component={LazyConversionSettings} adminOnly />}
+          </Route>
+          <Route path="/radar">
+            {() => <ProtectedRoute component={LazyRadar} />}
+          </Route>
+          <Route path="/call-schedule">
+            {() => <ProtectedRoute component={LazyCallSchedule} />}
+          </Route>
+          <Route path="/incoming-messages">
+            {() => <ProtectedRoute component={LazyIncomingMessages} adminOnly />}
+          </Route>
+          <Route path="/work-report-view">
+            {() => <ProtectedRoute component={LazyWorkReportView} />}
+          </Route>
+          <Route path="/notice">
+            {() => <ProtectedRoute component={LazyNoticePage} />}
+          </Route>
+          <Route path="/saila">
+            {() => <ProtectedRoute component={LazySailaAI} adminOnly />}
+          </Route>
+          <Route path="/custom-view/:viewId">
+            {() => <ProtectedRoute component={LazyCustomViewPage} />}
+          </Route>
+          <Route path="/webhooks">
+            {() => <ProtectedRoute component={LazyWebhooks} />}
+          </Route>
+          <Route path="/outgoing-webhooks">
+            {() => <ProtectedRoute component={LazyOutgoingWebhooks} adminOnly />}
+          </Route>
+          <Route path="/insta-support">
+            {() => <ProtectedRoute component={LazyInstaSupportPage} />}
+          </Route>
+          <Route path="/attendance">
+            {() => <ProtectedRoute component={LazyAttendance} />}
+          </Route>
+          <Route path="/tasks">
+            {() => <ProtectedRoute component={LazyTasks} />}
+          </Route>
+          <Route path="/admin">
+            {() => <ProtectedRoute component={LazyAdmin} adminOnly />}
+          </Route>
+          <Route path="/leaderboard">
+            {() => <ProtectedRoute component={LazyLeaderboard} />}
+          </Route>
+          <Route path="/my-targets">
+            {() => <ProtectedRoute component={LazyMyTargets} />}
+          </Route>
+          <Route path="/working-target">
+            {() => <ProtectedRoute component={LazyWorkingTarget} />}
+          </Route>
+          <Route path="/super-admin">
+            {() => <ProtectedRoute component={LazySuperAdmin} />}
+          </Route>
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
+    </LazyRouteErrorBoundary>
   );
 }
 
@@ -376,6 +384,13 @@ function AppLayout() {
   useEffect(() => {
     registerServiceWorker();
   }, []);
+
+  // Warm the default home route chunk while auth resolves or after login.
+  useEffect(() => {
+    if (isAuthenticated) {
+      prefetchVisionBoardPage();
+    }
+  }, [isAuthenticated]);
   
   if (isLoading) {
     return (
