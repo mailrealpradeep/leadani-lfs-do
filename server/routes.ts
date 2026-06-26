@@ -2650,7 +2650,27 @@ ${questionsList}`;
             mergedCustomFields,
             blockedMap
           );
-          
+
+          // Deduplication guard: skip update + log if nothing meaningful changed.
+          // lead_date is excluded from comparison because it is always refreshed to today.
+          // match_reset_status counts as a change only when the value actually differs.
+          const existingFields = existingLead.custom_fields || {};
+          const statusResetChange =
+            webhook.match_reset_status_enabled &&
+            webhook.match_reset_status_value &&
+            existingFields.lead_status !== webhook.match_reset_status_value;
+          const hasMeaningfulChange =
+            statusResetChange ||
+            Object.keys(filteredFields).some((key) => {
+              if (key === "lead_date") return false;
+              return String(filteredFields[key] ?? "") !== String(existingFields[key] ?? "");
+            });
+
+          if (!hasMeaningfulChange) {
+            // Nothing actually changed — treat as no-op to prevent duplicate log entries
+            // (common when external systems retry or poll-push the same payload repeatedly)
+            lead = existingLead;
+          } else {
           const updated = await storage.updateLead(existingLead.id, {
             custom_fields: filteredFields,
             deleted_at: null,
@@ -2671,6 +2691,7 @@ ${questionsList}`;
             remark: `Lead updated via ${sourceLabel}`,
             created_by_user_id: webhook.created_by_user_id,
           });
+          } // end hasMeaningfulChange
           
           // Award PowerScore points for webhook dropdown changes
           if (webhookCompany) {
