@@ -2934,6 +2934,46 @@ ${questionsList}`;
         });
       }
 
+      requestStatus = "success";
+
+      // Build response message based on what happened
+      let message = "Lead created successfully";
+      let action = "created";
+      
+      if (isDuplicate) {
+        if (isUpdateAdded) {
+          action = "update_added";
+          message = isTransferred 
+            ? `Update added to existing lead and transferred to ${webhookCreator.name}`
+            : "Update added to existing lead";
+        } else if (isTransferred) {
+          action = "updated_and_transferred";
+          message = `Lead updated and transferred to ${webhookCreator.name}`;
+        } else {
+          action = "updated";
+          message = "Lead updated successfully";
+        }
+      }
+
+      // ── RESPOND NOW — lead is confirmed in DB, allocation counts updated ──────
+      // 200 is sent here so the form provider gets an immediate acknowledgement
+      // and does not time out or retry. Cloud Run keeps this handler alive until
+      // the function returns, so all post-response work below completes before
+      // the instance idles.
+      res.status(200).json({ 
+        success: true, 
+        lead_id: lead.id,
+        sheet_id: effectiveSheetId,
+        is_duplicate: isDuplicate,
+        is_transferred: isTransferred,
+        is_update_added: isUpdateAdded,
+        action,
+        message
+      });
+      // ── END RESPOND ───────────────────────────────────────────────────────────
+
+      // ── POST-RESPONSE: non-critical work ─────────────────────────────────────
+
       // Emit real-time events for frontend sync
       const io = app.get("io") as SocketIOServer;
       if (isDuplicate) {
@@ -2990,8 +3030,6 @@ ${questionsList}`;
           companyId: webhook.company_id,
         });
       }
-
-      requestStatus = "success";
       
       // Send webhook received notification
       const sheet = await storage.getSheet(effectiveSheetId);
@@ -3005,40 +3043,15 @@ ${questionsList}`;
       ).catch(err => {
         console.error("Failed to send webhook notification:", err);
       });
-      
-      // Build response message based on what happened
-      let message = "Lead created successfully";
-      let action = "created";
-      
-      if (isDuplicate) {
-        if (isUpdateAdded) {
-          action = "update_added";
-          message = isTransferred 
-            ? `Update added to existing lead and transferred to ${webhookCreator.name}`
-            : "Update added to existing lead";
-        } else if (isTransferred) {
-          action = "updated_and_transferred";
-          message = `Lead updated and transferred to ${webhookCreator.name}`;
-        } else {
-          action = "updated";
-          message = "Lead updated successfully";
-        }
-      }
-      
-      res.status(201).json({ 
-        success: true, 
-        lead_id: lead.id,
-        sheet_id: effectiveSheetId,
-        is_duplicate: isDuplicate,
-        is_transferred: isTransferred,
-        is_update_added: isUpdateAdded,
-        action,
-        message
-      });
     } catch (error: any) {
       console.error("Webhook ingestion error:", error);
       errorMessage = error.message;
-      res.status(500).json({ error: errorMessage });
+      // Only send an error response if we haven't already sent the 200 above.
+      // Errors after the lead is written (post-response work) are logged but not
+      // returned to the client — the form provider already got its acknowledgement.
+      if (!res.headersSent) {
+        res.status(500).json({ error: errorMessage });
+      }
     } finally {
       // Log webhook request regardless of success or failure (unless already logged)
       if (webhook && !alreadyLogged) {
