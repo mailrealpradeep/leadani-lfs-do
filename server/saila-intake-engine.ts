@@ -161,7 +161,7 @@ export async function isAnswerRelevant(
       method: "POST",
       headers: { "api-subscription-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "sarvam-m",
+        model: "sarvam-30b",
         messages: [
           { role: "system", content: sysPrompt },
           { role: "user", content: userPrompt },

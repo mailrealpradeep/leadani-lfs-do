@@ -1167,7 +1167,7 @@ ${questionsList}`;
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "sarvam-m",
+          model: "sarvam-30b",
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: `Find the most relevant FAQ entries for this question: "${query.trim()}"` }
@@ -4394,7 +4394,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'sarvam-m',
+            model: 'sarvam-30b',
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }

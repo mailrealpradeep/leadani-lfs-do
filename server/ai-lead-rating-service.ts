@@ -143,7 +143,7 @@ Rate this lead's quality from 1 (poor) to 5 (hot).`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'sarvam-m',
+        model: 'sarvam-30b',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },

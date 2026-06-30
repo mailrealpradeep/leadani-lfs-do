@@ -262,7 +262,7 @@ async function callSarvamLLM(
         "Authorization": `Bearer ${config.sarvam_api_key}`,
       },
       body: JSON.stringify({
-        model: "sarvam-m",
+        model: "sarvam-30b",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: messageText },

@@ -449,7 +449,7 @@ async function callSarvamAI(systemPrompt: string, userPrompt: string, apiKey: st
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'sarvam-m',
+        model: 'sarvam-30b',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
