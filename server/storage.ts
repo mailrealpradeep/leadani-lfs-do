@@ -550,6 +550,7 @@ export interface IStorage {
   getWebhookRequestsByCompanyId(companyId: string): Promise<WebhookRequest[]>;
   getWebhookRequest(id: string): Promise<WebhookRequest | undefined>;
   createWebhookRequest(request: InsertWebhookRequest): Promise<WebhookRequest>;
+  createWebhookRequestIdempotent(request: InsertWebhookRequest): Promise<{ created: boolean; requestId: string }>;
   updateWebhookRequest(id: string, updates: Partial<WebhookRequest>): Promise<WebhookRequest | undefined>;
   deleteWebhookRequests(ids: string[], webhookId: string): Promise<number>;
 
@@ -6144,6 +6145,24 @@ export class PgStorage implements IStorage {
     };
     await db.insert(dbSchema.webhook_requests).values(newRequest);
     return this.mapWebhookRequest(newRequest as any);
+  }
+
+  async createWebhookRequestIdempotent(request: InsertWebhookRequest): Promise<{ created: boolean; requestId: string }> {
+    const id = randomUUID();
+    const now = new Date();
+    const newRequest = {
+      id,
+      ...request,
+      created_at: now,
+    };
+    const result = await db.insert(dbSchema.webhook_requests)
+      .values(newRequest)
+      .onConflictDoNothing()
+      .returning({ id: dbSchema.webhook_requests.id });
+    if (result.length === 0) {
+      return { created: false, requestId: '' };
+    }
+    return { created: true, requestId: result[0].id };
   }
 
   async getWebhookRequest(id: string): Promise<WebhookRequest | undefined> {

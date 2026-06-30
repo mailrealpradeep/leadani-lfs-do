@@ -1321,6 +1321,7 @@ export const webhook_allocation_rules = pgTable('webhook_allocation_rules', {
 export const webhook_requests = pgTable('webhook_requests', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   webhook_id: varchar('webhook_id').notNull().references(() => company_webhooks.id, { onDelete: 'cascade' }),
+  submission_id: varchar('submission_id'),
   payload: json('payload').$type<Record<string, any>>().default({}).notNull(),
   headers: json('headers').$type<Record<string, any>>().default({}).notNull(),
   status: varchar('status', { length: 50 }).notNull(),
@@ -1328,7 +1329,9 @@ export const webhook_requests = pgTable('webhook_requests', {
   lead_id: varchar('lead_id').references(() => leads.id, { onDelete: 'set null' }),
   allocated_sheet_id: varchar('allocated_sheet_id').references(() => sheets.id, { onDelete: 'set null' }),
   created_at: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex('webhook_requests_submission_idx').on(t.webhook_id, t.submission_id).where(sql`submission_id IS NOT NULL`),
+]);
 // ============================================================================
 // WEBHOOK MANAGEMENT TYPES
 // ============================================================================

@@ -1800,6 +1800,7 @@ ${questionsList}`;
     let createdLeadId: string | null = null;
     let targetSheetId: string | null = null;
     let alreadyLogged = false; // Track if we've already logged this request
+    let preLoggedRequestId: string | null = null; // ID of idempotent pre-logged record
 
     try {
       // Find webhook by token
@@ -2004,6 +2005,32 @@ ${questionsList}`;
           
           return res.status(200).json({ success: true, message: "Webhook received" });
         }
+      }
+
+      // Idempotency guard: if the payload contains a submissionId (e.g. Paperform), use
+      // a DB-level unique insert to block concurrent/repeated deliveries of the same submission.
+      // The unique partial index on (webhook_id, submission_id) guarantees only one request
+      // gets through even when multiple arrive within milliseconds of each other.
+      const submissionId = typeof req.body?.submissionId === 'string' && req.body.submissionId
+        ? req.body.submissionId as string
+        : null;
+      if (submissionId) {
+        const { created, requestId: idempotentReqId } = await storage.createWebhookRequestIdempotent({
+          webhook_id: webhook.id,
+          submission_id: submissionId,
+          status: "processing",
+          payload: req.body,
+          headers: req.headers as any,
+          error_message: null,
+          lead_id: null,
+          allocated_sheet_id: null,
+        });
+        if (!created) {
+          console.log(`[Webhook] Duplicate submissionId blocked: ${submissionId} for webhook ${webhook.id}`);
+          return res.status(200).json({ success: true, duplicate_submission: true, message: "Duplicate submission ignored" });
+        }
+        alreadyLogged = true;
+        preLoggedRequestId = idempotentReqId;
       }
 
       // Get field mappings and allocation rules
@@ -3027,6 +3054,18 @@ ${questionsList}`;
           });
         } catch (logError: any) {
           console.error("Failed to log webhook request:", logError);
+        }
+      } else if (webhook && preLoggedRequestId) {
+        // Update the pre-logged idempotent record with the final outcome
+        try {
+          await storage.updateWebhookRequest(preLoggedRequestId, {
+            status: requestStatus,
+            error_message: errorMessage,
+            lead_id: createdLeadId,
+            allocated_sheet_id: targetSheetId || null,
+          });
+        } catch (logError: any) {
+          console.error("Failed to update pre-logged webhook request:", logError);
         }
       }
     }
