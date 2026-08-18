@@ -37,41 +37,42 @@ A production-ready multi-user spreadsheet-like lead management system with custo
 ### Backend
 - **Node.js + Express** - Fast, unopinionated server framework
 - **TypeScript** - End-to-end type safety
-- **MemStorage** - In-memory data storage (easily swappable to PostgreSQL)
+- **PostgreSQL + Drizzle ORM** - Persistent storage (standard `pg` driver; falls back to in-memory MemStorage in dev/tests when DATABASE_URL is unset)
 - **Socket.io** - Realtime server
 - **bcryptjs** - Secure password hashing
 - **jsonwebtoken** - JWT authentication
 - **XLSX** - Excel export functionality
 - **Express Rate Limit** - API rate limiting
 
-## 📦 Getting Started on Replit
+## 📦 Getting Started
 
-### Step 1: Clone and Open
-1. Import this repository to Replit
-2. Replit will automatically detect the project configuration
-
-### Step 2: Set Environment Variables
-Click the "Secrets" tab (🔒 icon) in Replit and add:
+### Step 1: Configure Environment
+Copy `.env.example` and fill in real values — it documents every variable
+(database, secrets, storage driver, Google Sheets backup, etc.). At minimum set:
 
 ```
+DATABASE_URL=postgresql://...
 JWT_SECRET=your-secure-random-string-here
 HMAC_SECRET=your-webhook-secret-here
-SESSION_SECRET=your-session-secret-here
 ```
 
-**Generate secure secrets** using this command in the Shell:
+**Generate secure secrets** with:
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-### Step 3: Run the Application
-Click the **Run** button in Replit. The application will:
-- Install dependencies automatically
-- Seed the database with sample data
-- Start both frontend and backend servers
-- Open at `https://your-repl-name.your-username.repl.co`
+On Replit, set these in the Secrets tab (🔒). For Docker/Coolify, see the
+`Dockerfile` header and `docker-compose.yml`.
 
-### Step 4: First Login
+### Step 2: Run the Application
+```bash
+npm install
+npm run dev        # development (port 5000)
+# or
+npm run build && npm start   # production
+```
+
+### Step 3: First Login
 Use one of these pre-seeded accounts:
 
 **Admin Account:**
@@ -256,7 +257,7 @@ Authorization: Bearer <token>
 
 ### Step 1: Get Your Webhook URL
 ```
-https://your-app-url.repl.co/api/webhooks/leads
+https://your-app-domain.com/api/webhooks/leads
 ```
 
 ### Step 2: Configure External Service
@@ -270,7 +271,7 @@ X-API-KEY: your-webhook-hmac-secret-here
 
 ### Step 4: Test with cURL
 ```bash
-curl -X POST https://your-app-url.repl.co/api/webhooks/leads \
+curl -X POST https://your-app-domain.com/api/webhooks/leads \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: your-hmac-secret" \
   -d '{
@@ -388,15 +389,8 @@ If you send a dropdown value (lang, occupation, qualification, lead_status, visi
 
 **Migration Path**: For production with PostgreSQL, consider JSONB columns (indexed) or implement proper migrations for frequently-queried custom columns.
 
-### In-Memory Storage
-**Current**: MemStorage class with Map-based storage
-**Production**: Easily swap to PostgreSQL by implementing IStorage interface with Drizzle ORM
-
-**Migration Steps**:
-1. Set up PostgreSQL database
-2. Create database schema matching TypeScript interfaces
-3. Implement PgStorage class with same IStorage interface
-4. Swap `storage` export in server/storage.ts
+### Storage
+**Current**: `PgStorage` (PostgreSQL via Drizzle ORM + `pg`) whenever `DATABASE_URL` is set; `MemStorage` (Map-based, in-memory) is used only in dev/tests without a database. Production refuses to start without `DATABASE_URL`.
 5. No changes needed to routes or frontend
 
 ## 🚀 Future Improvements
