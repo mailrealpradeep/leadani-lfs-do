@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { storage } from "../storage";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
+import { JWT_SECRET } from "../config";
 
 export interface AuthRequest extends Request {
   userId?: string;

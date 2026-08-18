@@ -30,7 +30,7 @@ let token: string;
 let db: Client;
 
 test.beforeAll(async () => {
-  db = new Client({ connectionString: DATABASE_URL });
+  db = new Client({ connectionString: DATABASE_URL }) // TLS comes from sslmode in the URL (DO: sslmode=require);
   await db.connect();
 
   const passwordHash = await bcrypt.hash(USER_PASSWORD, 10);

@@ -5,7 +5,7 @@ import { storage } from "../storage";
 import { ObjectStorage } from "../objectStorage";
 
 const objectStorage = new ObjectStorage();
-const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
+import { JWT_SECRET } from "../config";
 
 export function registerNoticeRoutes(app: Express): void {
   // GET /api/notice — fetch metadata for the company's current notice (all authenticated users)

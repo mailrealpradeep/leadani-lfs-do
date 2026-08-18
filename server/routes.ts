@@ -83,12 +83,13 @@ import { processPendingWhatsAppMessages } from "./whatsapp-processor";
 import { registerSailaRoutes } from "./routes/saila-routes";
 import { registerWhatsAppCloudRoutes } from "./routes/whatsapp-cloud-routes";
 import { registerNoticeRoutes } from "./routes/notice-routes";
-import { db } from "./db";
+import { registerFileRoutes } from "./routes/file-routes";
+import { db, pool } from "./db";
 import { activity_logs } from "@shared/schema";
 import * as dbSchema from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, isNotNull, isNull, desc, sql, or } from "drizzle-orm";
 
-const HMAC_SECRET = process.env.HMAC_SECRET || "dabluz-webhook-secret-change-in-production";
+import { JWT_SECRET, HMAC_SECRET, FRONTEND_URL } from "./config";
 
 // Fixed dropdown columns that always exist regardless of custom_columns table
 // These are system-level dropdown fields that should always trigger PowerScore rules
@@ -849,7 +850,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || "*",
+      origin: FRONTEND_URL || "*",
       credentials: true,
     },
   });
@@ -857,12 +858,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Set socket io instance for global access (for PowerScore celebrations etc.)
   setSocketIO(io);
 
-  // Bootstrap: Ensure Super Admin account exists on startup
-  const SUPER_ADMIN_EMAIL_BOOTSTRAP = "adminleadani@leadani.com";
-  const SUPER_ADMIN_PASSWORD = "thleadani";
+  // Bootstrap: Ensure Super Admin account exists on startup.
+  // Credentials come from env; when unset, bootstrap is skipped (the account
+  // already exists in any environment restored from a real database).
+  const SUPER_ADMIN_EMAIL_BOOTSTRAP = process.env.SUPER_ADMIN_EMAIL || "";
+  const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || "";
   const SUPER_ADMIN_NAME = "Super Admin";
   
-  try {
+  if (!SUPER_ADMIN_EMAIL_BOOTSTRAP || !SUPER_ADMIN_PASSWORD) {
+    console.log("[bootstrap] SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD not set — skipping super-admin bootstrap");
+  } else try {
     const existingAdmin = await storage.getUserByEmail(SUPER_ADMIN_EMAIL_BOOTSTRAP);
     if (!existingAdmin) {
       console.log("Creating Super Admin account...");
@@ -914,18 +919,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create performance indexes on leads table (idempotent)
   if (process.env.DATABASE_URL) {
     try {
-      const { Pool: NeonPool, neonConfig: nc } = await import("@neondatabase/serverless");
-      const wsLib = await import("ws");
-      nc.webSocketConstructor = wsLib.default;
-      const idxPool = new NeonPool({ connectionString: process.env.DATABASE_URL });
-      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_id ON leads(sheet_id)`);
-      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_active ON leads(sheet_id) WHERE deleted_at IS NULL`);
-      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_leads_owner ON leads(owner_user_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_id ON leads(sheet_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_active ON leads(sheet_id) WHERE deleted_at IS NULL`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_owner ON leads(owner_user_id)`);
       // PowerScore transaction indexes for leaderboard + stats queries
-      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_pst_company_created ON powerscore_transactions(company_id, created_at)`);
-      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_pst_user_created ON powerscore_transactions(user_id, created_at)`);
-      await idxPool.query(`CREATE INDEX IF NOT EXISTS idx_pst_voided_by ON powerscore_transactions(voided_by_transaction_id) WHERE voided_by_transaction_id IS NOT NULL`);
-      await idxPool.end();
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_company_created ON powerscore_transactions(company_id, created_at)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_user_created ON powerscore_transactions(user_id, created_at)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_voided_by ON powerscore_transactions(voided_by_transaction_id) WHERE voided_by_transaction_id IS NOT NULL`);
       console.log("[Perf] Lead indexes verified/created");
     } catch (error) {
       console.error("[Perf] Failed to create lead indexes:", error);
@@ -988,7 +988,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const token = socket.handshake.auth.token;
     if (token) {
       try {
-        const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
         const decoded = jwt.verify(token, JWT_SECRET) as any;
         const userId = decoded.userId;
         const userCompanyId = decoded.companyId;
@@ -1026,7 +1025,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Verify JWT and decode user info
         let decoded: any;
         try {
-          const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
           decoded = jwt.verify(token, JWT_SECRET) as any;
         } catch (error) {
           console.warn(`Socket ${socket.id} has invalid JWT token - REJECTED`);
@@ -18997,7 +18995,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // ============================================================================
   // SUPER ADMIN PANEL
   // ============================================================================
-  const SUPER_ADMIN_EMAIL = "adminleadani@leadani.com";
+  const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || "adminleadani@leadani.com";
   
   // Middleware to check if user is the super admin by email
   const requireSuperAdminByEmail = async (req: AuthRequest, res: any, next: any) => {
@@ -27733,6 +27731,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   const { registerSailaBroadcastRoutes } = await import("./routes/saila-broadcast-routes");
   registerSailaBroadcastRoutes(app);
   registerNoticeRoutes(app);
+  registerFileRoutes(app);
 
   // ============================================================================
   // BACKUP SCHEDULER (Hourly Google Sheets Sync)

@@ -9,6 +9,7 @@ export default defineConfig({
   schema: "./shared/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
+    // For DO Managed Postgres the URL must carry sslmode=require.
     url: process.env.DATABASE_URL,
   },
 });

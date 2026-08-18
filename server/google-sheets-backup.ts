@@ -5,10 +5,42 @@ import { google } from 'googleapis';
 import { getCompanyTimezone, formatDateForSheet as formatDateWithTimezone } from "./timezone-utils";
 
 // ============================================================================
-// Google Sheets API Client (using Replit Google Sheets Integration)
+// Google Sheets API Client
+//
+// Two auth providers, chosen at runtime:
+//   1. Google service account — portable, used when GOOGLE_SERVICE_ACCOUNT_JSON
+//      is set. Spreadsheets must be shared (Editor) with the service account
+//      email for backups to work.
+//   2. Replit Google Sheets connector — legacy fallback, only works on Replit.
 // ============================================================================
 
+import { GOOGLE_SERVICE_ACCOUNT_JSON } from "./config";
+
 let connectionSettings: any;
+
+let serviceAccountAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
+let serviceAccountEmail: string | null = null;
+
+function parseServiceAccountCredentials(): any {
+  const raw = GOOGLE_SERVICE_ACCOUNT_JSON.trim();
+  // Accept raw JSON or base64-encoded JSON (easier to paste into env UIs)
+  const text = raw.startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8");
+  return JSON.parse(text);
+}
+
+// Cached is fine here: GoogleAuth refreshes service-account tokens itself.
+function getServiceAccountAuth() {
+  if (!serviceAccountAuth) {
+    const credentials = parseServiceAccountCredentials();
+    serviceAccountEmail = credentials.client_email || null;
+    serviceAccountAuth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+    console.log(`[Google Sheets] Using service account auth (${serviceAccountEmail})`);
+  }
+  return serviceAccountAuth;
+}
 
 async function getAccessToken(): Promise<string> {
   // Check if we have a valid cached token
@@ -59,8 +91,13 @@ async function getAccessToken(): Promise<string> {
   return accessToken;
 }
 
-// WARNING: Never cache this client - access tokens expire
+// WARNING (connector path): never cache the OAuth2 client - access tokens expire
 async function getGoogleSheetsClient() {
+  if (GOOGLE_SERVICE_ACCOUNT_JSON) {
+    // Cast: googleapis' Options type wants GoogleAuth<JSONClient>; the runtime accepts any GoogleAuth
+    return google.sheets({ version: 'v4', auth: getServiceAccountAuth() as any });
+  }
+
   const accessToken = await getAccessToken();
   
   const oauth2Client = new google.auth.OAuth2();
@@ -73,6 +110,15 @@ async function getGoogleSheetsClient() {
 
 // Get connected account email for debugging
 export async function getConnectedAccountEmail(): Promise<string | null> {
+  if (GOOGLE_SERVICE_ACCOUNT_JSON) {
+    try {
+      getServiceAccountAuth();
+      return serviceAccountEmail;
+    } catch (error) {
+      console.error('[Google Sheets] Invalid GOOGLE_SERVICE_ACCOUNT_JSON:', error);
+      return null;
+    }
+  }
   try {
     const accessToken = await getAccessToken();
     const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {

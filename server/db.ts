@@ -1,14 +1,14 @@
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import ws from 'ws';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pg from 'pg';
 import * as schema from '@shared/schema';
+import { DATABASE_URL, DB_POOL_MAX, DB_SSL } from './config';
 
-// Configure WebSocket for local development
-neonConfig.webSocketConstructor = ws;
+const pool = new pg.Pool({
+  connectionString: DATABASE_URL,
+  max: DB_POOL_MAX,
+  ...(DB_SSL ? { ssl: DB_SSL } : {}),
+});
 
-const connectionString = process.env.DATABASE_URL!;
-
-const pool = new Pool({ connectionString, max: 30 });
 export const db = drizzle(pool, { schema });
 
 // Export pool for raw SQL queries

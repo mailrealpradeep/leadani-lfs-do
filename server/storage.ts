@@ -4046,7 +4046,7 @@ import { eq, and, or, desc, asc, isNull, isNotNull, inArray, notInArray, gte, lt
 import * as dbSchema from "@shared/schema";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dabluz-crm-secret-key-change-in-production";
+import { JWT_SECRET, IS_PRODUCTION } from "./config";
 
 function generateToken(userId: string, role: string, companyId: string | null): string {
   return jwt.sign({ userId, role, companyId }, JWT_SECRET, { expiresIn: "7d" });
@@ -13582,4 +13582,12 @@ export class PgStorage implements IStorage {
 }
 
 // Use PostgreSQL storage if DATABASE_URL is available, otherwise use in-memory
-export const storage = process.env.DATABASE_URL ? new PgStorage() : new MemStorage();
+export const storage = process.env.DATABASE_URL
+  ? new PgStorage()
+  : (() => {
+      if (IS_PRODUCTION) {
+        throw new Error("DATABASE_URL is required in production — refusing to start with the in-memory store.");
+      }
+      console.warn("[storage] DATABASE_URL not set — using in-memory storage (dev/test only)");
+      return new MemStorage();
+    })();

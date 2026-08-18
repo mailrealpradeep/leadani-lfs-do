@@ -121,7 +121,6 @@ export default async function runApp(
     server.listen({
       port,
       host: "0.0.0.0",
-      reusePort: true,
     }, () => {
       log(`Server is ready and listening on 0.0.0.0:${port}`);
       
