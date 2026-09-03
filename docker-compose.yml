@@ -4,11 +4,14 @@ services:
     ports:
       - "5000:5000"
     environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-5000}
       DATABASE_URL: ${DATABASE_URL}
+      DATABASE_CA_CERT: ${DATABASE_CA_CERT}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
       JWT_SECRET: ${JWT_SECRET}
       HMAC_SECRET: ${HMAC_SECRET}
       FRONTEND_URL: ${FRONTEND_URL}
-      DB_POOL_MAX: ${DB_POOL_MAX:-10}
       SARVAM_API_KEY: ${SARVAM_API_KEY}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
@@ -21,4 +24,8 @@ services:
       S3_BUCKET: ${S3_BUCKET}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
     restart: unless-stopped
+    # Must exceed SHUTDOWN_TIMEOUT_MS in server/shutdown.ts (20s) or Docker
+    # SIGKILLs the process mid-drain. Set the same value in Coolify.
+    stop_grace_period: 30s

@@ -8,3 +8,18 @@ replit.nix
 .local
 .upm
 attached_assets
+
+# Never bake local secrets or uploaded files into the image. With
+# STORAGE_DRIVER=s3 the container writes nothing to disk; with the local
+# driver these would be a stale copy that masks a misconfiguration.
+.env
+.env.*
+!.env.example
+uploads
+
+# Test tooling has no place in the build context.
+e2e
+playwright.config.ts
+test-results
+playwright-report
+playwright
