@@ -8,8 +8,10 @@ import express, {
 } from "express";
 
 import { registerRoutes } from "./routes";
-import { startSnapshotScheduler } from "./snapshot-scheduler";
-import { startSailaIntakeScheduler } from "./saila-intake-scheduler";
+import { registerShutdown } from "./shutdown";
+import { stopBackupScheduler } from "./google-sheets-backup";
+import { startSnapshotScheduler, stopSnapshotScheduler } from "./snapshot-scheduler";
+import { startSailaIntakeScheduler, stopSailaIntakeScheduler } from "./saila-intake-scheduler";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -24,9 +26,14 @@ export function log(message: string, source = "express") {
 
 export const app = express();
 
-// Enable trust proxy for Replit deployment and rate limiting
-// This is required for express-rate-limit to work correctly
-app.set('trust proxy', true);
+// Trust exactly one proxy hop (Coolify/Traefik, or any single reverse proxy in
+// front of the app). Required for express-rate-limit to see real client IPs.
+// 'true' would trust the leftmost X-Forwarded-For entry, which is
+// client-supplied — that makes req.ip spoofable and lets anyone walk around the
+// rate limiters. Verify after a hosting change: log req.ip from a known
+// external IP and confirm it is not the proxy's internal address. Behind two
+// hops (e.g. Cloudflare in front of Traefik) this becomes 2.
+app.set('trust proxy', 1);
 
 // CRITICAL: Register health check FIRST, before any other middleware or routes
 // This ensures Autoscale deployments can verify the app is running immediately
@@ -44,12 +51,26 @@ declare module 'http' {
     rawBody: unknown
   }
 }
-app.use(express.json({
+const jsonParser = express.json({
   limit: '15mb',
   verify: (req, _res, buf) => {
     req.rawBody = buf;
   }
-}));
+});
+
+// Notice PDF uploads arrive as base64 JSON and need a larger ceiling. Skip the
+// global parser for that one route so the 30mb parser registered on it in
+// server/routes/notice-routes.ts can actually run — body-parser short-circuits
+// on req._body, so whichever parser runs first wins, and this one is registered
+// at import time, long before the routes are. Raising the limit globally
+// instead would let every endpoint buffer 30mb, which at one replica is an OOM
+// vector. (/api/notice does not need rawBody; that is only read by the webhook
+// signature check.)
+app.use((req, res, next) =>
+  req.method === 'POST' && req.path === '/api/notice'
+    ? next()
+    : jsonParser(req, res, next),
+);
 app.use(express.urlencoded({ extended: false, limit: '15mb' }));
 
 app.use('/api', (_req, res, next) => {
@@ -124,6 +145,14 @@ export default async function runApp(
     }, () => {
       log(`Server is ready and listening on 0.0.0.0:${port}`);
       
+      // Registered here, not before listen(), so the drain never runs against
+      // a server that was never listening.
+      registerShutdown(server, app.get("io") ?? null, [
+        stopSnapshotScheduler,
+        stopSailaIntakeScheduler,
+        stopBackupScheduler,
+      ]);
+
       startSnapshotScheduler();
       startSailaIntakeScheduler();
       // Broadcast crash recovery: any 'running' broadcast from before this

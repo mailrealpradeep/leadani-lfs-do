@@ -74,6 +74,7 @@ import {
   performRestore,
   startBackupScheduler,
 } from "./google-sheets-backup";
+import { managedInterval } from "./shutdown";
 import { extractGoogleSheetId } from "@shared/schema";
 import { awardLeadUpdatePoints, awardLoginBonus, awardLeadCreatedPoints, checkAndCancelReversedApprovals, checkPointsToReverse, reverseLeadUpdatePoints, getScoreDate } from "./powerscore-service";
 import { recordFollowupAndAwardPoints, detectFollowupEventTypes } from "./followup-service";
@@ -797,8 +798,6 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   // Skip successful requests - only count failed login attempts
   skipSuccessfulRequests: true,
-  // Disable validation to avoid trust proxy warning in Replit environment
-  validate: { trustProxy: false },
 });
 
 const webhookLimiter = rateLimit({
@@ -807,7 +806,6 @@ const webhookLimiter = rateLimit({
   message: { error: "Too many webhook requests, please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { trustProxy: false },
 });
 
 const signupLimiter = rateLimit({
@@ -816,7 +814,6 @@ const signupLimiter = rateLimit({
   message: { error: "Too many signup attempts, please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { trustProxy: false },
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -19447,7 +19444,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   const impersonationCodes = new Map<string, { token: string; user: any; company: any; expires: number }>();
   
   // Clean up expired codes periodically
-  setInterval(() => {
+  managedInterval(() => {
     const now = Date.now();
     for (const [code, data] of impersonationCodes) {
       if (data.expires < now) {
@@ -21314,7 +21311,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         email: email,
         message: email 
           ? `Connected as ${email}. Share your Google Sheet with this email.` 
-          : 'Google Sheets not connected. Please connect in Replit settings.'
+          : 'Google Sheets is not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON (raw JSON or base64 of the service-account key) and share each backup spreadsheet with the service account address as Editor.'
       });
     } catch (error: any) {
       console.error("Get Google account error:", error);
@@ -27524,7 +27521,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
   // Schedule daily cleanup (every 24 hours)
   const cleanupInterval = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-  setInterval(async () => {
+  managedInterval(async () => {
     try {
       console.log('[Cleanup] Running scheduled cleanup of deleted leads older than 30 days...');
       const count = await storage.cleanupOldDeletedLeads();
@@ -27549,7 +27546,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   })();
 
   // Schedule daily selfie cleanup
-  setInterval(async () => {
+  managedInterval(async () => {
     try {
       console.log('[Cleanup] Running scheduled cleanup of selfie URLs older than 45 days...');
       const count = await storage.cleanupOldSelfieUrls(45);
