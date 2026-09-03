@@ -76,7 +76,9 @@ JWT-based authentication with role and sheet-level permissions, HMAC signature v
 
 ### Required Services
 
-*   **Database**: PostgreSQL (Neon-backed).
+*   **Database**: PostgreSQL, via the standard `pg` driver (see `server/db.ts`).
+    Any managed Postgres works; DigitalOcean Managed Postgres is the migration
+    target — use its *direct* connection string, not the pooler.
 
 ### Third-Party Libraries
 

@@ -86,7 +86,7 @@ Use one of these pre-seeded accounts:
 ## 🏃 Running Locally
 
 ### Prerequisites
-- Node.js 18+ installed
+- Node.js 20+ installed (the Dockerfile pins node:20-alpine)
 - npm or yarn package manager
 
 ### Installation
@@ -422,8 +422,9 @@ If you send a dropdown value (lang, occupation, qualification, lead_status, visi
 ## 🐛 Troubleshooting
 
 ### Application won't start
-- Check that all environment variables are set in Replit Secrets
-- Ensure Node.js 18+ is being used
+- Check that all environment variables are set (Replit Secrets, or the
+  environment-variable panel of whatever host you are on — see `.env.example`)
+- Ensure Node.js 20+ is being used
 - Check Console for error messages
 
 ### Can't login
