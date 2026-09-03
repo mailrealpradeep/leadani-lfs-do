@@ -56,12 +56,12 @@ async function getAccessToken(): Promise<string> {
     ? 'depl ' + process.env.WEB_REPL_RENEWAL 
     : null;
 
-  if (!xReplitToken) {
-    throw new Error('Google Sheets integration not available: Missing Replit token');
-  }
-
-  if (!hostname) {
-    throw new Error('Google Sheets integration not available: Missing connector hostname');
+  if (!xReplitToken || !hostname) {
+    // No service account configured and no Replit connector available — on any
+    // host other than Replit this is always the former.
+    throw new Error(
+      'Google Sheets is not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON (raw JSON or base64 of the service-account key) and share each backup spreadsheet with the service account address as Editor.',
+    );
   }
 
   const response = await fetch(
@@ -85,7 +85,9 @@ async function getAccessToken(): Promise<string> {
                       connectionSettings?.settings?.oauth?.credentials?.access_token;
 
   if (!connectionSettings || !accessToken) {
-    throw new Error('Google Sheets not connected. Please connect your Google account in Replit.');
+    throw new Error(
+      'Google Sheets is not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON (raw JSON or base64 of the service-account key) and share each backup spreadsheet with the service account address as Editor.',
+    );
   }
   
   return accessToken;

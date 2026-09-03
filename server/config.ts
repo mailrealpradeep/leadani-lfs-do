@@ -80,6 +80,14 @@ export const S3_ACCESS_KEY_ID = process.env.S3_ACCESS_KEY_ID || "";
 export const S3_SECRET_ACCESS_KEY = process.env.S3_SECRET_ACCESS_KEY || "";
 export const S3_FORCE_PATH_STYLE = process.env.S3_FORCE_PATH_STYLE === "true";
 
+if (IS_PRODUCTION && STORAGE_DRIVER === "local") {
+  console.error(
+    "[config] STORAGE_DRIVER=local in production — uploaded files are written to " +
+      "the container filesystem and are LOST on every redeploy. Set STORAGE_DRIVER=s3 " +
+      "with the S3_* variables, or mount a persistent volume at ./uploads.",
+  );
+}
+
 if (STORAGE_DRIVER === "s3") {
   const missing = [
     ["S3_ENDPOINT", S3_ENDPOINT],
@@ -100,6 +108,15 @@ if (STORAGE_DRIVER === "s3") {
 // ---------------------------------------------------------------------------
 
 export const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
+
+if (IS_PRODUCTION && !GOOGLE_SERVICE_ACCOUNT_JSON) {
+  console.error(
+    "[config] GOOGLE_SERVICE_ACCOUNT_JSON is not set — the hourly Google Sheets " +
+      "backup will fail on every run outside Replit. Set it to the service-account " +
+      "key (raw JSON or base64) and share each backup spreadsheet with that " +
+      "account as Editor.",
+  );
+}
 
 if (IS_PRODUCTION && !FRONTEND_URL) {
   // TODO(do-migration): set FRONTEND_URL to the app's public URL, then make
