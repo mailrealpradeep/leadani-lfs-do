@@ -1,6 +1,7 @@
 // Saila Intake — 1-minute background tick for silence timeouts / fallback prompts / abandonment.
 
 import { tickAllActiveSessions } from "./saila-intake-engine";
+import { managedTimeout } from "./shutdown";
 
 let started = false;
 let timer: NodeJS.Timeout | null = null;
@@ -14,7 +15,7 @@ export function startSailaIntakeScheduler(): void {
   // skips a tick if a previous one is still running.
   const intervalMs = 15_000;
   console.log("[Saila Intake] Starting tick scheduler (15-second interval)");
-  setTimeout(runOnce, 5_000);
+  managedTimeout(runOnce, 5_000);
   timer = setInterval(runOnce, intervalMs);
 }
 

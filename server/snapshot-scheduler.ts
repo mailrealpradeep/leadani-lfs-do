@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { managedTimeout } from "./shutdown";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 
@@ -100,7 +101,7 @@ export function startSnapshotScheduler(): void {
   
   // Delay initial snapshot by 2 minutes to let the server stabilise
   // and avoid memory spikes immediately after startup
-  setTimeout(() => {
+  managedTimeout(() => {
     runSnapshotCycle().then(() => {
       cleanupOldSnapshots();
     });
