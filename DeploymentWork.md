@@ -336,7 +336,7 @@ Enter these in Coolify → your app → **Environment Variables**. Mark the secr
 |---|---|
 | `NODE_ENV` | Literal: `production` |
 | `PORT` | Literal: `5000` |
-| `DATABASE_URL` 🔒 | DO panel → **Databases** → your cluster → **Connection details** → pick your dedicated database (not `defaultdb`) → **Connection string**, and choose the **direct/public connection, NOT the connection pooler** (Saila's advisory locks break through a pooler — see A2). Must end `?sslmode=require`. |
+| `DATABASE_URL` 🔒 | DO panel → **Databases** → your cluster → **Connection details** → pick your dedicated database (not `defaultdb`) → **Connection string**, and choose the **direct/public connection, NOT the connection pooler** (Saila's advisory locks break through a pooler — see A2). Must end `?sslmode=require`. Note: under node-postgres, `sslmode=require` verifies the cert against public CAs, which DO's self-signed project CA fails — so also set `DATABASE_CA_CERT` (below), or use `sslmode=no-verify` to skip verification. |
 | `DB_POOL_MAX` | Literal: `5` — the cluster is shared with two other apps against a ~22 backend limit (A2). |
 | `FRONTEND_URL` | You write it: `https://test.<your-domain>` on Stage A → change to `https://<your-domain>` at B5. |
 | `JWT_SECRET` 🔒 | Replit → your Repl → **Tools → Secrets**. **If it's not there** (expected — the current deployment runs on the built-in fallback, per the note in `server/config.ts`), set it to the fallback verbatim: `dabluz-crm-secret-key-change-in-production`. That keeps every existing login working. Rotate after the soak week, never at cutover. |
