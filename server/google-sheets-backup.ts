@@ -15,6 +15,7 @@ import { getCompanyTimezone, formatDateForSheet as formatDateWithTimezone } from
 // ============================================================================
 
 import { GOOGLE_SERVICE_ACCOUNT_JSON } from "./config";
+import { outboundSuppressed } from "./outbound";
 
 let connectionSettings: any;
 
@@ -388,6 +389,12 @@ export async function generateBackupCSV(
 export async function syncToGoogleSheets(
   backupConfig: BackupConfigRecord
 ): Promise<GoogleSheetsBackupResult> {
+  // Guard before the sync-log insert, so a suppressed deployment leaves no
+  // trace in backup_sync_logs that would read as a real backup attempt.
+  if (outboundSuppressed("google-sheets", backupConfig.google_sheet_url)) {
+    return { success: false, error: "Outbound integrations are disabled on this deployment" };
+  }
+
   const syncLog = await storage.createBackupSyncLog({
     backup_config_id: backupConfig.id,
     sync_type: 'automatic',

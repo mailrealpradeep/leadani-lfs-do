@@ -3,7 +3,7 @@
 Follow the parts **in order**. Each step says **where** to do it. Don't skip the
 checkmarks — they keep the migration safe.
 
-Two rules that override everything else in this document:
+Three rules that override everything else in this document:
 
 > **Never run `npm run db:push` against the DigitalOcean database before the
 > restore.** It would create all 120 tables, and then `pg_restore` fails
@@ -12,6 +12,21 @@ Two rules that override everything else in this document:
 > **Never change `JWT_SECRET`, `HMAC_SECRET`, or the `VAPID_*` keys as part of
 > the move.** Copy them across byte-for-byte. Rotating them is a separate,
 > announced change (Part 6).
+
+> **Never start the app between restoring the schema and restoring the data.**
+> `registerRoutes()` runs its seeders before the server listens, and
+> `seedSystemValueDefinitions()` writes 35 rows into `system_value_definitions`
+> whenever it finds that table empty. The data restore then lands on top of
+> them, leaving 35 orphan duplicates that nothing cleans up. Schema → data →
+> *then* start.
+
+> **Start with [DeploymentWork.md](DeploymentWork.md)**, not this file. That is the
+> ordered task list for the actual two-stage plan (test domain first, then
+> cutover on the existing domain), written against what the production data
+> really contains. This document is the reference manual it links into.
+
+For running the whole thing locally on Docker first — which is the cheapest way
+to find problems — see **[LOCAL.md](LOCAL.md)**.
 
 ---
 
@@ -115,8 +130,13 @@ Set `STORAGE_DRIVER=s3` plus `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`,
 ### 3.1 Database — *in DO → Databases*
 
 - Create a **Managed PostgreSQL** cluster. **Choose PostgreSQL 16** to match the
-  source (`.replit` pins `postgresql-16`); a same-major dump/restore is the
-  boring path. If only 17 is available, see the note in 5.2.
+  source — the Neon server reports `16.15`, and a same-major dump/restore is the
+  boring path. Note this constrains the *server* only; the *client* tools must
+  still be v18 to read the dump (see 5.2).
+- Picking **17 instead is also safe** and has one small advantage: PG17 knows the
+  `transaction_timeout` setting, so the restore produces zero spurious errors
+  rather than one per worker. Weigh that against giving up exact version parity
+  with the source. Verified locally on 16, which is the recommendation.
 - Create a dedicated database (e.g. `leadani`) rather than using `defaultdb`.
 - ⚠️ Note the **direct connection** string, NOT the "connection pool" one. The
   Saila intake engine takes session-level Postgres advisory locks
@@ -128,16 +148,22 @@ Set `STORAGE_DRIVER=s3` plus `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`,
 - **No Postgres extensions are needed.** The schema uses only `gen_random_uuid()`
   and `hashtext()`, both core since PG13.
 
-### 3.2 Server + Coolify — *in DO → Droplets*
+### 3.2 Server + Coolify Cloud — *in DO → Droplets, then Coolify Cloud*
 
-- Create a droplet: Ubuntu, **at least 4 GB RAM**; 8 GB is better, because
-  Coolify builds on the same droplet as the running app.
+This project uses **Coolify Cloud**: the control plane is hosted and you attach
+your own droplet as the deploy target. Nothing is installed on the droplet by
+hand.
+
+- Create a droplet: Ubuntu, **at least 4 GB RAM**, with your SSH key added at
+  creation. Builds run on this droplet, and the Vite build asks for a 3 GB heap.
 - **Add 2 GB of swap before the first build.** If the build OOMs without it, the
   kernel may kill the running app rather than the build.
-- Install Coolify: `curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash`,
-  then open `http://<droplet-ip>:8000`.
+- In Coolify Cloud, add a **Server** with the droplet IP and SSH key. Coolify
+  installs Docker and its agent over SSH.
 - Point a domain/subdomain (e.g. `app.leadani.com`) at the droplet IP.
-- Add the droplet's IP to the database's **Trusted Sources**.
+- Add the **droplet's** IP to the database's **Trusted Sources** — the app
+  runs there, not on Coolify's control plane, so that is the address that
+  connects.
 
 ### 3.3 Collect for cutover day
 
@@ -215,10 +241,15 @@ around 22 on the basic plans), `DATABASE_CA_CERT`, `S3_FORCE_PATH_STYLE`.
 restore the account already exists, and the boot-time bootstrap skips itself when
 they are unset. Fewer secrets stored is strictly better.
 
-Note: the Meta/Facebook app secret (`meta_platform_settings`) and the per-company
-WhatsApp access tokens (`whatsapp_cloud_config`) live **in the database**, not in
-environment variables. They travel with the dump — which is also why they are
-worth rotating afterwards (Part 6).
+Note: WhatsApp credentials live **in the database**, not in environment
+variables, so they travel with the dump — which is also why they are worth
+rotating afterwards (Part 6).
+
+Verified against the production data: `meta_platform_settings` and
+`whatsapp_cloud_config` are both **empty**. The Meta embedded-signup path is not
+in use. WhatsApp actually goes through **Wauper** (`crmapi.wauper.com`), with
+credentials in `saila_config.wauper_api_key` and the per-phone
+`saila_phone_settings.access_token` (5 enabled phones across 2 companies).
 
 ### 4.3 A note on the lockfile
 
@@ -274,17 +305,73 @@ Replit → Deployments → stop/idle the deployment.
 ### 5.2 Copy the database
 
 ```bash
-pg_dump    --format=custom --no-owner --no-acl --no-comments "$REPLIT_DATABASE_URL" -f leadani.dump
-pg_restore --no-owner --no-acl --no-comments -j 4 -d "$DO_DATABASE_URL" leadani.dump
+pg_dump --format=custom --no-owner --no-acl --no-comments "$REPLIT_DATABASE_URL" -f leadani.dump
+pg_restore --no-owner --no-acl --no-comments --exclude-schema=_system -j 4 \
+  -d "$DO_DATABASE_URL" leadani.dump
 ```
 
-- Do **not** pass `--exit-on-error`. Capture stderr and read it: noise about
-  `plpgsql` and comments is benign; anything naming a table, index, or constraint
-  is real.
-- If the DO cluster is PostgreSQL 17 while the source is 16, install PGDG
-  `postgresql-client-17` on the droplet and use it for **both** commands
-  (`pg_dump` must be at least the source server's version; `pg_restore` must be
-  at least the dump's). Do not use Replit's v16 `pg_restore` against a v17 server.
+**The client tools must be PostgreSQL 18 or newer — not 16.** This is not a
+preference; a v16 client physically cannot read the dump.
+
+The Replit/Neon export is a custom-format archive at **archive version 1.16**,
+written by `pg_dump` **18.2** against a Neon server running **16.15**.
+`pg_restore` only reads archives at or below its own version, so PostgreSQL 16's
+`pg_restore` fails immediately on the file header:
+
+```
+pg_restore: error: unsupported version (1.16) in file header
+```
+
+Install PGDG `postgresql-client-18` on the droplet and use it for both commands.
+Restoring 18 → 16 is fine; the reverse is not. (If you have Docker on the
+droplet, `docker run --rm -v "$PWD:/dump" postgres:18-alpine pg_restore ...`
+avoids installing anything.)
+
+Also note the exports may arrive **named `.sql` but be binary** — they start with
+the magic bytes `PGDMP`. Check with `head -c 5 <file>` before assuming `psql`
+will work. And if the schema and data came as **two separate files**, restore the
+schema first, then the data, and do not start the app in between (see the third
+rule at the top of this document).
+
+**Reading the error output:**
+
+- Do **not** pass `--exit-on-error`, and do **not** treat the exit code as the
+  signal. `pg_restore` 18 unconditionally issues `SET transaction_timeout = 0`,
+  a GUC that only exists from PostgreSQL 17. A PG16 server rejects it once per
+  parallel worker:
+
+  ```
+  ERROR:  unrecognized configuration parameter "transaction_timeout"
+  ```
+
+  That is a session setting — no data is affected — but it alone makes
+  `pg_restore` exit non-zero on a completely successful restore.
+- So capture stderr and read it. Ignore `transaction_timeout`, `plpgsql`, and
+  comment noise; **anything naming a table, index, or constraint is real.**
+  `scripts/db-restore.sh` does exactly this filtering and prints what is left
+  under `!!! REAL ERRORS`.
+- `--exclude-schema=_system` skips `_system.replit_database_migrations_v1`,
+  Replit's internal deployment bookkeeping. It is meaningless off Replit and the
+  app never reads it. `pg_restore` still creates the empty schema, so drop it
+  afterwards: `DROP SCHEMA IF EXISTS _system CASCADE;`
+
+**If the export arrives as separate schema and data archives**, the foreign keys
+are already in place and enforced when the data loads. `pg_dump` topologically
+sorts the `TABLE DATA` entries, so a **serial** restore works — but `-j` does
+not, because FK relationships are not recorded as archive dependencies for a
+data-only dump and workers would load children before parents. Restore the
+schema with `-j 4` and the data **serially**.
+
+**Skipping `sheet_snapshots`.** It is by far the largest table and holds
+historical sheet snapshots that the scheduler rebuilds on its own. Dropping it
+takes a ~3.4 GB archive down to a ~2.7 GB database. If you skip it you must also
+skip `snapshot_restore_logs`, whose `snapshot_id` is `NOT NULL` and references
+it — otherwise every restore-log row fails to load. `pg_restore` has no
+`--exclude-table`; use `-l` to dump the TOC, delete those entries, and pass the
+result back with `-L`. `scripts/db-restore.sh` does this via
+`EXCLUDE_TABLES="sheet_snapshots snapshot_restore_logs"` and warns about NOT NULL
+children you forgot. Note the trade-off: existing sheets can no longer be rolled
+back to a historical snapshot.
 
 ### 5.3 Refresh planner statistics
 
@@ -309,6 +396,28 @@ ORDER BY 1;
 Do **not** use `pg_stat_user_tables.n_live_tup` — it is an estimate and will
 disagree by design.
 
+✅ Then re-validate every foreign key against the rows that actually landed. Row
+counts alone will not catch a partial or mis-ordered restore; this will. It must
+report `0`:
+
+```sql
+DO $$
+DECLARE r record; bad int := 0;
+BEGIN
+  FOR r IN SELECT conrelid::regclass AS t, conname FROM pg_constraint c
+           JOIN pg_namespace n ON n.oid = c.connamespace
+           WHERE c.contype = 'f' AND n.nspname = 'public'
+  LOOP
+    BEGIN
+      EXECUTE format('ALTER TABLE %s VALIDATE CONSTRAINT %I', r.t, r.conname);
+    EXCEPTION WHEN others THEN
+      RAISE WARNING 'INVALID: %.%', r.t, r.conname; bad := bad + 1;
+    END;
+  END LOOP;
+  RAISE NOTICE 'foreign keys failing validation: %', bad;
+END $$;
+```
+
 ✅ Also spot-check sequences; a mismatch here means silent primary-key collisions
 later:
 
@@ -332,8 +441,8 @@ Coolify → deploy/start. In the logs, look for:
 Only needed if the public domain is changing. Inbound WhatsApp messages are lost
 between app start and this step, and Meta's retries will not cover all of them.
 
-- *Meta developer portal*: update the WhatsApp webhook callback URL and the
-  Facebook App's allowed domains.
+- *Wauper dashboard* (not the Meta developer portal — see 4.2): update the
+  WhatsApp webhook callback URL for each connected phone.
 - Any external system posting to `/api/public/webhooks/...`: update the URL.
 
 ### 5.7 Smoke test on the new domain
@@ -384,8 +493,8 @@ Users are now on DigitalOcean.
 - Rotate `JWT_SECRET` and `HMAC_SECRET` to strong random values in an announced
   window. This logs everyone out once, and `HMAC_SECRET` needs coordinating with
   whoever signs the inbound webhooks.
-- Rotate the Meta app secret and the per-company WhatsApp access tokens — they
-  are stored as plaintext database columns and just travelled to a new host.
+- Rotate the Wauper API key and the per-phone WhatsApp access tokens — they are
+  stored as plaintext database columns and just travelled to a new host.
 - Restrict the DO database's Trusted Sources to the droplet only. Note this also
   blocks the schema-change workflow below, so build "add IP → push → remove IP"
   into that process.

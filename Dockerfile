@@ -6,15 +6,28 @@ WORKDIR /app
 # Install build dependencies (needed for some native npm packages)
 RUN apk add --no-cache python3 make g++
 
-# Vite/Rollup builds the whole client as one graph and Node's default heap on a
-# 4 GB box is not enough. Builder stage only — stage 2 starts from a fresh env.
-ENV NODE_OPTIONS=--max-old-space-size=3072
+# Vite/Rollup builds the whole client as one graph, and Node's default heap is
+# not enough. Builder stage only — stage 2 starts from a fresh env.
+#
+# 2048 is measured with headroom: the build completes at 1536 and produces
+# byte-identical output to a 3072 build (same 6.6 MB dist, same 4.7 MB of client
+# assets). 3072 was over-provisioned, which matters when Coolify builds on a
+# droplet that is also running other apps — an OOM there can make the kernel
+# kill a *running* app rather than the build.
+#
+# Override without editing this file, e.g. as a Coolify build argument:
+#   --build-arg NODE_BUILD_HEAP_MB=3072
+ARG NODE_BUILD_HEAP_MB=2048
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_BUILD_HEAP_MB}
 
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install ALL dependencies (including devDependencies for build)
-RUN npm ci
+# Install ALL dependencies (including devDependencies for build).
+# --include=dev is load-bearing: Coolify injects NODE_ENV=production into the
+# build environment, under which a bare `npm ci` silently skips devDependencies
+# and the build then dies with "vite: not found".
+RUN npm ci --include=dev
 
 # Copy source code
 COPY . .

@@ -85,6 +85,14 @@ Use one of these pre-seeded accounts:
 
 ## 🏃 Running Locally
 
+Two ways:
+
+- **Docker (recommended)** — app + PostgreSQL 16 in containers, mirroring the
+  DigitalOcean deployment, with no host dependencies beyond Docker. This is also
+  how a Replit database dump is restored and tested before cutover. See
+  **[LOCAL.md](LOCAL.md)**.
+- **Native Node** — the steps below, against a database you supply yourself.
+
 ### Prerequisites
 - Node.js 20+ installed (the Dockerfile pins node:20-alpine)
 - npm or yarn package manager

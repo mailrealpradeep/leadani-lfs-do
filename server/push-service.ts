@@ -2,6 +2,7 @@
 import webpush from 'web-push';
 import { storage } from './storage';
 import type { PushSubscription, User, Company } from '@shared/schema';
+import { outboundSuppressed } from "./outbound";
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
@@ -56,6 +57,10 @@ export async function sendPushNotification(
   subscription: PushSubscription,
   payload: NotificationPayload
 ): Promise<boolean> {
+  if (outboundSuppressed("push", subscription.endpoint)) {
+    return false;
+  }
+
   if (!vapidConfigured) {
     console.warn('[Push] VAPID not configured, skipping push notification');
     return false;

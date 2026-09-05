@@ -13,3 +13,9 @@ uploads/
 .env
 .env.*
 !.env.example
+
+# Local database dumps and restore reports. These are multi-GB production
+# exports containing real customer data — never commit them.
+db/dumps/*
+!db/dumps/.gitkeep
+.dev.env.sh

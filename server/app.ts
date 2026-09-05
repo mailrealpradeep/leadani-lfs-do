@@ -12,6 +12,7 @@ import { registerShutdown } from "./shutdown";
 import { stopBackupScheduler } from "./google-sheets-backup";
 import { startSnapshotScheduler, stopSnapshotScheduler } from "./snapshot-scheduler";
 import { startSailaIntakeScheduler, stopSailaIntakeScheduler } from "./saila-intake-scheduler";
+import { startLogRetentionScheduler, stopLogRetentionScheduler } from "./log-retention";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -151,10 +152,12 @@ export default async function runApp(
         stopSnapshotScheduler,
         stopSailaIntakeScheduler,
         stopBackupScheduler,
+        stopLogRetentionScheduler,
       ]);
 
       startSnapshotScheduler();
       startSailaIntakeScheduler();
+      startLogRetentionScheduler();
       // Broadcast crash recovery: any 'running' broadcast from before this
       // restart is no longer being sent — mark it failed so the UI doesn't
       // poll forever.

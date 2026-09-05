@@ -923,6 +923,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_company_created ON powerscore_transactions(company_id, created_at)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_user_created ON powerscore_transactions(user_id, created_at)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_voided_by ON powerscore_transactions(voided_by_transaction_id) WHERE voided_by_transaction_id IS NOT NULL`);
+
+      // Log/append-only tables. Every one of these shipped with nothing but its
+      // primary key, so each lookup below was a sequential scan over the largest
+      // tables in the database (outgoing_webhook_logs alone is ~1 GB in
+      // production). Keep in sync with db/performance-indexes.sql, which is what
+      // you run against a populated database — CONCURRENTLY, without the
+      // ACCESS EXCLUSIVE lock these plain statements take.
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_owl_webhook_created ON outgoing_webhook_logs(webhook_id, created_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_owl_created ON outgoing_webhook_logs(created_at)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_logs_company_occurred ON activity_logs(company_id, occurred_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_logs_occurred ON activity_logs(occurred_at)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_company_created ON audit_logs(company_id, created_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_model ON audit_logs(model, model_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_webhook_requests_webhook_created ON webhook_requests(webhook_id, created_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_webhook_requests_created ON webhook_requests(created_at)`);
+
+      // sheet_snapshots is the single largest table in the source database
+      // (5,007 rows / 27 GB uncompressed). The snapshot scheduler calls
+      // getLatestSheetSnapshot() once per sheet every hour and the retention
+      // job deletes by created_at; both were seq scans over all of it.
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_sheet_snapshots_sheet_created ON sheet_snapshots(sheet_id, created_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_sheet_snapshots_created ON sheet_snapshots(created_at)`);
+
+      // whatsapp_message_logs is read per company ordered by processed_at on
+      // every Saila inbound message (29,854 rows and growing).
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_wml_company_processed ON whatsapp_message_logs(company_id, processed_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_bsl_config_started ON backup_sync_logs(backup_config_id, started_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_bsl_started ON backup_sync_logs(started_at)`);
       console.log("[Perf] Lead indexes verified/created");
     } catch (error) {
       console.error("[Perf] Failed to create lead indexes:", error);

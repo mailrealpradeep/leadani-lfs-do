@@ -1,6 +1,7 @@
 import { storage } from "./storage";
 import { Lead, OutgoingWebhook, InsertOutgoingWebhookLog } from "@shared/schema";
 import { createHmac } from "crypto";
+import { outboundSuppressed } from "./outbound";
 
 export type WebhookEventType = 
   | "lead_created"
@@ -271,6 +272,10 @@ async function sendWebhookRequest(
   webhook: OutgoingWebhook,
   payload: Record<string, any>
 ): Promise<{ success: boolean; status: number; body: string; error?: string }> {
+  if (outboundSuppressed("webhook", webhook.url)) {
+    return { success: false, status: 0, body: "", error: "Outbound integrations are disabled on this deployment" };
+  }
+
   const payloadString = JSON.stringify(payload);
   
   const signature = webhook.secret 

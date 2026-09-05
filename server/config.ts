@@ -57,12 +57,27 @@ if (IS_PRODUCTION && !DATABASE_URL) {
 // Postgres basic plans allow ~22 backends).
 export const DB_POOL_MAX = parseInt(process.env.DB_POOL_MAX || "10", 10);
 
-// TLS for the DB connection. If DATABASE_CA_CERT is set (PEM, e.g. the
-// DigitalOcean Managed Postgres CA), verify against it. Otherwise leave it to
-// the connection string's sslmode parameter, which is how both the current
-// Replit URL (sslmode=disable) and a DO URL (sslmode=require) express intent.
-export const DB_SSL: { ca: string } | undefined = process.env.DATABASE_CA_CERT
-  ? { ca: process.env.DATABASE_CA_CERT }
+// TLS for the DB connection. If DATABASE_CA_CERT is set (PEM or base64 of the
+// PEM, e.g. the DigitalOcean Managed Postgres CA), verify against it.
+// Otherwise leave it to the connection string's sslmode parameter, which is
+// how both the current Replit URL (sslmode=disable) and a DO URL
+// (sslmode=require) express intent.
+function resolveCaCert(): string | undefined {
+  const raw = process.env.DATABASE_CA_CERT?.trim();
+  if (!raw) return undefined;
+  if (raw.includes("-----BEGIN")) return raw;
+  const decoded = Buffer.from(raw, "base64").toString("utf8");
+  if (decoded.includes("-----BEGIN")) return decoded;
+  console.error(
+    "[config] DATABASE_CA_CERT is neither a PEM certificate nor base64 of one — " +
+      "passing it through as-is, but TLS verification will likely fail.",
+  );
+  return raw;
+}
+
+const DB_CA_CERT = resolveCaCert();
+export const DB_SSL: { ca: string } | undefined = DB_CA_CERT
+  ? { ca: DB_CA_CERT }
   : undefined;
 
 // ---------------------------------------------------------------------------
@@ -125,3 +140,41 @@ if (IS_PRODUCTION && !FRONTEND_URL) {
     "[config] FRONTEND_URL is not set — Socket.io CORS falls back to '*'. Set it to the app's public URL.",
   );
 }
+
+// ---------------------------------------------------------------------------
+// Outbound integrations kill switch
+// ---------------------------------------------------------------------------
+// A staging/rehearsal deployment restored from the production dump carries live
+// third-party credentials: Wauper WhatsApp access tokens (saila_phone_settings),
+// 12 enabled Google Sheets backup targets, and 3 outgoing webhooks. Booting it
+// with those active sends real WhatsApp messages to real leads and overwrites
+// the real backup spreadsheets — from a host nobody is watching.
+//
+// Set OUTBOUND_INTEGRATIONS=disabled on every deployment that is not the one
+// serving real users. Inbound traffic, the UI, and the database are unaffected;
+// only egress to third parties is suppressed. Default is "enabled" so the
+// production deployment needs no extra variable to behave normally.
+export const OUTBOUND_ENABLED =
+  (process.env.OUTBOUND_INTEGRATIONS || "enabled").toLowerCase() !== "disabled";
+
+if (!OUTBOUND_ENABLED) {
+  console.warn(
+    "[config] OUTBOUND_INTEGRATIONS=disabled — WhatsApp sends, outgoing webhooks, " +
+      "Google Sheets backups and web push are suppressed. This must NOT be set on " +
+      "the deployment serving real users.",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Log retention
+// ---------------------------------------------------------------------------
+// activity_logs, audit_logs, outgoing_webhook_logs and webhook_requests have no
+// retention of their own and account for ~2.1 GB of a 2.7 GB production
+// database. On DigitalOcean, disk is fixed by the plan, so unbounded growth is
+// an outage waiting to happen rather than a slowly rising bill.
+//
+// Set LOG_RETENTION_DAYS=0 to disable pruning entirely (keeps everything).
+export const LOG_RETENTION_DAYS = parseInt(
+  process.env.LOG_RETENTION_DAYS || "90",
+  10,
+);

@@ -1,0 +1,88 @@
+# Local, self-contained stack: app + PostgreSQL 16 in Docker.
+#
+#   docker compose -f docker-compose.local.yml up -d --build
+#
+# This file is for LOCAL DEVELOPMENT ONLY. Production on DigitalOcean uses
+# Coolify with the Dockerfile directly and a DO Managed Postgres cluster —
+# there is no `db` service there. Keep the two apart on purpose: anything that
+# only works because Postgres is a sibling container is a bug waiting for
+# cutover day.
+#
+# Postgres 16 matches what Replit runs (`.replit` pins postgresql-16), so a
+# dump taken there restores here without a version skew.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-leadani}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leadani_local_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-leadani}
+    ports:
+      # 5433 on the host so this never collides with a native Postgres install.
+      - "${DB_HOST_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Plain .sql files dropped here run ONCE, on first boot of an empty
+      # volume, in alphabetical order. For a custom-format dump use
+      # scripts/db-restore.sh instead.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-leadani} -d ${POSTGRES_DB:-leadani}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 5000
+      # Sibling container, so no TLS. The DO URL will carry ?sslmode=require;
+      # that difference is exercised by config.ts, not by this file.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-leadani}:${POSTGRES_PASSWORD:-leadani_local_pw}@db:5432/${POSTGRES_DB:-leadani}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      # Byte-identical to the built-in fallbacks in server/config.ts, so a
+      # dump restored from Replit keeps working without re-login.
+      JWT_SECRET: ${JWT_SECRET:-dabluz-crm-secret-key-change-in-production}
+      HMAC_SECRET: ${HMAC_SECRET:-dabluz-webhook-secret-change-in-production}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5000}
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
+      # Local disk by default so uploads work with no Spaces credentials.
+      # Set STORAGE_DRIVER=s3 in .env to rehearse the production path.
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      # Default DISABLED here: this stack runs against a restore of the real
+      # production database, complete with live Wauper WhatsApp tokens and 12
+      # enabled Google Sheets backup targets. Leaving it enabled locally sends
+      # real messages to real leads. Override only if you know why.
+      OUTBOUND_INTEGRATIONS: ${OUTBOUND_INTEGRATIONS:-disabled}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}
+    volumes:
+      # Only meaningful with STORAGE_DRIVER=local. Production sets s3 and
+      # writes nothing to the container filesystem.
+      - uploads:/app/uploads
+    restart: unless-stopped
+    # Must exceed SHUTDOWN_TIMEOUT_MS in server/shutdown.ts (20s).
+    stop_grace_period: 30s
+
+volumes:
+  pgdata:
+  uploads:

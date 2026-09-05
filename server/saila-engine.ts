@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { outboundSuppressed } from "./outbound";
 import { getCompanyTimezone, getTodayDateString } from "./timezone-utils";
 import { processInboundForIntake } from "./saila-intake-engine";
 import type {
@@ -508,6 +509,9 @@ export async function sendWhatsAppApprovedTemplate(
   languageCode: string = "en_US",
   bodyParameters: string[] = []
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (outboundSuppressed("whatsapp", `template ${templateName} to ${recipientPhone}`)) {
+    return { success: false, error: "Outbound integrations are disabled on this deployment" };
+  }
   const accessToken = (phoneSetting.access_token || "").trim();
   if (!accessToken) return { success: false, error: `No access token configured for channel ${phoneSetting.display_phone_number}` };
   const phoneNumberId = (phoneSetting.waba_phone_number_id || "").trim();
@@ -579,6 +583,9 @@ export async function sendWhatsAppMedia(
   mediaUrl: string,
   caption: string | null = null,
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (outboundSuppressed("whatsapp", `${mediaType} to ${recipientPhone}`)) {
+    return { success: false, error: "Outbound integrations are disabled on this deployment" };
+  }
   const accessToken = (phoneSetting.access_token || "").trim();
   if (!accessToken) return { success: false, error: `No access token configured for channel ${phoneSetting.display_phone_number}` };
   const phoneNumberId = (phoneSetting.waba_phone_number_id || "").trim();
@@ -637,6 +644,9 @@ export async function sendWhatsAppMessage(
   recipientPhone: string,
   messageText: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (outboundSuppressed("whatsapp", `message to ${recipientPhone}`)) {
+    return { success: false, error: "Outbound integrations are disabled on this deployment" };
+  }
   const accessToken = (phoneSetting.access_token || "").trim();
   if (!accessToken) {
     console.error(`[Saila] No access token configured for channel ${phoneSetting.display_phone_number}`);
