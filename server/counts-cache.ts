@@ -124,6 +124,18 @@ export class CountsCache<T = any> {
     }
   }
 
+  // Hard-drop entries under a prefix so the NEXT read blocks on a fresh compute
+  // instead of serving stale data. Used for in-app lead mutations, where the
+  // user expects the very next response to reflect their change.
+  deleteByPrefix(prefix: string): void {
+    for (const key of Array.from(this.cache.keys())) {
+      if (key.startsWith(prefix)) { this.cache.delete(key); this.bumpGeneration(key); }
+    }
+    for (const key of Array.from(this.computing.keys())) {
+      if (key.startsWith(prefix)) { this.computing.delete(key); this.bumpGeneration(key); }
+    }
+  }
+
   invalidateAll(): void {
     for (const key of this.cache.keys()) this.bumpGeneration(key);
     for (const key of this.computing.keys()) this.bumpGeneration(key);
@@ -142,6 +154,10 @@ export const powerScoreLeaderboardCache = new CountsCache<any>(60);
 export const powerScoreMyStatsCache = new CountsCache<any>(30);
 export const customViewLeadsCache = new CountsCache<any>(45);
 export const sheetsCache = new CountsCache<any>(60);
+// Full lead rows per sheet, keyed "<companyId>:<sheetId>". Shared by every
+// endpoint that scans whole sheets (badge counts, hot leads, pipeline metrics)
+// so one page load fetches each sheet once instead of once per view/member.
+export const sheetLeadsCache = new CountsCache<any[]>(60);
 export const workingTargetsLeaderboardCache = new CountsCache<any>(120);
 export const attendanceTeamExitCache = new CountsCache<any>(60);
 export const attendanceMyExitCache = new CountsCache<any>(30);

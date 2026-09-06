@@ -16,16 +16,27 @@ import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConver
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
-import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache, customViewLeadsCache, sheetsCache, workingTargetsLeaderboardCache, attendanceTeamExitCache, attendanceMyExitCache } from "./counts-cache";
+import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache, customViewLeadsCache, sheetsCache, sheetLeadsCache, workingTargetsLeaderboardCache, attendanceTeamExitCache, attendanceMyExitCache } from "./counts-cache";
+
+// Lead rows for one sheet, served from sheetLeadsCache. Concurrent callers for
+// the same sheet share a single query; the cache is dropped on lead mutations
+// (see invalidateCountsCacheForCompany) and refreshed stale-while-revalidate
+// after its TTL for changes that arrive outside the HTTP API.
+async function getCachedLeadsBySheet(companyId: string | null | undefined, sheetId: string): Promise<any[]> {
+  return sheetLeadsCache.getOrComputeSwr(`${companyId ?? "none"}:${sheetId}`, () => storage.getLeadsBySheetId(sheetId));
+}
 
 function invalidateCountsCacheForCompany(companyId: string): void {
   if (!companyId) return;
-  hotLeadsCountCache.invalidateByPrefix(companyId);
-  visionPipelineCache.invalidateByPrefix(companyId);
-  visionProgressCache.invalidateByPrefix(companyId);
-  visionTeamCache.invalidateByPrefix(companyId);
-  visionConversionCache.invalidateByPrefix(companyId);
-  customViewsCountCache.invalidateByPrefix(companyId);
+  // Lead-derived caches are hard-dropped so the next read after an in-app edit
+  // is computed fresh rather than served stale-while-revalidating.
+  sheetLeadsCache.deleteByPrefix(companyId);
+  hotLeadsCountCache.deleteByPrefix(companyId);
+  visionPipelineCache.deleteByPrefix(companyId);
+  visionProgressCache.deleteByPrefix(companyId);
+  visionTeamCache.deleteByPrefix(companyId);
+  visionConversionCache.deleteByPrefix(companyId);
+  customViewsCountCache.deleteByPrefix(companyId);
   customViewLeadsCache.invalidateAll();
   workingTargetsLeaderboardCache.invalidateByPrefix(companyId);
   attendanceTeamExitCache.invalidateByPrefix(companyId);
@@ -234,10 +245,12 @@ async function getUserPipelineMetrics(
     
     const sheetIds = nonPersonalSheets.map(s => s.id);
 
-    // Get ALL leads from user's sheets sequentially (avoid connection pool exhaustion)
+    // Leads come from the shared per-sheet cache: the team aggregate, my-pipeline
+    // and progress all call this for overlapping sheets, and the cache collapses
+    // those into one query per sheet.
     const sheetLeadArrays: any[][] = [];
-    for (const sheetId of sheetIds) {
-      sheetLeadArrays.push(await storage.getLeadsBySheetId(sheetId));
+    for (const sheet of nonPersonalSheets) {
+      sheetLeadArrays.push(await getCachedLeadsBySheet(sheet.company_id, sheet.id));
     }
     const allLeads: any[] = sheetLeadArrays.flat().filter(l => !l.deleted_at);
 
@@ -15350,7 +15363,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         
         let count = 0;
         for (const sheet of sheets) {
-          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
           const hotLeads = leads.filter(lead => {
             return evaluateHotLeadConditions(lead, config.conditions, config.logical_operator);
           });
@@ -15615,7 +15628,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const targetUserId = (req.userRole === "company_admin" || req.userRole === "super_admin")
         ? (req.query.userId as string | undefined) || null
         : null;
-      const result = await (async () => {
+      const cacheKey = `${req.companyId}:${req.userId}:${req.userRole}:${targetUserId ?? "all"}`;
+      const result = await customViewsCountCache.getOrComputeSwr(cacheKey, async () => {
         const views = await storage.getCustomViews(req.companyId!);
         const enabledViews = views.filter(v => v.is_enabled && v.show_badge);
 
@@ -15647,6 +15661,13 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           return { counts };
         }
 
+        // Load each sheet's leads once (from the shared cache) and evaluate every
+        // view against that set, instead of re-fetching per view x sheet.
+        const leadsBySheet = new Map<string, any[]>();
+        for (const sheet of sheets) {
+          leadsBySheet.set(sheet.id, await getCachedLeadsBySheet(sheet.company_id, sheet.id));
+        }
+
         const counts: Record<string, number> = {};
         for (const view of enabledViews) {
           if (!view.conditions || view.conditions.length === 0) {
@@ -15658,7 +15679,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
             let count = 0;
             for (const sheet of viewSheets) {
-              const leads = await storage.getLeadsBySheetId(sheet.id);
+              const leads = leadsBySheet.get(sheet.id) ?? [];
               count += leads.filter(lead => !lead.deleted_at && evaluateCustomViewConditions(lead, view.conditions)).length;
             }
             counts[view.id] = count;
@@ -15666,7 +15687,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
 
         return { counts };
-      })();
+      });
 
       res.json(result);
     } catch (error: any) {
@@ -15823,6 +15844,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         lead_id: lead.id,
       });
 
+      if (companyId) invalidateCountsCacheForCompany(companyId);
       res.status(201).json({ lead_id: lead.id, message: "Lead created successfully" });
     } catch (error: any) {
       console.error("Webhook error:", error);
@@ -24670,8 +24692,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       console.log('[Vision Board] isTeamView:', isTeamView);
       
       if (isTeamView && req.companyId) {
-        const teamData = await getTeamVisionBoardAggregates(req.companyId!);
-        return res.json(teamData ?? { mode: 'team', board_count: 0, aggregate: null });
+        const teamCacheKey = `${req.companyId}:team`;
+        const result = await visionTeamCache.getOrComputeSwr(teamCacheKey, async () => {
+          const teamData = await getTeamVisionBoardAggregates(req.companyId!);
+          return teamData ?? { mode: 'team', board_count: 0, aggregate: null };
+        });
+        return res.json(result);
       }
       
       // Personal view for single-sheet users
@@ -24999,6 +25025,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(404).json({ error: "Vision board not found" });
       }
 
+      const progressCacheKey = `${req.companyId}:${req.userId}:${visionBoardId}`;
+      const progressResult = await visionProgressCache.getOrComputeSwr(progressCacheKey, async () => {
       const earnings = await storage.getVisionBoardEarnings(visionBoardId);
       const totalEarned = earnings.reduce((sum, e) => sum + e.amount, 0);
       const progressPercent = board.goal_amount > 0 ? (totalEarned / board.goal_amount) * 100 : 0;
@@ -25106,7 +25134,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
       }
 
-      const progressResult = {
+      return {
         board,
         earnings: {
           total: totalEarned,
@@ -25126,6 +25154,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         effort_targets: periodBreakdowns,
         effort_achieved: effortAchieved,
       };
+      }); // end visionProgressCache.getOrComputeSwr
 
       res.json(progressResult);
     } catch (error: any) {
@@ -25143,30 +25172,35 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.status(403).json({ error: "Must belong to a company" });
       }
 
-      const metrics = await getUserPipelineMetrics(req.companyId, req.userId);
+      const cacheKey = `${req.companyId}:${req.userId}`;
+      const result = await visionPipelineCache.getOrComputeSwr(cacheKey, async () => {
+        const metrics = await getUserPipelineMetrics(req.companyId!, req.userId!);
 
-      if (!metrics) {
-        return res.json({ projected_incentive: 0, actual_incentive: 0, stages: [] });
-      }
+        if (!metrics) {
+          return { projected_incentive: 0, actual_incentive: 0, stages: [] };
+        }
 
-      const settings = await storage.getConversionSettingsComplete(req.companyId);
-      const currency = settings?.value?.currency || 'INR';
+        const settings = await storage.getConversionSettingsComplete(req.companyId!);
+        const currency = settings?.value?.currency || 'INR';
 
-      res.json({
-        projected_incentive: metrics.total_projected_incentive,
-        actual_incentive: metrics.total_actual_incentive,
-        currency,
-        stages: metrics.stages.map(s => ({
-          stage_number: s.stage_number,
-          stage_name: s.stage_name,
-          color: s.color,
-          count: s.count,
-          incentives: s.incentives,
-          projected_incentive: s.projected_incentive,
-          is_final_stage: s.is_final_stage,
-          is_first_stage: s.is_first_stage,
-        })),
+        return {
+          projected_incentive: metrics.total_projected_incentive,
+          actual_incentive: metrics.total_actual_incentive,
+          currency,
+          stages: metrics.stages.map(s => ({
+            stage_number: s.stage_number,
+            stage_name: s.stage_name,
+            color: s.color,
+            count: s.count,
+            incentives: s.incentives,
+            projected_incentive: s.projected_incentive,
+            is_final_stage: s.is_final_stage,
+            is_first_stage: s.is_first_stage,
+          })),
+        };
       });
+
+      res.json(result);
     } catch (error: any) {
       console.error("Error fetching user pipeline for vision board:", error);
       res.status(500).json({ error: error.message });
@@ -25196,7 +25230,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         return res.json({ company: null, sheets: [], stages_config: emptyStagesConfig });
       }
 
-      const convResult = await (async () => {
+      const convCacheKey = `${req.companyId}:${req.userId}:conv:${dateFilter || 'last_30_days'}:${String(startDate || '')}:${String(endDate || '')}`;
+      const convResult = await visionConversionCache.getOrComputeSwr(convCacheKey, async () => {
       // Define sortedStages at top level - accessible throughout the endpoint
       const sortedStages = [...settings.stages].sort((a, b) => a.stage_number - b.stage_number);
 
@@ -25502,7 +25537,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         sheets: sheetData,
         stages_config: stagesConfig,
       };
-      })();
+      }); // end visionConversionCache.getOrComputeSwr
       res.json(convResult);
     } catch (error: any) {
       console.error("Error fetching conversion performance:", error);
