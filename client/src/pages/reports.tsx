@@ -1734,15 +1734,22 @@ function ReportCard({
 }) {
   const { timezone } = useCompanyTimezone();
   
-  // Initialize date range from report config (normalize to ISO format)
-  const initialDateRange = {
+  // Initialize date range from report config (normalize to ISO format).
+  // Reports with no saved range default to "Today" instead of "All Time" so the
+  // first load only scans one day of leads.
+  const savedDateRange = {
     start: normalizeDate(report.config?.date_range?.start || ""),
     end: normalizeDate(report.config?.date_range?.end || ""),
   };
+  const hasSavedDateRange = Boolean(savedDateRange.start || savedDateRange.end);
+  const initialDatePreset = hasSavedDateRange ? "custom" : "today";
+  const initialDateRange = hasSavedDateRange
+    ? savedDateRange
+    : getDateRangeFromPreset(initialDatePreset, timezone);
   
   const [selectedSheetFilters, setSelectedSheetFilters] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>(initialDateRange);
-  const [datePreset, setDatePreset] = useState<string>("all");
+  const [datePreset, setDatePreset] = useState<string>(initialDatePreset);
   
   // Handle date preset change - uses company timezone for date range
   const handleDatePresetChange = (preset: string) => {
