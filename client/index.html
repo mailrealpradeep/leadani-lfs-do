@@ -20,6 +20,23 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // If the hashed bundle referenced by this page no longer exists (page was
+      // cached across a deploy), reload once to pick up the new index.html.
+      window.addEventListener(
+        "error",
+        function (e) {
+          var t = e.target;
+          if (!t || t.tagName !== "SCRIPT" || !/\/assets\//.test(t.src || "")) return;
+          try {
+            if (sessionStorage.getItem("leadani:reloaded") === t.src) return;
+            sessionStorage.setItem("leadani:reloaded", t.src);
+          } catch (_) {}
+          location.reload();
+        },
+        true,
+      );
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
