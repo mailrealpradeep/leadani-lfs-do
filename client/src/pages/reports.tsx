@@ -1735,14 +1735,14 @@ function ReportCard({
   const { timezone } = useCompanyTimezone();
   
   // Initialize date range from report config (normalize to ISO format).
-  // Reports with no saved range default to "Today" instead of "All Time" so the
-  // first load only scans one day of leads.
+  // Reports with no saved range default to "Last 7 Days" instead of "All Time"
+  // so the first load only scans a week of leads.
   const savedDateRange = {
     start: normalizeDate(report.config?.date_range?.start || ""),
     end: normalizeDate(report.config?.date_range?.end || ""),
   };
   const hasSavedDateRange = Boolean(savedDateRange.start || savedDateRange.end);
-  const initialDatePreset = hasSavedDateRange ? "custom" : "today";
+  const initialDatePreset = hasSavedDateRange ? "custom" : "last_7_days";
   const initialDateRange = hasSavedDateRange
     ? savedDateRange
     : getDateRangeFromPreset(initialDatePreset, timezone);
