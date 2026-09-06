@@ -38,6 +38,8 @@ export async function serveStatic(app: Express, _server: Server) {
   // 404, not fall through to index.html: serving HTML as a module script gives
   // a blank page with a MIME-type error.
   app.use("/assets", (_req, res) => {
+    // no-store: a CDN must never cache this 404 past the next deploy.
+    res.setHeader("Cache-Control", "no-store");
     res.status(404).type("text/plain").send("Not found");
   });
 

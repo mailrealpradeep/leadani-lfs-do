@@ -2004,6 +2004,38 @@ function EditVisionWizard({
   );
 }
 
+// Placeholder for Row 1 while the board and company vision data load.
+function VisionBoardRowSkeleton() {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6" data-testid="vision-board-skeleton">
+      <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl overflow-hidden h-full">
+        <CardHeader className="pb-2">
+          <Skeleton className="h-5 w-40" />
+        </CardHeader>
+        <CardContent className="flex flex-col items-center gap-4">
+          <Skeleton className="h-44 w-44 rounded-full" />
+          <Skeleton className="h-4 w-56" />
+          <Skeleton className="h-16 w-full" />
+        </CardContent>
+      </Card>
+      <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl h-full">
+        <CardHeader className="pb-2">
+          <Skeleton className="h-6 w-56" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Skeleton className="h-9 w-full max-w-md" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-28 w-full" />
+            ))}
+          </div>
+          <Skeleton className="h-20 w-full" />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function VisionBoardPreloader() {
   const [messageIndex, setMessageIndex] = useState(0);
   const messages = [
@@ -2735,19 +2767,16 @@ export default function VisionBoardPage() {
     return acc;
   }, {} as Record<string, CustomView[]>);
 
-  // Loading states — split initial page load from user-switch transitions
+  // Loading states. The page frame renders immediately; the hero and the
+  // Vision Progress / Effort Target cards show skeletons until the board data
+  // (and, for admins, the company vision data) has arrived. There is no
+  // full-screen preloader any more: a slow request delays one section, not
+  // the whole page, and the sections with their own queries (work report,
+  // quick actions, conversion performance) fill in independently.
   const isUserSwitching = loadingAdminCompany || loadingAdminUser;
-  const isInitialLoading = (boardLoading || isUserSwitching) && !hasVisionBoardLoadedOnce;
-
-  if (isInitialLoading) {
-    return (
-      <AnimatePresence>
-        <VisionBoardPreloader />
-      </AnimatePresence>
-    );
-  }
-  // Mark as loaded so subsequent visits skip the full preloader
-  hasVisionBoardLoadedOnce = true;
+  const isCoreLoading = boardLoading || isUserSwitching;
+  const isInitialLoading = isCoreLoading && !hasVisionBoardLoadedOnce;
+  if (!isCoreLoading) hasVisionBoardLoadedOnce = true;
 
   // Admin viewing Company Vision with no targets set
   if (isCompanyView && !loadingAdminCompany && !adminCompanyVision?.board) {
@@ -3032,7 +3061,7 @@ export default function VisionBoardPage() {
   return (
     <div className="relative h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 pb-16">
       {/* Subtle inline spinner overlay during user-switch transitions (no full-page preloader) */}
-      {isUserSwitching && (
+      {isUserSwitching && !isInitialLoading && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/40 backdrop-blur-[1px]">
           <div className="flex items-center gap-3 bg-background/80 backdrop-blur-sm rounded-lg px-6 py-4 shadow-lg border">
             <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -3227,7 +3256,7 @@ export default function VisionBoardPage() {
       ) : (
         <>
 
-      {boardLoading ? (
+      {isCoreLoading ? (
         <div className="h-[30vh] min-h-[200px] bg-gradient-to-br from-purple-600/40 via-pink-600/40 to-orange-500/40 animate-pulse flex flex-col items-center justify-center gap-3">
           <Skeleton className="h-4 w-32 bg-white/20" />
           <Skeleton className="h-8 w-48 bg-white/30" />
@@ -3292,6 +3321,9 @@ export default function VisionBoardPage() {
       <div className="max-w-6xl mx-auto px-4 -mt-20 relative z-10 pb-12">
         <div className="flex flex-col gap-6">
           {/* Row 1: Vision Progress + Effort Target (2 columns) */}
+          {isCoreLoading ? (
+            <VisionBoardRowSkeleton />
+          ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6">
             {/* Column 1: Vision Progress */}
             <motion.div
@@ -3544,6 +3576,7 @@ export default function VisionBoardPage() {
             </Card>
           </motion.div>
           </div>
+          )}
           
           {/* Row 2: Quick Actions (single column) */}
           {/* Custom Views Section Cards */}
@@ -3964,7 +3997,7 @@ export default function VisionBoardPage() {
             
 
           {/* Row 3: Goal Timeline (single column) */}
-          {!isTeamView && progress && (
+          {!isCoreLoading && !isTeamView && progress && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

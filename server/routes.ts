@@ -477,7 +477,9 @@ async function getUserPipelineMetricsForSheet(
     if (!user) return null;
 
     // Get leads ONLY from the specified sheet
-    const sheetLeads = await storage.getLeadsBySheetId(sheetId);
+    // Shared per-sheet cache: conversion-performance calls this once per sheet
+    // and used to reload every sheet from the database each time.
+    const sheetLeads = await getCachedLeadsBySheet(companyId, sheetId);
     const allLeads = sheetLeads.filter(l => !l.deleted_at);
     
     if (allLeads.length === 0) {
@@ -932,6 +934,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_id ON leads(sheet_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_active ON leads(sheet_id) WHERE deleted_at IS NULL`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_owner ON leads(owner_user_id)`);
+      // Vision Board effort counts: period counts by sheet and date
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_created_active ON leads(sheet_id, created_at) WHERE deleted_at IS NULL`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_followup_events_sheet_triggered ON followup_events(sheet_id, triggered_at)`);
       // PowerScore transaction indexes for leaderboard + stats queries
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_company_created ON powerscore_transactions(company_id, created_at)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_user_created ON powerscore_transactions(user_id, created_at)`);
@@ -24267,6 +24272,73 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   };
 
   // Helper: Calculate aggregated team vision board metrics
+  // Effort counts for several periods in two grouped scans: one of leads and
+  // one of followup_events. This replaces the 24 single-count queries each
+  // caller used to fire, which every one scanned the whole table and together
+  // held the connection pool for 6-16 s on every cache refresh, stalling every
+  // other request on the page. Predicates are unchanged from those queries:
+  //   leads_attended: created_at in [start, end]
+  //   visits:         visit_status = 'Visited' and visit_date::timestamp in [start, end)
+  //   sales:          conversion_date::timestamp in [start, end)
+  //   followups:      followup_events.triggered_at in [start, end]
+  // created_at / triggered_at bounds are bound as ISO strings (what drizzle's
+  // gte/lte did); the JSON date casts are bound as Date (what sql`` did).
+  type EffortPeriodSpec = { name: string; start: Date; end: Date };
+  type EffortCounts = { sales: number; visits: number; leads_attended: number; followups: number };
+  const countEffortByPeriods = async (
+    sheetIds: string[],
+    periods: EffortPeriodSpec[],
+  ): Promise<Record<string, EffortCounts>> => {
+    const out: Record<string, EffortCounts> = {};
+    for (const p of periods) out[p.name] = { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
+    if (sheetIds.length === 0 || periods.length === 0) return out;
+
+    const sheetIdList = sql.join(sheetIds.map(id => sql`${id}`), sql`, `);
+    const leadSelect = periods.map((p, i) => sql`
+      count(*) FILTER (WHERE l.created_at >= ${p.start.toISOString()} AND l.created_at <= ${p.end.toISOString()})::int AS ${sql.raw(`leads_${i}`)},
+      count(*) FILTER (WHERE l.vd >= ${p.start} AND l.vd < ${p.end})::int AS ${sql.raw(`visits_${i}`)},
+      count(*) FILTER (WHERE l.cd >= ${p.start} AND l.cd < ${p.end})::int AS ${sql.raw(`sales_${i}`)}`);
+    const followupSelect = periods.map((p, i) => sql`
+      count(*) FILTER (WHERE triggered_at >= ${p.start.toISOString()} AND triggered_at <= ${p.end.toISOString()})::int AS ${sql.raw(`followups_${i}`)}`);
+
+    const [leadRows, followupRows] = await Promise.all([
+      // MATERIALIZED matters: without it Postgres inlines the subquery and
+      // re-evaluates the JSON extraction and timestamp cast once per FILTER
+      // (12x per row), which measured 5x slower on a restore of production.
+      db.execute(sql`
+        WITH l AS MATERIALIZED (
+          SELECT created_at,
+            CASE WHEN custom_fields->>'visit_status' = 'Visited'
+                  AND custom_fields->>'visit_date' IS NOT NULL
+                  AND custom_fields->>'visit_date' != ''
+                 THEN (custom_fields->>'visit_date')::timestamp END AS vd,
+            CASE WHEN custom_fields->>'conversion_date' IS NOT NULL
+                  AND custom_fields->>'conversion_date' != ''
+                 THEN (custom_fields->>'conversion_date')::timestamp END AS cd
+          FROM leads
+          WHERE sheet_id IN (${sheetIdList}) AND deleted_at IS NULL
+        )
+        SELECT ${sql.join(leadSelect, sql`, `)}
+        FROM l`),
+      db.execute(sql`
+        SELECT ${sql.join(followupSelect, sql`, `)}
+        FROM followup_events
+        WHERE sheet_id IN (${sheetIdList})`),
+    ]);
+
+    const lr = (leadRows.rows[0] ?? {}) as Record<string, unknown>;
+    const fr = (followupRows.rows[0] ?? {}) as Record<string, unknown>;
+    periods.forEach((p, i) => {
+      out[p.name] = {
+        sales: Number(lr[`sales_${i}`] ?? 0),
+        visits: Number(lr[`visits_${i}`] ?? 0),
+        leads_attended: Number(lr[`leads_${i}`] ?? 0),
+        followups: Number(fr[`followups_${i}`] ?? 0),
+      };
+    });
+    return out;
+  };
+
   const getTeamVisionBoardAggregates = async (companyId: string) => {
     const allBoards = await storage.getVisionBoardsByCompany(companyId);
     
@@ -24367,73 +24439,19 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const companySheets = await db.select().from(dbSchema.sheets).where(eq(dbSchema.sheets.company_id, companyId));
     const companySheetIds = companySheets.map(s => s.id);
     
-    // Count leads directly from leads table by created_at
-    const countLeadsCreated = async (startDate: Date, endDate: Date): Promise<number> => {
-      if (companySheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.leads)
-        .where(and(
-          inArray(dbSchema.leads.sheet_id, companySheetIds),
-          gte(dbSchema.leads.created_at, startDate),
-          lte(dbSchema.leads.created_at, endDate),
-          isNull(dbSchema.leads.deleted_at)
-        ));
-      return result[0]?.count || 0;
-    };
-    
-    // Count visits: leads where visit_status='Visited' AND visit_date is within period
-    const countVisitsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      if (companySheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.leads)
-        .where(and(
-          inArray(dbSchema.leads.sheet_id, companySheetIds),
-          sql`custom_fields->>'visit_status' = 'Visited'`,
-          sql`custom_fields->>'visit_date' IS NOT NULL`,
-          sql`custom_fields->>'visit_date' != ''`,
-          sql`(custom_fields->>'visit_date')::timestamp >= ${periodStart}`,
-          sql`(custom_fields->>'visit_date')::timestamp < ${periodEnd}`,
-          isNull(dbSchema.leads.deleted_at)
-        ));
-      return result[0]?.count || 0;
-    };
-    
-    // Count sales: leads where conversion_date (custom_fields) is within period
-    const countSalesInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      if (companySheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.leads)
-        .where(and(
-          inArray(dbSchema.leads.sheet_id, companySheetIds),
-          sql`custom_fields->>'conversion_date' IS NOT NULL`,
-          sql`custom_fields->>'conversion_date' != ''`,
-          sql`(custom_fields->>'conversion_date')::timestamp >= ${periodStart}`,
-          sql`(custom_fields->>'conversion_date')::timestamp < ${periodEnd}`,
-          isNull(dbSchema.leads.deleted_at)
-        ));
-      return result[0]?.count || 0;
-    };
-    
-    // Count followups from followup_events table
-    const countFollowupsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      if (companySheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.followup_events)
-        .where(and(
-          inArray(dbSchema.followup_events.sheet_id, companySheetIds),
-          gte(dbSchema.followup_events.triggered_at, periodStart),
-          lte(dbSchema.followup_events.triggered_at, periodEnd)
-        ));
-      return result[0]?.count || 0;
-    };
-    
     // Calculate team projected/actual incentives in parallel
     const dateFilter = { startDate: earliestStart, endDate: latestTarget };
-    const teamMetricsResults = await Promise.all(
-      allBoards.map(board => 
-        getUserPipelineMetrics(companyId, board.user_id, dateFilter).catch(() => null)
-      )
-    );
+    // A few members at a time: each call is mostly JS over cached lead rows
+    // plus a handful of small queries, and running every member at once was
+    // part of what starved the connection pool.
+    const teamMetricsResults: (UserPipelineMetrics | null)[] = [];
+    const METRICS_CONCURRENCY = 3;
+    for (let i = 0; i < allBoards.length; i += METRICS_CONCURRENCY) {
+      const batch = allBoards.slice(i, i + METRICS_CONCURRENCY);
+      teamMetricsResults.push(...(await Promise.all(
+        batch.map(board => getUserPipelineMetrics(companyId, board.user_id, dateFilter).catch(() => null))
+      )));
+    }
     let teamProjectedIncentive = 0;
     let teamActualIncentive = 0;
     for (const metrics of teamMetricsResults) {
@@ -24446,46 +24464,14 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     // Calculate team effort achieved using lead-based counting for all metrics
     // For yearly: cap at yearEnd if now is beyond Vision Board year, otherwise use now
     const yearlyPeriodEnd = now > yearEnd ? yearEnd : now;
-    const [
-      yearlyVisits, monthlyVisits, lastMonthVisits, weeklyVisits, dailyVisits, yesterdayVisits,
-      yearlySales, monthlySales, lastMonthSales, weeklySales, dailySales, yesterdaySales,
-      yearlyLeads, monthlyLeads, lastMonthLeads, weeklyLeads, dailyLeads, yesterdayLeads,
-      yearlyFollowups, monthlyFollowups, lastMonthFollowups, weeklyFollowups, dailyFollowups, yesterdayFollowups
-    ] = await Promise.all([
-      countVisitsInPeriod(yearStart, yearlyPeriodEnd),
-      countVisitsInPeriod(monthStart, now),
-      countVisitsInPeriod(lastMonthStart, lastMonthEnd),
-      countVisitsInPeriod(weekStart, now),
-      countVisitsInPeriod(dayStart, dayEnd),
-      countVisitsInPeriod(yesterdayStart, yesterdayEnd),
-      countSalesInPeriod(yearStart, yearlyPeriodEnd),
-      countSalesInPeriod(monthStart, now),
-      countSalesInPeriod(lastMonthStart, lastMonthEnd),
-      countSalesInPeriod(weekStart, now),
-      countSalesInPeriod(dayStart, dayEnd),
-      countSalesInPeriod(yesterdayStart, yesterdayEnd),
-      countLeadsCreated(yearStart, yearlyPeriodEnd),
-      countLeadsCreated(monthStart, now),
-      countLeadsCreated(lastMonthStart, lastMonthEnd),
-      countLeadsCreated(weekStart, now),
-      countLeadsCreated(dayStart, dayEnd),
-      countLeadsCreated(yesterdayStart, yesterdayEnd),
-      countFollowupsInPeriod(yearStart, yearlyPeriodEnd),
-      countFollowupsInPeriod(monthStart, now),
-      countFollowupsInPeriod(lastMonthStart, lastMonthEnd),
-      countFollowupsInPeriod(weekStart, now),
-      countFollowupsInPeriod(dayStart, dayEnd),
-      countFollowupsInPeriod(yesterdayStart, yesterdayEnd),
+    const teamEffortAchieved = await countEffortByPeriods(companySheetIds, [
+      { name: "yearly", start: yearStart, end: yearlyPeriodEnd },
+      { name: "monthly", start: monthStart, end: now },
+      { name: "last_month", start: lastMonthStart, end: lastMonthEnd },
+      { name: "weekly", start: weekStart, end: now },
+      { name: "daily", start: dayStart, end: dayEnd },
+      { name: "yesterday", start: yesterdayStart, end: yesterdayEnd },
     ]);
-    
-    const teamEffortAchieved = {
-      yearly: { sales: yearlySales, visits: yearlyVisits, leads_attended: yearlyLeads, followups: yearlyFollowups },
-      monthly: { sales: monthlySales, visits: monthlyVisits, leads_attended: monthlyLeads, followups: monthlyFollowups },
-      last_month: { sales: lastMonthSales, visits: lastMonthVisits, leads_attended: lastMonthLeads, followups: lastMonthFollowups },
-      weekly: { sales: weeklySales, visits: weeklyVisits, leads_attended: weeklyLeads, followups: weeklyFollowups },
-      daily: { sales: dailySales, visits: dailyVisits, leads_attended: dailyLeads, followups: dailyFollowups },
-      yesterday: { sales: yesterdaySales, visits: yesterdayVisits, leads_attended: yesterdayLeads, followups: yesterdayFollowups },
-    };
 
     return {
       mode: 'team' as const,
@@ -24578,109 +24564,23 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     const lastMonthEndDate = new Date(now.getFullYear(), now.getMonth(), 0); // Last day of previous month
     const lastMonthEnd = getEndOfDayInTimezone(lastMonthEndDate, companyTimezone);
     
-    // Count visits: leads where visit_status='Visited' AND visit_date is within period
-    // Only count leads with valid visit_date set
-    const countVisitsInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      if (sheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.leads)
-        .where(and(
-          inArray(dbSchema.leads.sheet_id, sheetIds),
-          sql`custom_fields->>'visit_status' = 'Visited'`,
-          sql`custom_fields->>'visit_date' IS NOT NULL`,
-          sql`custom_fields->>'visit_date' != ''`,
-          sql`(custom_fields->>'visit_date')::timestamp >= ${periodStart}`,
-          sql`(custom_fields->>'visit_date')::timestamp < ${periodEnd}`,
-          isNull(dbSchema.leads.deleted_at)
-        ));
-      return result[0]?.count || 0;
-    };
-    
-    // Count sales: leads where conversion_date (custom_fields) is within period
-    const countSalesInPeriod = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      if (sheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.leads)
-        .where(and(
-          inArray(dbSchema.leads.sheet_id, sheetIds),
-          sql`custom_fields->>'conversion_date' IS NOT NULL`,
-          sql`custom_fields->>'conversion_date' != ''`,
-          sql`(custom_fields->>'conversion_date')::timestamp >= ${periodStart}`,
-          sql`(custom_fields->>'conversion_date')::timestamp < ${periodEnd}`,
-          isNull(dbSchema.leads.deleted_at)
-        ));
-      return result[0]?.count || 0;
-    };
-    
-    // Count leads across ALL sheets by created_at
-    const countLeadsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      if (sheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.leads)
-        .where(and(
-          inArray(dbSchema.leads.sheet_id, sheetIds),
-          gte(dbSchema.leads.created_at, periodStart),
-          lte(dbSchema.leads.created_at, periodEnd),
-          isNull(dbSchema.leads.deleted_at)
-        ));
-      return result[0]?.count || 0;
-    };
-    
-    // Count followups across ALL sheets
-    const countFollowupsAcrossSheets = async (periodStart: Date, periodEnd: Date): Promise<number> => {
-      if (sheetIds.length === 0) return 0;
-      const result = await db.select({ count: sql<number>`count(*)::int` })
-        .from(dbSchema.followup_events)
-        .where(and(
-          inArray(dbSchema.followup_events.sheet_id, sheetIds),
-          gte(dbSchema.followup_events.triggered_at, periodStart),
-          lte(dbSchema.followup_events.triggered_at, periodEnd)
-        ));
-      return result[0]?.count || 0;
-    };
-    
-    // Query all metrics in parallel for each period
     // For yearly: cap at yearEnd if now is beyond Vision Board year, otherwise use now
     const yearlyPeriodEnd = now > yearEnd ? yearEnd : now;
-    const [
-      yearlyVisits, monthlyVisits, lastMonthVisits, weeklyVisits, dailyVisits, yesterdayVisits,
-      yearlySales, monthlySales, lastMonthSales, weeklySales, dailySales, yesterdaySales,
-      yearlyLeads, monthlyLeads, lastMonthLeads, weeklyLeads, dailyLeads, yesterdayLeads,
-      yearlyFollowups, monthlyFollowups, lastMonthFollowups, weeklyFollowups, dailyFollowups, yesterdayFollowups
-    ] = await Promise.all([
-      countVisitsInPeriod(yearStart, yearlyPeriodEnd),
-      countVisitsInPeriod(monthStart, now),
-      countVisitsInPeriod(lastMonthStart, lastMonthEnd),
-      countVisitsInPeriod(weekStart, now),
-      countVisitsInPeriod(dayStart, dayEnd),
-      countVisitsInPeriod(yesterdayStart, yesterdayEnd),
-      countSalesInPeriod(yearStart, yearlyPeriodEnd),
-      countSalesInPeriod(monthStart, now),
-      countSalesInPeriod(lastMonthStart, lastMonthEnd),
-      countSalesInPeriod(weekStart, now),
-      countSalesInPeriod(dayStart, dayEnd),
-      countSalesInPeriod(yesterdayStart, yesterdayEnd),
-      countLeadsAcrossSheets(yearStart, yearlyPeriodEnd),
-      countLeadsAcrossSheets(monthStart, now),
-      countLeadsAcrossSheets(lastMonthStart, lastMonthEnd),
-      countLeadsAcrossSheets(weekStart, now),
-      countLeadsAcrossSheets(dayStart, dayEnd),
-      countLeadsAcrossSheets(yesterdayStart, yesterdayEnd),
-      countFollowupsAcrossSheets(yearStart, yearlyPeriodEnd),
-      countFollowupsAcrossSheets(monthStart, now),
-      countFollowupsAcrossSheets(lastMonthStart, lastMonthEnd),
-      countFollowupsAcrossSheets(weekStart, now),
-      countFollowupsAcrossSheets(dayStart, dayEnd),
-      countFollowupsAcrossSheets(yesterdayStart, yesterdayEnd),
+    const effort = await countEffortByPeriods(sheetIds, [
+      { name: "yearly", start: yearStart, end: yearlyPeriodEnd },
+      { name: "monthly", start: monthStart, end: now },
+      { name: "last_month", start: lastMonthStart, end: lastMonthEnd },
+      { name: "weekly", start: weekStart, end: now },
+      { name: "daily", start: dayStart, end: dayEnd },
+      { name: "yesterday", start: yesterdayStart, end: yesterdayEnd },
     ]);
-    
     return {
-      yearly: { sales: yearlySales, visits: yearlyVisits, leads_attended: yearlyLeads, followups: yearlyFollowups },
-      monthly: { sales: monthlySales, visits: monthlyVisits, leads_attended: monthlyLeads, followups: monthlyFollowups },
-      last_month: { sales: lastMonthSales, visits: lastMonthVisits, leads_attended: lastMonthLeads, followups: lastMonthFollowups },
-      weekly: { sales: weeklySales, visits: weeklyVisits, leads_attended: weeklyLeads, followups: weeklyFollowups },
-      daily: { sales: dailySales, visits: dailyVisits, leads_attended: dailyLeads, followups: dailyFollowups },
-      yesterday: { sales: yesterdaySales, visits: yesterdayVisits, leads_attended: yesterdayLeads, followups: yesterdayFollowups },
+      yearly: effort.yearly,
+      monthly: effort.monthly,
+      last_month: effort.last_month,
+      weekly: effort.weekly,
+      daily: effort.daily,
+      yesterday: effort.yesterday,
     };
   };
 
@@ -24693,7 +24593,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       if (isTeamView && req.companyId) {
         const teamCacheKey = `${req.companyId}:team`;
-        const result = await visionTeamCache.getOrComputeSwr(teamCacheKey, async () => {
+        const result = await visionTeamCache.getOrCompute(teamCacheKey, async () => {
           const teamData = await getTeamVisionBoardAggregates(req.companyId!);
           return teamData ?? { mode: 'team', board_count: 0, aggregate: null };
         });
@@ -25026,7 +24926,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const progressCacheKey = `${req.companyId}:${req.userId}:${visionBoardId}`;
-      const progressResult = await visionProgressCache.getOrComputeSwr(progressCacheKey, async () => {
+      const progressResult = await visionProgressCache.getOrCompute(progressCacheKey, async () => {
       const earnings = await storage.getVisionBoardEarnings(visionBoardId);
       const totalEarned = earnings.reduce((sum, e) => sum + e.amount, 0);
       const progressPercent = board.goal_amount > 0 ? (totalEarned / board.goal_amount) * 100 : 0;
@@ -25173,7 +25073,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const cacheKey = `${req.companyId}:${req.userId}`;
-      const result = await visionPipelineCache.getOrComputeSwr(cacheKey, async () => {
+      const result = await visionPipelineCache.getOrCompute(cacheKey, async () => {
         const metrics = await getUserPipelineMetrics(req.companyId!, req.userId!);
 
         if (!metrics) {
