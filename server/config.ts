@@ -124,7 +124,32 @@ if (STORAGE_DRIVER === "s3") {
 
 export const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
 
-if (IS_PRODUCTION && !GOOGLE_SERVICE_ACCOUNT_JSON) {
+// Master switch for the Google Sheets backup feature (hourly scheduler AND the
+// manual "Sync now" button). Default OFF: one full run reads every lead of
+// every backup-enabled sheet plus its updates (~29k leads in production) and
+// on a 1 vCPU database that alone pins the CPU for the whole hour. Set
+// GOOGLE_SHEETS_BACKUP=enabled to turn it on. See setting.md.
+export const GOOGLE_SHEETS_BACKUP_ENABLED =
+  (process.env.GOOGLE_SHEETS_BACKUP || "disabled").toLowerCase() === "enabled";
+
+if (!GOOGLE_SHEETS_BACKUP_ENABLED) {
+  console.log(
+    "[config] GOOGLE_SHEETS_BACKUP is not 'enabled' — the hourly Google Sheets backup " +
+      "scheduler and manual sync are OFF. Set GOOGLE_SHEETS_BACKUP=enabled to turn them on.",
+  );
+}
+
+// Hourly sheet snapshot scheduler (the "restore sheet to an earlier state"
+// feature). Default ON. Set SHEET_SNAPSHOTS=disabled to stop the hourly job;
+// manual snapshots from the admin UI keep working. See setting.md.
+export const SHEET_SNAPSHOTS_ENABLED =
+  (process.env.SHEET_SNAPSHOTS || "enabled").toLowerCase() !== "disabled";
+
+if (!SHEET_SNAPSHOTS_ENABLED) {
+  console.log("[config] SHEET_SNAPSHOTS=disabled — hourly sheet snapshot scheduler is OFF.");
+}
+
+if (IS_PRODUCTION && GOOGLE_SHEETS_BACKUP_ENABLED && !GOOGLE_SERVICE_ACCOUNT_JSON) {
   console.error(
     "[config] GOOGLE_SERVICE_ACCOUNT_JSON is not set — the hourly Google Sheets " +
       "backup will fail on every run outside Replit. Set it to the service-account " +

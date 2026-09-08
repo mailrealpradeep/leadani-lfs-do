@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { managedTimeout } from "./shutdown";
+import { SHEET_SNAPSHOTS_ENABLED } from "./config";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 
@@ -17,19 +18,20 @@ async function captureSheetSnapshot(sheet: any): Promise<boolean> {
     const companyId = sheet.company_id;
     const sheetName = sheet.name;
     
-    const leads = await storage.getLeadsBySheetId(sheetId);
-    const activeLeads = leads.filter(l => !l.deleted_at);
-    
-    // Hash only lead IDs + updated_at timestamps to detect changes efficiently
-    // Avoids loading thousands of lead updates into memory
-    const hashableLeads = activeLeads.map(l => ({ id: l.id, updated_at: l.updated_at }));
+    // Change detection reads only (id, updated_at) per lead and only the
+    // previous snapshot's hash. The full lead rows and the multi-MB
+    // snapshot_data JSONB are touched only when something actually changed.
+    const hashableLeads = await storage.getLeadChangeKeysBySheetId(sheetId);
     const dataHash = generateDataHash(hashableLeads);
-    
-    const latestSnapshot = await storage.getLatestSheetSnapshot(sheetId);
+
+    const latestSnapshot = await storage.getLatestSheetSnapshotMeta(sheetId);
     if (latestSnapshot && latestSnapshot.data_hash === dataHash) {
       console.log(`[Snapshot] Sheet "${sheetName}" (${sheetId}) - no changes detected, skipping snapshot`);
       return false;
     }
+
+    const leads = await storage.getLeadsBySheetId(sheetId);
+    const activeLeads = leads.filter(l => !l.deleted_at);
     
     const snapshotData = {
       leads: activeLeads,
@@ -97,6 +99,10 @@ let snapshotIntervalId: NodeJS.Timeout | null = null;
 let cleanupIntervalId: NodeJS.Timeout | null = null;
 
 export function startSnapshotScheduler(): void {
+  if (!SHEET_SNAPSHOTS_ENABLED) {
+    console.log("[Snapshot] Disabled (SHEET_SNAPSHOTS=disabled) — scheduler not started; manual snapshots still work");
+    return;
+  }
   console.log("[Snapshot] Starting snapshot scheduler");
   
   // Delay initial snapshot by 2 minutes to let the server stabilise

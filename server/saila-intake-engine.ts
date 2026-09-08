@@ -309,6 +309,7 @@ async function startOrResumeSession(args: {
       fallback_attempts: 0,
       last_activity_at: new Date(),
       last_business_number: businessNumber,
+      customer_phone: senderPhone,
     });
     sessionId = updated?.id || existingSession.id;
     await logLeadUpdate(leadId, "whatsapp", `[Intake] Keyword "${matchedKeyword}" resumed flow "${trigger.flow.name}" at Q${startIdx + 1}/${questions.length}`);
@@ -329,6 +330,7 @@ async function startOrResumeSession(args: {
       last_activity_at: new Date(),
       started_at: new Date(),
       last_business_number: businessNumber,
+      customer_phone: senderPhone,
     });
     sessionId = newSession.id;
     await logLeadUpdate(leadId, "whatsapp", `[Intake] Lead message "${matchedMessageText.slice(0, 60)}" matched keyword "${matchedKeyword}" → started flow "${trigger.flow.name}" at Q${startIdx + 1}/${questions.length}`);
@@ -662,29 +664,55 @@ export function decideFallbackTick(args: {
   return { action: "send_fallback", newAttempts: args.fallbackAttempts + 1 };
 }
 
+// A session whose silence timeout expired more than this long ago is abandoned
+// instead of prompted: a fallback to a customer silent for over a week reads
+// as spam, and it stops a deploy from bursting months-old prompts.
+const STALE_SESSION_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function tickAllActiveSessions(): Promise<{ checked: number; sentFallback: number; abandoned: number }> {
   const now = new Date();
   const sessions = await intakeStore.getActiveSessionsDueForTick(now);
   let sentFallback = 0;
   let abandoned = 0;
+
+  // Per-tick memo. Hundreds of sessions share a handful of flows, configs and
+  // phone settings; without this every session cost 4-5 queries per tick.
+  const flowById = new Map<string, SailaIntakeFlow | undefined>();
+  const questionsByFlow = new Map<string, SailaIntakeQuestion[]>();
+  const configByCompany = new Map<string, SailaConfig | undefined>();
+  const phoneSettingByKey = new Map<string, SailaPhoneSetting | undefined>();
+
+  // Every path that cannot make progress marks the session abandoned. Leaving
+  // it 'active' (the old behaviour) meant it was re-evaluated every tick
+  // forever; an abandoned session still resumes at its question when the lead
+  // messages again (see startFlow).
+  const abandon = async (session: SailaIntakeSession, questionCount: number, reason: string) => {
+    await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
+    if (session.lead_id) {
+      await logLeadUpdate(session.lead_id, "whatsapp", `[Intake] Abandoned at Q${session.current_question_index + 1}/${questionCount} — ${reason} (drop-off depth: ${session.depth_reached})`);
+    }
+    abandoned++;
+  };
+
   for (const session of sessions) {
     try {
-      const flow = await intakeStore.getIntakeFlow(session.flow_id);
+      if (!flowById.has(session.flow_id)) flowById.set(session.flow_id, await intakeStore.getIntakeFlow(session.flow_id));
+      const flow = flowById.get(session.flow_id);
       if (!flow || !flow.enabled) {
-        await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
-        abandoned++;
+        await abandon(session, 0, "flow is disabled or deleted");
         continue;
       }
-      const questions = await intakeStore.listIntakeQuestions(flow.id);
+      if (!questionsByFlow.has(flow.id)) questionsByFlow.set(flow.id, await intakeStore.listIntakeQuestions(flow.id));
+      const questions = questionsByFlow.get(flow.id)!;
       const currentQ = questions[session.current_question_index];
       if (!currentQ) {
-        await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
-        abandoned++;
+        await abandon(session, questions.length, "current question no longer exists");
         continue;
       }
       const maxAttempts = currentQ.max_fallback_attempts ?? flow.max_fallback_attempts;
+      const lastActivityAt = new Date(session.last_activity_at);
       const decision = decideFallbackTick({
-        lastActivityAt: new Date(session.last_activity_at),
+        lastActivityAt,
         silenceTimeoutSeconds: currentQ.silence_timeout_seconds,
         fallbackAttempts: session.fallback_attempts,
         maxFallbackAttempts: maxAttempts,
@@ -692,18 +720,32 @@ export async function tickAllActiveSessions(): Promise<{ checked: number; sentFa
       });
       if (decision.action === "noop") continue;
       if (decision.action === "abandon") {
-        await intakeStore.updateIntakeSession(session.id, { status: 'abandoned' });
-        if (session.lead_id) await logLeadUpdate(session.lead_id, "whatsapp", `[Intake] Abandoned at Q${session.current_question_index + 1}/${questions.length} after ${maxAttempts} silent fallback prompts (drop-off depth: ${session.depth_reached})`);
-        abandoned++;
+        await abandon(session, questions.length, `after ${maxAttempts} silent fallback prompts`);
         continue;
       }
-      const config = await storage.getSailaConfig(session.company_id);
+      // send_fallback
+      const overdueMs = now.getTime() - lastActivityAt.getTime() - currentQ.silence_timeout_seconds * 1000;
+      if (overdueMs > STALE_SESSION_GRACE_MS) {
+        await abandon(session, questions.length, "silent for more than 7 days past the timeout");
+        continue;
+      }
+      const recipientPhone = session.customer_phone || "";
+      if (!recipientPhone || !session.lead_id) {
+        await abandon(session, questions.length, "no customer phone on record for a fallback prompt");
+        continue;
+      }
+      if (!configByCompany.has(session.company_id)) configByCompany.set(session.company_id, await storage.getSailaConfig(session.company_id));
+      const config = configByCompany.get(session.company_id);
       const businessNumber = session.last_business_number || "";
-      const phoneSetting = businessNumber ? await storage.getSailaPhoneSettingByNumber(session.company_id, businessNumber) : undefined;
-      if (!config || !phoneSetting || !phoneSetting.enabled || !session.lead_id) continue;
-      const lead = await storage.getLead(session.lead_id);
-      const recipientPhone = (lead as Lead | undefined)?.mobile || "";
-      if (!recipientPhone) continue;
+      const psKey = `${session.company_id}:${businessNumber}`;
+      if (!phoneSettingByKey.has(psKey)) {
+        phoneSettingByKey.set(psKey, businessNumber ? await storage.getSailaPhoneSettingByNumber(session.company_id, businessNumber) : undefined);
+      }
+      const phoneSetting = phoneSettingByKey.get(psKey);
+      if (!config || !phoneSetting || !phoneSetting.enabled) {
+        await abandon(session, questions.length, "Saila config or business number is disabled");
+        continue;
+      }
       const text = renderFallbackPrompt(flow.fallback_prompt_template, currentQ.primary_prompt);
       await sendBotMessage(config, phoneSetting, recipientPhone, text, session.lead_id, session.company_id);
       // Conditional update to guard against duplicate sends from a parallel worker:

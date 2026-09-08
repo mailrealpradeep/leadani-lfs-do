@@ -334,6 +334,8 @@ import type {
   radar_leads,
 } from "@shared/schema";
 
+export type SheetSnapshotMeta = Pick<SheetSnapshotRecord, "id" | "sheet_id" | "data_hash" | "lead_count" | "created_at">;
+
 // Pagination result interface
 export interface PaginatedLeadsResult {
   leads: Lead[];
@@ -430,6 +432,9 @@ export interface IStorage {
   // Leads
   getLead(id: string): Promise<Lead | undefined>;
   getLeadsBySheetId(sheetId: string): Promise<Lead[]>;
+  // Only (id, updated_at) of a sheet's live leads, in a stable order. The
+  // snapshot scheduler hashes this to detect changes without loading full rows.
+  getLeadChangeKeysBySheetId(sheetId: string): Promise<Array<{ id: string; updated_at: string | null }>>;
   getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult>;
   getDeletedLeadsBySheetId(sheetId: string): Promise<Lead[]>;
   findLeadByMobileNo(companyId: string, mobileNo: string, fieldName?: string, includeDeleted?: boolean): Promise<Lead | undefined>;
@@ -796,6 +801,8 @@ export interface IStorage {
   getSheetSnapshotsByCompany(companyId: string, limit?: number): Promise<SheetSnapshotRecord[]>;
   getAllSheetSnapshots(limit?: number): Promise<SheetSnapshotRecord[]>;
   getLatestSheetSnapshot(sheetId: string): Promise<SheetSnapshotRecord | undefined>;
+  // Latest snapshot without snapshot_data (multi-MB JSONB) — for change checks.
+  getLatestSheetSnapshotMeta(sheetId: string): Promise<SheetSnapshotMeta | undefined>;
   createSheetSnapshot(snapshot: InsertSheetSnapshot): Promise<SheetSnapshotRecord>;
   deleteSheetSnapshot(id: string): Promise<boolean>;
   deleteOldSnapshots(olderThanDays: number): Promise<number>;
@@ -1733,6 +1740,11 @@ export class MemStorage implements IStorage {
 
   async getLeadsBySheetId(sheetId: string): Promise<Lead[]> {
     return Array.from(this.leads.values()).filter((lead) => lead.sheet_id === sheetId && !lead.deleted_at);
+  }
+
+  async getLeadChangeKeysBySheetId(sheetId: string): Promise<Array<{ id: string; updated_at: string | null }>> {
+    const leads = await this.getLeadsBySheetId(sheetId);
+    return leads.map((l) => ({ id: l.id, updated_at: l.updated_at ?? null }));
   }
 
   async getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult> {
@@ -3583,6 +3595,9 @@ export class MemStorage implements IStorage {
   async getLatestSheetSnapshot(_sheetId: string): Promise<SheetSnapshotRecord | undefined> {
     return undefined;
   }
+  async getLatestSheetSnapshotMeta(_sheetId: string): Promise<SheetSnapshotMeta | undefined> {
+    return undefined;
+  }
   async createSheetSnapshot(_snapshot: InsertSheetSnapshot): Promise<SheetSnapshotRecord> {
     throw new Error("Sheet snapshots not implemented in MemStorage");
   }
@@ -4506,6 +4521,18 @@ export class PgStorage implements IStorage {
       )
     ).orderBy(desc(dbSchema.leads.created_at));
     return result.map(this.mapLead);
+  }
+
+  async getLeadChangeKeysBySheetId(sheetId: string): Promise<Array<{ id: string; updated_at: string | null }>> {
+    // Same order as getLeadsBySheetId, with id as a tie-breaker: bulk imports
+    // share a created_at, and an unstable order would change the hash — and
+    // write a multi-MB snapshot — every hour with no real change.
+    const rows = await db
+      .select({ id: dbSchema.leads.id, updated_at: dbSchema.leads.updated_at })
+      .from(dbSchema.leads)
+      .where(and(eq(dbSchema.leads.sheet_id, sheetId), isNull(dbSchema.leads.deleted_at)))
+      .orderBy(desc(dbSchema.leads.created_at), desc(dbSchema.leads.id));
+    return rows.map((r) => ({ id: r.id, updated_at: r.updated_at?.toISOString() ?? null }));
   }
 
   async getLeadsBySheetIds(options: LeadsQueryOptions): Promise<PaginatedLeadsResult> {
@@ -8742,6 +8769,22 @@ export class PgStorage implements IStorage {
 
   async getLatestSheetSnapshot(sheetId: string): Promise<SheetSnapshotRecord | undefined> {
     const rows = await db.select()
+      .from(dbSchema.sheet_snapshots)
+      .where(eq(dbSchema.sheet_snapshots.sheet_id, sheetId))
+      .orderBy(desc(dbSchema.sheet_snapshots.created_at))
+      .limit(1);
+    return rows[0];
+  }
+
+  async getLatestSheetSnapshotMeta(sheetId: string): Promise<SheetSnapshotMeta | undefined> {
+    const rows = await db
+      .select({
+        id: dbSchema.sheet_snapshots.id,
+        sheet_id: dbSchema.sheet_snapshots.sheet_id,
+        data_hash: dbSchema.sheet_snapshots.data_hash,
+        lead_count: dbSchema.sheet_snapshots.lead_count,
+        created_at: dbSchema.sheet_snapshots.created_at,
+      })
       .from(dbSchema.sheet_snapshots)
       .where(eq(dbSchema.sheet_snapshots.sheet_id, sheetId))
       .orderBy(desc(dbSchema.sheet_snapshots.created_at))

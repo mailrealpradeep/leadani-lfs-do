@@ -14,7 +14,7 @@ import { getCompanyTimezone, formatDateForSheet as formatDateWithTimezone } from
 //   2. Replit Google Sheets connector — legacy fallback, only works on Replit.
 // ============================================================================
 
-import { GOOGLE_SERVICE_ACCOUNT_JSON } from "./config";
+import { GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_SHEETS_BACKUP_ENABLED } from "./config";
 import { outboundSuppressed } from "./outbound";
 
 let connectionSettings: any;
@@ -391,6 +391,9 @@ export async function syncToGoogleSheets(
 ): Promise<GoogleSheetsBackupResult> {
   // Guard before the sync-log insert, so a suppressed deployment leaves no
   // trace in backup_sync_logs that would read as a real backup attempt.
+  if (!GOOGLE_SHEETS_BACKUP_ENABLED) {
+    return { success: false, error: "Google Sheets backup is disabled on this deployment (set GOOGLE_SHEETS_BACKUP=enabled)" };
+  }
   if (outboundSuppressed("google-sheets", backupConfig.google_sheet_url)) {
     return { success: false, error: "Outbound integrations are disabled on this deployment" };
   }
@@ -513,6 +516,11 @@ let backupInterval: NodeJS.Timeout | null = null;
 export function startBackupScheduler(intervalMs: number = 3600000): void {
   if (backupInterval) {
     clearInterval(backupInterval);
+  }
+
+  if (!GOOGLE_SHEETS_BACKUP_ENABLED) {
+    console.log("[Backup Scheduler] Disabled (GOOGLE_SHEETS_BACKUP is not 'enabled') — not starting");
+    return;
   }
   
   console.log(`[Backup Scheduler] Starting with interval ${intervalMs / 1000 / 60} minutes`);

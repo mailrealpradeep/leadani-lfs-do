@@ -1,5 +1,14 @@
 import { pool } from "./db";
 
+// saila_intake_sessions.customer_phone — see migrations/add_intake_session_customer_phone.sql.
+// Applied at boot so a deploy needs no manual SQL step; ADD COLUMN IF NOT EXISTS
+// is a no-op once present.
+export async function ensureIntakeSessionCustomerPhoneColumn(): Promise<void> {
+  await pool.query(
+    `ALTER TABLE saila_intake_sessions ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(30)`,
+  );
+}
+
 export async function ensureLeadTransferRequestsTable(): Promise<void> {
   try {
     // Check if table exists

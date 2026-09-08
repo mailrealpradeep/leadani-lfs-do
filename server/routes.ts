@@ -14,7 +14,7 @@ import { startOfDay, endOfDay, startOfMonth, endOfMonth, subDays, subMonths, sta
 import { getCompanyTimezone, getTodayDateString, getCurrentTimeString, getStartOfDayInTimezone, getEndOfDayInTimezone, getYesterdayRangeInTimezone, getMonthRangeInTimezone, getWeekRangeInTimezone, getLastWeekRangeInTimezone, getLastMonthRangeInTimezone } from "./timezone-utils";
 import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConversionDates } from "./seed";
 import { seedSystemValueDefinitions } from "./seed-system-values";
-import { ensureLeadTransferRequestsTable } from "./migrations";
+import { ensureLeadTransferRequestsTable, ensureIntakeSessionCustomerPhoneColumn } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
 import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache, customViewLeadsCache, sheetsCache, sheetLeadsCache, workingTargetsLeaderboardCache, attendanceTeamExitCache, attendanceMyExitCache } from "./counts-cache";
 
@@ -925,6 +925,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Failed to ensure lead_transfer_requests table exists:", error);
       // Don't fail startup - table might be created manually later
+    }
+    try {
+      await ensureIntakeSessionCustomerPhoneColumn();
+    } catch (error) {
+      console.error("Failed to ensure saila_intake_sessions.customer_phone exists:", error);
     }
   }
 
