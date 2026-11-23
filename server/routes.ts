@@ -942,6 +942,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Vision Board effort counts: period counts by sheet and date
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_sheet_created_active ON leads(sheet_id, created_at) WHERE deleted_at IS NULL`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_followup_events_sheet_triggered ON followup_events(sheet_id, triggered_at)`);
+      // followup_events lookups by lead+user (dedup window, recent follow-ups),
+      // by user and date range, and by company and date range. Without these,
+      // every one was a seq scan over ~300k rows (126k seq scans observed in prod).
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_followup_events_lead_user_triggered ON followup_events(lead_id, user_id, triggered_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_followup_events_user_triggered ON followup_events(user_id, triggered_at)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_followup_events_company_triggered ON followup_events(company_id, triggered_at DESC)`);
+      // lead_updates had no lead_id index: each per-lead history read scanned
+      // all ~355k rows (184k seq scans, 0 index scans observed in prod).
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_lead_updates_lead_created ON lead_updates(lead_id, created_at DESC)`);
+      // Webhook/intake duplicate checks (storage.findLeadByField / findLeadByMobileNo)
+      // on the phone fields every production match rule uses. The expressions must
+      // stay byte-for-byte identical to customFieldText() in storage.ts or the
+      // planner will not use them.
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_cf_mobile_no ON leads((custom_fields->>'mobile_no'))`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_cf_whatsapp ON leads((custom_fields->>'whatsapp'))`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_cf_mobile_no_norm ON leads((RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE((custom_fields->>'mobile_no'), ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10)))`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_cf_whatsapp_norm ON leads((RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE((custom_fields->>'whatsapp'), ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10)))`);
       // PowerScore transaction indexes for leaderboard + stats queries
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_company_created ON powerscore_transactions(company_id, created_at)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_pst_user_created ON powerscore_transactions(user_id, created_at)`);
@@ -13482,7 +13499,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       const allLeads = (await Promise.all(
         accessibleSheetIds.map(async (sheetId) => {
-          const leads = await storage.getLeadsBySheetId(sheetId);
+          const leads = await getCachedLeadsBySheet(req.companyId || report.company_id, sheetId);
           // Add derived fields to each lead
           return leads.map(l => {
             const enrichedLead: any = { ...l };
@@ -13736,7 +13753,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       const allLeads = (await Promise.all(
         accessibleSheetIds.map(async sheetId => {
-          const leads = await storage.getLeadsBySheetId(sheetId);
+          const leads = await getCachedLeadsBySheet(req.companyId || report.company_id, sheetId);
           // Enrich leads with derived fields for filtering
           return leads.map(l => {
             const enrichedLead: any = { ...l };
@@ -13987,7 +14004,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const sheetData = await Promise.all(
         sheets.map(async (sheet) => {
           // Get all leads for this sheet (excluding soft-deleted)
-          const allLeads = await storage.getLeadsBySheetId(sheet.id);
+          const allLeads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
           const activeLeads = allLeads.filter(lead => !lead.deleted_at);
           
           // Filter leads matching the column/option
@@ -15316,7 +15333,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       const allHotLeads: (Lead & { sheet_name: string; sheet_id: string })[] = [];
       
       for (const sheet of sheets) {
-        const leads = await storage.getLeadsBySheetId(sheet.id);
+        const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
         
         // Filter leads based on hot lead conditions
         const hotLeads = leads.filter(lead => {
@@ -15561,7 +15578,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
 
       let count = 0;
       for (const sheet of sheets) {
-        const leads = await storage.getLeadsBySheetId(sheet.id);
+        const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
         const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.conditions));
         count += matchingLeads.length;
       }
@@ -15606,7 +15623,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         const sheetsWithLeads: Sheet[] = [];
 
         for (const sheet of sheets) {
-          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
           const matchingLeads = leads.filter(lead => evaluateCustomViewConditions(lead, view.conditions));
           if (matchingLeads.length > 0) {
             const leadsWithSheetName = matchingLeads.map(lead => ({
@@ -15965,7 +15982,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       let totalLeads = 0;
 
       for (const sheet of allSheets) {
-        const leads = await storage.getLeadsBySheetId(sheet.id);
+        const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
         totalLeads += leads.length;
         leadsBySheet.push({
           sheet_id: sheet.id,
@@ -15985,7 +16002,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
           let companyLeadCount = 0;
           
           for (const sheet of companySheets) {
-            const leads = await storage.getLeadsBySheetId(sheet.id);
+            const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
             companyLeadCount += leads.length;
           }
           
@@ -17308,7 +17325,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         
         let totalLeadsToday = 0;
         for (const sheet of sheets) {
-          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
           const leadsToday = leads.filter((l: any) => {
             const createdAt = new Date(l.created_at);
             return createdAt >= today && l.owner_user_id === userId;
@@ -17344,7 +17361,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         
         let totalUpdatesToday = 0;
         for (const sheet of sheets) {
-          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
           for (const lead of leads) {
             const updates = await storage.getLeadUpdates(lead.id);
             const updatesToday = updates.filter((u: any) => {
@@ -17376,7 +17393,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
               );
           
           if (nfdtColumn) {
-            const leads = await storage.getLeadsBySheetId(sheet.id);
+            const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
             const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
             // Fetch validation rules once per sheet (avoid N+1)
             const sheetValRules = await storage.getValidationRules(sheet.company_id, sheet.id);
@@ -17414,7 +17431,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
               );
           
           if (nfdtColumn) {
-            const leads = await storage.getLeadsBySheetId(sheet.id);
+            const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
             const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
             // Fetch validation rules once per sheet (avoid N+1)
             const sheetValRules2 = await storage.getValidationRules(sheet.company_id, sheet.id);
@@ -17459,7 +17476,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
               );
           
           if (nfdtColumn) {
-            const leads = await storage.getLeadsBySheetId(sheet.id);
+            const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
             const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
             for (const lead of userLeads) {
               const customFields = lead.custom_fields || {};
@@ -17494,7 +17511,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         
         let todayLeadsNotUpdated = 0;
         for (const sheet of sheets) {
-          const leads = await storage.getLeadsBySheetId(sheet.id);
+          const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
           const userLeads = leads.filter((l: any) => l.owner_user_id === userId);
           
           for (const lead of userLeads) {
@@ -24884,7 +24901,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // Fetch leads owned by user with "Converted" status (sequential to avoid connection exhaustion)
       const sheetLeadArrays: any[][] = [];
       for (const sheetId of accessibleSheetIds) {
-        sheetLeadArrays.push(await storage.getLeadsBySheetId(sheetId));
+        sheetLeadArrays.push(await getCachedLeadsBySheet(companyId, sheetId));
       }
       const allLeads: any[] = sheetLeadArrays.flat().filter((lead: any) => {
         const isOwner = lead.owner_user_id === req.userId;
@@ -26925,7 +26942,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // Get all leads from these sheets
       let leads: any[] = [];
       for (const sheetId of sheetIdList) {
-        const sheetLeads = await storage.getLeadsBySheetId(sheetId);
+        const sheetLeads = await getCachedLeadsBySheet(req.companyId, sheetId);
         leads = leads.concat(sheetLeads.filter(l => !l.deleted_at));
       }
 
@@ -27325,7 +27342,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       // Get all leads and their owner mapping
       const allLeads: any[] = [];
       for (const sheet of companySheets) {
-        const sheetLeads = await storage.getLeadsBySheetId(sheet.id);
+        const sheetLeads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
         allLeads.push(...sheetLeads.filter(l => !l.deleted_at));
       }
       

@@ -77,4 +77,24 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bsl_config_started
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bsl_started
   ON backup_sync_logs(started_at);
 
+-- Hot-path lookups found by production monitoring (seq scans over ~300k rows).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lead_updates_lead_created
+  ON lead_updates(lead_id, created_at DESC);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_followup_events_lead_user_triggered
+  ON followup_events(lead_id, user_id, triggered_at DESC);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_followup_events_user_triggered
+  ON followup_events(user_id, triggered_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_followup_events_company_triggered
+  ON followup_events(company_id, triggered_at DESC);
+
+-- Webhook duplicate checks on phone fields (must match customFieldText() in storage.ts).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_cf_mobile_no
+  ON leads((custom_fields->>'mobile_no'));
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_cf_whatsapp
+  ON leads((custom_fields->>'whatsapp'));
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_cf_mobile_no_norm
+  ON leads((RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE((custom_fields->>'mobile_no'), ''), '[\s\-\+\(\)]', '', 'g'), '^91', ''), 10)));
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_leads_cf_whatsapp_norm
+  ON leads((RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE((custom_fields->>'whatsapp'), ''), '[\s\-\+\(\)]', '', 'g'), '^91', ''), 10)));
+
 ANALYZE;
