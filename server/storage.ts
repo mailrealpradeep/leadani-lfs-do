@@ -4067,17 +4067,6 @@ function generateToken(userId: string, role: string, companyId: string | null): 
   return jwt.sign({ userId, role, companyId }, JWT_SECRET, { expiresIn: "7d" });
 }
 
-// Text value of one custom field, e.g. custom_fields->>'mobile_no'.
-// Plain identifier keys are inlined as a SQL literal so Postgres can match the
-// expression indexes on leads (idx_leads_cf_*); a bound-parameter key can never
-// use an index. Anything else falls back to the parameterized form.
-const SAFE_FIELD_KEY = /^[A-Za-z0-9_]{1,100}$/;
-function customFieldText(key: string) {
-  return SAFE_FIELD_KEY.test(key)
-    ? sql`(${dbSchema.leads.custom_fields}->>${sql.raw(`'${key}'`)})`
-    : sql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${key})`;
-}
-
 export class PgStorage implements IStorage {
   // Companies
   async getCompany(id: string): Promise<Company | undefined> {
@@ -4948,12 +4937,10 @@ export class PgStorage implements IStorage {
     // Set includeDeleted=true to also search deleted leads (for update-only webhook flows)
     // Uses normalized comparison: strips spaces, dashes, +, (), and takes last 10 digits
     // This matches leads regardless of how the mobile number was formatted when stored
-    // The key is inlined as a literal (customFieldText) so this expression matches
-    // the idx_leads_cf_*_norm expression indexes; a bound-parameter key cannot use
-    // an index and forced a json->jsonb cast of every lead in the company.
+    // Cast json to jsonb for jsonb_extract_path_text function
     const conditions = [
       eq(dbSchema.sheets.company_id, companyId),
-      sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(${customFieldText(fieldName)}, ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
+      sql`RIGHT(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${fieldName}), ''), '[\\s\\-\\+\\(\\)]', '', 'g'), '^91', ''), 10) = ${mobileNo}`
     ];
     
     if (!includeDeleted) {
@@ -4977,10 +4964,11 @@ export class PgStorage implements IStorage {
     // Find lead by any custom field across all sheets in the company
     // By default excludes soft-deleted leads so they don't block new lead creation
     // Set includeDeleted=true to also search deleted leads (for update-only webhook flows)
-    // Key inlined as a literal so the lookup can use idx_leads_cf_* expression indexes.
+    // Use jsonb_extract_path_text for proper key parameterization
+    // Cast json to jsonb for jsonb_extract_path_text function
     const conditions = [
       eq(dbSchema.sheets.company_id, companyId),
-      sql`${customFieldText(fieldKey)} = ${fieldValue}`
+      sql`jsonb_extract_path_text(${dbSchema.leads.custom_fields}::jsonb, ${fieldKey}) = ${fieldValue}`
     ];
     
     if (!includeDeleted) {
