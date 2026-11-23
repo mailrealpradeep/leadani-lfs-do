@@ -26,6 +26,37 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Last /api/auth/me response, tied to the token it was fetched with (by its
+// tail, so the token itself is not stored twice). On a page refresh this lets
+// the app shell render immediately instead of a blank full-screen spinner while
+// /api/auth/me is re-verified in the background. The server still checks the
+// token on every request; a 401 clears this along with the token.
+const AUTH_ME_CACHE_KEY = "auth_me_cache";
+
+function tokenTag(token: string): string {
+  return token.slice(-24);
+}
+
+function readAuthMeCache(token: string | null): AuthMeResponse | null {
+  if (!token) return null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTH_ME_CACHE_KEY) || "null");
+    return saved && saved.tag === tokenTag(token) && saved.data?.user ? saved.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeAuthMeCache(token: string, data: AuthMeResponse): void {
+  try {
+    localStorage.setItem(AUTH_ME_CACHE_KEY, JSON.stringify({ tag: tokenTag(token), data }));
+  } catch { /* storage full or unavailable: just skip the cache */ }
+}
+
+function clearAuthMeCache(): void {
+  try { localStorage.removeItem(AUTH_ME_CACHE_KEY); } catch { /* ignore */ }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => 
     sessionStorage.getItem("auth_token") || localStorage.getItem("auth_token")
@@ -36,7 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Keep track of the last successfully loaded user data
   // This prevents showing logged-out state during transient network errors
-  const [cachedAuthData, setCachedAuthData] = useState<AuthMeResponse | null>(null);
+  const [cachedAuthData, setCachedAuthData] = useState<AuthMeResponse | null>(() =>
+    readAuthMeCache(sessionStorage.getItem("auth_token") || localStorage.getItem("auth_token"))
+  );
   
   const { data, isLoading, isError, error, isFetching } = useQuery<AuthMeResponse>({
     queryKey: ["/api/auth/me"],
@@ -59,8 +92,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (data) {
       setCachedAuthData(data);
+      if (token) writeAuthMeCache(token, data);
     }
-  }, [data]);
+  }, [data, token]);
 
   useEffect(() => {
     // Only clear token on genuine 401 auth errors, not network errors
@@ -71,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log("Auth token invalid, logging out");
         setToken(null);
         setCachedAuthData(null);
+        clearAuthMeCache();
         localStorage.removeItem("auth_token");
         sessionStorage.removeItem("auth_token");
       }
@@ -125,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsImpersonating(false);
     
     // Clear all auth-related storage from both localStorage and sessionStorage
+    clearAuthMeCache();
     localStorage.removeItem("auth_token");
     localStorage.removeItem("impersonating");
     localStorage.removeItem("impersonated_user_name");
@@ -162,7 +198,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         company,
         token,
-        isLoading: isLoading || isFetching,
+        // Only "loading" while there is no user data at all. A background
+        // refetch with a known user (fresh or cached) must not blank the app
+        // behind a full-screen spinner.
+        isLoading: (isLoading || isFetching) && !user,
         login: async (credentials) => {
           await loginMutation.mutateAsync(credentials);
         },

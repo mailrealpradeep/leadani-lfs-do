@@ -194,6 +194,9 @@ const BADGE_BG_MAP: Record<string, string> = {
 };
 
 // Section display configuration
+// Remembers team-vs-personal and image header so the loading placeholder matches.
+const VISION_HEADER_LAYOUT_KEY = "vision-board-header-layout";
+
 const SECTION_CONFIG: Record<string, { title: string; icon: LucideIcon; gradient: string }> = {
   overdue_actions: { title: "Overdue Actions", icon: AlertTriangle, gradient: "from-red-500/20 to-orange-500/20" },
   action_today: { title: "Action Today", icon: Clock, gradient: "from-amber-500/20 to-yellow-500/20" },
@@ -417,7 +420,7 @@ function EffortMetricCard({
   
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      initial={false}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ delay, type: "spring", stiffness: 100 }}
       whileHover={{ scale: 1.02, y: -2 }}
@@ -513,7 +516,7 @@ function VisionBoardMessageCard({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      initial={false}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ delay, type: "spring", stiffness: 100 }}
       whileHover={{ scale: 1.01, y: -2 }}
@@ -623,7 +626,7 @@ function AverageEffortMeterCard({
   
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      initial={false}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ delay, type: "spring", stiffness: 100 }}
       whileHover={{ scale: 1.01, y: -2 }}
@@ -2965,6 +2968,19 @@ export default function VisionBoardPage() {
   const currency = displayData ? displayData.currency : 'INR';
   const currencySymbol = currencySymbols[currency] || currency;
   const images = displayData ? displayData.images : ([] as Array<{url: string; caption: string}>);
+
+  // Header layout for the loading placeholder: the live values once loaded,
+  // otherwise what this browser saw last time. Plain render-time read/write,
+  // not a hook, because this component has early returns above.
+  let headerLayout = { team: isTeamView, images: images.length > 0 };
+  if (!isCoreLoading && displayData) {
+    try { localStorage.setItem(VISION_HEADER_LAYOUT_KEY, JSON.stringify(headerLayout)); } catch { /* storage unavailable */ }
+  } else if (!apiResponse) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(VISION_HEADER_LAYOUT_KEY) || "null");
+      if (saved && typeof saved.team === "boolean") headerLayout = { team: saved.team, images: !!saved.images };
+    } catch { /* storage unavailable or corrupt: keep defaults */ }
+  }
   const currentTargets = displayData ? displayData.effortTargets : { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
   const currentAchieved = displayData ? displayData.effortAchieved : { sales: 0, visits: 0, leads_attended: 0, followups: 0 };
   
@@ -3146,7 +3162,7 @@ export default function VisionBoardPage() {
       {activeVisionTab === "work-report" ? (
         <div className="pt-16 pb-12 px-4 max-w-6xl mx-auto">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={false}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
           >
@@ -3257,7 +3273,16 @@ export default function VisionBoardPage() {
         <>
 
       {isCoreLoading ? (
-        <div className="h-[30vh] min-h-[200px] bg-gradient-to-br from-purple-600/40 via-pink-600/40 to-orange-500/40 animate-pulse flex flex-col items-center justify-center gap-3">
+        // Same height and colours as the header that replaces it (team vs
+        // personal, with or without images, remembered from the last load), so
+        // only the text fills in instead of the whole header changing.
+        <div className={cn(
+          "relative flex flex-col items-center justify-center gap-3",
+          headerLayout.images ? "h-[40vh] min-h-[300px]" : "h-[30vh] min-h-[200px]",
+          headerLayout.team
+            ? "bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-500"
+            : "bg-gradient-to-br from-purple-600 via-pink-600 to-orange-500"
+        )}>
           <Skeleton className="h-4 w-32 bg-white/20" />
           <Skeleton className="h-8 w-48 bg-white/30" />
           <Skeleton className="h-4 w-40 bg-white/20" />
@@ -3267,7 +3292,7 @@ export default function VisionBoardPage() {
           <ImageCarousel images={images} />
           <div className="absolute inset-0 flex items-center justify-center">
             <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
+              initial={false}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.3 }}
               className="text-center text-white"
@@ -3296,7 +3321,7 @@ export default function VisionBoardPage() {
             : "bg-gradient-to-br from-purple-600 via-pink-600 to-orange-500"
         )}>
           <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={false}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.3 }}
             className="text-center text-white"
@@ -3327,7 +3352,7 @@ export default function VisionBoardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6">
             {/* Column 1: Vision Progress */}
             <motion.div
-              initial={{ opacity: 0, y: 30 }}
+              initial={false}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
             >
@@ -3358,7 +3383,7 @@ export default function VisionBoardPage() {
                   >
                     <div className="text-center px-2" data-testid="dual-ring-center-content">
                       <motion.div
-                        initial={{ opacity: 0, scale: 0.8 }}
+                        initial={false}
                         animate={{ opacity: 1, scale: 1 }}
                         transition={{ delay: 0.8, duration: 0.5 }}
                       >
@@ -3375,7 +3400,7 @@ export default function VisionBoardPage() {
                         )}
                       </motion.div>
                       <motion.p
-                        initial={{ opacity: 0 }}
+                        initial={false}
                         animate={{ opacity: 1 }}
                         transition={{ delay: 1.2 }}
                         className="text-[10px] font-medium mt-1 bg-gradient-to-r from-emerald-600 to-amber-600 bg-clip-text text-transparent"
@@ -3468,7 +3493,7 @@ export default function VisionBoardPage() {
 
             {/* Column 2: Effort Target */}
             <motion.div
-              initial={{ opacity: 0, y: 30 }}
+              initial={false}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
             >
@@ -3582,7 +3607,7 @@ export default function VisionBoardPage() {
           {/* Custom Views Section Cards */}
             {Object.keys(viewsBySection).length > 0 && (
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 }}
                 className="mt-6 space-y-4"
@@ -3620,7 +3645,7 @@ export default function VisionBoardPage() {
                     return (
                       <motion.div
                         key={section}
-                        initial={{ opacity: 0, y: 10 }}
+                        initial={false}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.5 + sectionIdx * 0.1 }}
                       >
@@ -3723,7 +3748,7 @@ export default function VisionBoardPage() {
             <div ref={conversionSectionRef} />
             {(conversionPerformance || conversionPerformanceLoading || conversionPerformanceError) && (
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6 }}
                 className="mt-6"
@@ -3936,7 +3961,7 @@ export default function VisionBoardPage() {
             
             {earnings && earnings.length > 0 && (
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5 }}
               >
@@ -3952,7 +3977,7 @@ export default function VisionBoardPage() {
                       {earnings.slice(0, 10).map((earning, idx) => (
                         <motion.div
                           key={earning.id}
-                          initial={{ opacity: 0, x: -10 }}
+                          initial={false}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: idx * 0.05 }}
                           className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50"
@@ -3999,7 +4024,7 @@ export default function VisionBoardPage() {
           {/* Row 3: Goal Timeline (single column) */}
           {!isCoreLoading && !isTeamView && progress && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={false}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6 }}
             >
