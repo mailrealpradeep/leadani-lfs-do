@@ -2,6 +2,22 @@ import type { Company } from "@shared/schema";
 
 const DEFAULT_TIMEZONE = "Asia/Kolkata";
 
+// Constructing an Intl.DateTimeFormat loads locale and time-zone data and costs
+// ~30-60us. getStartOfDayInTimezone() and friends run once or twice per lead per
+// date condition (custom-view badges, hot leads, targets), so building a new one
+// on every call blocked the event loop for 1-2s per recompute in production.
+// Formatters are immutable and safe to share, so reuse one per locale+options.
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
+function cachedDateTimeFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale}|${options.timeZone ?? ""}|${options.weekday ?? ""}|${options.year ?? ""}|${options.month ?? ""}|${options.day ?? ""}`;
+  let formatter = dateTimeFormatCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    dateTimeFormatCache.set(key, formatter);
+  }
+  return formatter;
+}
+
 const IANA_TO_OFFSET: Record<string, string> = {
   "Pacific/Midway": "-11:00",
   "Pacific/Honolulu": "-10:00",
@@ -135,7 +151,7 @@ export function getCurrentDateInTimezone(timezone: string): Date {
  */
 export function getStartOfDayInTimezone(date: Date, timezone: string): Date {
   // Get the date components as they appear in the target timezone
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const formatter = cachedDateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
@@ -160,7 +176,7 @@ export function getStartOfDayInTimezone(date: Date, timezone: string): Date {
  */
 export function getEndOfDayInTimezone(date: Date, timezone: string): Date {
   // Get the date components as they appear in the target timezone
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const formatter = cachedDateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
@@ -179,7 +195,7 @@ export function getEndOfDayInTimezone(date: Date, timezone: string): Date {
 }
 
 export function isSameDayInTimezone(date1: Date, date2: Date, timezone: string): boolean {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const formatter = cachedDateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
@@ -198,7 +214,7 @@ export function getWeekRangeInTimezone(timezone: string): { start: Date; end: Da
   const todayStart = getStartOfDayInTimezone(now, timezone);
   
   // Get day of week in the target timezone
-  const formatter = new Intl.DateTimeFormat("en-US", {
+  const formatter = cachedDateTimeFormat("en-US", {
     timeZone: timezone,
     weekday: "short",
   });
@@ -225,7 +241,7 @@ export function getMonthRangeInTimezone(timezone: string): { start: Date; end: D
   const now = new Date();
   
   // Get year and month in the target timezone
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const formatter = cachedDateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
@@ -289,7 +305,7 @@ export function getLastMonthRangeInTimezone(timezone: string): { start: Date; en
   const now = new Date();
   
   // Get year and month in the target timezone
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const formatter = cachedDateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
