@@ -52,19 +52,23 @@ async function getCachedLeadsForSheets(
 // can span sheets (transfer, merge, restore) to drop every sheet.
 function invalidateCountsCacheForCompany(companyId: string, sheetIds?: string[]): void {
   if (!companyId) return;
-  // Lead-derived caches are hard-dropped so the next read after an in-app edit
-  // is computed fresh rather than served stale-while-revalidating.
+  // Raw lead rows are hard-dropped so every recompute reads the edit.
   if (sheetIds && sheetIds.length > 0) {
     for (const sheetId of sheetIds) sheetLeadsCache.deleteByPrefix(`${companyId}:${sheetId}`);
   } else {
     sheetLeadsCache.deleteByPrefix(companyId);
   }
-  hotLeadsCountCache.deleteByPrefix(companyId);
-  visionPipelineCache.deleteByPrefix(companyId);
-  visionProgressCache.deleteByPrefix(companyId);
-  visionTeamCache.deleteByPrefix(companyId);
-  visionConversionCache.deleteByPrefix(companyId);
-  customViewsCountCache.deleteByPrefix(companyId);
+  // Dashboard aggregates are marked stale, not dropped: the next read returns
+  // the previous result immediately and recomputes in the background. With a
+  // team editing leads every few seconds, hard-dropping made nearly every
+  // /vision-board load wait 10-17s for the 12-member team recompute; the
+  // trade-off is that totals can lag an edit by one refresh.
+  hotLeadsCountCache.invalidateByPrefix(companyId);
+  visionPipelineCache.invalidateByPrefix(companyId);
+  visionProgressCache.invalidateByPrefix(companyId);
+  visionTeamCache.invalidateByPrefix(companyId);
+  visionConversionCache.invalidateByPrefix(companyId);
+  customViewsCountCache.invalidateByPrefix(companyId);
   customViewLeadsCache.invalidateAll();
   workingTargetsLeaderboardCache.invalidateByPrefix(companyId);
   attendanceTeamExitCache.invalidateByPrefix(companyId);
@@ -73,9 +77,11 @@ function invalidateCountsCacheForCompany(companyId: string, sheetIds?: string[])
 
 function invalidateVisionCachesForCompany(companyId: string): void {
   if (!companyId) return;
-  visionPipelineCache.invalidateByPrefix(companyId);
-  visionProgressCache.invalidateByPrefix(companyId);
-  visionTeamCache.invalidateByPrefix(companyId);
+  // Goal/settings edits are rare and the admin expects to see them at once, so
+  // these are hard-dropped (the caches below now serve stale-while-revalidate).
+  visionPipelineCache.deleteByPrefix(companyId);
+  visionProgressCache.deleteByPrefix(companyId);
+  visionTeamCache.deleteByPrefix(companyId);
   visionConversionCache.invalidateByPrefix(companyId);
 }
 import { insertQuickFilterSchema, quickFilterConfigSchema, type ActivityLogFilters, type Sheet, type Lead, type HotLeadCondition, type InsertVisionBoardMessage, type InsertWhatsAppMessageLogData } from "@shared/schema";
@@ -24660,7 +24666,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       
       if (isTeamView && req.companyId) {
         const teamCacheKey = `${req.companyId}:team`;
-        const result = await visionTeamCache.getOrCompute(teamCacheKey, async () => {
+        const result = await visionTeamCache.getOrComputeSwr(teamCacheKey, async () => {
           const teamData = await getTeamVisionBoardAggregates(req.companyId!);
           return teamData ?? { mode: 'team', board_count: 0, aggregate: null };
         });
@@ -24993,7 +24999,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const progressCacheKey = `${req.companyId}:${req.userId}:${visionBoardId}`;
-      const progressResult = await visionProgressCache.getOrCompute(progressCacheKey, async () => {
+      const progressResult = await visionProgressCache.getOrComputeSwr(progressCacheKey, async () => {
       const earnings = await storage.getVisionBoardEarnings(visionBoardId);
       const totalEarned = earnings.reduce((sum, e) => sum + e.amount, 0);
       const progressPercent = board.goal_amount > 0 ? (totalEarned / board.goal_amount) * 100 : 0;
@@ -25140,7 +25146,7 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
       }
 
       const cacheKey = `${req.companyId}:${req.userId}`;
-      const result = await visionPipelineCache.getOrCompute(cacheKey, async () => {
+      const result = await visionPipelineCache.getOrComputeSwr(cacheKey, async () => {
         const metrics = await getUserPipelineMetrics(req.companyId!, req.userId!);
 
         if (!metrics) {
