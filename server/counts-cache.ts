@@ -1,3 +1,5 @@
+import { timed } from "./perf";
+
 interface CacheEntry<T> {
   data: T;
   expiresAt: number;
@@ -9,9 +11,17 @@ export class CountsCache<T = any> {
   private computing = new Map<string, Promise<T>>();
   private generations = new Map<string, number>();
   private ttlMs: number;
+  private name: string;
 
-  constructor(ttlSeconds: number = 60) {
+  constructor(ttlSeconds: number = 60, name: string = "cache") {
     this.ttlMs = ttlSeconds * 1000;
+    this.name = name;
+  }
+
+  // Short label for [perf] logs: cache name plus the key's tail (enough to tell
+  // companies/sheets/users apart without printing whole ids).
+  private label(key: string): string {
+    return `${this.name}[…${key.slice(-8)}]`;
   }
 
   private getGeneration(key: string): number {
@@ -46,7 +56,7 @@ export class CountsCache<T = any> {
     if (existing) return existing;
 
     const gen = this.getGeneration(key);
-    const promise = compute().then((result) => {
+    const promise = timed(this.label(key), compute).then((result) => {
       if (gen === this.getGeneration(key)) {
         this.cache.set(key, {
           data: result,
@@ -78,7 +88,7 @@ export class CountsCache<T = any> {
 
     if (!this.computing.has(key)) {
       const gen = this.getGeneration(key);
-      const promise = compute().then((result) => {
+      const promise = timed(this.label(key), compute, staleData !== undefined ? "(bg)" : "").then((result) => {
         if (gen === this.getGeneration(key)) {
           this.cache.set(key, {
             data: result,
@@ -144,20 +154,20 @@ export class CountsCache<T = any> {
   }
 }
 
-export const hotLeadsCountCache = new CountsCache<{ count: number }>(60);
-export const customViewsCountCache = new CountsCache<{ counts: Record<string, number> }>(60);
-export const visionPipelineCache = new CountsCache<any>(60);
-export const visionProgressCache = new CountsCache<any>(60);
-export const visionTeamCache = new CountsCache<any>(60);
-export const visionConversionCache = new CountsCache<any>(60);
-export const powerScoreLeaderboardCache = new CountsCache<any>(60);
-export const powerScoreMyStatsCache = new CountsCache<any>(30);
-export const customViewLeadsCache = new CountsCache<any>(45);
-export const sheetsCache = new CountsCache<any>(60);
+export const hotLeadsCountCache = new CountsCache<{ count: number }>(60, "hotLeadsCount");
+export const customViewsCountCache = new CountsCache<{ counts: Record<string, number> }>(60, "customViewsCount");
+export const visionPipelineCache = new CountsCache<any>(60, "visionPipeline");
+export const visionProgressCache = new CountsCache<any>(60, "visionProgress");
+export const visionTeamCache = new CountsCache<any>(60, "visionTeam");
+export const visionConversionCache = new CountsCache<any>(60, "visionConversion");
+export const powerScoreLeaderboardCache = new CountsCache<any>(60, "powerScoreLeaderboard");
+export const powerScoreMyStatsCache = new CountsCache<any>(30, "powerScoreMyStats");
+export const customViewLeadsCache = new CountsCache<any>(45, "customViewLeads");
+export const sheetsCache = new CountsCache<any>(60, "sheets");
 // Full lead rows per sheet, keyed "<companyId>:<sheetId>". Shared by every
 // endpoint that scans whole sheets (badge counts, hot leads, pipeline metrics)
 // so one page load fetches each sheet once instead of once per view/member.
-export const sheetLeadsCache = new CountsCache<any[]>(60);
-export const workingTargetsLeaderboardCache = new CountsCache<any>(120);
-export const attendanceTeamExitCache = new CountsCache<any>(60);
-export const attendanceMyExitCache = new CountsCache<any>(30);
+export const sheetLeadsCache = new CountsCache<any[]>(60, "sheetLeads");
+export const workingTargetsLeaderboardCache = new CountsCache<any>(120, "workingTargetsLeaderboard");
+export const attendanceTeamExitCache = new CountsCache<any>(60, "attendanceTeamExit");
+export const attendanceMyExitCache = new CountsCache<any>(30, "attendanceMyExit");

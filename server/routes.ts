@@ -16,6 +16,7 @@ import { seedData, seedClosingValueColumn, seedSystemDateColumns, backfillConver
 import { seedSystemValueDefinitions } from "./seed-system-values";
 import { ensureLeadTransferRequestsTable, ensureIntakeSessionCustomerPhoneColumn } from "./migrations";
 import { validateLeadAgainstRules, getOptionalFieldKeys } from "@shared/validator";
+import { timed } from "./perf";
 import { hotLeadsCountCache, customViewsCountCache, visionPipelineCache, visionProgressCache, visionTeamCache, visionConversionCache, powerScoreLeaderboardCache, powerScoreMyStatsCache, customViewLeadsCache, sheetsCache, sheetLeadsCache, workingTargetsLeaderboardCache, attendanceTeamExitCache, attendanceMyExitCache } from "./counts-cache";
 
 // Lead rows for one sheet, served from sheetLeadsCache. Concurrent callers for
@@ -24358,7 +24359,12 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
   // gte/lte did); the JSON date casts are bound as Date (what sql`` did).
   type EffortPeriodSpec = { name: string; start: Date; end: Date };
   type EffortCounts = { sales: number; visits: number; leads_attended: number; followups: number };
-  const countEffortByPeriods = async (
+  const countEffortByPeriods = (
+    sheetIds: string[],
+    periods: EffortPeriodSpec[],
+  ): Promise<Record<string, EffortCounts>> =>
+    timed(`countEffortByPeriods[${sheetIds.length} sheets]`, () => countEffortByPeriodsUntimed(sheetIds, periods));
+  const countEffortByPeriodsUntimed = async (
     sheetIds: string[],
     periods: EffortPeriodSpec[],
   ): Promise<Record<string, EffortCounts>> => {
@@ -24522,7 +24528,9 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
     for (let i = 0; i < allBoards.length; i += METRICS_CONCURRENCY) {
       const batch = allBoards.slice(i, i + METRICS_CONCURRENCY);
       teamMetricsResults.push(...(await Promise.all(
-        batch.map(board => getUserPipelineMetrics(companyId, board.user_id, dateFilter).catch(() => null))
+        batch.map(board =>
+          timed(`pipelineMember[…${String(board.user_id).slice(-8)}]`, () => getUserPipelineMetrics(companyId, board.user_id, dateFilter))
+            .catch(() => null))
       )));
     }
     let teamProjectedIncentive = 0;
