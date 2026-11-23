@@ -26,11 +26,39 @@ async function getCachedLeadsBySheet(companyId: string | null | undefined, sheet
   return sheetLeadsCache.getOrComputeSwr(`${companyId ?? "none"}:${sheetId}`, () => storage.getLeadsBySheetId(sheetId));
 }
 
-function invalidateCountsCacheForCompany(companyId: string): void {
+// Lead rows for many sheets, a few at a time. Results keep the input order.
+// A cold Vision Board / badge-count compute used to load every sheet strictly
+// one after another; bounded concurrency keeps the pool (25 connections in
+// production) from being swamped while cutting that wait roughly by the limit.
+async function getCachedLeadsForSheets(
+  sheets: Array<{ id: string; company_id: string | null }>,
+  concurrency = 3,
+): Promise<any[][]> {
+  const results: any[][] = new Array(sheets.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < sheets.length) {
+      const i = next++;
+      results[i] = await getCachedLeadsBySheet(sheets[i].company_id, sheets[i].id);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, sheets.length) }, worker));
+  return results;
+}
+
+// sheetIds: the sheets whose lead rows changed. Only those are dropped from
+// sheetLeadsCache, so the derived caches below recompute from the other sheets'
+// cached rows instead of reloading the whole company. Omit it when the change
+// can span sheets (transfer, merge, restore) to drop every sheet.
+function invalidateCountsCacheForCompany(companyId: string, sheetIds?: string[]): void {
   if (!companyId) return;
   // Lead-derived caches are hard-dropped so the next read after an in-app edit
   // is computed fresh rather than served stale-while-revalidating.
-  sheetLeadsCache.deleteByPrefix(companyId);
+  if (sheetIds && sheetIds.length > 0) {
+    for (const sheetId of sheetIds) sheetLeadsCache.deleteByPrefix(`${companyId}:${sheetId}`);
+  } else {
+    sheetLeadsCache.deleteByPrefix(companyId);
+  }
   hotLeadsCountCache.deleteByPrefix(companyId);
   visionPipelineCache.deleteByPrefix(companyId);
   visionProgressCache.deleteByPrefix(companyId);
@@ -248,10 +276,7 @@ async function getUserPipelineMetrics(
     // Leads come from the shared per-sheet cache: the team aggregate, my-pipeline
     // and progress all call this for overlapping sheets, and the cache collapses
     // those into one query per sheet.
-    const sheetLeadArrays: any[][] = [];
-    for (const sheet of nonPersonalSheets) {
-      sheetLeadArrays.push(await getCachedLeadsBySheet(sheet.company_id, sheet.id));
-    }
+    const sheetLeadArrays: any[][] = await getCachedLeadsForSheets(nonPersonalSheets);
     const allLeads: any[] = sheetLeadArrays.flat().filter(l => !l.deleted_at);
 
     // Stage-specific date filtering helper
@@ -845,18 +870,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     /^\/api\/leads\/transfer$/,
     /^\/api\/leads\/transfer-request$/,
   ];
+  // /^\/api\/leads\/[^/]+$/ also matches these read-only POSTs. /api/leads/query
+  // is the sheet grid's data fetch (every open, scroll page, search, filter), so
+  // without this every grid read wiped the company's Vision Board and badge caches.
+  const READ_ONLY_LEAD_PATHS = new Set(['/api/leads/query', '/api/leads/check-duplicate']);
+  // Routes under /api/leads/<name> that are not a single lead id.
+  const LEAD_COLLECTION_ACTIONS = new Set(['restore', 'transfer', 'transfer-request', 'bulk-merge', 'query', 'check-duplicate']);
   app.use((req: any, res: any, next: any) => {
     if (
-      (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') &&
-      LEAD_MUTATION_PATTERNS.some(p => p.test(req.path))
+      !(req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') ||
+      READ_ONLY_LEAD_PATHS.has(req.path) ||
+      !LEAD_MUTATION_PATTERNS.some(p => p.test(req.path))
     ) {
+      return next();
+    }
+
+    // Scope the invalidation to one sheet when the path identifies it. The sheet
+    // is resolved BEFORE the handler runs so the drop happens synchronously at
+    // 'finish' -- a lookup after the response could let the client's immediate
+    // re-read hit the stale cache.
+    let sheetIds: string[] | undefined;
+    const register = () => {
       res.on('finish', () => {
         if (res.statusCode >= 200 && res.statusCode < 300 && req.companyId) {
-          invalidateCountsCacheForCompany(req.companyId);
+          invalidateCountsCacheForCompany(req.companyId, sheetIds);
         }
       });
+      next();
+    };
+
+    const sheetMatch = req.path.match(/^\/api\/sheets\/([^/]+)\/leads$/);
+    if (sheetMatch) {
+      sheetIds = [sheetMatch[1]];
+      return register();
     }
-    next();
+    // PATCH/DELETE /api/leads/:id and POST /api/leads/:id/updates edit one lead
+    // in place. A PATCH that sets sheet_id would move it, so that stays company-wide.
+    const leadMatch = req.path.match(/^\/api\/leads\/([^/]+)(\/updates)?$/);
+    const leadId = leadMatch?.[1];
+    const singleLeadEdit = leadMatch && !LEAD_COLLECTION_ACTIONS.has(leadId) &&
+      (leadMatch[2] ? req.method === 'POST' : (req.method === 'PATCH' || req.method === 'DELETE')) &&
+      !(req.body && Object.prototype.hasOwnProperty.call(req.body, 'sheet_id'));
+    if (singleLeadEdit) {
+      storage.getLead(leadId)
+        .then((lead) => { if (lead?.sheet_id) sheetIds = [lead.sheet_id]; })
+        .catch(() => { /* unknown sheet: fall back to company-wide */ })
+        .finally(register);
+      return;
+    }
+    // merge, bulk-merge, restore, transfer, transfer-request: company-wide.
+    register();
   });
 
   const httpServer = createServer(app);
@@ -15372,8 +15435,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         }
         
         let count = 0;
-        for (const sheet of sheets) {
-          const leads = await getCachedLeadsBySheet(sheet.company_id, sheet.id);
+        const leadsPerSheet = await getCachedLeadsForSheets(sheets);
+        for (const leads of leadsPerSheet) {
           const hotLeads = leads.filter(lead => {
             return evaluateHotLeadConditions(lead, config.conditions, config.logical_operator);
           });
@@ -15674,9 +15737,8 @@ Respond with ONLY one word: "meaningful" or "not_meaningful"`;
         // Load each sheet's leads once (from the shared cache) and evaluate every
         // view against that set, instead of re-fetching per view x sheet.
         const leadsBySheet = new Map<string, any[]>();
-        for (const sheet of sheets) {
-          leadsBySheet.set(sheet.id, await getCachedLeadsBySheet(sheet.company_id, sheet.id));
-        }
+        const leadsPerSheet = await getCachedLeadsForSheets(sheets);
+        sheets.forEach((sheet, i) => leadsBySheet.set(sheet.id, leadsPerSheet[i]));
 
         const counts: Record<string, number> = {};
         for (const view of enabledViews) {
