@@ -29,6 +29,7 @@ export function AuthShell({
   useEffect(() => {
     const prev = document.title;
     document.title = title;
+    window.scrollTo(0, 0);
     return () => {
       document.title = prev;
     };

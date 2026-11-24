@@ -123,6 +123,7 @@ const NAV = [
   { label: "How it works", href: "/#how" },
   { label: "Product", href: "/#product" },
   { label: "Features", href: "/features" },
+  { label: "Customers", href: "/customers" },
   { label: "Coming soon", href: "/#roadmap", upcoming: true },
   { label: "Pricing", href: "/#pricing" },
   { label: "Help", href: "/help" },
@@ -156,12 +157,12 @@ export function Header() {
           </a>
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex">
+        <nav className="hidden items-center gap-0.5 lg:flex">
           {NAV.map((item) => (
             <a
               key={item.href}
               href={item.href}
-              className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm text-white/65 transition hover:text-white"
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-white/65 transition hover:text-white"
             >
               {"upcoming" in item && <span className="h-1.5 w-1.5 rounded-full bg-amber-300" aria-hidden="true" />}
               {item.label}
@@ -204,7 +205,7 @@ export function Header() {
             aria-label={open ? "Close menu" : "Open menu"}
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
-            className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-full text-white/80 hover:bg-white/10 md:hidden"
+            className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-full text-white/80 hover:bg-white/10 lg:hidden"
             data-testid="button-mobile-menu"
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -219,7 +220,7 @@ export function Header() {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden md:hidden"
+            className="overflow-hidden lg:hidden"
           >
             <div className="flex flex-col gap-1 px-4 pb-5 pt-1">
               {NAV.map((item) => (
@@ -310,6 +311,7 @@ export function Footer() {
         </div>
         <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-white/50">
           <Link asChild href="/features"><a className="hover:text-white" data-testid="link-footer-features">Features</a></Link>
+          <Link asChild href="/customers"><a className="hover:text-white" data-testid="link-footer-customers">Customers</a></Link>
           <Link asChild href="/guide"><a className="hover:text-white">Guide</a></Link>
           <Link asChild href="/help"><a className="hover:text-white">Help</a></Link>
           <Link asChild href="/login"><a className="hover:text-white" data-testid="link-footer-signin">Sign in</a></Link>
@@ -349,6 +351,12 @@ export function MarketingPage({
       document.title = prev;
     };
   }, [title]);
+
+  // In-app navigation keeps the previous page's scroll position; start new
+  // pages at the top unless the URL targets a section.
+  useEffect(() => {
+    if (!window.location.hash) window.scrollTo(0, 0);
+  }, []);
 
   return (
     <div

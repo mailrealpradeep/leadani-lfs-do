@@ -44,6 +44,7 @@ import Leaderboard from "@/pages/leaderboard";
 import MyTargets from "@/pages/my-targets";
 import WorkingTarget from "@/pages/working-target";
 import Features from "@/pages/features";
+import Customers from "@/pages/customers";
 import Help from "@/pages/help";
 import Guide from "@/pages/guide";
 import Visits from "@/pages/visits";
@@ -120,6 +121,7 @@ function Router() {
       <Route path="/signup" component={Signup} />
       <Route path="/impersonate" component={Impersonate} />
       <Route path="/features" component={Features} />
+      <Route path="/customers" component={Customers} />
       <Route path="/help" component={Help} />
       <Route path="/guide" component={Guide} />
       <Route path="/plan" component={Plan} />
@@ -386,7 +388,7 @@ function AppLayout() {
   }
   
   // Public pages that should render without sidebar, even when logged in
-  const publicOnlyPages = ['/help', '/features', '/pricing', '/guide', '/plan'];
+  const publicOnlyPages = ['/help', '/features', '/customers', '/pricing', '/guide', '/plan'];
   const isPublicOnlyPage = publicOnlyPages.some(p => location.startsWith(p));
   
   // Super Admin has its own independent layout with its own sidebar

@@ -191,6 +191,41 @@ const SOURCES = [
   { label: "Any webhook", icon: Zap },
 ];
 
+const PROOF = [
+  { value: "58,800+", label: "leads managed" },
+  { value: "357,000+", label: "follow-ups logged" },
+  { value: "245,000+", label: "calls logged" },
+  { value: "290+", label: "deals converted" },
+];
+
+// Real production totals (see client/src/pages/customers.tsx for the counts).
+function Proof() {
+  return (
+    <Section className="pb-16 pt-4" data-testid="section-proof">
+      <Reveal>
+        <div className="mx-auto max-w-5xl rounded-3xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-8">
+          <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+            {PROOF.map((p) => (
+              <div key={p.label} className="text-center">
+                <p className={cn(DISPLAY, "text-3xl font-semibold text-white sm:text-4xl")}>{p.value}</p>
+                <p className="mt-1 text-[13px] text-white/50">{p.label}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-6 text-center text-[13.5px] text-white/50">
+            Real teams in education, construction and IT services, counted from our production database.{" "}
+            <Link asChild href="/customers">
+              <a className="whitespace-nowrap font-medium text-[#a5b4fc] underline-offset-4 hover:underline" data-testid="link-proof-customers">
+                See customer results →
+              </a>
+            </Link>
+          </p>
+        </div>
+      </Reveal>
+    </Section>
+  );
+}
+
 function Sources() {
   return (
     <Section className="pb-20 pt-6">
@@ -867,6 +902,7 @@ export default function Landing() {
     // Arriving from another page via a link like /#roadmap: the browser tried
     // to jump before this page rendered, so scroll to the section now.
     let jump: number | undefined;
+    if (window.location.hash.length <= 1) window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     if (window.location.hash.length > 1) {
       const id = decodeURIComponent(window.location.hash.slice(1));
       jump = window.setTimeout(() => {
@@ -892,6 +928,7 @@ export default function Landing() {
       <Header />
       <main className="relative">
         <Hero />
+        <Proof />
         <Sources />
         <HowItWorks />
         <Problem />
