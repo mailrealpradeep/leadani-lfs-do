@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { cn } from "@/lib/utils";
+import { DISPLAY, Eyebrow, MarketingPage } from "@/components/marketing-shell";
 import { Loader2, Sparkles } from "lucide-react";
 import {
   Search,
@@ -2161,37 +2161,15 @@ export default function Help() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 bg-background/95 backdrop-blur border-b">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Link href="/">
-              <Button variant="ghost" size="icon" data-testid="button-back-home">
-                <ChevronLeft className="h-5 w-5" />
-              </Button>
-            </Link>
-            <div className="flex items-center gap-2">
-              <HelpCircle className="h-6 w-6 text-primary" />
-              <h1 className="text-lg font-semibold">Leadani Help Center</h1>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/guide">
-              <Button variant="outline" size="sm" data-testid="button-go-to-guide">
-                <BookOpen className="h-4 w-4 mr-2" />
-                Guide
-              </Button>
-            </Link>
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
+    <MarketingPage title="Help center · Leadani" testId="help-page">
 
-      <div className="bg-gradient-to-b from-primary/5 to-background py-4 sm:py-6">
-        <div className="container mx-auto px-4 text-center">
-          <h2 className="text-xl sm:text-2xl font-bold mb-1">How can we help you?</h2>
-          <p className="text-muted-foreground text-sm mb-4">
-            Search {totalQuestions}+ tutorials and guides
+      <div className="px-4 pb-6 pt-16 sm:px-6 sm:pt-24">
+        <div className="mx-auto max-w-6xl text-center">
+          <Eyebrow>Help center</Eyebrow>
+          <h1 className={cn(DISPLAY, "text-[36px] font-semibold leading-[1.05] text-white sm:text-5xl md:text-6xl")}>How can we help?</h1>
+          <p className="mx-auto mb-8 mt-4 max-w-xl text-base text-white/60 sm:text-lg">
+            Search {totalQuestions}+ answers, or ask in your own words and let AI find them.{" "}
+            <Link href="/guide" className="text-indigo-300 underline-offset-4 hover:underline">Read the full guide</Link>
           </p>
           
           <div className="max-w-xl mx-auto flex gap-2">
@@ -2199,7 +2177,7 @@ export default function Help() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
               <Input
                 type="text"
-                placeholder="Ask a question... (Press Enter for AI search)"
+                placeholder="Ask a question, e.g. how to import leads"
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
@@ -2315,7 +2293,7 @@ export default function Help() {
           </div>
         )}
 
-        <ScrollArea className="h-[calc(100vh-300px)]">
+        <div>
           <div className="space-y-6 pr-4">
             {aiMatchedQuestions.length > 0 && (
               <div className="mb-6">
@@ -2495,15 +2473,12 @@ export default function Help() {
               </div>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </div>
 
-      <footer className="border-t py-6 mt-8">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>Can't find what you're looking for? Contact your company admin for assistance.</p>
-          <p className="mt-2">Leadani - Lead Management System</p>
-        </div>
-      </footer>
-    </div>
+      <p className="px-4 pb-16 pt-10 text-center text-sm text-white/45">
+        Can't find what you're looking for? Contact your company admin for assistance.
+      </p>
+    </MarketingPage>
   );
 }

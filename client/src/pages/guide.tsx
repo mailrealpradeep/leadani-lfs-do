@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { DISPLAY, Eyebrow, GhostCta, MarketingPage } from "@/components/marketing-shell";
+import { cn } from "@/lib/utils";
 import {
   ChevronLeft,
   Building2,
@@ -1141,33 +1142,21 @@ export default function Guide() {
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/">
-              <Button variant="ghost" size="icon" data-testid="button-back-home">
-                <ChevronLeft className="h-5 w-5" />
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-lg font-semibold">Business Owner Guide</h1>
-              <p className="text-xs text-muted-foreground">Everything you can do in Leadani</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/help">
-              <Button variant="outline" size="sm" data-testid="button-go-to-help">
-                <HelpCircle className="h-4 w-4 mr-2" />
-                FAQ
-              </Button>
-            </Link>
-            <ThemeToggle />
-          </div>
+    <MarketingPage title="Business owner guide · Leadani" testId="guide-page">
+      <section className="px-4 pb-6 pt-16 text-center sm:px-6 sm:pt-24">
+        <Eyebrow>Guide</Eyebrow>
+        <h1 className={cn(DISPLAY, "mx-auto max-w-3xl text-[36px] font-semibold leading-[1.05] text-white sm:text-5xl md:text-6xl")}>
+          Business owner guide
+        </h1>
+        <p className="mx-auto mt-5 max-w-2xl text-base text-white/60 sm:text-lg">
+          Everything you can do in Leadani, organised by what you want to achieve.
+        </p>
+        <div className="mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+          <GhostCta href="/help" testId="button-go-to-help">Search the help center</GhostCta>
         </div>
-      </header>
+      </section>
 
-      <main className="container max-w-6xl mx-auto px-4 py-6">
+      <div className="mx-auto w-full max-w-5xl px-4 pb-24 pt-6 sm:px-6">
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-2">
             <Badge variant="secondary" className="text-xs">
@@ -1282,8 +1271,8 @@ export default function Guide() {
             </Button>
           </Link>
         </div>
-      </main>
-    </div>
+      </div>
+    </MarketingPage>
   );
 }
 

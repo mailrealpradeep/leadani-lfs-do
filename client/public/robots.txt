@@ -3,6 +3,8 @@ Allow: /$
 Allow: /signup
 Allow: /login
 Allow: /features
+Allow: /guide
+Allow: /help
 Allow: /og-image.png
 Disallow: /api/
 Disallow: /dashboard

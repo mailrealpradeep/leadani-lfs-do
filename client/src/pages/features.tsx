@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link } from "wouter";
 import {
   Shield,
   Users,
@@ -84,7 +83,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { Roadmap } from "@/components/landing/roadmap";
+import { DISPLAY, Eyebrow, FinalCta, GhostCta, GRADIENT_TEXT, MarketingPage, PrimaryCta, Section } from "@/components/marketing-shell";
 
 interface Feature {
   id: string;
@@ -965,497 +965,231 @@ const adminFeatures: Feature[] = [
   },
 ];
 
-function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
+const CATEGORIES = [
+  { id: "capture", title: "Lead capture & protection", subtitle: "Every lead captured, every lead protected. From WhatsApp to webhooks, nothing falls through the cracks.", icon: Shield, features: leadCaptureFeatures, gradient: "from-emerald-500 to-teal-600" },
+  { id: "performance", title: "Team performance & gamification", subtitle: "Accountability, celebrated wins and healthy competition, without micromanaging.", icon: Trophy, features: teamPerformanceFeatures, gradient: "from-amber-500 to-orange-600" },
+  { id: "ai", title: "AI-powered intelligence", subtitle: "AI handles the analysis, quality checks and support, so your team can focus on selling.", icon: Brain, features: aiFeatures, gradient: "from-violet-500 to-purple-600" },
+  { id: "automation", title: "Automation & pipeline", subtitle: "Rules that enforce themselves, pipelines that track themselves, protections that work 24/7.", icon: Workflow, features: automationFeatures, gradient: "from-blue-500 to-indigo-600" },
+  { id: "daily", title: "Daily work & collaboration", subtitle: "The tools your team uses every day, built for speed, clarity and real-time teamwork.", icon: Zap, features: dailyWorkFeatures, gradient: "from-cyan-500 to-teal-600" },
+  { id: "custom", title: "Customization", subtitle: "Your business is unique. Your CRM adapts to you, not the other way around.", icon: Settings, features: customizationFeatures, gradient: "from-purple-500 to-pink-600" },
+  { id: "safety", title: "Data safety & recovery", subtitle: "Multiple layers of protection keep your data safe and recoverable.", icon: ShieldCheck, features: dataSafetyFeatures, gradient: "from-slate-400 to-slate-600" },
+  { id: "reports", title: "Reports & analytics", subtitle: "Turn your data into decisions.", icon: BarChart3, features: reportsFeatures, gradient: "from-teal-500 to-cyan-600" },
+  { id: "admin", title: "Administration & access", subtitle: "Serious access control with everyday simplicity.", icon: Lock, features: adminFeatures, gradient: "from-gray-400 to-slate-600" },
+];
+
+const TOTAL_FEATURES = CATEGORIES.reduce((n, c) => n + c.features.length, 0);
+
+function FeatureCard({ feature }: { feature: Feature }) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 30 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-50px" }}
-      transition={{ duration: 0.5, delay: index * 0.05 }}
+    <div
+      className={cn(
+        "group overflow-hidden rounded-2xl border bg-gradient-to-b from-white/[0.04] to-white/[0.01] transition-colors",
+        isOpen ? "border-indigo-400/40" : "border-white/[0.08] hover:border-white/[0.16]",
+      )}
+      data-testid={`feature-card-${feature.id}`}
     >
-      <Card 
-        className={cn(
-          "overflow-hidden transition-all duration-300 cursor-pointer",
-          "hover:shadow-lg hover:shadow-primary/5",
-          isOpen && "ring-2 ring-primary/20"
-        )}
+      <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        data-testid={`feature-card-${feature.id}`}
+        aria-expanded={isOpen}
+        className="flex w-full items-start gap-4 p-5 text-left sm:p-6"
       >
-        <CardContent className="p-0">
-          <div className="p-6">
-            <div className="flex items-start gap-4">
-              <motion.div 
-                className={cn(
-                  "flex-shrink-0 p-3 rounded-xl",
-                  `bg-gradient-to-br ${feature.gradient}`
-                )}
-                whileHover={{ scale: 1.05, rotate: 5 }}
-                transition={{ type: "spring", stiffness: 400 }}
-              >
-                <feature.icon className="h-6 w-6 text-white" />
-              </motion.div>
-              
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-lg">{feature.title}</h3>
-                      {feature.isNew && (
-                        <Badge variant="secondary" className="text-xs">
-                          New
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-0.5">{feature.tagline}</p>
-                  </div>
-                  <motion.div
-                    animate={{ rotate: isOpen ? 180 : 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex-shrink-0 mt-1"
-                  >
-                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                  </motion.div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <AnimatePresence>
-            {isOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="overflow-hidden"
-              >
-                <div className="px-6 pb-6 space-y-6">
-                  <div className="pt-4 border-t">
-                    <p className="text-muted-foreground leading-relaxed">
-                      {feature.description}
-                    </p>
-                  </div>
-
-                  <div>
-                    <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      Key Benefits
-                    </h4>
-                    <div className="grid gap-2">
-                      {feature.benefits.map((benefit, i) => (
-                        <motion.div
-                          key={i}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: i * 0.1 }}
-                          className="flex items-center gap-2 text-sm"
-                        >
-                          <div className={cn(
-                            "w-1.5 h-1.5 rounded-full",
-                            `bg-gradient-to-r ${feature.gradient}`
-                          )} />
-                          {benefit}
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {feature.sectors.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-blue-500" />
-                        Industry Applications
-                      </h4>
-                      <div className="grid gap-3">
-                        {feature.sectors.map((sector, i) => (
-                          <motion.div
-                            key={i}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.1 }}
-                            className="flex items-start gap-3 p-3 rounded-lg bg-muted/50"
-                          >
-                            <div className={cn(
-                              "p-2 rounded-lg",
-                              feature.iconBg
-                            )}>
-                              <sector.icon className="h-4 w-4" />
-                            </div>
-                            <div>
-                              <p className="font-medium text-sm">{sector.name}</p>
-                              <p className="text-xs text-muted-foreground mt-0.5">{sector.useCase}</p>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
+        <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br shadow-lg", feature.gradient)}>
+          <feature.icon className="h-5 w-5 text-white" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <h3 className="text-[17px] font-semibold text-white">{feature.title}</h3>
+            {feature.isNew && (
+              <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[11px] font-semibold text-indigo-200">New</span>
             )}
-          </AnimatePresence>
-        </CardContent>
-      </Card>
-    </motion.div>
+          </span>
+          <span className="mt-1 block text-[14.5px] text-white/55">{feature.tagline}</span>
+        </span>
+        <ChevronDown className={cn("mt-1 h-5 w-5 shrink-0 text-white/40 transition-transform", isOpen && "rotate-180")} />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <div className="space-y-6 border-t border-white/[0.06] px-5 pb-6 pt-5 sm:px-6">
+              <p className="text-[15px] leading-relaxed text-white/70">{feature.description}</p>
+
+              <div>
+                <h4 className="mb-3 text-[12px] font-medium uppercase tracking-[0.14em] text-white/40">Key benefits</h4>
+                <ul className="grid gap-2">
+                  {feature.benefits.map((benefit) => (
+                    <li key={benefit} className="flex gap-2.5 text-[14.5px] text-white/75">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                      {benefit}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {feature.sectors.length > 0 && (
+                <div>
+                  <h4 className="mb-3 text-[12px] font-medium uppercase tracking-[0.14em] text-white/40">How teams use it</h4>
+                  <div className="grid gap-2.5">
+                    {feature.sectors.map((sector) => (
+                      <div key={sector.name} className="flex items-start gap-3 rounded-xl bg-white/[0.04] p-3">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+                          <sector.icon className="h-4 w-4 text-white/80" />
+                        </span>
+                        <div>
+                          <p className="text-[14px] font-medium text-white">{sector.name}</p>
+                          <p className="mt-0.5 text-[13px] text-white/55">{sector.useCase}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
 function HeroSection() {
-  const totalFeatures = leadCaptureFeatures.length + teamPerformanceFeatures.length + aiFeatures.length + automationFeatures.length + dailyWorkFeatures.length + customizationFeatures.length + dataSafetyFeatures.length + reportsFeatures.length + adminFeatures.length;
-  
+  const stats = [
+    { value: String(TOTAL_FEATURES), label: "features" },
+    { value: String(CATEGORIES.length), label: "areas of your business" },
+    { value: "3", label: "languages AI understands" },
+    { value: "Any", label: "phone, no app store" },
+  ];
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-primary/5 via-background to-background py-20 md:py-32">
-      <div className="absolute inset-0 bg-grid-pattern opacity-5" />
-      
-      <motion.div 
-        className="absolute top-20 left-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl"
-        animate={{ 
-          scale: [1, 1.2, 1],
-          opacity: [0.3, 0.5, 0.3],
-        }}
-        transition={{ duration: 8, repeat: Infinity }}
-      />
-      <motion.div 
-        className="absolute bottom-20 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"
-        animate={{ 
-          scale: [1.2, 1, 1.2],
-          opacity: [0.3, 0.5, 0.3],
-        }}
-        transition={{ duration: 10, repeat: Infinity }}
-      />
-
-      <div className="container mx-auto px-4 relative z-10">
-        <div className="max-w-4xl mx-auto text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
-            <Badge className="mb-6 px-4 py-1.5 text-sm" variant="secondary" data-testid="badge-hero">
-              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-              {totalFeatures}+ Features, One Platform
-            </Badge>
-          </motion.div>
-
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="text-4xl md:text-6xl font-bold tracking-tight"
-            data-testid="text-hero-heading"
-          >
-            Everything Your Team Needs
-            <span className="block mt-2 bg-gradient-to-r from-primary via-blue-500 to-purple-600 bg-clip-text text-transparent">
-              to Close More Deals
-            </span>
-          </motion.h1>
-
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="mt-6 text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto"
-            data-testid="text-hero-description"
-          >
-            I built Leadani because I saw teams struggling with clunky CRMs, lost leads, and zero accountability. 
-            Every feature here was born from a real problem faced by a real team. This is not a feature list - it's a promise.
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="mt-10 flex flex-col sm:flex-row gap-4 justify-center"
-          >
-            <Link href="/signup" data-testid="link-hero-signup">
-              <Button size="lg" className="gap-2 px-8" data-testid="button-hero-trial">
-                Start Free Trial
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-            <Link href="/login" data-testid="link-hero-signin">
-              <Button size="lg" variant="outline" className="gap-2 px-8" data-testid="button-hero-signin">
-                Sign In
-              </Button>
-            </Link>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.5 }}
-            className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8"
-          >
-            {[
-              { value: "50K+", label: "Leads Managed", id: "leads" },
-              { value: "500+", label: "Happy Users", id: "users" },
-              { value: "99.9%", label: "Uptime", id: "uptime" },
-              { value: `${totalFeatures}+`, label: "Features", id: "features" },
-            ].map((stat, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 + i * 0.1 }}
-                className="text-center"
-                data-testid={`stat-${stat.id}`}
-              >
-                <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent" data-testid={`text-stat-value-${stat.id}`}>
-                  {stat.value}
-                </p>
-                <p className="text-sm text-muted-foreground mt-1" data-testid={`text-stat-label-${stat.id}`}>{stat.label}</p>
-              </motion.div>
-            ))}
-          </motion.div>
+    <Section className="pb-12 pt-20 sm:pt-28">
+      <div className="text-center">
+        <Eyebrow>Features</Eyebrow>
+        <h1 className={cn(DISPLAY, "mx-auto max-w-4xl text-[40px] font-semibold leading-[1.04] text-white sm:text-6xl md:text-7xl")} data-testid="text-features-heading">
+          Everything your sales team needs.
+          <br />
+          <span className={GRADIENT_TEXT}>Nothing it doesn't.</span>
+        </h1>
+        <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-white/60 sm:text-lg">
+          Every feature here was built because a real sales team asked for it. Tap any card to see how it works and how teams use it.
+        </p>
+        <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+          <PrimaryCta href="/signup" testId="button-features-start">Start free</PrimaryCta>
+          <GhostCta href="/#how">See it in action</GhostCta>
         </div>
       </div>
-    </section>
+
+      <dl className="mx-auto mt-14 grid max-w-4xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.08] md:grid-cols-4">
+        {stats.map((s) => (
+          <div key={s.label} className="bg-[#070816] px-5 py-6 text-center">
+            <dt className="sr-only">{s.label}</dt>
+            <dd className={cn(DISPLAY, "text-3xl font-semibold text-white sm:text-4xl")}>{s.value}</dd>
+            <dd className="mt-1 text-[13px] text-white/50">{s.label}</dd>
+          </div>
+        ))}
+      </dl>
+    </Section>
+  );
+}
+
+function CategoryNav() {
+  return (
+    <div className="sticky top-16 z-40 border-y border-white/[0.06] bg-[#05060f]/85 backdrop-blur-xl">
+      <nav className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden" aria-label="Feature categories">
+        {CATEGORIES.map((c) => (
+          <a
+            key={c.id}
+            href={`#${c.id}`}
+            className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3.5 py-1.5 text-[13px] text-white/70 transition hover:border-white/20 hover:text-white"
+          >
+            <c.icon className="h-3.5 w-3.5" />
+            {c.title}
+          </a>
+        ))}
+        <a
+          href="#roadmap"
+          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-amber-300/25 bg-amber-300/10 px-3.5 py-1.5 text-[13px] text-amber-200 transition hover:border-amber-300/50"
+        >
+          Coming soon
+        </a>
+      </nav>
+    </div>
   );
 }
 
 function FounderNote() {
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 30 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      className="py-16"
-    >
-      <div className="max-w-3xl mx-auto">
-        <Card className="overflow-hidden">
-          <CardContent className="p-8 md:p-12">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-primary to-blue-600">
-                <HeartHandshake className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <h3 className="font-bold text-lg">A Note from the Founder</h3>
-                <p className="text-sm text-muted-foreground">Why I built Leadani</p>
-              </div>
+    <Section className="py-16 sm:py-24">
+      <figure className="relative mx-auto max-w-3xl overflow-hidden rounded-3xl border border-white/10 p-8 sm:p-12">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_80%_at_0%_0%,rgba(99,102,241,0.18),transparent_60%)]" />
+        <div className="relative">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500">
+              <HeartHandshake className="h-5 w-5 text-white" />
+            </span>
+            <div>
+              <p className="font-semibold text-white">A note from the founder</p>
+              <p className="text-[13px] text-white/50">Why I built Leadani</p>
             </div>
-            <div className="space-y-4 text-muted-foreground leading-relaxed">
-              <p>
-                I started building Leadani after watching sales teams struggle with tools that were either too simple to be useful or too complex to adopt. Excel was familiar but had no accountability. Enterprise CRMs had features but required months of training and huge budgets.
-              </p>
-              <p>
-                My approach was different: <span className="font-medium text-foreground">make it feel like Excel, but give it the power of a full CRM</span>. Your team shouldn't need training to use their own tool. Every feature you see on this page was built because a real customer said "I wish I could..." - and we made it happen.
-              </p>
-              <p>
-                From AI-powered lead rating to WhatsApp integration, from gamified leaderboards to point-in-time data recovery - every feature is designed to make your team more productive, more accountable, and more successful.
-              </p>
-              <p className="font-medium text-foreground">
-                Leadani is not just software. It's the tool I wish I had when I was managing a team myself.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </motion.section>
+          </div>
+          <blockquote className="mt-7 space-y-4 text-[16px] leading-relaxed text-white/70">
+            <p>
+              I started building Leadani after watching sales teams struggle with tools that were either too simple to be useful or too complex to adopt. Excel was familiar but had no accountability. Enterprise CRMs had features but required months of training and huge budgets.
+            </p>
+            <p>
+              My approach was different: <span className="font-medium text-white">make it feel like Excel, but give it the power of a full CRM</span>. Your team shouldn't need training to use their own tool. Every feature on this page was built because a real customer said "I wish I could..." and we made it happen.
+            </p>
+            <p className="font-medium text-white">
+              Leadani is not just software. It's the tool I wish I had when I was managing a team myself.
+            </p>
+          </blockquote>
+        </div>
+      </figure>
+    </Section>
   );
 }
 
-function CategorySection({ 
-  title, 
-  subtitle,
-  icon: Icon,
-  features: categoryFeatures,
-  gradient,
-  startIndex
-}: { 
-  title: string; 
-  subtitle: string;
-  icon: any;
-  features: Feature[];
-  gradient: string;
-  startIndex: number;
-}) {
+function CategorySection({ category }: { category: (typeof CATEGORIES)[number] }) {
+  const Icon = category.icon;
   return (
-    <section className="py-16">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        className="text-center mb-12"
-      >
-        <div className={cn(
-          "inline-flex items-center justify-center p-3 rounded-2xl mb-4",
-          `bg-gradient-to-br ${gradient}`
-        )}>
-          <Icon className="h-6 w-6 text-white" />
+    <section id={category.id} className="scroll-mt-32 border-t border-white/[0.06] px-4 py-16 sm:px-6 sm:py-20">
+      <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[300px_1fr] lg:gap-12">
+        <div className="lg:sticky lg:top-36 lg:self-start">
+          <span className={cn("flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br shadow-lg", category.gradient)}>
+            <Icon className="h-6 w-6 text-white" />
+          </span>
+          <h2 className={cn(DISPLAY, "mt-5 text-2xl font-semibold text-white sm:text-3xl")}>{category.title}</h2>
+          <p className="mt-3 text-[15px] leading-relaxed text-white/55">{category.subtitle}</p>
+          <p className="mt-4 text-[13px] text-white/35">{category.features.length} features</p>
         </div>
-        <h2 className="text-2xl md:text-3xl font-bold">{title}</h2>
-        <p className="text-muted-foreground mt-2 max-w-xl mx-auto">{subtitle}</p>
-      </motion.div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {categoryFeatures.map((feature, index) => (
-          <FeatureCard key={feature.id} feature={feature} index={startIndex + index} />
-        ))}
+        <div className="grid content-start gap-3 md:grid-cols-2">
+          {category.features.map((feature) => (
+            <FeatureCard key={feature.id} feature={feature} />
+          ))}
+        </div>
       </div>
     </section>
   );
 }
 
 export default function Features() {
-  let runningIndex = 0;
-  const getStartIndex = (count: number) => {
-    const start = runningIndex;
-    runningIndex += count;
-    return start;
-  };
-
   return (
-    <div className="min-h-screen bg-background" data-testid="features-page">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" data-testid="link-home-logo">
-            <motion.div 
-              className="flex items-center gap-2 cursor-pointer"
-              whileHover={{ scale: 1.02 }}
-            >
-              <div className="p-2 rounded-lg bg-gradient-to-br from-primary to-blue-600">
-                <Target className="h-5 w-5 text-white" />
-              </div>
-              <span className="font-bold text-xl">Leadani LFS</span>
-            </motion.div>
-          </Link>
-          
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <Link href="/login" data-testid="link-header-signin">
-              <Button variant="ghost" size="sm" data-testid="button-header-signin">Sign In</Button>
-            </Link>
-            <Link href="/signup" data-testid="link-header-signup">
-              <Button size="sm" data-testid="button-header-signup">Get Started</Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
+    <MarketingPage title="Features · Leadani" testId="features-page">
       <HeroSection />
-
-      <main className="container mx-auto px-4 pb-20">
-        <FounderNote />
-
-        <CategorySection
-          title="Lead Capture & Protection"
-          subtitle="Every lead captured, every lead protected. From WhatsApp to webhooks, nothing falls through the cracks."
-          icon={Shield}
-          features={leadCaptureFeatures}
-          gradient="from-emerald-500 to-teal-600"
-          startIndex={getStartIndex(leadCaptureFeatures.length)}
-        />
-
-        <CategorySection
-          title="Team Performance & Gamification"
-          subtitle="Build accountability, celebrate wins, and drive healthy competition with powerful performance tools."
-          icon={Trophy}
-          features={teamPerformanceFeatures}
-          gradient="from-amber-500 to-orange-600"
-          startIndex={getStartIndex(teamPerformanceFeatures.length)}
-        />
-
-        <CategorySection
-          title="AI-Powered Intelligence"
-          subtitle="Let artificial intelligence handle the analysis, quality checks, and support - so your team can focus on selling."
-          icon={Brain}
-          features={aiFeatures}
-          gradient="from-violet-500 to-purple-600"
-          startIndex={getStartIndex(aiFeatures.length)}
-        />
-
-        <CategorySection
-          title="Automation & Pipeline Management"
-          subtitle="Rules that enforce themselves, pipelines that track themselves, and protections that work 24/7."
-          icon={Workflow}
-          features={automationFeatures}
-          gradient="from-blue-500 to-indigo-600"
-          startIndex={getStartIndex(automationFeatures.length)}
-        />
-
-        <CategorySection
-          title="Daily Work & Collaboration"
-          subtitle="The tools your team uses every single day - built for speed, clarity, and real-time collaboration."
-          icon={Zap}
-          features={dailyWorkFeatures}
-          gradient="from-cyan-500 to-teal-600"
-          startIndex={getStartIndex(dailyWorkFeatures.length)}
-        />
-
-        <CategorySection
-          title="Customization & Flexibility"
-          subtitle="Your business is unique. Your CRM should adapt to you, not the other way around."
-          icon={Settings}
-          features={customizationFeatures}
-          gradient="from-purple-500 to-pink-600"
-          startIndex={getStartIndex(customizationFeatures.length)}
-        />
-
-        <CategorySection
-          title="Data Safety & Recovery"
-          subtitle="Your data is precious. Multiple layers of protection ensure it's always safe and always recoverable."
-          icon={ShieldCheck}
-          features={dataSafetyFeatures}
-          gradient="from-slate-500 to-gray-600"
-          startIndex={getStartIndex(dataSafetyFeatures.length)}
-        />
-
-        <CategorySection
-          title="Reports & Analytics"
-          subtitle="Turn your data into actionable intelligence that drives better decisions."
-          icon={BarChart3}
-          features={reportsFeatures}
-          gradient="from-teal-500 to-cyan-600"
-          startIndex={getStartIndex(reportsFeatures.length)}
-        />
-
-        <CategorySection
-          title="Administration & Access Control"
-          subtitle="Enterprise-grade security with consumer-grade simplicity."
-          icon={Lock}
-          features={adminFeatures}
-          gradient="from-gray-500 to-slate-600"
-          startIndex={getStartIndex(adminFeatures.length)}
-        />
-
-        <motion.section 
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="mt-20 text-center py-16 px-8 rounded-3xl bg-gradient-to-br from-primary/10 via-blue-500/10 to-purple-500/10 border"
-          data-testid="section-cta"
-        >
-          <h2 className="text-3xl md:text-4xl font-bold" data-testid="text-cta-heading">
-            Ready to Transform Your Lead Management?
-          </h2>
-          <p className="text-muted-foreground mt-4 max-w-xl mx-auto text-lg" data-testid="text-cta-description">
-            Join hundreds of businesses who've already made the switch. 
-            Start your free trial today - no credit card required.
-          </p>
-          <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/signup" data-testid="link-cta-signup">
-              <Button size="lg" className="gap-2 px-8" data-testid="button-cta-trial">
-                <Sparkles className="h-4 w-4" />
-                Start Free Trial
-              </Button>
-            </Link>
-            <Link href="/" data-testid="link-cta-home">
-              <Button size="lg" variant="outline" className="gap-2 px-8" data-testid="button-cta-learn">
-                Learn More
-              </Button>
-            </Link>
-          </div>
-        </motion.section>
-      </main>
-
-      <footer className="border-t py-8" data-testid="footer">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p data-testid="text-copyright">&copy; {new Date().getFullYear()} Leadani LFS. All rights reserved.</p>
-        </div>
-      </footer>
-    </div>
+      <CategoryNav />
+      {CATEGORIES.map((c) => (
+        <CategorySection key={c.id} category={c} />
+      ))}
+      <Roadmap className="border-t border-white/[0.06]" />
+      <FounderNote />
+      <FinalCta />
+    </MarketingPage>
   );
 }

@@ -91,16 +91,111 @@ export const STEPS = [
   { from: T.cursorSidebar, to: LOOP, title: "Monthly ranking", text: "Every action rolls into a live PowerScore leaderboard." },
 ];
 
-function useDemoClock() {
+type Phase = "waiting" | "countdown" | "playing";
+const COUNTDOWN_FROM = 3;
+
+/**
+ * The demo clock only runs while the demo is on screen. When it scrolls into
+ * view it shows a 3-2-1 countdown and then plays from the first step; when it
+ * leaves the screen it resets, so a returning visitor always sees the start.
+ */
+function useDemoClock(targetRef: React.RefObject<HTMLElement>) {
   const reduce = useReducedMotion();
+  const [visible, setVisible] = useState(false);
+  const [phase, setPhase] = useState<Phase>("waiting");
+  const [count, setCount] = useState(COUNTDOWN_FROM);
   const [t, setT] = useState(reduce ? T.closed + 400 : 0);
+
+  useEffect(() => {
+    const el = targetRef.current;
+    if (!el || reduce) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        // Start once most of the demo is visible; reset once it is fully gone.
+        if (entry.intersectionRatio >= 0.55) setVisible(true);
+        else if (!entry.isIntersecting) setVisible(false);
+      },
+      { threshold: [0, 0.55] },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [targetRef, reduce]);
+
   useEffect(() => {
     if (reduce) return;
+    if (!visible) {
+      setPhase("waiting");
+      setCount(COUNTDOWN_FROM);
+      setT(0);
+      return;
+    }
+    setPhase("countdown");
+    setCount(COUNTDOWN_FROM);
+    let n = COUNTDOWN_FROM;
+    const tick = window.setInterval(() => {
+      n -= 1;
+      if (n > 0) {
+        setCount(n);
+      } else {
+        window.clearInterval(tick);
+        setPhase("playing");
+      }
+    }, 800);
+    return () => window.clearInterval(tick);
+  }, [visible, reduce]);
+
+  useEffect(() => {
+    if (reduce || phase !== "playing") return;
     const start = performance.now();
     const id = window.setInterval(() => setT((performance.now() - start) % LOOP), 50);
     return () => window.clearInterval(id);
-  }, [reduce]);
-  return t;
+  }, [phase, reduce]);
+
+  return { t, phase: reduce ? ("playing" as Phase) : phase, count };
+}
+
+function Countdown({ phase, count }: { phase: Phase; count: number }) {
+  return (
+    <AnimatePresence>
+      {phase !== "playing" && (
+        <motion.div
+          key="countdown"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, transition: { duration: 0.35 } }}
+          className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#05060f]/55 backdrop-blur-[3px]"
+        >
+          <div className="relative flex h-28 w-28 items-center justify-center sm:h-36 sm:w-36">
+            <span className="absolute inset-0 rounded-full border border-white/15 bg-white/[0.06]" />
+            {phase === "countdown" && (
+              <motion.span
+                key={`ring-${count}`}
+                className="absolute inset-0 rounded-full border-2 border-indigo-300/80"
+                initial={{ scale: 1, opacity: 0.9 }}
+                animate={{ scale: 1.35, opacity: 0 }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+              />
+            )}
+            <AnimatePresence mode="popLayout">
+              <motion.span
+                key={phase === "countdown" ? count : "wait"}
+                initial={{ scale: 0.4, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 1.6, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 380, damping: 22 }}
+                className="font-[Geist,Inter,sans-serif] text-6xl font-semibold text-white sm:text-7xl"
+              >
+                {phase === "countdown" ? count : COUNTDOWN_FROM}
+              </motion.span>
+            </AnimatePresence>
+          </div>
+          <p className="mt-6 px-6 text-center text-sm font-medium text-white/85 sm:text-base">
+            Watch one lead go from ad to closed deal
+          </p>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 const within = (t: number, [a, b]: readonly [number, number]) => t >= a && t < b;
@@ -1075,7 +1170,8 @@ function StepRail({ s }: { s: DemoState }) {
 }
 
 export function SheetDemo() {
-  const t = useDemoClock();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { t, phase, count } = useDemoClock(rootRef);
   const s = deriveState(t);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -1093,7 +1189,7 @@ export function SheetDemo() {
   const current = STEPS[s.step];
 
   return (
-    <div className="relative mx-auto w-full max-w-5xl">
+    <div ref={rootRef} className="relative mx-auto w-full max-w-5xl">
       <div className="pointer-events-none absolute -inset-x-10 -top-10 bottom-10 rounded-[40px] bg-[radial-gradient(60%_60%_at_50%_30%,rgba(99,102,241,0.35),transparent_70%)] blur-2xl" />
 
       <p className="sr-only">
@@ -1116,14 +1212,16 @@ export function SheetDemo() {
           <div style={{ transform: `scale(${scale})`, transformOrigin: "top left" }} className="absolute left-0 top-0">
             <DesktopScreen s={s} />
           </div>
+          <Countdown phase={phase} count={count} />
         </div>
       </div>
 
       {/* Phone: the real mobile app */}
       <div className="relative md:hidden">
         <div className="mx-auto w-full max-w-[340px] rounded-[42px] border border-white/15 bg-[#0b0d1d] p-2.5 shadow-[0_40px_100px_-30px_rgba(79,70,229,0.7)]" aria-hidden="true">
-          <div className="overflow-hidden rounded-[32px]">
+          <div className="relative overflow-hidden rounded-[32px]">
             <PhoneScreen s={s} />
+            <Countdown phase={phase} count={count} />
           </div>
         </div>
         <AnimatePresence mode="wait">
