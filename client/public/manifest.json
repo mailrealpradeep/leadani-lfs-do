@@ -1,8 +1,8 @@
 {
-  "name": "Leadani LFS",
+  "name": "Leadani",
   "short_name": "Leadani",
-  "description": "Multi-user lead management system with customizable workspaces and realtime collaboration",
-  "theme_color": "#3b82f6",
+  "description": "The AI lead follow-up system for sales teams",
+  "theme_color": "#0848a8",
   "background_color": "#ffffff",
   "display": "standalone",
   "scope": "/",

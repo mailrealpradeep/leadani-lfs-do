@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /$
+Allow: /signup
+Allow: /login
+Allow: /features
+Allow: /og-image.png
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /vision-board
+Disallow: /onboarding
+Disallow: /admin
+Disallow: /super-admin
+Disallow: /impersonate
+
+Sitemap: https://leadani.com/sitemap.xml
